@@ -1,0 +1,5 @@
+// Result type - represents success or failure
+enum Result {
+    case Ok(T)
+    case Err(E)
+}

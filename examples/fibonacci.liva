@@ -1,0 +1,16 @@
+// Fibonacci sequence in Liva
+func fibonacci(n: i32) -> i32 {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+func main() {
+    var i: i32 = 0
+    while i < 10 {
+        let result = fibonacci(i)
+        println(result)
+        i = i + 1
+    }
+}

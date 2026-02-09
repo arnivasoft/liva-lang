@@ -1,0 +1,12 @@
+// Integration test: Function calls and recursion
+// Expected output: 120
+func factorial(n: i32) -> i32 {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+func main() {
+    println(factorial(5))
+}

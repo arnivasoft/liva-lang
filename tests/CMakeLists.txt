@@ -1,0 +1,27 @@
+# Tests CMakeLists.txt
+
+# Unit tests
+liva_add_test(lexer_test
+    unit/LexerTest.cpp
+)
+target_link_libraries(lexer_test PRIVATE liva_lexer)
+
+liva_add_test(parser_test
+    unit/ParserTest.cpp
+)
+target_link_libraries(parser_test PRIVATE liva_parser)
+
+liva_add_test(sema_test
+    unit/SemaTest.cpp
+)
+target_link_libraries(sema_test PRIVATE liva_sema liva_parser)
+
+liva_add_test(type_test
+    unit/TypeTest.cpp
+)
+target_link_libraries(type_test PRIVATE liva_ast)
+
+liva_add_test(ownership_test
+    unit/OwnershipTest.cpp
+)
+target_link_libraries(ownership_test PRIVATE liva_sema liva_parser)

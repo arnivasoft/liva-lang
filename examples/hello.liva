@@ -1,0 +1,4 @@
+// Hello World in Liva
+func main() {
+    println("Hello, World!")
+}

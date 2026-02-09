@@ -1,0 +1,5 @@
+// Option type - represents a value that may or may not exist
+enum Option {
+    case Some(T)
+    case None
+}

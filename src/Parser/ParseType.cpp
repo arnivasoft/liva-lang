@@ -1,0 +1,170 @@
+#include "liva/Parser/Parser.h"
+
+namespace liva {
+
+std::unique_ptr<TypeRepr> Parser::parseType() {
+    // ref T / ref mut T
+    if (check(TokenKind::kw_ref)) {
+        advance();
+        bool isMut = match(TokenKind::kw_mut);
+        auto inner = parseType();
+        return std::make_unique<ReferenceTypeRepr>(std::move(inner), isMut);
+    }
+
+    auto base = parseBaseType();
+    if (!base)
+        return nullptr;
+
+    // Optional type: T?
+    if (match(TokenKind::question)) {
+        return std::make_unique<OptionalTypeRepr>(std::move(base));
+    }
+
+    return base;
+}
+
+std::unique_ptr<TypeRepr> Parser::parseBaseType() {
+    switch (current_.getKind()) {
+    // Primitive types
+    case TokenKind::kw_void:
+        advance();
+        return makeVoidType();
+    case TokenKind::kw_bool:
+        advance();
+        return makeBoolType();
+    case TokenKind::kw_i8:
+        advance();
+        return makePrimitiveType(TypeRepr::Kind::I8);
+    case TokenKind::kw_i16:
+        advance();
+        return makePrimitiveType(TypeRepr::Kind::I16);
+    case TokenKind::kw_i32:
+        advance();
+        return makeI32Type();
+    case TokenKind::kw_i64:
+        advance();
+        return makeI64Type();
+    case TokenKind::kw_u8:
+        advance();
+        return makePrimitiveType(TypeRepr::Kind::U8);
+    case TokenKind::kw_u16:
+        advance();
+        return makePrimitiveType(TypeRepr::Kind::U16);
+    case TokenKind::kw_u32:
+        advance();
+        return makePrimitiveType(TypeRepr::Kind::U32);
+    case TokenKind::kw_u64:
+        advance();
+        return makePrimitiveType(TypeRepr::Kind::U64);
+    case TokenKind::kw_f32:
+        advance();
+        return makePrimitiveType(TypeRepr::Kind::F32);
+    case TokenKind::kw_f64:
+        advance();
+        return makeF64Type();
+    case TokenKind::kw_string:
+        advance();
+        return makeStringType();
+
+    // Named type or generic type: Identifier<T, U>
+    case TokenKind::identifier: {
+        std::string name(current_.getText());
+        advance();
+
+        // Check for generic parameters: Type<T, U>
+        if (match(TokenKind::less)) {
+            std::vector<std::unique_ptr<TypeRepr>> typeArgs;
+            if (!check(TokenKind::greater)) {
+                do {
+                    typeArgs.push_back(parseType());
+                } while (match(TokenKind::comma));
+            }
+            expect(TokenKind::greater);
+            return std::make_unique<GenericTypeRepr>(std::move(name), std::move(typeArgs));
+        }
+
+        return makeNamedType(name);
+    }
+
+    // Array type: [T] or [T; N]
+    case TokenKind::l_bracket: {
+        advance();
+        auto elemType = parseType();
+
+        int64_t size = -1;
+        if (match(TokenKind::semicolon)) {
+            if (check(TokenKind::integer_literal)) {
+                size = current_.getIntegerValue();
+                advance();
+            }
+        }
+
+        expect(TokenKind::r_bracket);
+        return std::make_unique<ArrayTypeRepr>(std::move(elemType), size);
+    }
+
+    // Function type: (T1, T2) -> T3
+    case TokenKind::l_paren: {
+        advance();
+        std::vector<std::unique_ptr<TypeRepr>> paramTypes;
+        if (!check(TokenKind::r_paren)) {
+            do {
+                paramTypes.push_back(parseType());
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::r_paren);
+        expect(TokenKind::arrow);
+        auto returnType = parseType();
+        return std::make_unique<FunctionTypeRepr>(std::move(paramTypes), std::move(returnType));
+    }
+
+    default:
+        diag_.report(current_.getLocation(), DiagID::err_expected_type);
+        return nullptr;
+    }
+}
+
+ParamDecl Parser::parseParamDecl() {
+    ParamDecl param;
+    param.location = current_.getLocation();
+
+    // Check for 'ref self', 'ref mut self', or 'self'
+    if (check(TokenKind::kw_ref)) {
+        param.isRef = true;
+        advance();
+        if (match(TokenKind::kw_mut)) {
+            param.isMutRef = true;
+        }
+        if (check(TokenKind::kw_self)) {
+            param.isSelf = true;
+            param.name = "self";
+            advance();
+            return param;
+        }
+    } else if (check(TokenKind::kw_self)) {
+        param.isSelf = true;
+        param.name = "self";
+        advance();
+        return param;
+    }
+
+    // Regular parameter: name: Type
+    auto nameTok = expect(TokenKind::identifier);
+    param.name = std::string(nameTok.getText());
+
+    expect(TokenKind::colon);
+
+    // Check for ref/ref mut in type position
+    if (check(TokenKind::kw_ref)) {
+        param.isRef = true;
+        advance();
+        if (match(TokenKind::kw_mut)) {
+            param.isMutRef = true;
+        }
+    }
+
+    param.type = parseType();
+    return param;
+}
+
+} // namespace liva

@@ -1,0 +1,35 @@
+// Struct and impl example in Liva
+
+struct Point {
+    var x: f64
+    var y: f64
+}
+
+impl Point {
+    func new(x: f64, y: f64) -> Point {
+        return Point { x: x, y: y }
+    }
+
+    func distance(ref self, other: ref Point) -> f64 {
+        let dx = self.x - other.x
+        let dy = self.y - other.y
+        return (dx * dx + dy * dy)
+    }
+
+    func translate(ref mut self, dx: f64, dy: f64) {
+        self.x = self.x + dx
+        self.y = self.y + dy
+    }
+}
+
+func main() {
+    var p1 = Point { x: 3.0, y: 4.0 }
+    let p2 = Point { x: 0.0, y: 0.0 }
+
+    let dist = p1.distance(ref p2)
+    println(dist)
+
+    p1.translate(1.0, 2.0)
+    println(p1.x)
+    println(p1.y)
+}

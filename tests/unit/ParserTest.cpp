@@ -1,0 +1,268 @@
+#include "liva/AST/ASTPrinter.h"
+#include "liva/AST/Decl.h"
+#include "liva/AST/Expr.h"
+#include "liva/Common/Diagnostics.h"
+#include "liva/Common/SourceLocation.h"
+#include "liva/Lexer/Lexer.h"
+#include "liva/Parser/Parser.h"
+#include <gtest/gtest.h>
+#include <sstream>
+
+using namespace liva;
+
+class ParserTest : public ::testing::Test {
+protected:
+    struct ParseResult {
+        std::unique_ptr<SourceManager> sm;
+        DiagnosticsEngine diag;
+        std::unique_ptr<TranslationUnit> tu;
+        bool hasErrors;
+    };
+
+    ParseResult parse(const std::string &source) {
+        ParseResult result;
+        result.sm = std::make_unique<SourceManager>("test.liva", source);
+        result.diag.setSourceManager(result.sm.get());
+        Lexer lexer(*result.sm, result.diag);
+        Parser parser(lexer, result.diag);
+        result.tu = parser.parseTranslationUnit();
+        result.hasErrors = result.diag.hasErrors();
+        return result;
+    }
+};
+
+TEST_F(ParserTest, EmptyFile) {
+    auto result = parse("");
+    ASSERT_FALSE(result.hasErrors);
+    EXPECT_TRUE(result.tu->getDeclarations().empty());
+}
+
+TEST_F(ParserTest, LetDeclaration) {
+    auto result = parse("let x: i32 = 42");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    EXPECT_EQ(var->getName(), "x");
+    EXPECT_FALSE(var->isMutable());
+    EXPECT_TRUE(var->hasInit());
+}
+
+TEST_F(ParserTest, VarDeclaration) {
+    auto result = parse("var counter: i32 = 0");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    EXPECT_EQ(var->getName(), "counter");
+    EXPECT_TRUE(var->isMutable());
+}
+
+TEST_F(ParserTest, SimpleFunction) {
+    auto result = parse(R"(
+        func add(a: i32, b: i32) -> i32 {
+            return a + b
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "add");
+    EXPECT_EQ(func->getParams().size(), 2);
+    EXPECT_TRUE(func->hasBody());
+}
+
+TEST_F(ParserTest, VoidFunction) {
+    auto result = parse(R"(
+        func hello() {
+            println("hello")
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "hello");
+    EXPECT_EQ(func->getParams().size(), 0);
+    EXPECT_TRUE(func->getReturnType()->isVoid());
+}
+
+TEST_F(ParserTest, StructDeclaration) {
+    auto result = parse(R"(
+        struct Point {
+            var x: f64
+            var y: f64
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+
+    auto *s = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(s, nullptr);
+    EXPECT_EQ(s->getName(), "Point");
+    EXPECT_EQ(s->getFields().size(), 2);
+    EXPECT_EQ(s->getFields()[0]->getName(), "x");
+    EXPECT_EQ(s->getFields()[1]->getName(), "y");
+}
+
+TEST_F(ParserTest, IfElseStatement) {
+    auto result = parse(R"(
+        func test(x: i32) -> i32 {
+            if x > 0 {
+                return 1
+            } else {
+                return -1
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, WhileLoop) {
+    auto result = parse(R"(
+        func count() {
+            var i: i32 = 0
+            while i < 10 {
+                println(i)
+                i = i + 1
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ForInLoop) {
+    auto result = parse(R"(
+        func test() {
+            for i in items {
+                println(i)
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, BinaryExpressions) {
+    auto result = parse(R"(
+        func test() {
+            let a = 1 + 2 * 3
+            let b = 4 - 5 / 6
+            let c = a == b
+            let d = a != b && c
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, FunctionCall) {
+    auto result = parse(R"(
+        func test() {
+            let x = add(1, 2)
+            println(x)
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, EnumDeclaration) {
+    auto result = parse(R"(
+        enum Shape {
+            case Circle(f64)
+            case Rectangle(f64, f64)
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+
+    auto *e = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(e, nullptr);
+    EXPECT_EQ(e->getName(), "Shape");
+    EXPECT_EQ(e->getCases().size(), 2);
+}
+
+TEST_F(ParserTest, ImplBlock) {
+    auto result = parse(R"(
+        struct Point {
+            var x: f64
+            var y: f64
+        }
+
+        impl Point {
+            func new(x: f64, y: f64) -> Point {
+                return Point { x: x, y: y }
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    EXPECT_EQ(result.tu->getDeclarations().size(), 2);
+}
+
+TEST_F(ParserTest, ASTPrinterOutput) {
+    auto result = parse("let x: i32 = 42");
+    ASSERT_FALSE(result.hasErrors);
+
+    std::stringstream ss;
+    ASTPrinter printer(ss);
+    printer.print(*result.tu);
+
+    std::string output = ss.str();
+    EXPECT_NE(output.find("VarDecl"), std::string::npos);
+    EXPECT_NE(output.find("'x'"), std::string::npos);
+}
+
+TEST_F(ParserTest, UnaryExpression) {
+    auto result = parse(R"(
+        func test() {
+            let a = -42
+            let b = !true
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ArrayLiteral) {
+    auto result = parse(R"(
+        func test() {
+            let arr = [1, 2, 3]
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ImportDeclaration) {
+    auto result = parse("import std::io");
+    ASSERT_FALSE(result.hasErrors);
+
+    auto *imp = dynamic_cast<ImportDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(imp, nullptr);
+    EXPECT_EQ(imp->getPathString(), "std::io");
+}
+
+TEST_F(ParserTest, RefParameter) {
+    auto result = parse(R"(
+        func read(data: ref Buffer) {
+            println(data.size)
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->getParams()[0].isRef);
+}
+
+TEST_F(ParserTest, SelfParameter) {
+    auto result = parse(R"(
+        struct Foo {
+            var x: i32
+        }
+        impl Foo {
+            func get(ref self) -> i32 {
+                return self.x
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+}

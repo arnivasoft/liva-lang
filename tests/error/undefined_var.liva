@@ -1,0 +1,6 @@
+// Error test: undefined variable
+// Expected error: use of undeclared identifier 'undefined_var'
+
+func main() {
+    println(undefined_var)
+}

@@ -1,0 +1,136 @@
+// TokenKinds.def - Token type definitions using X-macro pattern
+//
+// TOKEN(ID, Spelling)      - General token
+// KEYWORD(ID, Spelling)    - Language keyword (also a TOKEN)
+// PUNCTUATOR(ID, Spelling) - Punctuation/operator (also a TOKEN)
+
+#ifndef TOKEN
+#define TOKEN(ID, Spelling)
+#endif
+
+#ifndef KEYWORD
+#define KEYWORD(ID, Spelling) TOKEN(kw_##ID, Spelling)
+#endif
+
+#ifndef PUNCTUATOR
+#define PUNCTUATOR(ID, Spelling) TOKEN(ID, Spelling)
+#endif
+
+// === Special tokens ===
+TOKEN(eof,              "eof")
+TOKEN(identifier,       "identifier")
+TOKEN(integer_literal,  "integer literal")
+TOKEN(float_literal,    "float literal")
+TOKEN(string_literal,   "string literal")
+TOKEN(char_literal,     "char literal")
+TOKEN(bool_literal,     "bool literal")
+TOKEN(newline,          "newline")
+
+// === Keywords ===
+KEYWORD(let,        "let")
+KEYWORD(var,        "var")
+KEYWORD(func,       "func")
+KEYWORD(return,     "return")
+KEYWORD(if,         "if")
+KEYWORD(else,       "else")
+KEYWORD(while,      "while")
+KEYWORD(for,        "for")
+KEYWORD(in,         "in")
+KEYWORD(struct,     "struct")
+KEYWORD(enum,       "enum")
+KEYWORD(match,      "match")
+KEYWORD(case,       "case")
+KEYWORD(impl,       "impl")
+KEYWORD(protocol,   "protocol")
+KEYWORD(ref,        "ref")
+KEYWORD(mut,        "mut")
+KEYWORD(true,       "true")
+KEYWORD(false,      "false")
+KEYWORD(import,     "import")
+KEYWORD(pub,        "pub")
+KEYWORD(self,       "self")
+KEYWORD(break,      "break")
+KEYWORD(continue,   "continue")
+KEYWORD(as,         "as")
+KEYWORD(nil,        "nil")
+KEYWORD(where,      "where")
+KEYWORD(async,      "async")
+KEYWORD(await,      "await")
+KEYWORD(try,        "try")
+
+// === Type keywords ===
+KEYWORD(i8,         "i8")
+KEYWORD(i16,        "i16")
+KEYWORD(i32,        "i32")
+KEYWORD(i64,        "i64")
+KEYWORD(u8,         "u8")
+KEYWORD(u16,        "u16")
+KEYWORD(u32,        "u32")
+KEYWORD(u64,        "u64")
+KEYWORD(f32,        "f32")
+KEYWORD(f64,        "f64")
+KEYWORD(bool,       "bool")
+KEYWORD(string,     "string")
+KEYWORD(void,       "void")
+
+// === Punctuators & Operators ===
+PUNCTUATOR(l_paren,     "(")
+PUNCTUATOR(r_paren,     ")")
+PUNCTUATOR(l_brace,     "{")
+PUNCTUATOR(r_brace,     "}")
+PUNCTUATOR(l_bracket,   "[")
+PUNCTUATOR(r_bracket,   "]")
+PUNCTUATOR(comma,       ",")
+PUNCTUATOR(semicolon,   ";")
+PUNCTUATOR(colon,       ":")
+PUNCTUATOR(dot,         ".")
+PUNCTUATOR(dotdot,      "..")
+PUNCTUATOR(arrow,       "->")
+PUNCTUATOR(fat_arrow,   "=>")
+PUNCTUATOR(coloncolon,  "::")
+
+// Arithmetic operators
+PUNCTUATOR(plus,        "+")
+PUNCTUATOR(minus,       "-")
+PUNCTUATOR(star,        "*")
+PUNCTUATOR(slash,       "/")
+PUNCTUATOR(percent,     "%")
+
+// Comparison operators
+PUNCTUATOR(equal_equal,     "==")
+PUNCTUATOR(bang_equal,      "!=")
+PUNCTUATOR(less,            "<")
+PUNCTUATOR(less_equal,      "<=")
+PUNCTUATOR(greater,         ">")
+PUNCTUATOR(greater_equal,   ">=")
+
+// Logical operators
+PUNCTUATOR(amp_amp,     "&&")
+PUNCTUATOR(pipe_pipe,   "||")
+PUNCTUATOR(bang,        "!")
+
+// Bitwise operators
+PUNCTUATOR(amp,         "&")
+PUNCTUATOR(pipe,        "|")
+PUNCTUATOR(caret,       "^")
+PUNCTUATOR(tilde,       "~")
+PUNCTUATOR(less_less,   "<<")
+PUNCTUATOR(greater_greater, ">>")
+
+// Assignment operators
+PUNCTUATOR(equal,           "=")
+PUNCTUATOR(plus_equal,      "+=")
+PUNCTUATOR(minus_equal,     "-=")
+PUNCTUATOR(star_equal,      "*=")
+PUNCTUATOR(slash_equal,     "/=")
+PUNCTUATOR(percent_equal,   "%=")
+
+// Special
+PUNCTUATOR(at,          "@")
+PUNCTUATOR(hash,        "#")
+PUNCTUATOR(question,    "?")
+PUNCTUATOR(underscore,  "_")
+
+#undef PUNCTUATOR
+#undef KEYWORD
+#undef TOKEN

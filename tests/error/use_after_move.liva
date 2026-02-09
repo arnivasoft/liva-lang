@@ -1,0 +1,14 @@
+// Error test: use after move
+// Expected error: use of moved value 'buf'
+
+struct Buffer {
+    var size: i32
+}
+
+func consume(b: Buffer) {}
+
+func main() {
+    var buf = Buffer { size: 1024 }
+    consume(buf)
+    println(buf.size)  // ERROR: buf was moved
+}

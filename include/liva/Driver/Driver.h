@@ -1,0 +1,43 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace liva {
+
+/// Command-line options
+struct DriverOptions {
+    std::string inputFile;
+    std::string outputFile;
+    bool dumpTokens = false;
+    bool dumpAST = false;
+    bool checkOnly = false;
+    bool emitIR = false;
+    bool emitObj = false;
+    int optLevel = 0;
+    bool showHelp = false;
+    bool showVersion = false;
+};
+
+/// Parses command-line arguments and drives compilation
+class Driver {
+public:
+    /// Parse command-line arguments
+    bool parseArgs(int argc, const char **argv);
+
+    /// Execute based on parsed options
+    int execute();
+
+    /// Print help message
+    static void printHelp();
+
+    /// Print version info
+    static void printVersion();
+
+    const DriverOptions &getOptions() const { return options_; }
+
+private:
+    DriverOptions options_;
+};
+
+} // namespace liva

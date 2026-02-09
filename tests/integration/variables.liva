@@ -1,0 +1,12 @@
+// Integration test: Variable declarations and mutations
+// Expected output:
+// 42
+// 100
+func main() {
+    let x: i32 = 42
+    println(x)
+
+    var y: i32 = 0
+    y = 100
+    println(y)
+}

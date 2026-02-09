@@ -1,0 +1,76 @@
+// DiagnosticKinds.def - Diagnostic message definitions using X-macro pattern
+//
+// DIAG(ID, Level, Message)
+//   ID      - Unique identifier for the diagnostic
+//   Level   - error, warning, note
+//   Message - Human-readable message (may contain %0, %1, etc. for arguments)
+
+#ifndef DIAG
+#define DIAG(ID, Level, Message)
+#endif
+
+// === Lexer Diagnostics ===
+DIAG(err_unexpected_character,       error,   "unexpected character '%0'")
+DIAG(err_unterminated_string,        error,   "unterminated string literal")
+DIAG(err_unterminated_block_comment, error,   "unterminated block comment")
+DIAG(err_invalid_number_literal,     error,   "invalid number literal '%0'")
+DIAG(err_invalid_escape_sequence,    error,   "invalid escape sequence '\\%0'")
+DIAG(err_empty_char_literal,         error,   "empty character literal")
+
+// === Parser Diagnostics ===
+DIAG(err_expected_token,             error,   "expected '%0', found '%1'")
+DIAG(err_expected_expression,        error,   "expected expression")
+DIAG(err_expected_type,              error,   "expected type")
+DIAG(err_expected_identifier,        error,   "expected identifier")
+DIAG(err_expected_declaration,       error,   "expected declaration")
+DIAG(err_expected_statement,         error,   "expected statement")
+DIAG(err_expected_func_body,         error,   "expected function body")
+DIAG(err_expected_struct_body,       error,   "expected struct body")
+DIAG(err_expected_parameter_list,    error,   "expected parameter list")
+DIAG(err_unexpected_token,           error,   "unexpected token '%0'")
+DIAG(err_invalid_assignment_target,  error,   "invalid assignment target")
+
+// === Sema - Name Resolution ===
+DIAG(err_undeclared_identifier,      error,   "use of undeclared identifier '%0'")
+DIAG(err_redefinition,               error,   "redefinition of '%0'")
+DIAG(err_undefined_type,             error,   "use of undefined type '%0'")
+DIAG(err_undefined_member,           error,   "type '%0' has no member '%1'")
+DIAG(err_wrong_arg_count,            error,   "function '%0' expects %1 arguments, got %2")
+
+// === Sema - Type Checking ===
+DIAG(err_type_mismatch,              error,   "type mismatch: expected '%0', found '%1'")
+DIAG(err_binary_op_type,             error,   "binary operator '%0' cannot be applied to types '%1' and '%2'")
+DIAG(err_unary_op_type,              error,   "unary operator '%0' cannot be applied to type '%1'")
+DIAG(err_return_type_mismatch,       error,   "return type mismatch: expected '%0', found '%1'")
+DIAG(err_condition_not_bool,         error,   "condition must be of type 'bool', found '%0'")
+DIAG(err_cannot_infer_type,          error,   "cannot infer type for '%0'")
+DIAG(err_void_variable,              error,   "variable cannot have 'void' type")
+DIAG(err_no_return,                  error,   "function '%0' must return a value of type '%1'")
+
+// === Sema - Ownership/Borrow ===
+DIAG(err_use_after_move,             error,   "use of moved value '%0'")
+DIAG(err_assign_to_immutable,        error,   "cannot assign to immutable variable '%0'")
+DIAG(err_mut_borrow_conflict,        error,   "cannot borrow '%0' as mutable because it is already borrowed")
+DIAG(err_immut_borrow_conflict,      error,   "cannot borrow '%0' as immutable because it is already mutably borrowed")
+DIAG(err_move_while_borrowed,        error,   "cannot move '%0' while it is borrowed")
+DIAG(err_borrow_outlives_value,      error,   "borrow of '%0' outlives the value")
+DIAG(err_double_move,                error,   "value '%0' has already been moved")
+DIAG(err_partial_move,               error,   "use of partially moved value '%0'")
+DIAG(err_mut_ref_to_immutable,       error,   "cannot take mutable reference to immutable variable '%0'")
+
+// === Sema - Misc ===
+DIAG(err_main_not_found,             error,   "no 'main' function found")
+DIAG(err_break_outside_loop,         error,   "'break' statement outside of loop")
+DIAG(err_continue_outside_loop,      error,   "'continue' statement outside of loop")
+
+// === Warnings ===
+DIAG(warn_unused_variable,           warning, "unused variable '%0'")
+DIAG(warn_unreachable_code,          warning, "code after return statement will never be executed")
+DIAG(warn_shadowed_variable,         warning, "variable '%0' shadows previous declaration")
+
+// === Notes ===
+DIAG(note_previous_declaration,      note,    "previous declaration of '%0' is here")
+DIAG(note_moved_here,                note,    "'%0' was moved here")
+DIAG(note_borrowed_here,             note,    "'%0' was borrowed here")
+
+#undef DIAG

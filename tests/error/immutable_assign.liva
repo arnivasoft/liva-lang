@@ -1,0 +1,7 @@
+// Error test: assignment to immutable variable
+// Expected error: cannot assign to immutable variable 'x'
+
+func main() {
+    let x: i32 = 42
+    x = 10  // ERROR: x is immutable
+}

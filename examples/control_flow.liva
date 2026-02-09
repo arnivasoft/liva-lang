@@ -1,0 +1,36 @@
+// Control flow examples in Liva
+
+func abs(x: i32) -> i32 {
+    if x < 0 {
+        return -x
+    }
+    return x
+}
+
+func grade(score: i32) -> string {
+    if score >= 90 {
+        return "A"
+    } else if score >= 80 {
+        return "B"
+    } else if score >= 70 {
+        return "C"
+    } else {
+        return "F"
+    }
+}
+
+func sum_to(n: i32) -> i32 {
+    var total: i32 = 0
+    var i: i32 = 1
+    while i <= n {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
+
+func main() {
+    println(abs(-42))
+    println(grade(85))
+    println(sum_to(100))
+}

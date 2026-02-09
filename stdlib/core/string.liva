@@ -1,0 +1,2 @@
+// String type (heap-allocated, owned)
+// For now, string is a built-in type backed by the runtime

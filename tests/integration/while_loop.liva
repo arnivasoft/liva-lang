@@ -1,0 +1,11 @@
+// Integration test: While loop
+// Expected output: 55
+func main() {
+    var sum: i32 = 0
+    var i: i32 = 1
+    while i <= 10 {
+        sum = sum + i
+        i = i + 1
+    }
+    println(sum)
+}

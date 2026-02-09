@@ -1,0 +1,6 @@
+// Error test: break outside loop
+// Expected error: 'break' statement outside of loop
+
+func main() {
+    break  // ERROR: not in a loop
+}

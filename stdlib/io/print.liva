@@ -1,0 +1,3 @@
+// print and println are built-in functions backed by the runtime
+// print(value)   - prints without newline
+// println(value) - prints with newline

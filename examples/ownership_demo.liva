@@ -1,0 +1,38 @@
+// Ownership and Borrowing Demo in Liva
+
+struct Buffer {
+    var size: i32
+}
+
+func process(buf: Buffer) {
+    println(buf.size)
+}
+
+func read_data(data: ref Buffer) {
+    // Immutable borrow - can read but not modify
+    println(data.size)
+}
+
+func modify_data(data: ref mut Buffer) {
+    // Mutable borrow - can modify
+    data.size = data.size + 1
+}
+
+func main() {
+    // Ownership basics
+    let x: i32 = 42          // x owns the value 42
+    let y = x                 // i32 is Copy, so x is still valid
+    println(x)
+    println(y)
+
+    // Move semantics (for non-Copy types)
+    var buf = Buffer { size: 1024 }
+    process(buf)              // buf is moved into process
+    // println(buf.size)      // ERROR: use after move!
+
+    // Borrowing
+    var data = Buffer { size: 100 }
+    read_data(ref data)       // immutable borrow - OK
+    modify_data(ref mut data) // mutable borrow - OK
+    println(data.size)        // data is still valid after borrows end
+}

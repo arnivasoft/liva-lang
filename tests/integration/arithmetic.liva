@@ -1,0 +1,14 @@
+// Integration test: Basic arithmetic
+// Expected output:
+// 15
+// 5
+// 50
+// 2
+func main() {
+    let a: i32 = 10
+    let b: i32 = 5
+    println(a + b)
+    println(a - b)
+    println(a * b)
+    println(a / b)
+}
