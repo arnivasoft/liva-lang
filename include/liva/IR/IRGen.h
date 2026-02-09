@@ -61,6 +61,9 @@ public:
     llvm::Value *visitMemberExpr(MemberExpr *node);
     llvm::Value *visitStructLiteralExpr(StructLiteralExpr *node);
     llvm::Value *visitImplDecl(ImplDecl *node);
+    llvm::Value *visitEnumDecl(EnumDecl *node);
+    llvm::Value *visitEnumCaseDecl(EnumCaseDecl *node);
+    llvm::Value *visitMatchExpr(MatchExpr *node);
     llvm::Value *visitRangeExpr(RangeExpr *node);
 
 private:
@@ -94,6 +97,12 @@ private:
 
     /// Variable to struct type name mapping
     std::unordered_map<std::string, std::string> varStructTypes_;
+
+    /// Enum case tag values: enumName -> {caseName -> tag}
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> enumCases_;
+
+    /// Variable to enum type name mapping
+    std::unordered_map<std::string, std::string> varEnumTypes_;
 };
 
 #else

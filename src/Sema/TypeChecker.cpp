@@ -359,6 +359,14 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
     return expr->getResolvedType();
 }
 
+void TypeChecker::visitMatchExpr(MatchExpr *node) {
+    visit(const_cast<Expr *>(node->getSubject()));
+    for (auto &arm : node->getArms()) {
+        if (arm.body)
+            visit(arm.body.get());
+    }
+}
+
 void TypeChecker::visitRangeExpr(RangeExpr *node) {
     visit(node->getStart());
     visit(node->getEnd());

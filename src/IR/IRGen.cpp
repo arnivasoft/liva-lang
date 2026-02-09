@@ -138,8 +138,10 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     // Save old named values and create new scope
     auto oldNamedValues = namedValues_;
     auto oldVarStructTypes = varStructTypes_;
+    auto oldVarEnumTypes = varEnumTypes_;
     namedValues_.clear();
     varStructTypes_.clear();
+    varEnumTypes_.clear();
 
     // Create allocas for parameters
     i = 0;
@@ -168,6 +170,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     // Restore named values
     namedValues_ = oldNamedValues;
     varStructTypes_ = oldVarStructTypes;
+    varEnumTypes_ = oldVarEnumTypes;
 
     return func;
 }
@@ -203,6 +206,27 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             namedValues_[node->getName()] = alloca;
             varStructTypes_[node->getName()] = typeName;
             return alloca;
+        }
+    }
+
+    // Check if init is an enum case reference: let c = Color.Green
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *memberExpr = static_cast<MemberExpr *>(
+            const_cast<Expr *>(node->getInit()));
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            auto eIt = enumCases_.find(ident->getName());
+            if (eIt != enumCases_.end()) {
+                auto *alloca = createEntryBlockAlloca(func, node->getName(),
+                                                       builder_->getInt32Ty());
+                auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+                if (initVal)
+                    builder_->CreateStore(initVal, alloca);
+                namedValues_[node->getName()] = alloca;
+                varEnumTypes_[node->getName()] = ident->getName();
+                return alloca;
+            }
         }
     }
 
@@ -715,6 +739,18 @@ llvm::Value *IRGen::visitCastExpr(CastExpr *node) {
 }
 
 llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
+    // Check for enum case reference: Color.Red
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        auto eIt = enumCases_.find(ident->getName());
+        if (eIt != enumCases_.end()) {
+            auto cIt = eIt->second.find(node->getMember());
+            if (cIt != eIt->second.end())
+                return builder_->getInt32(cIt->second);
+            return nullptr;
+        }
+    }
+
     // Find the object's alloca and struct type
     std::string objName;
     llvm::AllocaInst *objAlloca = nullptr;
@@ -821,8 +857,10 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         // Save and clear scope
         auto oldNamedValues = namedValues_;
         auto oldVarStructTypes = varStructTypes_;
+        auto oldVarEnumTypes = varEnumTypes_;
         namedValues_.clear();
         varStructTypes_.clear();
+        varEnumTypes_.clear();
 
         // Create allocas for parameters
         i = 0;
@@ -851,8 +889,130 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         // Restore scope
         namedValues_ = oldNamedValues;
         varStructTypes_ = oldVarStructTypes;
+        varEnumTypes_ = oldVarEnumTypes;
     }
 
+    return nullptr;
+}
+
+llvm::Value *IRGen::visitEnumDecl(EnumDecl *node) {
+    auto &caseMap = enumCases_[node->getName()];
+    int tag = 0;
+    for (auto &c : node->getCases()) {
+        caseMap[c->getName()] = tag++;
+    }
+    return nullptr;
+}
+
+llvm::Value *IRGen::visitEnumCaseDecl(EnumCaseDecl *) {
+    // Handled by visitEnumDecl
+    return nullptr;
+}
+
+llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
+    auto *func = builder_->GetInsertBlock()->getParent();
+
+    // Evaluate the subject
+    auto *subjectVal = visit(const_cast<Expr *>(node->getSubject()));
+    if (!subjectVal)
+        return nullptr;
+
+    // Find enum type name from subject (if it's an identifier)
+    std::string enumTypeName;
+    if (node->getSubject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<const IdentifierExpr *>(node->getSubject());
+        auto it = varEnumTypes_.find(ident->getName());
+        if (it != varEnumTypes_.end())
+            enumTypeName = it->second;
+    }
+
+    auto *mergeBB = llvm::BasicBlock::Create(*context_, "match.end", func);
+
+    // Build arm basic blocks and determine case values
+    struct ArmInfo {
+        llvm::BasicBlock *bb;
+        int tag;
+        bool isDefault;
+    };
+    std::vector<ArmInfo> armInfos;
+    int defaultIdx = -1;
+
+    for (size_t i = 0; i < node->getArms().size(); ++i) {
+        auto &arm = node->getArms()[i];
+        auto *armBB = llvm::BasicBlock::Create(*context_,
+            "match.arm." + std::to_string(i), func);
+
+        if (arm.pattern == "_") {
+            armInfos.push_back({armBB, 0, true});
+            defaultIdx = static_cast<int>(i);
+        } else {
+            int tag = -1;
+            // Try "EnumName.CaseName" pattern
+            auto dotPos = arm.pattern.find('.');
+            if (dotPos != std::string::npos) {
+                auto eName = arm.pattern.substr(0, dotPos);
+                auto cName = arm.pattern.substr(dotPos + 1);
+                auto eIt = enumCases_.find(eName);
+                if (eIt != enumCases_.end()) {
+                    auto cIt = eIt->second.find(cName);
+                    if (cIt != eIt->second.end())
+                        tag = cIt->second;
+                }
+            } else {
+                // Try integer literal
+                char *end = nullptr;
+                long val = std::strtol(arm.pattern.c_str(), &end, 10);
+                if (end != arm.pattern.c_str() && *end == '\0') {
+                    tag = static_cast<int>(val);
+                } else {
+                    // Try bare case name using subject's enum type
+                    if (!enumTypeName.empty()) {
+                        auto eIt = enumCases_.find(enumTypeName);
+                        if (eIt != enumCases_.end()) {
+                            auto cIt = eIt->second.find(arm.pattern);
+                            if (cIt != eIt->second.end())
+                                tag = cIt->second;
+                        }
+                    }
+                }
+            }
+            armInfos.push_back({armBB, tag, false});
+        }
+    }
+
+    // Create default block if no explicit wildcard
+    llvm::BasicBlock *defaultBB;
+    if (defaultIdx >= 0) {
+        defaultBB = armInfos[defaultIdx].bb;
+    } else {
+        defaultBB = mergeBB;
+    }
+
+    // Count non-default cases
+    unsigned numCases = 0;
+    for (auto &info : armInfos) {
+        if (!info.isDefault && info.tag >= 0)
+            ++numCases;
+    }
+
+    auto *switchInst = builder_->CreateSwitch(subjectVal, defaultBB, numCases);
+
+    for (auto &info : armInfos) {
+        if (!info.isDefault && info.tag >= 0) {
+            switchInst->addCase(builder_->getInt32(info.tag), info.bb);
+        }
+    }
+
+    // Generate arm bodies
+    for (size_t i = 0; i < node->getArms().size(); ++i) {
+        auto &arm = node->getArms()[i];
+        builder_->SetInsertPoint(armInfos[i].bb);
+        visit(arm.body.get());
+        if (!builder_->GetInsertBlock()->getTerminator())
+            builder_->CreateBr(mergeBB);
+    }
+
+    builder_->SetInsertPoint(mergeBB);
     return nullptr;
 }
 

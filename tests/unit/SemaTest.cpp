@@ -161,6 +161,26 @@ TEST_F(SemaTest, FunctionWithIfElse) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, EnumAndMatch) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Green
+            match c {
+                Color.Red => println(0)
+                Color.Green => println(1)
+                _ => println(2)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, ForLoop) {
     auto result = check(R"(
         func main() {
