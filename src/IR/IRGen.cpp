@@ -86,7 +86,7 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         auto *named = static_cast<const NamedTypeRepr *>(type);
         auto it = structTypes_.find(named->getName());
         if (it != structTypes_.end())
-            return llvm::PointerType::getUnqual(*context_);
+            return it->second;
         return llvm::PointerType::getUnqual(*context_);
     }
     default:
@@ -137,7 +137,9 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     // Save old named values and create new scope
     auto oldNamedValues = namedValues_;
+    auto oldVarStructTypes = varStructTypes_;
     namedValues_.clear();
+    varStructTypes_.clear();
 
     // Create allocas for parameters
     i = 0;
@@ -165,12 +167,45 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     // Restore named values
     namedValues_ = oldNamedValues;
+    varStructTypes_ = oldVarStructTypes;
 
     return func;
 }
 
 llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     auto *func = builder_->GetInsertBlock()->getParent();
+
+    // Check if init is a struct literal - reuse its alloca
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::StructLiteralExpr) {
+        auto *structLit = static_cast<StructLiteralExpr *>(
+            const_cast<Expr *>(node->getInit()));
+        const auto &typeName = structLit->getTypeName();
+
+        auto stIt = structTypes_.find(typeName);
+        if (stIt != structTypes_.end()) {
+            auto *structTy = stIt->second;
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+
+            // Store each field
+            for (auto &fieldInit : structLit->getFields()) {
+                int idx = getStructFieldIndex(typeName, fieldInit.name);
+                if (idx < 0)
+                    continue;
+                auto *val = visit(fieldInit.value.get());
+                if (!val)
+                    continue;
+                auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
+                                                       fieldInit.name);
+                builder_->CreateStore(val, gep);
+            }
+
+            namedValues_[node->getName()] = alloca;
+            varStructTypes_[node->getName()] = typeName;
+            return alloca;
+        }
+    }
+
     auto *type = toLLVMType(node->getType());
     auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
 
@@ -186,13 +221,27 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
 llvm::Value *IRGen::visitStructDecl(StructDecl *node) {
     std::vector<llvm::Type *> fieldTypes;
+    std::vector<std::string> fieldNames;
     for (auto &field : node->getFields()) {
         fieldTypes.push_back(toLLVMType(field->getType()));
+        fieldNames.push_back(field->getName());
     }
 
     auto *structType = llvm::StructType::create(*context_, fieldTypes, node->getName());
     structTypes_[node->getName()] = structType;
+    structFieldNames_[node->getName()] = std::move(fieldNames);
     return nullptr;
+}
+
+int IRGen::getStructFieldIndex(const std::string &structName, const std::string &fieldName) {
+    auto it = structFieldNames_.find(structName);
+    if (it == structFieldNames_.end())
+        return -1;
+    for (size_t i = 0; i < it->second.size(); ++i) {
+        if (it->second[i] == fieldName)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 llvm::Value *IRGen::visitBlockStmt(BlockStmt *node) {
@@ -272,12 +321,58 @@ llvm::Value *IRGen::visitWhileStmt(WhileStmt *node) {
 }
 
 llvm::Value *IRGen::visitForStmt(ForStmt *node) {
-    // For-in is syntactic sugar; generate a while loop pattern
-    // For MVP, we support range-like patterns: for i in start..end
     auto *func = builder_->GetInsertBlock()->getParent();
 
-    // TODO: implement proper for-in with iterators
-    // For now, just emit the body once as a placeholder
+    // Check if iterable is a RangeExpr
+    if (node->getIterable()->getKind() == ASTNode::NodeKind::RangeExpr) {
+        auto *range = static_cast<RangeExpr *>(
+            const_cast<Expr *>(node->getIterable()));
+
+        // Evaluate start and end
+        auto *startVal = visit(range->getStart());
+        auto *endVal = visit(range->getEnd());
+        if (!startVal || !endVal)
+            return nullptr;
+
+        // Create loop variable alloca
+        auto *loopVar = createEntryBlockAlloca(func, node->getVarName(),
+                                                builder_->getInt32Ty());
+        builder_->CreateStore(startVal, loopVar);
+        namedValues_[node->getVarName()] = loopVar;
+
+        // Create basic blocks
+        auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
+        auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
+        auto *exitBB = llvm::BasicBlock::Create(*context_, "for.exit", func);
+
+        builder_->CreateBr(condBB);
+
+        // Condition: i < end
+        builder_->SetInsertPoint(condBB);
+        auto *curVal = builder_->CreateLoad(builder_->getInt32Ty(), loopVar,
+                                             node->getVarName());
+        auto *cond = builder_->CreateICmpSLT(curVal, endVal, "for.cmp");
+        builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+        // Body
+        builder_->SetInsertPoint(bodyBB);
+        visit(const_cast<ASTNode *>(node->getBody()));
+
+        // Increment
+        if (!builder_->GetInsertBlock()->getTerminator()) {
+            auto *cur = builder_->CreateLoad(builder_->getInt32Ty(), loopVar,
+                                              node->getVarName());
+            auto *next = builder_->CreateAdd(cur, builder_->getInt32(1), "for.inc");
+            builder_->CreateStore(next, loopVar);
+            builder_->CreateBr(condBB);
+        }
+
+        // Exit
+        builder_->SetInsertPoint(exitBB);
+        return nullptr;
+    }
+
+    // Fallback: just emit body once
     visit(const_cast<ASTNode *>(node->getBody()));
     return nullptr;
 }
@@ -391,6 +486,55 @@ llvm::Value *IRGen::visitUnaryExpr(UnaryExpr *node) {
 }
 
 llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
+    // Check for method call: obj.method(args)
+    if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *memberExpr = static_cast<MemberExpr *>(node->getCallee());
+        const auto &methodName = memberExpr->getMember();
+
+        // Find the object's struct type
+        std::string objName;
+        std::string structTypeName;
+        llvm::AllocaInst *objAlloca = nullptr;
+
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            objName = ident->getName();
+            auto it = namedValues_.find(objName);
+            if (it != namedValues_.end())
+                objAlloca = it->second;
+            auto stIt = varStructTypes_.find(objName);
+            if (stIt != varStructTypes_.end())
+                structTypeName = stIt->second;
+        }
+
+        if (objAlloca && !structTypeName.empty()) {
+            std::string mangledName = structTypeName + "_" + methodName;
+            auto *callee = module_->getFunction(mangledName);
+            if (callee) {
+                std::vector<llvm::Value *> args;
+                // Pass object pointer as first arg (self)
+                llvm::Value *selfPtr = objAlloca;
+                if (objAlloca->getAllocatedType()->isPointerTy()) {
+                    selfPtr = builder_->CreateLoad(objAlloca->getAllocatedType(),
+                                                    objAlloca, objName);
+                }
+                args.push_back(selfPtr);
+
+                for (auto &arg : node->getArgs()) {
+                    auto *val = visit(arg.get());
+                    if (!val)
+                        return nullptr;
+                    args.push_back(val);
+                }
+
+                if (callee->getReturnType()->isVoidTy())
+                    return builder_->CreateCall(callee, args);
+                return builder_->CreateCall(callee, args, "mcalltmp");
+            }
+        }
+        return nullptr;
+    }
+
     // Get function name
     std::string funcName;
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
@@ -460,6 +604,44 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
     auto *val = visit(node->getValue());
     if (!val)
         return nullptr;
+
+    // Handle member assignment: obj.field = value
+    if (node->getTarget()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *memberExpr = static_cast<MemberExpr *>(node->getTarget());
+        std::string objName;
+        llvm::AllocaInst *objAlloca = nullptr;
+        std::string structTypeName;
+
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            objName = ident->getName();
+            auto it = namedValues_.find(objName);
+            if (it != namedValues_.end())
+                objAlloca = it->second;
+            auto stIt = varStructTypes_.find(objName);
+            if (stIt != varStructTypes_.end())
+                structTypeName = stIt->second;
+        }
+
+        if (objAlloca && !structTypeName.empty()) {
+            auto stIt = structTypes_.find(structTypeName);
+            if (stIt != structTypes_.end()) {
+                auto *structTy = stIt->second;
+                int idx = getStructFieldIndex(structTypeName, memberExpr->getMember());
+                if (idx >= 0) {
+                    llvm::Value *basePtr = objAlloca;
+                    if (objAlloca->getAllocatedType()->isPointerTy()) {
+                        basePtr = builder_->CreateLoad(objAlloca->getAllocatedType(),
+                                                        objAlloca, objName);
+                    }
+                    auto *gep = builder_->CreateStructGEP(structTy, basePtr, idx,
+                                                           memberExpr->getMember());
+                    builder_->CreateStore(val, gep);
+                }
+            }
+        }
+        return val;
+    }
 
     if (node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getTarget());
@@ -533,7 +715,149 @@ llvm::Value *IRGen::visitCastExpr(CastExpr *node) {
 }
 
 llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
-    // TODO: implement struct member access
+    // Find the object's alloca and struct type
+    std::string objName;
+    llvm::AllocaInst *objAlloca = nullptr;
+    std::string structTypeName;
+
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        objName = ident->getName();
+        auto it = namedValues_.find(objName);
+        if (it != namedValues_.end())
+            objAlloca = it->second;
+        auto stIt = varStructTypes_.find(objName);
+        if (stIt != varStructTypes_.end())
+            structTypeName = stIt->second;
+    }
+
+    if (!objAlloca || structTypeName.empty())
+        return nullptr;
+
+    auto stIt = structTypes_.find(structTypeName);
+    if (stIt == structTypes_.end())
+        return nullptr;
+
+    auto *structTy = stIt->second;
+    int idx = getStructFieldIndex(structTypeName, node->getMember());
+    if (idx < 0)
+        return nullptr;
+
+    // Check if the alloca holds a pointer to struct (self parameter case)
+    llvm::Value *basePtr = objAlloca;
+    if (objAlloca->getAllocatedType()->isPointerTy()) {
+        basePtr = builder_->CreateLoad(objAlloca->getAllocatedType(), objAlloca, objName);
+    }
+
+    auto *gep = builder_->CreateStructGEP(structTy, basePtr, idx, node->getMember());
+    return builder_->CreateLoad(structTy->getElementType(idx), gep,
+                                 node->getMember() + ".val");
+}
+
+llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
+    // Standalone struct literal (not in VarDecl context)
+    const auto &typeName = node->getTypeName();
+    auto stIt = structTypes_.find(typeName);
+    if (stIt == structTypes_.end())
+        return nullptr;
+
+    auto *structTy = stIt->second;
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *alloca = createEntryBlockAlloca(func, typeName + ".tmp", structTy);
+
+    for (auto &fieldInit : node->getFields()) {
+        int idx = getStructFieldIndex(typeName, fieldInit.name);
+        if (idx < 0)
+            continue;
+        auto *val = visit(fieldInit.value.get());
+        if (!val)
+            continue;
+        auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, fieldInit.name);
+        builder_->CreateStore(val, gep);
+    }
+
+    return builder_->CreateLoad(structTy, alloca, typeName + ".val");
+}
+
+llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
+    const auto &typeName = node->getTypeName();
+
+    for (auto &method : node->getMethods()) {
+        // Mangled name: TypeName_methodName
+        std::string mangledName = typeName + "_" + method->getName();
+
+        // Build param types: self is a pointer to struct
+        std::vector<llvm::Type *> paramTypes;
+        for (auto &param : method->getParams()) {
+            if (param.isSelf) {
+                auto stIt = structTypes_.find(typeName);
+                if (stIt != structTypes_.end())
+                    paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+                else
+                    paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+            } else {
+                paramTypes.push_back(toLLVMType(param.type.get()));
+            }
+        }
+
+        auto *returnType = toLLVMType(method->getReturnType());
+        auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+        auto *func = llvm::Function::Create(
+            funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
+
+        // Set parameter names
+        size_t i = 0;
+        for (auto &arg : func->args()) {
+            arg.setName(method->getParams()[i].name);
+            ++i;
+        }
+
+        if (!method->hasBody())
+            continue;
+
+        auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+        builder_->SetInsertPoint(entryBB);
+
+        // Save and clear scope
+        auto oldNamedValues = namedValues_;
+        auto oldVarStructTypes = varStructTypes_;
+        namedValues_.clear();
+        varStructTypes_.clear();
+
+        // Create allocas for parameters
+        i = 0;
+        for (auto &arg : func->args()) {
+            auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()),
+                                                   arg.getType());
+            builder_->CreateStore(&arg, alloca);
+            namedValues_[std::string(arg.getName())] = alloca;
+            if (method->getParams()[i].isSelf) {
+                varStructTypes_["self"] = typeName;
+            }
+            ++i;
+        }
+
+        visitBlockStmt(const_cast<BlockStmt *>(method->getBody()));
+
+        // Add implicit return if needed
+        if (!builder_->GetInsertBlock()->getTerminator()) {
+            if (returnType->isVoidTy()) {
+                builder_->CreateRetVoid();
+            } else {
+                builder_->CreateRet(llvm::Constant::getNullValue(returnType));
+            }
+        }
+
+        // Restore scope
+        namedValues_ = oldNamedValues;
+        varStructTypes_ = oldVarStructTypes;
+    }
+
+    return nullptr;
+}
+
+llvm::Value *IRGen::visitRangeExpr(RangeExpr *) {
+    // Range expressions are handled inline by visitForStmt
     return nullptr;
 }
 

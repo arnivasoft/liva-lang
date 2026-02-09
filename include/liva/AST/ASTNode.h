@@ -49,6 +49,7 @@ public:
         CastExpr,
         RefExpr,
         GroupExpr,
+        RangeExpr,
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())

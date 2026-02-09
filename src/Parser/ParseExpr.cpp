@@ -39,6 +39,17 @@ std::unique_ptr<Expr> Parser::parsePrecedenceExpr(int minPrec) {
                                             rangeFrom(startLoc));
     }
 
+    // Check for range operator (..)
+    if (check(TokenKind::dotdot)) {
+        auto startLoc = left->getStartLoc();
+        advance(); // consume ..
+        auto right = parsePrecedenceExpr(0);
+        if (!right)
+            return nullptr;
+        return std::make_unique<RangeExpr>(std::move(left), std::move(right),
+                                           rangeFrom(startLoc));
+    }
+
     return left;
 }
 

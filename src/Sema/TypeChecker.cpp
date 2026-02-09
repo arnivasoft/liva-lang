@@ -359,4 +359,9 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
     return expr->getResolvedType();
 }
 
+void TypeChecker::visitRangeExpr(RangeExpr *node) {
+    visit(node->getStart());
+    visit(node->getEnd());
+}
+
 } // namespace liva

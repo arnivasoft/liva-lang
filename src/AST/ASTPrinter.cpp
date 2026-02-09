@@ -398,4 +398,13 @@ void ASTPrinter::visitGroupExpr(GroupExpr *node) {
     decreaseIndent();
 }
 
+void ASTPrinter::visitRangeExpr(RangeExpr *node) {
+    indent();
+    os_ << "RangeExpr\n";
+    increaseIndent();
+    visit(node->getStart());
+    visit(node->getEnd());
+    decreaseIndent();
+}
+
 } // namespace liva

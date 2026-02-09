@@ -59,6 +59,9 @@ public:
     llvm::Value *visitGroupExpr(GroupExpr *node);
     llvm::Value *visitCastExpr(CastExpr *node);
     llvm::Value *visitMemberExpr(MemberExpr *node);
+    llvm::Value *visitStructLiteralExpr(StructLiteralExpr *node);
+    llvm::Value *visitImplDecl(ImplDecl *node);
+    llvm::Value *visitRangeExpr(RangeExpr *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -77,11 +80,20 @@ private:
     std::unique_ptr<llvm::Module> module_;
     std::unique_ptr<llvm::IRBuilder<>> builder_;
 
+    /// Get field index by name for a struct type
+    int getStructFieldIndex(const std::string &structName, const std::string &fieldName);
+
     /// Named values in current scope
     std::unordered_map<std::string, llvm::AllocaInst *> namedValues_;
 
     /// Struct type layouts
     std::unordered_map<std::string, llvm::StructType *> structTypes_;
+
+    /// Struct field names in order (struct name -> field names)
+    std::unordered_map<std::string, std::vector<std::string>> structFieldNames_;
+
+    /// Variable to struct type name mapping
+    std::unordered_map<std::string, std::string> varStructTypes_;
 };
 
 #else

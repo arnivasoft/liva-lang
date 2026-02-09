@@ -51,6 +51,7 @@ public:
     void visitCastExpr(CastExpr *node);
     void visitRefExpr(RefExpr *node);
     void visitGroupExpr(GroupExpr *node);
+    void visitRangeExpr(RangeExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
