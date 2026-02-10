@@ -133,6 +133,7 @@ PUNCTUATOR(at,          "@")
 PUNCTUATOR(hash,        "#")
 PUNCTUATOR(question,    "?")
 PUNCTUATOR(question_question, "??")
+PUNCTUATOR(question_dot, "?.")
 PUNCTUATOR(underscore,  "_")
 
 #undef PUNCTUATOR

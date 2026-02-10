@@ -563,6 +563,13 @@ void TypeChecker::visitMemberExpr(MemberExpr *node) {
             // Result.ok or Result.err — accepted
         }
     }
+
+    // Optional chaining: wrap resolved type in Optional
+    if (node->isOptionalChain() && node->getResolvedType()) {
+        auto optType = std::make_unique<OptionalTypeRepr>(
+            cloneTypeRepr(node->getResolvedType()));
+        node->setResolvedType(std::move(optType));
+    }
 }
 
 void TypeChecker::visitIndexExpr(IndexExpr *node) {
@@ -650,6 +657,12 @@ void TypeChecker::visitCastExpr(CastExpr *node) {
 
 void TypeChecker::visitRefExpr(RefExpr *node) {
     visit(const_cast<Expr *>(node->getExpr()));
+    // Propagate ReferenceTypeRepr wrapping the inner type
+    if (auto *innerType = node->getExpr()->getResolvedType()) {
+        auto refType = std::make_unique<ReferenceTypeRepr>(
+            cloneTypeRepr(innerType), node->isMutable());
+        node->setResolvedType(std::move(refType));
+    }
 }
 
 void TypeChecker::visitGroupExpr(GroupExpr *node) {

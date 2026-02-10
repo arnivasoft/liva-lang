@@ -351,7 +351,7 @@ void ASTPrinter::visitCallExpr(CallExpr *node) {
 
 void ASTPrinter::visitMemberExpr(MemberExpr *node) {
     indent();
-    os_ << "MemberExpr '." << node->getMember() << "'\n";
+    os_ << "MemberExpr '" << (node->isOptionalChain() ? "?." : ".") << node->getMember() << "'\n";
     increaseIndent();
     visit(node->getObject());
     decreaseIndent();

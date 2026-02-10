@@ -74,6 +74,16 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic) {
         returnType = makeVoidType();
     }
 
+    // Parse optional where clause
+    if (match(TokenKind::kw_where)) {
+        do {
+            auto paramTok = expect(TokenKind::identifier);
+            expect(TokenKind::colon);
+            auto boundTok = expect(TokenKind::identifier);
+            typeParamBounds[std::string(paramTok.getText())] = std::string(boundTok.getText());
+        } while (match(TokenKind::comma));
+    }
+
     // Parse body (optional for protocol declarations)
     std::unique_ptr<BlockStmt> body;
     if (check(TokenKind::l_brace)) {
@@ -141,6 +151,16 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
             } while (match(TokenKind::comma));
         }
         expect(TokenKind::greater);
+    }
+
+    // Parse optional where clause
+    if (match(TokenKind::kw_where)) {
+        do {
+            auto paramTok = expect(TokenKind::identifier);
+            expect(TokenKind::colon);
+            auto boundTok = expect(TokenKind::identifier);
+            typeParamBounds[std::string(paramTok.getText())] = std::string(boundTok.getText());
+        } while (match(TokenKind::comma));
     }
 
     expect(TokenKind::l_brace);
@@ -244,6 +264,16 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
     if (match(TokenKind::colon)) {
         auto protoTok = expect(TokenKind::identifier);
         protocolName = std::string(protoTok.getText());
+    }
+
+    // Parse optional where clause
+    if (match(TokenKind::kw_where)) {
+        do {
+            auto paramTok = expect(TokenKind::identifier);
+            expect(TokenKind::colon);
+            auto boundTok = expect(TokenKind::identifier);
+            typeParamBounds[std::string(paramTok.getText())] = std::string(boundTok.getText());
+        } while (match(TokenKind::comma));
     }
 
     expect(TokenKind::l_brace);

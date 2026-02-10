@@ -1385,3 +1385,129 @@ TEST_F(SemaTest, TraitBoundNoBoundBackwardCompat) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+TEST_F(SemaTest, WhereClauseValid) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        struct Person {
+            name: string
+        }
+        impl Person: Printable {
+            func toString(self) -> string { return self.name }
+        }
+        func show<T>(item: T) -> string where T: Printable { return item.toString() }
+        func main() {
+            let p = Person { name: "Alice" }
+            let s = show(p)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WhereClauseViolation) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        struct Foo {
+            x: i32
+        }
+        func show<T>(item: T) -> string where T: Printable { return item.toString() }
+        func main() {
+            let f = Foo { x: 1 }
+            let s = show(f)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, WhereClauseUndefinedProtocol) {
+    auto result = check(R"--(
+        func show<T>(item: T) -> string where T: NonExistent { return item.toString() }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_protocol));
+}
+
+TEST_F(SemaTest, RefExprTypeResolution) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = 42
+            let r = ref x
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RefParamFunction) {
+    auto result = check(R"--(
+        func read_val(x: ref i32) -> i32 {
+            return x
+        }
+        func main() {
+            var a: i32 = 10
+            let b = read_val(ref a)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RefMutParamFunction) {
+    auto result = check(R"--(
+        func increment(x: ref mut i32) {
+            x = x + 1
+        }
+        func main() {
+            var a: i32 = 10
+            increment(ref mut a)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RefPassThrough) {
+    auto result = check(R"--(
+        func read_val(x: ref i32) -> i32 {
+            return x
+        }
+        func pass_ref(x: ref i32) -> i32 {
+            return read_val(ref x)
+        }
+        func main() {
+            var a: i32 = 42
+            let b = pass_ref(ref a)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OptionalChainingOnOptionalVar) {
+    auto result = check(R"--(
+        struct Point {
+            x: i32
+            y: i32
+        }
+        func main() {
+            var p: Point? = nil
+            let val = p?.x
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OptionalChainingWithNilCoalescing) {
+    auto result = check(R"--(
+        struct Point {
+            x: i32
+            y: i32
+        }
+        func main() {
+            var p: Point? = nil
+            let val = p?.x ?? 0
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

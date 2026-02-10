@@ -45,7 +45,8 @@ public:
     std::unique_ptr<Expr> parseUnaryExpr();
     std::unique_ptr<Expr> parsePostfixExpr(std::unique_ptr<Expr> base);
     std::unique_ptr<Expr> parseCallExpr(std::unique_ptr<Expr> callee);
-    std::unique_ptr<Expr> parseMemberExpr(std::unique_ptr<Expr> object);
+    std::unique_ptr<Expr> parseMemberExpr(std::unique_ptr<Expr> object,
+                                             bool isOptionalChain = false);
     std::unique_ptr<Expr> parseIndexExpr(std::unique_ptr<Expr> base);
     std::unique_ptr<Expr> parseStructLiteral(const std::string &name, SourceLocation startLoc);
     std::unique_ptr<Expr> parseArrayLiteral();

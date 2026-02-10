@@ -269,7 +269,9 @@ std::unique_ptr<Expr> Parser::parsePostfixExpr(std::unique_ptr<Expr> base) {
                 }
             }
         } else if (check(TokenKind::dot)) {
-            base = parseMemberExpr(std::move(base));
+            base = parseMemberExpr(std::move(base), false);
+        } else if (check(TokenKind::question_dot)) {
+            base = parseMemberExpr(std::move(base), true);
         } else if (check(TokenKind::l_bracket)) {
             base = parseIndexExpr(std::move(base));
         } else if (check(TokenKind::bang)) {
@@ -303,14 +305,18 @@ std::unique_ptr<Expr> Parser::parseCallExpr(std::unique_ptr<Expr> callee) {
                                       rangeFrom(startLoc));
 }
 
-std::unique_ptr<Expr> Parser::parseMemberExpr(std::unique_ptr<Expr> object) {
+std::unique_ptr<Expr> Parser::parseMemberExpr(std::unique_ptr<Expr> object,
+                                               bool isOptionalChain) {
     auto startLoc = object->getStartLoc();
-    expect(TokenKind::dot);
+    if (isOptionalChain)
+        expect(TokenKind::question_dot);
+    else
+        expect(TokenKind::dot);
 
     auto member = expect(TokenKind::identifier);
 
     return std::make_unique<MemberExpr>(std::move(object), std::string(member.getText()),
-                                        rangeFrom(startLoc));
+                                        rangeFrom(startLoc), isOptionalChain);
 }
 
 std::unique_ptr<Expr> Parser::parseIndexExpr(std::unique_ptr<Expr> base) {

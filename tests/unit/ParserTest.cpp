@@ -1,6 +1,7 @@
 #include "liva/AST/ASTPrinter.h"
 #include "liva/AST/Decl.h"
 #include "liva/AST/Expr.h"
+#include "liva/AST/Stmt.h"
 #include "liva/Common/Diagnostics.h"
 #include "liva/Common/SourceLocation.h"
 #include "liva/Lexer/Lexer.h"
@@ -642,4 +643,120 @@ TEST_F(ParserTest, GenericFuncNoBoundsStillWorks) {
     ASSERT_NE(func, nullptr);
     EXPECT_TRUE(func->isGeneric());
     EXPECT_TRUE(func->getTypeParamBounds().empty());
+}
+
+TEST_F(ParserTest, WhereClauseFunc) {
+    auto result = parse("func show<T>(item: T) -> string where T: Printable { return item.toString() }");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isGeneric());
+    ASSERT_EQ(func->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
+}
+
+TEST_F(ParserTest, WhereClauseMultipleBounds) {
+    auto result = parse("func combine<T, U>(a: T, b: U) where T: Printable, U: Hashable { return a }");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getTypeParamBounds().size(), 2);
+    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
+    EXPECT_EQ(func->getTypeParamBounds().at("U"), "Hashable");
+}
+
+TEST_F(ParserTest, WhereClauseStruct) {
+    auto result = parse(R"--(
+        struct Box<T> where T: Printable {
+            value: T
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *s = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(s, nullptr);
+    EXPECT_TRUE(s->isGeneric());
+    ASSERT_EQ(s->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(s->getTypeParamBounds().at("T"), "Printable");
+}
+
+TEST_F(ParserTest, WhereClauseImpl) {
+    auto result = parse(R"--(
+        impl Box<T> where T: Printable {
+            func show(self) -> string { return self.value }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *impl = dynamic_cast<ImplDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(impl, nullptr);
+    ASSERT_EQ(impl->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(impl->getTypeParamBounds().at("T"), "Printable");
+}
+
+TEST_F(ParserTest, WhereClauseCombinedWithInline) {
+    auto result = parse("func show<T: Printable>(item: T) where T: Serializable { return item }");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    // Where clause overrides inline bound (last writer wins)
+    ASSERT_EQ(func->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Serializable");
+}
+
+TEST_F(ParserTest, OptionalChainingField) {
+    auto result = parse(R"--(
+        func main() {
+            p?.x
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[0].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *member = dynamic_cast<MemberExpr *>(exprStmt->getExpr());
+    ASSERT_NE(member, nullptr);
+    EXPECT_TRUE(member->isOptionalChain());
+    EXPECT_EQ(member->getMember(), "x");
+}
+
+TEST_F(ParserTest, OptionalChainingMethod) {
+    auto result = parse(R"--(
+        func main() {
+            p?.getX()
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[0].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *call = dynamic_cast<CallExpr *>(exprStmt->getExpr());
+    ASSERT_NE(call, nullptr);
+    auto *member = dynamic_cast<MemberExpr *>(call->getCallee());
+    ASSERT_NE(member, nullptr);
+    EXPECT_TRUE(member->isOptionalChain());
+    EXPECT_EQ(member->getMember(), "getX");
+}
+
+TEST_F(ParserTest, RegularMemberUnchanged) {
+    auto result = parse(R"--(
+        func main() {
+            p.x
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[0].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *member = dynamic_cast<MemberExpr *>(exprStmt->getExpr());
+    ASSERT_NE(member, nullptr);
+    EXPECT_FALSE(member->isOptionalChain());
+    EXPECT_EQ(member->getMember(), "x");
 }

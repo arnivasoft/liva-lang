@@ -206,13 +206,15 @@ private:
 /// Member access: obj.field, obj.method()
 class MemberExpr : public Expr {
 public:
-    MemberExpr(std::unique_ptr<Expr> object, std::string member, SourceRange range)
+    MemberExpr(std::unique_ptr<Expr> object, std::string member, SourceRange range,
+               bool isOptionalChain = false)
         : Expr(NodeKind::MemberExpr, range), object_(std::move(object)),
-          member_(std::move(member)) {}
+          member_(std::move(member)), isOptionalChain_(isOptionalChain) {}
 
     const Expr *getObject() const { return object_.get(); }
     Expr *getObject() { return object_.get(); }
     const std::string &getMember() const { return member_; }
+    bool isOptionalChain() const { return isOptionalChain_; }
 
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::MemberExpr;
@@ -221,6 +223,7 @@ public:
 private:
     std::unique_ptr<Expr> object_;
     std::string member_;
+    bool isOptionalChain_;
 };
 
 /// Index expression: arr[i]

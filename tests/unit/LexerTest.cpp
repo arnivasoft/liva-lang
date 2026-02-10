@@ -260,3 +260,21 @@ TEST_F(LexerTest, QuestionStillWorks) {
     expectToken(tokens[0], TokenKind::kw_i32);
     expectToken(tokens[1], TokenKind::question);
 }
+
+TEST_F(LexerTest, OptionalChainToken) {
+    auto tokens = lex("x?.y");
+    ASSERT_GE(tokens.size(), 3);
+    expectToken(tokens[0], TokenKind::identifier);
+    expectToken(tokens[1], TokenKind::question_dot);
+    expectToken(tokens[2], TokenKind::identifier);
+}
+
+TEST_F(LexerTest, QuestionDotVsQuestionQuestion) {
+    auto tokens = lex("a ?? b ?. c");
+    ASSERT_GE(tokens.size(), 5);
+    expectToken(tokens[0], TokenKind::identifier);
+    expectToken(tokens[1], TokenKind::question_question);
+    expectToken(tokens[2], TokenKind::identifier);
+    expectToken(tokens[3], TokenKind::question_dot);
+    expectToken(tokens[4], TokenKind::identifier);
+}

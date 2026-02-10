@@ -344,6 +344,8 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
     }
     case TypeRepr::Kind::Function:
         return getClosureObjTy();
+    case TypeRepr::Kind::Reference:
+        return llvm::PointerType::getUnqual(*context_);
     default:
         return builder_->getInt32Ty();
     }
@@ -361,7 +363,11 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     // Build function type
     std::vector<llvm::Type *> paramTypes;
     for (auto &param : node->getParams()) {
-        paramTypes.push_back(toLLVMType(param.type.get()));
+        if (param.isRef) {
+            paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+        } else {
+            paramTypes.push_back(toLLVMType(param.type.get()));
+        }
     }
 
     auto *returnType = toLLVMType(node->getReturnType());
@@ -400,6 +406,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarFuncTypes = varFuncTypes_;
     auto oldVarProtocolTypes = varProtocolTypes_;
     auto oldVarResultTypes = varResultTypes_;
+    auto oldVarRefTypes = varRefTypes_;
     auto *oldFuncResultInfo = currentFuncResultInfo_;
     namedValues_.clear();
     varStructTypes_.clear();
@@ -410,6 +417,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
     varResultTypes_.clear();
+    varRefTypes_.clear();
     currentFuncResultInfo_ = nullptr;
 
     // Track Result return type for try expressions
@@ -427,6 +435,18 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         builder_->CreateStore(&arg, alloca);
         namedValues_[std::string(arg.getName())] = alloca;
         ++i;
+    }
+
+    // Populate varRefTypes_ for ref parameters
+    for (auto &param : node->getParams()) {
+        if (param.isRef && param.type) {
+            llvm::Type *innerTy = toLLVMType(param.type.get());
+            if (param.type->getKind() == TypeRepr::Kind::Reference) {
+                auto *refTy = static_cast<const ReferenceTypeRepr *>(param.type.get());
+                innerTy = toLLVMType(refTy->getInner());
+            }
+            varRefTypes_[param.name] = innerTy;
+        }
     }
 
     // Populate varFuncTypes_ for function-typed parameters
@@ -468,6 +488,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varFuncTypes_ = oldVarFuncTypes;
     varProtocolTypes_ = oldVarProtocolTypes;
     varResultTypes_ = oldVarResultTypes;
+    varRefTypes_ = oldVarRefTypes;
     currentFuncResultInfo_ = oldFuncResultInfo;
 
     return func;
@@ -573,6 +594,11 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         }
         namedValues_[node->getName()] = alloca;
         varOptionalTypes_[node->getName()] = innerLLVM;
+        // Register struct type name for optional chaining support
+        if (optTypeRepr->getInner()->getKind() == TypeRepr::Kind::Named) {
+            auto *namedInner = static_cast<const NamedTypeRepr *>(optTypeRepr->getInner());
+            varStructTypes_[node->getName()] = namedInner->getName();
+        }
         return alloca;
     }
 
@@ -1105,6 +1131,13 @@ llvm::Value *IRGen::visitUnwrapExpr(UnwrapExpr *node) {
 llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
     auto it = namedValues_.find(node->getName());
     if (it != namedValues_.end()) {
+        // Reference variable: double indirection (load ptr, then load through ptr)
+        auto refIt = varRefTypes_.find(node->getName());
+        if (refIt != varRefTypes_.end()) {
+            auto *ptr = builder_->CreateLoad(
+                llvm::PointerType::getUnqual(*context_), it->second, node->getName() + ".ptr");
+            return builder_->CreateLoad(refIt->second, ptr, node->getName());
+        }
         return builder_->CreateLoad(it->second->getAllocatedType(), it->second,
                                      node->getName());
     }
@@ -1215,7 +1248,44 @@ llvm::Value *IRGen::emitNilCoalesce(BinaryExpr *node) {
         auto optIt = varOptionalTypes_.find(ident->getName());
         if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
     }
+    // Handle optional chain result: p?.x ?? default
     if (!optAlloca || !innerType) {
+        if (node->getLHS()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            auto *memberExpr = static_cast<MemberExpr *>(node->getLHS());
+            if (memberExpr->isOptionalChain()) {
+                auto *lhsVal = visit(node->getLHS());
+                if (!lhsVal) return visit(node->getRHS());
+                // lhsVal is an Optional<T> struct value; store to alloca for GEP
+                auto *optTy = lhsVal->getType();
+                auto *func = builder_->GetInsertBlock()->getParent();
+                auto *tmpAlloca = createEntryBlockAlloca(func, "coal.opt.tmp", optTy);
+                builder_->CreateStore(lhsVal, tmpAlloca);
+                auto *hasValPtr2 = builder_->CreateStructGEP(optTy, tmpAlloca, 0);
+                auto *hasVal2 = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr2, "coal.hasval");
+                auto *fieldInnerType = optTy->getStructElementType(1);
+                auto *hasValBB2 = llvm::BasicBlock::Create(*context_, "coal.hasval", func);
+                auto *nilBB2 = llvm::BasicBlock::Create(*context_, "coal.nil", func);
+                auto *mergeBB2 = llvm::BasicBlock::Create(*context_, "coal.merge", func);
+                builder_->CreateCondBr(hasVal2, hasValBB2, nilBB2);
+
+                builder_->SetInsertPoint(hasValBB2);
+                auto *valPtr2 = builder_->CreateStructGEP(optTy, tmpAlloca, 1);
+                auto *optVal2 = builder_->CreateLoad(fieldInnerType, valPtr2, "coal.val");
+                auto *hasValEnd2 = builder_->GetInsertBlock();
+                builder_->CreateBr(mergeBB2);
+
+                builder_->SetInsertPoint(nilBB2);
+                auto *defaultVal2 = visit(node->getRHS());
+                auto *nilEnd2 = builder_->GetInsertBlock();
+                builder_->CreateBr(mergeBB2);
+
+                builder_->SetInsertPoint(mergeBB2);
+                auto *phi2 = builder_->CreatePHI(fieldInnerType, 2, "coal.result");
+                phi2->addIncoming(optVal2, hasValEnd2);
+                phi2->addIncoming(defaultVal2, nilEnd2);
+                return phi2;
+            }
+        }
         auto *lhs = visit(node->getLHS());
         return lhs ? lhs : visit(node->getRHS());
     }
@@ -1244,6 +1314,90 @@ llvm::Value *IRGen::emitNilCoalesce(BinaryExpr *node) {
     auto *phi = builder_->CreatePHI(innerType, 2, "coal.result");
     phi->addIncoming(optVal, hasValEnd);
     phi->addIncoming(defaultVal, nilEnd);
+    return phi;
+}
+
+llvm::Value *IRGen::emitOptionalChainMember(MemberExpr *node) {
+    // obj?.field — nil check, unwrap, field access, rewrap as Optional
+    if (node->getObject()->getKind() != ASTNode::NodeKind::IdentifierExpr)
+        return nullptr;
+
+    auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+    auto optIt = varOptionalTypes_.find(ident->getName());
+    if (optIt == varOptionalTypes_.end())
+        return nullptr;
+    auto nvIt = namedValues_.find(ident->getName());
+    if (nvIt == namedValues_.end())
+        return nullptr;
+
+    auto *optAlloca = nvIt->second;
+    auto *innerType = optIt->second; // The struct type inside Optional
+
+    // Find the struct type name for field lookup
+    auto stIt = varStructTypes_.find(ident->getName());
+    if (stIt == varStructTypes_.end())
+        return nullptr;
+    const auto &structTypeName = stIt->second;
+
+    auto stTyIt = structTypes_.find(structTypeName);
+    if (stTyIt == structTypes_.end())
+        return nullptr;
+    auto *structTy = stTyIt->second;
+
+    int fieldIdx = getStructFieldIndex(structTypeName, node->getMember());
+    if (fieldIdx < 0)
+        return nullptr;
+
+    auto *fieldType = structTy->getElementType(fieldIdx);
+    auto *optResultTy = getOptionalType(fieldType);
+
+    // nil check
+    auto *optStructTy = getOptionalType(innerType);
+    auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
+    auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "optchain.hasval");
+
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *hasValBB = llvm::BasicBlock::Create(*context_, "optchain.hasval", func);
+    auto *nilBB = llvm::BasicBlock::Create(*context_, "optchain.nil", func);
+    auto *mergeBB = llvm::BasicBlock::Create(*context_, "optchain.merge", func);
+    builder_->CreateCondBr(hasVal, hasValBB, nilBB);
+
+    // has_val path: unwrap struct, access field, rewrap as Optional<FieldType>
+    builder_->SetInsertPoint(hasValBB);
+    auto *valPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 1);
+    auto *structVal = builder_->CreateLoad(innerType, valPtr, "optchain.unwrap");
+    // Store struct into temp alloca for GEP
+    auto *tmpAlloca = createEntryBlockAlloca(func, "optchain.tmp", innerType);
+    builder_->CreateStore(structVal, tmpAlloca);
+    auto *fieldGEP = builder_->CreateStructGEP(structTy, tmpAlloca, fieldIdx, "optchain.field");
+    auto *fieldVal = builder_->CreateLoad(fieldType, fieldGEP, "optchain.fieldval");
+    // Build Optional<FieldType>{true, fieldVal}
+    auto *resultAlloca = createEntryBlockAlloca(func, "optchain.result", optResultTy);
+    auto *resHasPtr = builder_->CreateStructGEP(optResultTy, resultAlloca, 0);
+    builder_->CreateStore(builder_->getTrue(), resHasPtr);
+    auto *resValPtr = builder_->CreateStructGEP(optResultTy, resultAlloca, 1);
+    builder_->CreateStore(fieldVal, resValPtr);
+    auto *someResult = builder_->CreateLoad(optResultTy, resultAlloca, "optchain.some");
+    auto *hasValEnd = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB);
+
+    // nil path: return nil Optional<FieldType>
+    builder_->SetInsertPoint(nilBB);
+    auto *nilAlloca = createEntryBlockAlloca(func, "optchain.nil", optResultTy);
+    auto *nilHasPtr = builder_->CreateStructGEP(optResultTy, nilAlloca, 0);
+    builder_->CreateStore(builder_->getFalse(), nilHasPtr);
+    // Zero-init the value field
+    auto *nilValPtr = builder_->CreateStructGEP(optResultTy, nilAlloca, 1);
+    builder_->CreateStore(llvm::Constant::getNullValue(fieldType), nilValPtr);
+    auto *nilResult = builder_->CreateLoad(optResultTy, nilAlloca, "optchain.none");
+    auto *nilEnd = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB);
+
+    // merge
+    builder_->SetInsertPoint(mergeBB);
+    auto *phi = builder_->CreatePHI(optResultTy, 2, "optchain.phi");
+    phi->addIncoming(someResult, hasValEnd);
+    phi->addIncoming(nilResult, nilEnd);
     return phi;
 }
 
@@ -1807,6 +1961,38 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
             return val;
         }
 
+        // Handle ref mut assignment: store through pointer
+        auto refIt = varRefTypes_.find(ident->getName());
+        if (refIt != varRefTypes_.end() && it != namedValues_.end()) {
+            auto *ptr = builder_->CreateLoad(
+                llvm::PointerType::getUnqual(*context_), it->second,
+                ident->getName() + ".ptr");
+            if (node->getOp() != AssignExpr::Op::Assign) {
+                auto *current = builder_->CreateLoad(refIt->second, ptr, ident->getName());
+                switch (node->getOp()) {
+                case AssignExpr::Op::AddAssign:
+                    val = builder_->CreateAdd(current, val, "addtmp");
+                    break;
+                case AssignExpr::Op::SubAssign:
+                    val = builder_->CreateSub(current, val, "subtmp");
+                    break;
+                case AssignExpr::Op::MulAssign:
+                    val = builder_->CreateMul(current, val, "multmp");
+                    break;
+                case AssignExpr::Op::DivAssign:
+                    val = builder_->CreateSDiv(current, val, "divtmp");
+                    break;
+                case AssignExpr::Op::ModAssign:
+                    val = builder_->CreateSRem(current, val, "modtmp");
+                    break;
+                default:
+                    break;
+                }
+            }
+            builder_->CreateStore(val, ptr);
+            return val;
+        }
+
         if (it != namedValues_.end()) {
             // Handle compound assignment
             if (node->getOp() != AssignExpr::Op::Assign) {
@@ -1876,6 +2062,10 @@ llvm::Value *IRGen::visitCastExpr(CastExpr *node) {
 }
 
 llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
+    // Optional chaining: obj?.field
+    if (node->isOptionalChain())
+        return emitOptionalChainMember(node);
+
     // Check for string.length
     if (node->getObject()->getResolvedType() &&
         node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
@@ -3323,6 +3513,25 @@ llvm::Value *IRGen::visitTryExpr(TryExpr *node) {
     builder_->SetInsertPoint(okBB);
     auto *okPayloadPtr = builder_->CreateStructGEP(resTy, tmpAlloca, 1, "try.ok.payload");
     return builder_->CreateLoad(currentFuncResultInfo_->okType, okPayloadPtr, "try.ok.val");
+}
+
+llvm::Value *IRGen::visitRefExpr(RefExpr *node) {
+    // ref x → return address of x (the alloca pointer)
+    if (auto *ident = dynamic_cast<const IdentifierExpr *>(node->getExpr())) {
+        auto it = namedValues_.find(ident->getName());
+        if (it != namedValues_.end()) {
+            // If x is itself a ref, load the pointer (pass-through)
+            auto refIt = varRefTypes_.find(ident->getName());
+            if (refIt != varRefTypes_.end()) {
+                return builder_->CreateLoad(
+                    llvm::PointerType::getUnqual(*context_), it->second,
+                    ident->getName() + ".ref");
+            }
+            // Normal variable: return alloca address
+            return it->second;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace liva

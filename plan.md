@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 191/191 gecen test (lexer:22, parser:48, sema:103, type:12, ownership:6)
+- **Test:** 203/203 gecen test (lexer:22, parser:53, sema:110, type:12, ownership:6)
 
 ---
 
@@ -70,7 +70,7 @@ kaynak kod (.liva)
 - String interpolasyon tokenleri (`\(expr)`)
 - Kaynak konum takibi (satir, sutun)
 
-### M2: Parser + AST [TAMAMLANDI] - 48 test
+### M2: Parser + AST [TAMAMLANDI] - 53 test
 - 40+ AST dugum turu (9 Decl, 9 Stmt, 22 Expr)
 - Pratt parser (oncelik tirmanmasi) ile ifade ayristirma
 - CRTP-tabanli ASTVisitor deseni
@@ -120,14 +120,14 @@ kaynak kod (.liva)
 | MatchExpr | `match s { ... }` | Tam |
 | ArrayLiteralExpr | `[1, 2, 3]` | Tam |
 | CastExpr | `expr as Type` | Tam |
-| RefExpr | `ref x`, `ref mut x` | Sema, codegen eksik |
+| RefExpr | `ref x`, `ref mut x` | Tam |
 | GroupExpr | `(expr)` | Tam |
 | RangeExpr | `0..10` | Tam (for-in icinde) |
 | UnwrapExpr | `x!` | Tam |
 | ClosureExpr | `\|x: i32\| -> i32 { return x * 2 }` | Tam (capture, inference, trailing) |
 | TryExpr | `try riskyFunc()` | Tam |
 
-### M3: Tip Kontrolu (Kismi) [TAMAMLANDI] - 12 tip test + 103 sema test
+### M3: Tip Kontrolu (Kismi) [TAMAMLANDI] - 12 tip test + 107 sema test
 - Tip sistemi: 13 TypeRepr cesidi
   - Primitifler: Void, Bool, I8/I16/I32/I64, U8/U16/U32/U64, F32/F64, String
   - Bilesenler: Named, Array, Reference, Optional, Function, Generic, Inferred
@@ -302,31 +302,49 @@ kaynak kod (.liva)
 - Sema: bound isim dogrulama, cagri noktalarinda conformance kontrolu
 - Codegen: monomorphization zaten calistigindan ek degisiklik gerekmez
 
+### M19: Teknik Borc Temizligi [TAMAMLANDI]
+- **Where clause destegi:** `func show<T>(item: T) where T: Printable { ... }`
+  - Parser: `parseFuncDecl`, `parseStructDecl`, `parseImplDecl`'e where clause eklendi
+  - Inline `<T: P>` ve `where T: P` ayni `typeParamBounds` map'ine yazilir (son yazar kazanir)
+  - 5 parser testi, 3 sema testi
+- **RefExpr sema tip propagasyonu:** `visitRefExpr` artik `ReferenceTypeRepr` olusturup `setResolvedType` cagiriyor
+  - 1 sema testi
+
+### M20: RefExpr Codegen [TAMAMLANDI]
+- `ref x` / `ref mut x` icin LLVM IR uretimi
+- `toLLVMType`: Reference -> ptr (opaque pointer)
+- `varRefTypes_` map: ref degiskenlerin ic LLVM tipini takip eder
+- `visitFuncDecl`: ref parametreler ptr olarak gecirilir, `varRefTypes_` kaydi + scope save/restore
+- `visitIdentifierExpr`: ref degiskenler icin double-load (ptr yukle, ptr uzerinden deger yukle)
+- `visitRefExpr`: normal degiskenin alloca adresini dondurur, ref degiskende ptr'yi yukler (pass-through)
+- `visitAssignExpr`: ref mut atamasi pointer uzerinden store (compound assignment dahil)
+- 3 yeni sema testi: RefParamFunction, RefMutParamFunction, RefPassThrough
+
 ---
 
 ## Gelecek Milestone'lar
 
-### M19: Standart Kutuphane [PLANLANMADI]
+### M20: Standart Kutuphane [PLANLANMADI]
 
-**M19a: Temel Tipler**
+**M20a: Temel Tipler**
 - `Map<K, V>` - hash map
 - `Set<T>` - hash set
 
-**M19b: I/O**
+**M20b: I/O**
 - `File` tipi, okuma/yazma
 - `stdin`, `stdout`, `stderr`
 - Formatlama: `format("x = {}", x)`
 
-**M19c: Matematik**
+**M20c: Matematik**
 - `abs`, `min`, `max`, `sqrt`, `pow`
 - Trigonometrik fonksiyonlar
 
-### M20: Async/Await [PLANLANMADI]
+### M21: Async/Await [PLANLANMADI]
 - `async func fetch() -> String { ... }`
 - `let result = await fetch()`
 - Coroutine tabanli uygulama
 
-### M21: Derleme Zamani Degerlendirme [PLANLANMADI]
+### M22: Derleme Zamani Degerlendirme [PLANLANMADI]
 - `const` fonksiyonlar ve ifadeler
 - Compile-time array boyutu hesaplama
 
@@ -390,11 +408,11 @@ kaynak kod (.liva)
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
 | `tests/unit/LexerTest.cpp` | 22 | Token turleri, literaller, yorumlar, konum, string interpolasyon |
-| `tests/unit/ParserTest.cpp` | 48 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds |
-| `tests/unit/SemaTest.cpp` | 103 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds |
+| `tests/unit/ParserTest.cpp` | 53 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause |
+| `tests/unit/SemaTest.cpp` | 110 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 6 | Move, borrow, use-after-move |
-| **Toplam** | **191** | |
+| **Toplam** | **203** | |
 
 ---
 
@@ -425,10 +443,10 @@ clang output.ll -o output.exe
 
 1. **OwnershipChecker IRGen'e entegre degil** - Ownership kontrolu yapiliyor ama codegen'e yansimitlmiyor
 2. **LifetimeAnalysis.h bos** - Lifetime analizi henuz uygulanmadi
-3. **RefExpr codegen eksik** - Parse ve sema var, IR uretimi yok
+3. ~~**RefExpr codegen eksik**~~ - COZULDU (M20)
 4. **Optional chaining yok** - `obj?.method()` sozdizimi henuz desteklenmiyor
 5. **Closure capture by reference yok** - Sadece capture by value destekleniyor
-6. **where clause yok** - Trait bounds sadece `<T: Protocol>` sozdizimi ile
+6. ~~**where clause yok**~~ - COZULDU (M19)
 7. **Associated types yok** - Protocol'larda iliskili tip tanimlama yok
 8. **Ayri derleme yok** - Modul sistemi inline (tek LLVM Module'e ekleme)
 
@@ -436,6 +454,8 @@ clang output.ll -o output.exe
 
 ## Oncelik Sirasi (Onerilen)
 
-1. **M19: Standart kutuphane** - Map, Set, File I/O, matematik
-2. **M20: Async/Await** - Ileri ozellik
-3. **M21: Derleme zamani degerlendirme** - Optimizasyon
+1. ~~**RefExpr codegen**~~ - TAMAMLANDI (M20)
+2. **Optional chaining** - `obj?.method()` sozdizimi
+3. **Standart kutuphane** - Map, Set, File I/O, matematik
+4. **Async/Await** - Ileri ozellik
+5. **Derleme zamani degerlendirme** - Optimizasyon

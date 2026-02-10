@@ -84,6 +84,7 @@ public:
     llvm::Value *visitProtocolDecl(ProtocolDecl *node);
     llvm::Value *visitImportDecl(ImportDecl *node);
     llvm::Value *visitTryExpr(TryExpr *node);
+    llvm::Value *visitRefExpr(RefExpr *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -235,12 +236,18 @@ private:
     /// Emit nil coalescing operator (??) IR
     llvm::Value *emitNilCoalesce(BinaryExpr *node);
 
+    /// Emit optional chaining member access (?.) IR
+    llvm::Value *emitOptionalChainMember(MemberExpr *node);
+
     /// Get or create an Optional<T> struct type: { i1, T }
     llvm::StructType *getOptionalType(llvm::Type *innerType);
     std::unordered_map<llvm::Type *, llvm::StructType *> optionalTypes_;
 
     /// Track which variables are optional and their inner LLVM type
     std::unordered_map<std::string, llvm::Type *> varOptionalTypes_;
+
+    /// Track which variables are references and their inner LLVM type
+    std::unordered_map<std::string, llvm::Type *> varRefTypes_;
 
     /// Result type support
     struct ResultInfo { llvm::Type *okType; llvm::Type *errType; };
