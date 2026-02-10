@@ -1,4 +1,5 @@
 #include "liva/AST/Expr.h"
+#include "liva/AST/Stmt.h"
 
 namespace liva {
 
@@ -55,5 +56,7 @@ const char *UnaryExpr::getOpSpelling() const {
     }
     return "<unknown>";
 }
+
+ClosureExpr::~ClosureExpr() = default;
 
 } // namespace liva

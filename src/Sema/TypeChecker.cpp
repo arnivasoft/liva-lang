@@ -326,7 +326,14 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeStringType());
         } else {
             auto *sym = scopes_.lookup(ident->getName());
-            if (sym && sym->funcDecl) {
+            if (sym && sym->type &&
+                sym->type->getKind() == TypeRepr::Kind::Function) {
+                auto *ft = static_cast<const FunctionTypeRepr *>(sym->type);
+                if (ft->getReturnType() && !ft->getReturnType()->isVoid()) {
+                    node->setResolvedType(
+                        makePrimitiveType(ft->getReturnType()->getKind()));
+                }
+            } else if (sym && sym->funcDecl) {
                 if (sym->funcDecl->isGeneric()) {
                     // Infer type parameters from argument types
                     std::unordered_map<std::string, const TypeRepr *> typeBindings;
@@ -554,6 +561,28 @@ void TypeChecker::visitRangeExpr(RangeExpr *node) {
 
 void TypeChecker::visitUnwrapExpr(UnwrapExpr *node) {
     visit(node->getOperand());
+}
+
+void TypeChecker::visitClosureExpr(ClosureExpr *node) {
+    scopes_.pushScope();
+
+    for (auto &param : node->getParams()) {
+        Symbol sym;
+        sym.name = param.name;
+        sym.kind = Symbol::Kind::Parameter;
+        sym.type = param.type.get();
+        scopes_.declare(param.name, sym);
+    }
+
+    auto *prevReturn = currentReturnType_;
+    currentReturnType_ = node->getReturnType();
+
+    if (node->getBody()) {
+        visitBlockStmt(node->getBody());
+    }
+
+    currentReturnType_ = prevReturn;
+    scopes_.popScope();
 }
 
 } // namespace liva

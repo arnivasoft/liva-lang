@@ -237,6 +237,10 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
         return parseMatchExpr();
     }
 
+    case TokenKind::pipe:
+    case TokenKind::pipe_pipe:
+        return parseClosureExpr();
+
     default:
         diag_.report(current_.getLocation(), DiagID::err_expected_expression);
         return nullptr;
@@ -386,6 +390,41 @@ std::unique_ptr<Expr> Parser::parseMatchExpr() {
 
     return std::make_unique<MatchExpr>(std::move(subject), std::move(arms),
                                        rangeFrom(startLoc));
+}
+
+std::unique_ptr<Expr> Parser::parseClosureExpr() {
+    auto startLoc = current_.getLocation();
+
+    std::vector<ClosureExpr::Param> params;
+
+    if (check(TokenKind::pipe_pipe)) {
+        advance(); // consume ||
+    } else {
+        expect(TokenKind::pipe);
+        if (!check(TokenKind::pipe)) {
+            do {
+                auto name = expect(TokenKind::identifier).getText();
+                expect(TokenKind::colon);
+                auto type = parseType();
+                ClosureExpr::Param p;
+                p.name = std::string(name);
+                p.type = std::move(type);
+                params.push_back(std::move(p));
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::pipe);
+    }
+
+    std::unique_ptr<TypeRepr> returnType;
+    if (match(TokenKind::arrow)) {
+        returnType = parseType();
+    }
+
+    auto body = parseBlock();
+
+    return std::make_unique<ClosureExpr>(
+        std::move(params), std::move(returnType),
+        std::move(body), rangeFrom(startLoc));
 }
 
 } // namespace liva

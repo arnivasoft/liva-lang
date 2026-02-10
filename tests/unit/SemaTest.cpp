@@ -742,3 +742,33 @@ TEST_F(SemaTest, NilWithoutOptionalType) {
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_nil_without_optional));
 }
+
+TEST_F(SemaTest, ClosureAssignToVar) {
+    auto result = check(R"--(
+        func main() {
+            let f: (i32) -> i32 = |x: i32| -> i32 { return x }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClosureAsArgument) {
+    auto result = check(R"--(
+        func apply(f: (i32) -> i32, x: i32) -> i32 {
+            return f(x)
+        }
+        func main() {
+            let r = apply(|x: i32| -> i32 { return x + 1 }, 5)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClosureNoParamsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let f = || { let x = 1 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

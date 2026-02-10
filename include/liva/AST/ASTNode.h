@@ -51,6 +51,7 @@ public:
         GroupExpr,
         RangeExpr,
         UnwrapExpr,  // x! (force unwrap optional)
+        ClosureExpr, // |x: i32| -> i32 { body }
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())

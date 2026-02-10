@@ -431,4 +431,12 @@ void ASTPrinter::visitUnwrapExpr(UnwrapExpr *node) {
     decreaseIndent();
 }
 
+void ASTPrinter::visitClosureExpr(ClosureExpr *node) {
+    indent();
+    os_ << "ClosureExpr params=" << node->getParams().size() << "\n";
+    increaseIndent();
+    visit(node->getBody());
+    decreaseIndent();
+}
+
 } // namespace liva

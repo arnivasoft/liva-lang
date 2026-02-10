@@ -54,6 +54,7 @@ public:
     void visitGroupExpr(GroupExpr *node);
     void visitRangeExpr(RangeExpr *node);
     void visitUnwrapExpr(UnwrapExpr *node);
+    void visitClosureExpr(ClosureExpr *node);
 
 private:
     void indent();

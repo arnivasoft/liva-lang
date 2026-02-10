@@ -118,6 +118,9 @@ public:
         case ASTNode::NodeKind::UnwrapExpr:
             return static_cast<Derived *>(this)->visitUnwrapExpr(
                 static_cast<UnwrapExpr *>(node));
+        case ASTNode::NodeKind::ClosureExpr:
+            return static_cast<Derived *>(this)->visitClosureExpr(
+                static_cast<ClosureExpr *>(node));
         }
         return RetTy();
     }
@@ -162,6 +165,7 @@ public:
     RetTy visitGroupExpr(GroupExpr *) { return RetTy(); }
     RetTy visitRangeExpr(RangeExpr *) { return RetTy(); }
     RetTy visitUnwrapExpr(UnwrapExpr *) { return RetTy(); }
+    RetTy visitClosureExpr(ClosureExpr *) { return RetTy(); }
 };
 
 } // namespace liva

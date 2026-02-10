@@ -197,6 +197,8 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         auto *optType = static_cast<const OptionalTypeRepr *>(type);
         return getOptionalType(toLLVMType(optType->getInner()));
     }
+    case TypeRepr::Kind::Function:
+        return llvm::PointerType::getUnqual(*context_);
     default:
         return builder_->getInt32Ty();
     }
@@ -250,12 +252,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarArrayTypes = varArrayTypes_;
     auto oldVarDynArrayTypes = varDynArrayTypes_;
     auto oldVarOptionalTypes = varOptionalTypes_;
+    auto oldVarFuncTypes = varFuncTypes_;
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
     varOptionalTypes_.clear();
+    varFuncTypes_.clear();
 
     // Create allocas for parameters
     i = 0;
@@ -288,6 +292,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varArrayTypes_ = oldVarArrayTypes;
     varDynArrayTypes_ = oldVarDynArrayTypes;
     varOptionalTypes_ = oldVarOptionalTypes;
+    varFuncTypes_ = oldVarFuncTypes;
 
     return func;
 }
@@ -531,6 +536,28 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             varArrayTypes_[node->getName()] = {elemType, numElements};
             return alloca;
         }
+    }
+
+    // Function-typed variable: let f: (i32) -> i32 = |x: i32| -> i32 { ... }
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Function) {
+        auto *funcTypeRepr = static_cast<const FunctionTypeRepr *>(node->getType());
+        std::vector<llvm::Type *> paramTypes;
+        for (auto &p : funcTypeRepr->getParams())
+            paramTypes.push_back(toLLVMType(p.get()));
+        llvm::Type *retTy = funcTypeRepr->getReturnType()
+            ? toLLVMType(funcTypeRepr->getReturnType())
+            : builder_->getVoidTy();
+        auto *llvmFuncTy = llvm::FunctionType::get(retTy, paramTypes, false);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *alloca = createEntryBlockAlloca(func, node->getName(), ptrTy);
+        if (node->hasInit()) {
+            auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+            if (initVal) builder_->CreateStore(initVal, alloca);
+        }
+        namedValues_[node->getName()] = alloca;
+        varFuncTypes_[node->getName()] = llvmFuncTy;
+        return alloca;
     }
 
     auto *type = toLLVMType(node->getType());
@@ -1101,6 +1128,25 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(printfFunc, {fmtStr, arg});
     }
 
+    // Check for indirect call through function-typed variable
+    auto funcIt = varFuncTypes_.find(funcName);
+    if (funcIt != varFuncTypes_.end()) {
+        auto namedIt = namedValues_.find(funcName);
+        if (namedIt != namedValues_.end()) {
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            auto *funcPtr = builder_->CreateLoad(ptrTy, namedIt->second, "func.ptr");
+            std::vector<llvm::Value *> args;
+            for (auto &arg : node->getArgs()) {
+                auto *val = visit(arg.get());
+                if (!val) return nullptr;
+                args.push_back(val);
+            }
+            if (funcIt->second->getReturnType()->isVoidTy())
+                return builder_->CreateCall(funcIt->second, funcPtr, args);
+            return builder_->CreateCall(funcIt->second, funcPtr, args, "indcalltmp");
+        }
+    }
+
     // Look up the function
     auto *callee = module_->getFunction(funcName);
 
@@ -1505,6 +1551,66 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
     return builder_->CreateLoad(structTy, alloca, typeName + ".val");
 }
 
+llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
+    auto savedBlock = builder_->GetInsertBlock();
+    auto savedValues = namedValues_;
+    auto savedStructTypes2 = varStructTypes_;
+    auto savedEnumTypes2 = varEnumTypes_;
+    auto savedArrayTypes2 = varArrayTypes_;
+    auto savedDynArrayTypes2 = varDynArrayTypes_;
+    auto savedOptionalTypes2 = varOptionalTypes_;
+    auto savedFuncTypes2 = varFuncTypes_;
+
+    std::vector<llvm::Type *> paramTypes;
+    for (auto &p : node->getParams())
+        paramTypes.push_back(toLLVMType(p.type.get()));
+    llvm::Type *retTy = node->getReturnType()
+        ? toLLVMType(node->getReturnType())
+        : builder_->getVoidTy();
+    auto *funcTy = llvm::FunctionType::get(retTy, paramTypes, false);
+
+    std::string name = "__closure_" + std::to_string(closureCounter_++);
+    auto *func = llvm::Function::Create(
+        funcTy, llvm::Function::InternalLinkage, name, module_.get());
+
+    auto *entry = llvm::BasicBlock::Create(*context_, "entry", func);
+    builder_->SetInsertPoint(entry);
+    namedValues_.clear();
+    varStructTypes_.clear();
+    varEnumTypes_.clear();
+    varArrayTypes_.clear();
+    varDynArrayTypes_.clear();
+    varOptionalTypes_.clear();
+    varFuncTypes_.clear();
+
+    unsigned i = 0;
+    for (auto &arg : func->args()) {
+        auto &param = node->getParams()[i];
+        arg.setName(param.name);
+        auto *alloca = createEntryBlockAlloca(func, param.name, paramTypes[i]);
+        builder_->CreateStore(&arg, alloca);
+        namedValues_[param.name] = alloca;
+        i++;
+    }
+
+    visit(node->getBody());
+
+    if (!builder_->GetInsertBlock()->getTerminator()) {
+        if (retTy->isVoidTy()) builder_->CreateRetVoid();
+    }
+
+    builder_->SetInsertPoint(savedBlock);
+    namedValues_ = savedValues;
+    varStructTypes_ = savedStructTypes2;
+    varEnumTypes_ = savedEnumTypes2;
+    varArrayTypes_ = savedArrayTypes2;
+    varDynArrayTypes_ = savedDynArrayTypes2;
+    varOptionalTypes_ = savedOptionalTypes2;
+    varFuncTypes_ = savedFuncTypes2;
+
+    return func;
+}
+
 llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
     const auto &typeName = node->getTypeName();
 
@@ -1551,12 +1657,14 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarArrayTypes = varArrayTypes_;
         auto oldVarDynArrayTypes = varDynArrayTypes_;
         auto oldVarOptionalTypes = varOptionalTypes_;
+        auto oldVarFuncTypes = varFuncTypes_;
         namedValues_.clear();
         varStructTypes_.clear();
         varEnumTypes_.clear();
         varArrayTypes_.clear();
         varDynArrayTypes_.clear();
         varOptionalTypes_.clear();
+        varFuncTypes_.clear();
 
         // Create allocas for parameters
         i = 0;
@@ -1589,6 +1697,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varArrayTypes_ = oldVarArrayTypes;
         varDynArrayTypes_ = oldVarDynArrayTypes;
         varOptionalTypes_ = oldVarOptionalTypes;
+        varFuncTypes_ = oldVarFuncTypes;
     }
 
     return nullptr;
@@ -1976,6 +2085,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
+    auto savedVarFuncTypes = varFuncTypes_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
 
     // Set up type substitution map: T -> i32, U -> f64, ...
@@ -2011,6 +2121,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
     varOptionalTypes_.clear();
+    varFuncTypes_.clear();
 
     // Create parameter allocas
     idx = 0;
@@ -2043,6 +2154,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
     varOptionalTypes_ = savedVarOptionalTypes;
+    varFuncTypes_ = savedVarFuncTypes;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 
@@ -2178,6 +2290,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
+    auto savedVarFuncTypes = varFuncTypes_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
 
     // Set up type substitution from impl's type params
@@ -2217,6 +2330,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
     varOptionalTypes_.clear();
+    varFuncTypes_.clear();
 
     // Create parameter allocas
     idx = 0;
@@ -2252,6 +2366,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
     varOptionalTypes_ = savedVarOptionalTypes;
+    varFuncTypes_ = savedVarFuncTypes;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 

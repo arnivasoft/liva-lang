@@ -54,6 +54,7 @@ public:
     void visitMatchExpr(MatchExpr *node);
     void visitRangeExpr(RangeExpr *node);
     void visitUnwrapExpr(UnwrapExpr *node);
+    void visitClosureExpr(ClosureExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 

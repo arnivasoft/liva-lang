@@ -72,6 +72,7 @@ public:
     llvm::Value *visitIndexExpr(IndexExpr *node);
     llvm::Value *visitNilLiteralExpr(NilLiteralExpr *node);
     llvm::Value *visitUnwrapExpr(UnwrapExpr *node);
+    llvm::Value *visitClosureExpr(ClosureExpr *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -224,6 +225,12 @@ private:
 
     /// Track which variables are optional and their inner LLVM type
     std::unordered_map<std::string, llvm::Type *> varOptionalTypes_;
+
+    /// Function-typed variable tracking (for indirect calls)
+    std::unordered_map<std::string, llvm::FunctionType *> varFuncTypes_;
+
+    /// Counter for generating unique closure names
+    int closureCounter_ = 0;
 };
 
 #else

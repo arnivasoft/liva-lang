@@ -395,3 +395,21 @@ TEST_F(ParserTest, ForceUnwrap) {
     )--");
     ASSERT_FALSE(result.hasErrors);
 }
+
+TEST_F(ParserTest, ClosureExprBasic) {
+    auto result = parse(R"--(
+        func test() {
+            let f = |x: i32| -> i32 { return x }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ClosureExprNoParams) {
+    auto result = parse(R"--(
+        func test() {
+            let f = || { let x = 1 }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}

@@ -8,6 +8,8 @@
 
 namespace liva {
 
+class BlockStmt; // Forward declaration for ClosureExpr
+
 /// Base class for all expressions
 class Expr : public ASTNode {
 public:
@@ -19,7 +21,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::IntegerLiteralExpr &&
-               node->getKind() <= NodeKind::UnwrapExpr;
+               node->getKind() <= NodeKind::ClosureExpr;
     }
 
 protected:
@@ -426,6 +428,33 @@ public:
 
 private:
     std::unique_ptr<Expr> operand_;
+};
+
+/// Closure expression: |x: i32| -> i32 { return x * 2 }
+class ClosureExpr : public Expr {
+public:
+    struct Param {
+        std::string name;
+        std::unique_ptr<TypeRepr> type;
+    };
+
+    ClosureExpr(std::vector<Param> params, std::unique_ptr<TypeRepr> returnType,
+                std::unique_ptr<BlockStmt> body, SourceRange range)
+        : Expr(NodeKind::ClosureExpr, range), params_(std::move(params)),
+          returnType_(std::move(returnType)), body_(std::move(body)) {}
+    ~ClosureExpr() override;
+
+    const std::vector<Param> &getParams() const { return params_; }
+    const TypeRepr *getReturnType() const { return returnType_.get(); }
+    const BlockStmt *getBody() const { return body_.get(); }
+    BlockStmt *getBody() { return body_.get(); }
+
+    static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::ClosureExpr; }
+
+private:
+    std::vector<Param> params_;
+    std::unique_ptr<TypeRepr> returnType_;
+    std::unique_ptr<BlockStmt> body_;
 };
 
 } // namespace liva

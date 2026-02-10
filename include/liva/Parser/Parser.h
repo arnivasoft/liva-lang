@@ -49,6 +49,7 @@ public:
     std::unique_ptr<Expr> parseStructLiteral(const std::string &name, SourceLocation startLoc);
     std::unique_ptr<Expr> parseArrayLiteral();
     std::unique_ptr<Expr> parseMatchExpr();
+    std::unique_ptr<Expr> parseClosureExpr();
 
     // Type parsing (ParseType.cpp)
     std::unique_ptr<TypeRepr> parseType();
