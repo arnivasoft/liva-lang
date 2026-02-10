@@ -64,6 +64,21 @@ void liva_print_bool(int8_t value);
 void liva_print_str(const char *str);
 void liva_println_str(const char *str);
 
+// === Dynamic Array ===
+
+/// Allocate heap array for given element size and capacity
+void *liva_array_new(int64_t elem_size, int64_t capacity);
+
+/// Free heap array data
+void liva_array_free(void *data);
+
+/// Push element to dynamic array (may realloc)
+void liva_array_push(void **data_ptr, int64_t *len_ptr, int64_t *cap_ptr,
+                      const void *elem, int64_t elem_size);
+
+/// Pop last element from dynamic array
+void liva_array_pop(int64_t *len_ptr);
+
 // === Panic ===
 
 /// Called when an unrecoverable error occurs

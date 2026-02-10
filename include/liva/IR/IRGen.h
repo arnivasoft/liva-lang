@@ -122,6 +122,19 @@ private:
     };
     std::unordered_map<std::string, ArrayInfo> varArrayTypes_;
 
+    /// Dynamic array variable tracking
+    struct DynArrayInfo {
+        llvm::Type *elementType;
+        uint64_t elemSize;
+    };
+    std::unordered_map<std::string, DynArrayInfo> varDynArrayTypes_;
+
+    /// Dynamic array LLVM struct type: { ptr, i64, i64 }
+    llvm::StructType *dynArrayStructTy_ = nullptr;
+
+    /// Get or create the dynamic array struct type
+    llvm::StructType *getDynArrayStructTy();
+
     /// String constant interning
     std::unordered_map<std::string, llvm::Constant *> stringConstants_;
 

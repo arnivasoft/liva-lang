@@ -95,6 +95,32 @@ void IRGen::createRuntimeDecls() {
 
     auto *boolToStrTy = llvm::FunctionType::get(i8PtrTy, {i8Ty}, false);
     module_->getOrInsertFunction("liva_bool_to_str", boolToStrTy);
+
+    // Dynamic array runtime
+    auto *arrayNewTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_array_new", arrayNewTy);
+
+    auto *arrayFreeTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_array_free", arrayFreeTy);
+
+    // liva_array_push(ptr*, i64*, i64*, ptr, i64)
+    auto *arrayPushTy = llvm::FunctionType::get(builder_->getVoidTy(),
+        {i8PtrTy, i8PtrTy, i8PtrTy, i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_array_push", arrayPushTy);
+
+    auto *arrayPopTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_array_pop", arrayPopTy);
+}
+
+llvm::StructType *IRGen::getDynArrayStructTy() {
+    if (!dynArrayStructTy_) {
+        dynArrayStructTy_ = llvm::StructType::create(*context_,
+            {llvm::PointerType::getUnqual(*context_),
+             builder_->getInt64Ty(),
+             builder_->getInt64Ty()},
+            "DynArray");
+    }
+    return dynArrayStructTy_;
 }
 
 llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
@@ -194,10 +220,12 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarStructTypes = varStructTypes_;
     auto oldVarEnumTypes = varEnumTypes_;
     auto oldVarArrayTypes = varArrayTypes_;
+    auto oldVarDynArrayTypes = varDynArrayTypes_;
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
     varArrayTypes_.clear();
+    varDynArrayTypes_.clear();
 
     // Create allocas for parameters
     i = 0;
@@ -228,6 +256,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varStructTypes_ = oldVarStructTypes;
     varEnumTypes_ = oldVarEnumTypes;
     varArrayTypes_ = oldVarArrayTypes;
+    varDynArrayTypes_ = oldVarDynArrayTypes;
 
     return func;
 }
@@ -363,6 +392,58 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 varEnumTypes_[node->getName()] = ident->getName();
                 return alloca;
             }
+        }
+    }
+
+    // Dynamic array: var arr: [i32] = [1, 2, 3] or var arr: [i32] = []
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Array) {
+        auto *arrTypeRepr = static_cast<const ArrayTypeRepr *>(node->getType());
+        if (arrTypeRepr->isDynamic()) {
+            auto *elemType = toLLVMType(arrTypeRepr->getElement());
+            const llvm::DataLayout &dl = module_->getDataLayout();
+            uint64_t elemSize = dl.getTypeAllocSize(elemType);
+            auto *structTy = getDynArrayStructTy();
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+
+            // Collect init elements
+            std::vector<llvm::Value *> initVals;
+            if (node->hasInit() &&
+                node->getInit()->getKind() == ASTNode::NodeKind::ArrayLiteralExpr) {
+                auto *arrayLit = static_cast<ArrayLiteralExpr *>(
+                    const_cast<Expr *>(node->getInit()));
+                for (auto &elem : arrayLit->getElements()) {
+                    auto *val = visit(elem.get());
+                    if (val) initVals.push_back(val);
+                }
+            }
+
+            uint64_t initLen = initVals.size();
+            uint64_t initCap = initLen > 0 ? initLen : 8;
+
+            // liva_array_new(elem_size, capacity)
+            auto *newFn = module_->getFunction("liva_array_new");
+            auto *dataPtr = builder_->CreateCall(newFn,
+                {builder_->getInt64(elemSize), builder_->getInt64(initCap)}, "arr.data");
+
+            // Store initial elements
+            for (uint64_t i = 0; i < initLen; ++i) {
+                auto *elemPtr = builder_->CreateGEP(elemType, dataPtr,
+                    builder_->getInt64(i), "arr.init." + std::to_string(i));
+                builder_->CreateStore(initVals[i], elemPtr);
+            }
+
+            // Fill struct fields: {data, length, capacity}
+            auto *dataField = builder_->CreateStructGEP(structTy, alloca, 0, "arr.data.ptr");
+            builder_->CreateStore(dataPtr, dataField);
+            auto *lenField = builder_->CreateStructGEP(structTy, alloca, 1, "arr.len.ptr");
+            builder_->CreateStore(builder_->getInt64(initLen), lenField);
+            auto *capField = builder_->CreateStructGEP(structTy, alloca, 2, "arr.cap.ptr");
+            builder_->CreateStore(builder_->getInt64(initCap), capField);
+
+            namedValues_[node->getName()] = alloca;
+            varDynArrayTypes_[node->getName()] = {elemType, elemSize};
+            return alloca;
         }
     }
 
@@ -743,6 +824,44 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Dynamic array method: arr.push(val), arr.pop()
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            auto daIt = varDynArrayTypes_.find(ident->getName());
+            if (daIt != varDynArrayTypes_.end()) {
+                auto allocaIt = namedValues_.find(ident->getName());
+                if (allocaIt == namedValues_.end()) return nullptr;
+                auto *arrAlloca = allocaIt->second;
+                auto *structTy = getDynArrayStructTy();
+
+                if (methodName == "push" && !node->getArgs().empty()) {
+                    auto *val = visit(node->getArgs()[0].get());
+                    if (!val) return nullptr;
+                    auto *func = builder_->GetInsertBlock()->getParent();
+                    auto *elemAlloca = createEntryBlockAlloca(func, "push.tmp",
+                                                              daIt->second.elementType);
+                    builder_->CreateStore(val, elemAlloca);
+
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *capField = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+
+                    auto *pushFn = module_->getFunction("liva_array_push");
+                    builder_->CreateCall(pushFn, {dataField, lenField, capField,
+                                                   elemAlloca,
+                                                   builder_->getInt64(daIt->second.elemSize)});
+                    return nullptr;
+                }
+
+                if (methodName == "pop") {
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *popFn = module_->getFunction("liva_array_pop");
+                    builder_->CreateCall(popFn, {lenField});
+                    return nullptr;
+                }
+            }
+        }
+
         // Find the object's struct type
         std::string objName;
         std::string structTypeName;
@@ -994,6 +1113,27 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
         auto *indexExpr = static_cast<IndexExpr *>(node->getTarget());
         if (indexExpr->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<const IdentifierExpr *>(indexExpr->getBase());
+
+            // Dynamic array index assign: arr[i] = val
+            auto daIt = varDynArrayTypes_.find(ident->getName());
+            if (daIt != varDynArrayTypes_.end()) {
+                auto allocaIt = namedValues_.find(ident->getName());
+                if (allocaIt != namedValues_.end()) {
+                    auto *arrAlloca = allocaIt->second;
+                    auto *structTy = getDynArrayStructTy();
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                    auto *dataPtr = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), dataField);
+                    auto *indexVal = visit(const_cast<Expr *>(indexExpr->getIndex()));
+                    if (!indexVal) return val;
+                    if (indexVal->getType()->isIntegerTy(32))
+                        indexVal = builder_->CreateSExt(indexVal, builder_->getInt64Ty());
+                    auto *elemPtr = builder_->CreateGEP(daIt->second.elementType, dataPtr, indexVal);
+                    builder_->CreateStore(val, elemPtr);
+                }
+                return val;
+            }
+
             auto arrIt = varArrayTypes_.find(ident->getName());
             auto allocaIt = namedValues_.find(ident->getName());
             if (arrIt != varArrayTypes_.end() && allocaIt != namedValues_.end()) {
@@ -1092,6 +1232,33 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         if (!obj) return nullptr;
         auto *lenFn = module_->getFunction("liva_str_length");
         return builder_->CreateCall(lenFn, {obj});
+    }
+
+    // Dynamic array properties: arr.length, arr.capacity, arr.isEmpty
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        auto daIt = varDynArrayTypes_.find(ident->getName());
+        if (daIt != varDynArrayTypes_.end()) {
+            auto allocaIt = namedValues_.find(ident->getName());
+            if (allocaIt != namedValues_.end()) {
+                auto *arrAlloca = allocaIt->second;
+                auto *structTy = getDynArrayStructTy();
+
+                if (node->getMember() == "length") {
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    return builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
+                }
+                if (node->getMember() == "capacity") {
+                    auto *capField = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+                    return builder_->CreateLoad(builder_->getInt64Ty(), capField, "arr.cap");
+                }
+                if (node->getMember() == "isEmpty") {
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField);
+                    return builder_->CreateICmpEQ(len, builder_->getInt64(0), "arr.empty");
+                }
+            }
+        }
     }
 
     // Check for enum case reference: Color.Red
@@ -1243,10 +1410,12 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarStructTypes = varStructTypes_;
         auto oldVarEnumTypes = varEnumTypes_;
         auto oldVarArrayTypes = varArrayTypes_;
+        auto oldVarDynArrayTypes = varDynArrayTypes_;
         namedValues_.clear();
         varStructTypes_.clear();
         varEnumTypes_.clear();
         varArrayTypes_.clear();
+        varDynArrayTypes_.clear();
 
         // Create allocas for parameters
         i = 0;
@@ -1277,6 +1446,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varStructTypes_ = oldVarStructTypes;
         varEnumTypes_ = oldVarEnumTypes;
         varArrayTypes_ = oldVarArrayTypes;
+        varDynArrayTypes_ = oldVarDynArrayTypes;
     }
 
     return nullptr;
@@ -1602,6 +1772,22 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
     if (node->getBase()->getKind() != ASTNode::NodeKind::IdentifierExpr)
         return nullptr;
     auto *ident = static_cast<const IdentifierExpr *>(node->getBase());
+
+    // Dynamic array index: arr[i]
+    auto daIt = varDynArrayTypes_.find(ident->getName());
+    if (daIt != varDynArrayTypes_.end()) {
+        auto allocaIt = namedValues_.find(ident->getName());
+        if (allocaIt == namedValues_.end()) return nullptr;
+        auto *arrAlloca = allocaIt->second;
+        auto *structTy = getDynArrayStructTy();
+        auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+        auto *dataPtr = builder_->CreateLoad(llvm::PointerType::getUnqual(*context_), dataField);
+        if (indexVal->getType()->isIntegerTy(32))
+            indexVal = builder_->CreateSExt(indexVal, builder_->getInt64Ty(), "idx.ext");
+        auto *elemPtr = builder_->CreateGEP(daIt->second.elementType, dataPtr, indexVal, "darr.elem");
+        return builder_->CreateLoad(daIt->second.elementType, elemPtr, "darr.val");
+    }
+
     auto arrIt = varArrayTypes_.find(ident->getName());
     if (arrIt == varArrayTypes_.end()) return nullptr;
     auto allocaIt = namedValues_.find(ident->getName());
@@ -1642,6 +1828,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarStructTypes = varStructTypes_;
     auto savedVarEnumTypes = varEnumTypes_;
     auto savedVarArrayTypes = varArrayTypes_;
+    auto savedVarDynArrayTypes = varDynArrayTypes_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
 
     // Set up type substitution map: T -> i32, U -> f64, ...
@@ -1675,6 +1862,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varStructTypes_.clear();
     varEnumTypes_.clear();
     varArrayTypes_.clear();
+    varDynArrayTypes_.clear();
 
     // Create parameter allocas
     idx = 0;
@@ -1705,6 +1893,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varStructTypes_ = savedVarStructTypes;
     varEnumTypes_ = savedVarEnumTypes;
     varArrayTypes_ = savedVarArrayTypes;
+    varDynArrayTypes_ = savedVarDynArrayTypes;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 

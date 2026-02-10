@@ -136,6 +136,36 @@ void liva_println_str(const char *str) {
     printf("%s\n", str);
 }
 
+// === Dynamic Array ===
+
+void *liva_array_new(int64_t elem_size, int64_t capacity) {
+    size_t bytes = (size_t)(elem_size * capacity);
+    void *ptr = calloc(1, bytes);
+    if (!ptr) liva_panic("out of memory");
+    return ptr;
+}
+
+void liva_array_free(void *data) {
+    free(data);
+}
+
+void liva_array_push(void **data_ptr, int64_t *len_ptr, int64_t *cap_ptr,
+                      const void *elem, int64_t elem_size) {
+    if (*len_ptr == *cap_ptr) {
+        int64_t new_cap = *cap_ptr < 8 ? 8 : *cap_ptr * 2;
+        void *new_data = realloc(*data_ptr, (size_t)(new_cap * elem_size));
+        if (!new_data) liva_panic("out of memory");
+        *data_ptr = new_data;
+        *cap_ptr = new_cap;
+    }
+    memcpy((char *)(*data_ptr) + (*len_ptr) * elem_size, elem, (size_t)elem_size);
+    (*len_ptr)++;
+}
+
+void liva_array_pop(int64_t *len_ptr) {
+    if (*len_ptr > 0) (*len_ptr)--;
+}
+
 // === Panic ===
 
 void liva_panic(const char *message) {

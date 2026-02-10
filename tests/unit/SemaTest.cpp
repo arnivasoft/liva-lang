@@ -595,3 +595,64 @@ TEST_F(SemaTest, GenericStructPair) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+// === Dynamic Array Tests ===
+
+TEST_F(SemaTest, DynArrayEmpty) {
+    auto result = check(R"(
+        func main() {
+            var arr: [i32] = []
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayInit) {
+    auto result = check(R"(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayPush) {
+    auto result = check(R"(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            arr.push(42)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayPop) {
+    auto result = check(R"(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            arr.pop()
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayLength) {
+    auto result = check(R"(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            let l = arr.length
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayIndex) {
+    auto result = check(R"(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            let x = arr[0]
+            arr[1] = 99
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
