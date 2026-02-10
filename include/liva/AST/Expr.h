@@ -19,7 +19,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::IntegerLiteralExpr &&
-               node->getKind() <= NodeKind::RangeExpr;
+               node->getKind() <= NodeKind::UnwrapExpr;
     }
 
 protected:
@@ -409,6 +409,23 @@ public:
 private:
     std::unique_ptr<Expr> start_;
     std::unique_ptr<Expr> end_;
+};
+
+/// Force unwrap expression: x!
+class UnwrapExpr : public Expr {
+public:
+    UnwrapExpr(std::unique_ptr<Expr> operand, SourceRange range)
+        : Expr(NodeKind::UnwrapExpr, range), operand_(std::move(operand)) {}
+
+    const Expr *getOperand() const { return operand_.get(); }
+    Expr *getOperand() { return operand_.get(); }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::UnwrapExpr;
+    }
+
+private:
+    std::unique_ptr<Expr> operand_;
 };
 
 } // namespace liva

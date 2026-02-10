@@ -251,6 +251,10 @@ std::unique_ptr<Expr> Parser::parsePostfixExpr(std::unique_ptr<Expr> base) {
             base = parseMemberExpr(std::move(base));
         } else if (check(TokenKind::l_bracket)) {
             base = parseIndexExpr(std::move(base));
+        } else if (check(TokenKind::bang)) {
+            auto startLoc = base->getStartLoc();
+            advance();
+            base = std::make_unique<UnwrapExpr>(std::move(base), rangeFrom(startLoc));
         } else {
             break;
         }

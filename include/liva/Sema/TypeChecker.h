@@ -53,6 +53,7 @@ public:
     void visitGroupExpr(GroupExpr *node);
     void visitMatchExpr(MatchExpr *node);
     void visitRangeExpr(RangeExpr *node);
+    void visitUnwrapExpr(UnwrapExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 

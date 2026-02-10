@@ -53,6 +53,7 @@ public:
     void visitRefExpr(RefExpr *node);
     void visitGroupExpr(GroupExpr *node);
     void visitRangeExpr(RangeExpr *node);
+    void visitUnwrapExpr(UnwrapExpr *node);
 
 private:
     void indent();

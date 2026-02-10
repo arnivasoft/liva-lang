@@ -694,3 +694,51 @@ TEST_F(SemaTest, GenericImplMultiTypeParams) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+TEST_F(SemaTest, OptionalNilAssignment) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = nil
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OptionalValueAssignment) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = 42
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OptionalForceUnwrap) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = 42
+            let y = x!
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OptionalMutableReassign) {
+    auto result = check(R"--(
+        func main() {
+            var x: i32? = nil
+            x = 42
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NilWithoutOptionalType) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = nil
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_nil_without_optional));
+}

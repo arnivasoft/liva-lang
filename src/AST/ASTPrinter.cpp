@@ -423,4 +423,12 @@ void ASTPrinter::visitRangeExpr(RangeExpr *node) {
     decreaseIndent();
 }
 
+void ASTPrinter::visitUnwrapExpr(UnwrapExpr *node) {
+    indent();
+    os_ << "UnwrapExpr\n";
+    increaseIndent();
+    visit(node->getOperand());
+    decreaseIndent();
+}
+
 } // namespace liva

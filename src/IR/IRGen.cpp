@@ -138,6 +138,15 @@ llvm::StructType *IRGen::getDynArrayStructTy() {
     return dynArrayStructTy_;
 }
 
+llvm::StructType *IRGen::getOptionalType(llvm::Type *innerType) {
+    auto it = optionalTypes_.find(innerType);
+    if (it != optionalTypes_.end()) return it->second;
+    auto *ty = llvm::StructType::create(*context_,
+        {builder_->getInt1Ty(), innerType}, "Optional");
+    optionalTypes_[innerType] = ty;
+    return ty;
+}
+
 llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
     if (!type)
         return builder_->getVoidTy();
@@ -183,6 +192,10 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         if (arrayType->isDynamic())
             return llvm::PointerType::getUnqual(*context_);
         return llvm::ArrayType::get(elemType, static_cast<uint64_t>(arrayType->getSize()));
+    }
+    case TypeRepr::Kind::Optional: {
+        auto *optType = static_cast<const OptionalTypeRepr *>(type);
+        return getOptionalType(toLLVMType(optType->getInner()));
     }
     default:
         return builder_->getInt32Ty();
@@ -236,11 +249,13 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarEnumTypes = varEnumTypes_;
     auto oldVarArrayTypes = varArrayTypes_;
     auto oldVarDynArrayTypes = varDynArrayTypes_;
+    auto oldVarOptionalTypes = varOptionalTypes_;
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varOptionalTypes_.clear();
 
     // Create allocas for parameters
     i = 0;
@@ -272,12 +287,40 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varEnumTypes_ = oldVarEnumTypes;
     varArrayTypes_ = oldVarArrayTypes;
     varDynArrayTypes_ = oldVarDynArrayTypes;
+    varOptionalTypes_ = oldVarOptionalTypes;
 
     return func;
 }
 
 llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     auto *func = builder_->GetInsertBlock()->getParent();
+
+    // Optional variable: let x: i32? = 42 / let x: i32? = nil
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Optional) {
+        auto *optTypeRepr = static_cast<const OptionalTypeRepr *>(node->getType());
+        auto *innerLLVM = toLLVMType(optTypeRepr->getInner());
+        auto *optStructTy = getOptionalType(innerLLVM);
+        auto *alloca = createEntryBlockAlloca(func, node->getName(), optStructTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optStructTy, alloca, 0, "opt.hasval");
+        auto *valPtr = builder_->CreateStructGEP(optStructTy, alloca, 1, "opt.val");
+
+        if (node->hasInit() &&
+            node->getInit()->getKind() == ASTNode::NodeKind::NilLiteralExpr) {
+            builder_->CreateStore(builder_->getFalse(), hasValPtr);
+            builder_->CreateStore(llvm::Constant::getNullValue(innerLLVM), valPtr);
+        } else if (node->hasInit()) {
+            auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+            builder_->CreateStore(builder_->getTrue(), hasValPtr);
+            if (initVal) builder_->CreateStore(initVal, valPtr);
+        } else {
+            builder_->CreateStore(builder_->getFalse(), hasValPtr);
+            builder_->CreateStore(llvm::Constant::getNullValue(innerLLVM), valPtr);
+        }
+        namedValues_[node->getName()] = alloca;
+        varOptionalTypes_[node->getName()] = innerLLVM;
+        return alloca;
+    }
 
     // Check if init is a struct literal - reuse its alloca
     if (node->hasInit() &&
@@ -701,6 +744,43 @@ llvm::Value *IRGen::visitStringLiteralExpr(StringLiteralExpr *node) {
         val = builder_->CreateGlobalString(node->getValue());
     }
     return val;
+}
+
+llvm::Value *IRGen::visitNilLiteralExpr(NilLiteralExpr *) {
+    return nullptr; // nil is context-dependent, handled by VarDecl/AssignExpr
+}
+
+llvm::Value *IRGen::visitUnwrapExpr(UnwrapExpr *node) {
+    llvm::AllocaInst *optAlloca = nullptr;
+    llvm::Type *innerType = nullptr;
+    if (node->getOperand()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getOperand());
+        auto it = namedValues_.find(ident->getName());
+        if (it != namedValues_.end()) optAlloca = it->second;
+        auto optIt = varOptionalTypes_.find(ident->getName());
+        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+    }
+    if (!optAlloca || !innerType)
+        return visit(node->getOperand());
+
+    auto *optStructTy = getOptionalType(innerType);
+    auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
+    auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "unwrap.hasval");
+
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *panicBB = llvm::BasicBlock::Create(*context_, "unwrap.nil", func);
+    auto *okBB = llvm::BasicBlock::Create(*context_, "unwrap.ok", func);
+    builder_->CreateCondBr(hasVal, okBB, panicBB);
+
+    builder_->SetInsertPoint(panicBB);
+    auto *panicFn = module_->getFunction("liva_panic");
+    auto *msg = builder_->CreateGlobalString("unwrap of nil optional value");
+    builder_->CreateCall(panicFn, {msg});
+    builder_->CreateUnreachable();
+
+    builder_->SetInsertPoint(okBB);
+    auto *valPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 1);
+    return builder_->CreateLoad(innerType, valPtr, "unwrap.val");
 }
 
 llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
@@ -1196,6 +1276,24 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
     if (node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getTarget());
         auto it = namedValues_.find(ident->getName());
+
+        // Handle optional variable assignment: x = 42, x = nil
+        auto optIt = varOptionalTypes_.find(ident->getName());
+        if (optIt != varOptionalTypes_.end() && it != namedValues_.end()) {
+            bool isNil = (node->getValue()->getKind() == ASTNode::NodeKind::NilLiteralExpr);
+            auto *optStructTy = getOptionalType(optIt->second);
+            auto *hasValPtr = builder_->CreateStructGEP(optStructTy, it->second, 0);
+            auto *valPtr = builder_->CreateStructGEP(optStructTy, it->second, 1);
+            if (isNil) {
+                builder_->CreateStore(builder_->getFalse(), hasValPtr);
+                builder_->CreateStore(llvm::Constant::getNullValue(optIt->second), valPtr);
+            } else {
+                builder_->CreateStore(builder_->getTrue(), hasValPtr);
+                if (val) builder_->CreateStore(val, valPtr);
+            }
+            return val;
+        }
+
         if (it != namedValues_.end()) {
             // Handle compound assignment
             if (node->getOp() != AssignExpr::Op::Assign) {
@@ -1452,11 +1550,13 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarEnumTypes = varEnumTypes_;
         auto oldVarArrayTypes = varArrayTypes_;
         auto oldVarDynArrayTypes = varDynArrayTypes_;
+        auto oldVarOptionalTypes = varOptionalTypes_;
         namedValues_.clear();
         varStructTypes_.clear();
         varEnumTypes_.clear();
         varArrayTypes_.clear();
         varDynArrayTypes_.clear();
+        varOptionalTypes_.clear();
 
         // Create allocas for parameters
         i = 0;
@@ -1488,6 +1588,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varEnumTypes_ = oldVarEnumTypes;
         varArrayTypes_ = oldVarArrayTypes;
         varDynArrayTypes_ = oldVarDynArrayTypes;
+        varOptionalTypes_ = oldVarOptionalTypes;
     }
 
     return nullptr;
@@ -1874,6 +1975,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarEnumTypes = varEnumTypes_;
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
+    auto savedVarOptionalTypes = varOptionalTypes_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
 
     // Set up type substitution map: T -> i32, U -> f64, ...
@@ -1908,6 +2010,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varOptionalTypes_.clear();
 
     // Create parameter allocas
     idx = 0;
@@ -1939,6 +2042,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varEnumTypes_ = savedVarEnumTypes;
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
+    varOptionalTypes_ = savedVarOptionalTypes;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 
@@ -2073,6 +2177,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto savedVarEnumTypes = varEnumTypes_;
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
+    auto savedVarOptionalTypes = varOptionalTypes_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
 
     // Set up type substitution from impl's type params
@@ -2111,6 +2216,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varOptionalTypes_.clear();
 
     // Create parameter allocas
     idx = 0;
@@ -2145,6 +2251,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varEnumTypes_ = savedVarEnumTypes;
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
+    varOptionalTypes_ = savedVarOptionalTypes;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 

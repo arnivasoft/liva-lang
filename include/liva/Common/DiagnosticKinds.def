@@ -63,6 +63,7 @@ DIAG(err_main_not_found,             error,   "no 'main' function found")
 DIAG(err_break_outside_loop,         error,   "'break' statement outside of loop")
 DIAG(err_continue_outside_loop,      error,   "'continue' statement outside of loop")
 DIAG(err_nonexhaustive_match,        error,   "match is not exhaustive; missing case '%0'")
+DIAG(err_nil_without_optional,       error,   "'nil' can only be used with optional types")
 
 // === Warnings ===
 DIAG(warn_unused_variable,           warning, "unused variable '%0'")

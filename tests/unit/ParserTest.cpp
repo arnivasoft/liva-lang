@@ -372,3 +372,26 @@ TEST_F(ParserTest, GenericImplBlock) {
     ASSERT_EQ(impl->getMethods().size(), 1);
     EXPECT_EQ(impl->getMethods()[0]->getName(), "get");
 }
+
+TEST_F(ParserTest, OptionalTypeAnnotation) {
+    auto result = parse("let x: i32? = nil");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    EXPECT_EQ(var->getName(), "x");
+    ASSERT_NE(var->getType(), nullptr);
+    EXPECT_EQ(var->getType()->getKind(), TypeRepr::Kind::Optional);
+    EXPECT_TRUE(var->hasInit());
+    EXPECT_EQ(var->getInit()->getKind(), ASTNode::NodeKind::NilLiteralExpr);
+}
+
+TEST_F(ParserTest, ForceUnwrap) {
+    auto result = parse(R"--(
+        func main() {
+            let x: i32? = 42
+            let y = x!
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}

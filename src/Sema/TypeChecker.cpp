@@ -107,6 +107,14 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
         visit(const_cast<Expr *>(node->getInit()));
     }
 
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::NilLiteralExpr) {
+        if (!node->hasTypeAnnotation() ||
+            node->getType()->getKind() != TypeRepr::Kind::Optional) {
+            diag_.report(node->getStartLoc(), DiagID::err_nil_without_optional);
+        }
+    }
+
     Symbol sym;
     sym.name = node->getName();
     sym.kind = Symbol::Kind::Variable;
@@ -542,6 +550,10 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
 void TypeChecker::visitRangeExpr(RangeExpr *node) {
     visit(node->getStart());
     visit(node->getEnd());
+}
+
+void TypeChecker::visitUnwrapExpr(UnwrapExpr *node) {
+    visit(node->getOperand());
 }
 
 } // namespace liva

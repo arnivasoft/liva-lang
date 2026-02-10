@@ -70,6 +70,8 @@ public:
     llvm::Value *visitRangeExpr(RangeExpr *node);
     llvm::Value *visitArrayLiteralExpr(ArrayLiteralExpr *node);
     llvm::Value *visitIndexExpr(IndexExpr *node);
+    llvm::Value *visitNilLiteralExpr(NilLiteralExpr *node);
+    llvm::Value *visitUnwrapExpr(UnwrapExpr *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -215,6 +217,13 @@ private:
 
     /// Emit runtime bounds check: panics if index >= size
     void emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal);
+
+    /// Get or create an Optional<T> struct type: { i1, T }
+    llvm::StructType *getOptionalType(llvm::Type *innerType);
+    std::unordered_map<llvm::Type *, llvm::StructType *> optionalTypes_;
+
+    /// Track which variables are optional and their inner LLVM type
+    std::unordered_map<std::string, llvm::Type *> varOptionalTypes_;
 };
 
 #else

@@ -50,6 +50,7 @@ public:
         RefExpr,
         GroupExpr,
         RangeExpr,
+        UnwrapExpr,  // x! (force unwrap optional)
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())
