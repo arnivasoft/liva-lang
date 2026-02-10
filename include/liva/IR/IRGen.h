@@ -125,6 +125,26 @@ private:
     /// String constant interning
     std::unordered_map<std::string, llvm::Constant *> stringConstants_;
 
+    /// Monomorphization: active type substitution map ("T" -> TypeRepr*)
+    std::unordered_map<std::string, const TypeRepr *> currentTypeSubst_;
+
+    /// Cache of monomorphized functions: "identity_i32" -> Function*
+    std::unordered_map<std::string, llvm::Function *> monomorphizedFuncs_;
+
+    /// Generic function AST nodes: "identity" -> FuncDecl*
+    std::unordered_map<std::string, const FuncDecl *> genericFuncDecls_;
+
+    /// Lifetime management for inferred TypeRepr objects
+    std::vector<std::unique_ptr<TypeRepr>> inferredTypes_;
+
+    /// Monomorphize a generic function with concrete type arguments
+    llvm::Function *monomorphize(const FuncDecl *funcDecl,
+                                  const std::vector<const TypeRepr *> &typeArgs);
+
+    /// Generate mangled name for a monomorphized function
+    std::string mangleGenericFunc(const std::string &baseName,
+                                   const std::vector<const TypeRepr *> &typeArgs);
+
     /// Enum LLVM StructType for payload enums: enumName -> StructType
     std::unordered_map<std::string, llvm::StructType *> enumTypes_;
 

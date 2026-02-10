@@ -37,6 +37,18 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic) {
     auto nameTok = expect(TokenKind::identifier);
     std::string name(nameTok.getText());
 
+    // Parse optional generic type parameters: <T, U>
+    std::vector<std::string> typeParams;
+    if (match(TokenKind::less)) {
+        if (!check(TokenKind::greater)) {
+            do {
+                auto paramTok = expect(TokenKind::identifier);
+                typeParams.push_back(std::string(paramTok.getText()));
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::greater);
+    }
+
     // Parse parameter list
     expect(TokenKind::l_paren);
     std::vector<ParamDecl> params;
@@ -61,8 +73,13 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic) {
         body = parseBlock();
     }
 
-    return std::make_unique<FuncDecl>(std::move(name), std::move(params), std::move(returnType),
-                                      std::move(body), isPublic, rangeFrom(startLoc));
+    auto funcDecl = std::make_unique<FuncDecl>(std::move(name), std::move(params),
+                                                std::move(returnType), std::move(body),
+                                                isPublic, rangeFrom(startLoc));
+    if (!typeParams.empty()) {
+        funcDecl->setTypeParams(std::move(typeParams));
+    }
+    return funcDecl;
 }
 
 std::unique_ptr<VarDecl> Parser::parseVarDecl() {

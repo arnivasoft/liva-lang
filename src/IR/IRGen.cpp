@@ -21,6 +21,15 @@ bool IRGen::generate(TranslationUnit &tu) {
     createRuntimeDecls();
 
     for (auto &decl : tu.getDeclarations()) {
+        // Skip generic functions (they are monomorphized at call sites)
+        if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
+            auto *funcDecl = static_cast<FuncDecl *>(decl.get());
+            if (funcDecl->isGeneric()) {
+                genericFuncDecls_[funcDecl->getName()] = funcDecl;
+                continue;
+            }
+        }
+
         visit(decl.get());
         if (diag_.hasErrors())
             return false;
@@ -108,6 +117,11 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         return llvm::PointerType::getUnqual(*context_);
     case TypeRepr::Kind::Named: {
         auto *named = static_cast<const NamedTypeRepr *>(type);
+        // Check type parameter substitution map
+        auto substIt = currentTypeSubst_.find(named->getName());
+        if (substIt != currentTypeSubst_.end()) {
+            return toLLVMType(substIt->second);
+        }
         auto it = structTypes_.find(named->getName());
         if (it != structTypes_.end())
             return it->second;
@@ -810,8 +824,71 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
     // Look up the function
     auto *callee = module_->getFunction(funcName);
-    if (!callee)
+
+    // Generic function check
+    if (!callee) {
+        auto gIt = genericFuncDecls_.find(funcName);
+        if (gIt != genericFuncDecls_.end()) {
+            const FuncDecl *genericFunc = gIt->second;
+
+            // Evaluate arguments
+            std::vector<llvm::Value *> argValues;
+            for (auto &arg : node->getArgs()) {
+                auto *val = visit(arg.get());
+                if (!val) return nullptr;
+                argValues.push_back(val);
+            }
+
+            // Infer type arguments from LLVM types
+            const auto &typeParams = genericFunc->getTypeParams();
+            std::unordered_map<std::string, const TypeRepr *> inferred;
+            for (size_t i = 0; i < genericFunc->getParams().size() && i < argValues.size(); ++i) {
+                const TypeRepr *paramType = genericFunc->getParams()[i].type.get();
+                if (paramType && paramType->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(paramType);
+                    for (const auto &tp : typeParams) {
+                        if (named->getName() == tp && inferred.find(tp) == inferred.end()) {
+                            llvm::Type *argTy = argValues[i]->getType();
+                            const TypeRepr *inferredType = nullptr;
+                            if (argTy->isIntegerTy(32)) {
+                                inferredTypes_.push_back(makeI32Type());
+                                inferredType = inferredTypes_.back().get();
+                            } else if (argTy->isIntegerTy(64)) {
+                                inferredTypes_.push_back(makeI64Type());
+                                inferredType = inferredTypes_.back().get();
+                            } else if (argTy->isDoubleTy()) {
+                                inferredTypes_.push_back(makeF64Type());
+                                inferredType = inferredTypes_.back().get();
+                            } else if (argTy->isIntegerTy(1)) {
+                                inferredTypes_.push_back(makeBoolType());
+                                inferredType = inferredTypes_.back().get();
+                            } else if (argTy->isPointerTy()) {
+                                inferredTypes_.push_back(makeStringType());
+                                inferredType = inferredTypes_.back().get();
+                            }
+                            if (inferredType) inferred[tp] = inferredType;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Build ordered type arguments vector
+            std::vector<const TypeRepr *> typeArgs;
+            for (const auto &tp : typeParams) {
+                auto it = inferred.find(tp);
+                if (it != inferred.end()) typeArgs.push_back(it->second);
+            }
+
+            // Monomorphize and call
+            callee = monomorphize(genericFunc, typeArgs);
+            if (!callee) return nullptr;
+            if (callee->getReturnType()->isVoidTy())
+                return builder_->CreateCall(callee, argValues);
+            return builder_->CreateCall(callee, argValues, "calltmp");
+        }
         return nullptr;
+    }
 
     std::vector<llvm::Value *> args;
     for (auto &arg : node->getArgs()) {
@@ -1466,6 +1543,100 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         arrayType, alloca, {builder_->getInt64(0), indexVal},
         ident->getName() + ".elem");
     return builder_->CreateLoad(elemType, gep, ident->getName() + ".val");
+}
+
+std::string IRGen::mangleGenericFunc(const std::string &baseName,
+                                      const std::vector<const TypeRepr *> &typeArgs) {
+    std::string result = baseName;
+    for (const auto *arg : typeArgs) {
+        result += "_";
+        result += arg->toString();
+    }
+    return result;
+}
+
+llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
+                                     const std::vector<const TypeRepr *> &typeArgs) {
+    std::string mangledName = mangleGenericFunc(funcDecl->getName(), typeArgs);
+
+    // Cache check
+    auto cacheIt = monomorphizedFuncs_.find(mangledName);
+    if (cacheIt != monomorphizedFuncs_.end())
+        return cacheIt->second;
+
+    // Save state
+    auto savedSubst = currentTypeSubst_;
+    auto savedNamedValues = namedValues_;
+    auto savedVarStructTypes = varStructTypes_;
+    auto savedVarEnumTypes = varEnumTypes_;
+    auto savedVarArrayTypes = varArrayTypes_;
+    auto *savedInsertPoint = builder_->GetInsertBlock();
+
+    // Set up type substitution map: T -> i32, U -> f64, ...
+    currentTypeSubst_.clear();
+    const auto &typeParams = funcDecl->getTypeParams();
+    for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i) {
+        currentTypeSubst_[typeParams[i]] = typeArgs[i];
+    }
+
+    // Build function type with substituted types
+    std::vector<llvm::Type *> paramTypes;
+    for (auto &param : funcDecl->getParams()) {
+        paramTypes.push_back(toLLVMType(param.type.get()));
+    }
+    auto *returnType = toLLVMType(funcDecl->getReturnType());
+    auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+    auto *func = llvm::Function::Create(
+        funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
+
+    // Set parameter names
+    size_t idx = 0;
+    for (auto &arg : func->args()) {
+        arg.setName(funcDecl->getParams()[idx].name);
+        ++idx;
+    }
+
+    // Generate body
+    auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+    builder_->SetInsertPoint(entryBB);
+    namedValues_.clear();
+    varStructTypes_.clear();
+    varEnumTypes_.clear();
+    varArrayTypes_.clear();
+
+    // Create parameter allocas
+    idx = 0;
+    for (auto &arg : func->args()) {
+        auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
+        builder_->CreateStore(&arg, alloca);
+        namedValues_[std::string(arg.getName())] = alloca;
+        ++idx;
+    }
+
+    // Visit body
+    visitBlockStmt(const_cast<BlockStmt *>(funcDecl->getBody()));
+
+    // Add missing terminator
+    if (!builder_->GetInsertBlock()->getTerminator()) {
+        if (returnType->isVoidTy())
+            builder_->CreateRetVoid();
+        else
+            builder_->CreateRet(llvm::Constant::getNullValue(returnType));
+    }
+
+    // Cache the result
+    monomorphizedFuncs_[mangledName] = func;
+
+    // Restore state
+    currentTypeSubst_ = savedSubst;
+    namedValues_ = savedNamedValues;
+    varStructTypes_ = savedVarStructTypes;
+    varEnumTypes_ = savedVarEnumTypes;
+    varArrayTypes_ = savedVarArrayTypes;
+    if (savedInsertPoint)
+        builder_->SetInsertPoint(savedInsertPoint);
+
+    return func;
 }
 
 } // namespace liva

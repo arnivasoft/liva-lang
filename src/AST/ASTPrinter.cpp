@@ -22,6 +22,14 @@ void ASTPrinter::print(TranslationUnit &tu) {
 void ASTPrinter::visitFuncDecl(FuncDecl *node) {
     indent();
     os_ << "FuncDecl '" << node->getName() << "'";
+    if (node->isGeneric()) {
+        os_ << "<";
+        for (size_t i = 0; i < node->getTypeParams().size(); ++i) {
+            if (i > 0) os_ << ", ";
+            os_ << node->getTypeParams()[i];
+        }
+        os_ << ">";
+    }
     if (node->isPublic())
         os_ << " pub";
     if (node->getReturnType())

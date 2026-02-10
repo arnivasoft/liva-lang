@@ -74,6 +74,14 @@ void TypeChecker::check(TranslationUnit &tu) {
 void TypeChecker::visitFuncDecl(FuncDecl *node) {
     scopes_.pushScope();
 
+    // Register type parameters in scope
+    for (const auto &tp : node->getTypeParams()) {
+        Symbol sym;
+        sym.name = tp;
+        sym.kind = Symbol::Kind::TypeParam;
+        scopes_.declare(tp, sym);
+    }
+
     // Register parameters
     for (auto &param : node->getParams()) {
         Symbol sym;
@@ -294,9 +302,42 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeStringType());
         } else {
             auto *sym = scopes_.lookup(ident->getName());
-            if (sym && sym->funcDecl && sym->funcDecl->getReturnType()) {
-                node->setResolvedType(
-                    makePrimitiveType(sym->funcDecl->getReturnType()->getKind()));
+            if (sym && sym->funcDecl) {
+                if (sym->funcDecl->isGeneric()) {
+                    // Infer type parameters from argument types
+                    std::unordered_map<std::string, const TypeRepr *> typeBindings;
+                    const auto &typeParams = sym->funcDecl->getTypeParams();
+                    const auto &formalParams = sym->funcDecl->getParams();
+
+                    for (size_t i = 0; i < formalParams.size() && i < node->getArgs().size(); ++i) {
+                        const TypeRepr *paramType = formalParams[i].type.get();
+                        if (paramType && paramType->getKind() == TypeRepr::Kind::Named) {
+                            auto *named = static_cast<const NamedTypeRepr *>(paramType);
+                            for (const auto &tp : typeParams) {
+                                if (named->getName() == tp) {
+                                    const TypeRepr *argType = node->getArgs()[i]->getResolvedType();
+                                    if (argType) typeBindings[tp] = argType;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Resolve return type
+                    const TypeRepr *retType = sym->funcDecl->getReturnType();
+                    if (retType && retType->getKind() == TypeRepr::Kind::Named) {
+                        auto *named = static_cast<const NamedTypeRepr *>(retType);
+                        auto it = typeBindings.find(named->getName());
+                        if (it != typeBindings.end()) {
+                            node->setResolvedType(makePrimitiveType(it->second->getKind()));
+                        }
+                    } else if (retType && !retType->isVoid()) {
+                        node->setResolvedType(makePrimitiveType(retType->getKind()));
+                    }
+                } else if (sym->funcDecl->getReturnType()) {
+                    node->setResolvedType(
+                        makePrimitiveType(sym->funcDecl->getReturnType()->getKind()));
+                }
             }
         }
     }

@@ -53,6 +53,13 @@ public:
         return !params_.empty() && params_[0].isSelf;
     }
 
+    /// Generic type parameters (e.g. {"T", "U"})
+    void setTypeParams(std::vector<std::string> typeParams) {
+        typeParams_ = std::move(typeParams);
+    }
+    const std::vector<std::string> &getTypeParams() const { return typeParams_; }
+    bool isGeneric() const { return !typeParams_.empty(); }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::FuncDecl;
     }
@@ -63,6 +70,7 @@ private:
     std::unique_ptr<TypeRepr> returnType_;
     std::unique_ptr<BlockStmt> body_;
     bool isPublic_;
+    std::vector<std::string> typeParams_;
 };
 
 /// Variable declaration: let x: i32 = 42, var y = 10

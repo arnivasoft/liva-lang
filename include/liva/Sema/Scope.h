@@ -21,6 +21,7 @@ struct Symbol {
         StructType,
         EnumType,
         Field,
+        TypeParam,
     };
 
     std::string name;

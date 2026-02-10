@@ -276,3 +276,41 @@ TEST_F(ParserTest, StringInterpolation) {
     )--");
     ASSERT_FALSE(result.hasErrors);
 }
+
+// === Generic Function Tests ===
+
+TEST_F(ParserTest, GenericFunctionSingleParam) {
+    auto result = parse(R"(
+        func identity<T>(x: T) -> T { return x }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isGeneric());
+    EXPECT_EQ(func->getTypeParams().size(), 1);
+    EXPECT_EQ(func->getTypeParams()[0], "T");
+}
+
+TEST_F(ParserTest, GenericFunctionMultipleParams) {
+    auto result = parse(R"(
+        func first<T, U>(a: T, b: U) -> T { return a }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isGeneric());
+    EXPECT_EQ(func->getTypeParams().size(), 2);
+    EXPECT_EQ(func->getTypeParams()[0], "T");
+    EXPECT_EQ(func->getTypeParams()[1], "U");
+}
+
+TEST_F(ParserTest, NonGenericFunctionUnchanged) {
+    auto result = parse(R"(
+        func add(a: i32, b: i32) -> i32 { return a + b }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_FALSE(func->isGeneric());
+    EXPECT_TRUE(func->getTypeParams().empty());
+}

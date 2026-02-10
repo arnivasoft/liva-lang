@@ -503,3 +503,54 @@ TEST_F(SemaTest, StringConcatChain) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+// === Generic Function Tests ===
+
+TEST_F(SemaTest, GenericFunctionDecl) {
+    auto result = check(R"(
+        func identity<T>(x: T) -> T { return x }
+        func main() {}
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericFunctionCallI32) {
+    auto result = check(R"(
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let a = identity(42)
+            println(a)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericFunctionCallF64) {
+    auto result = check(R"(
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let b = identity(3.14)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericFunctionCallString) {
+    auto result = check(R"(
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let c = identity("hello")
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericFunctionMultiTypeParams) {
+    auto result = check(R"(
+        func first<T, U>(a: T, b: U) -> T { return a }
+        func main() {
+            let x = first(42, 3.14)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
