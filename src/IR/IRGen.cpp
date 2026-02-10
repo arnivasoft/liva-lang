@@ -30,6 +30,15 @@ bool IRGen::generate(TranslationUnit &tu) {
             }
         }
 
+        // Skip generic structs (they are monomorphized at usage sites)
+        if (decl->getKind() == ASTNode::NodeKind::StructDecl) {
+            auto *structDecl = static_cast<StructDecl *>(decl.get());
+            if (structDecl->isGeneric()) {
+                genericStructDecls_[structDecl->getName()] = structDecl;
+                continue;
+            }
+        }
+
         visit(decl.get());
         if (diag_.hasErrors())
             return false;
@@ -232,6 +241,40 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         auto *structLit = static_cast<StructLiteralExpr *>(
             const_cast<Expr *>(node->getInit()));
         const auto &typeName = structLit->getTypeName();
+
+        // Check for generic struct
+        auto gsIt = genericStructDecls_.find(typeName);
+        if (gsIt != genericStructDecls_.end()) {
+            // Evaluate all field values first
+            std::vector<llvm::Value *> fieldValues;
+            for (auto &fieldInit : structLit->getFields()) {
+                auto *val = visit(fieldInit.value.get());
+                fieldValues.push_back(val);
+            }
+
+            // Infer type arguments from field values
+            auto typeArgs = inferStructTypeArgs(gsIt->second, structLit->getFields(), fieldValues);
+
+            // Monomorphize the struct
+            monomorphizeStruct(gsIt->second, typeArgs);
+            std::string mangledName = mangleGenericStruct(typeName, typeArgs);
+
+            auto *structTy = structTypes_[mangledName];
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+
+            for (size_t i = 0; i < structLit->getFields().size(); ++i) {
+                int idx = getStructFieldIndex(mangledName, structLit->getFields()[i].name);
+                if (idx < 0 || !fieldValues[i])
+                    continue;
+                auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
+                                                       structLit->getFields()[i].name);
+                builder_->CreateStore(fieldValues[i], gep);
+            }
+
+            namedValues_[node->getName()] = alloca;
+            varStructTypes_[node->getName()] = mangledName;
+            return alloca;
+        }
 
         auto stIt = structTypes_.find(typeName);
         if (stIt != structTypes_.end()) {
@@ -1105,6 +1148,35 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
 llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
     // Standalone struct literal (not in VarDecl context)
     const auto &typeName = node->getTypeName();
+
+    // Check for generic struct
+    auto gsIt = genericStructDecls_.find(typeName);
+    if (gsIt != genericStructDecls_.end()) {
+        std::vector<llvm::Value *> fieldValues;
+        for (auto &fieldInit : node->getFields()) {
+            auto *val = visit(fieldInit.value.get());
+            fieldValues.push_back(val);
+        }
+
+        auto typeArgs = inferStructTypeArgs(gsIt->second, node->getFields(), fieldValues);
+        monomorphizeStruct(gsIt->second, typeArgs);
+        std::string mangledName = mangleGenericStruct(typeName, typeArgs);
+
+        auto *structTy = structTypes_[mangledName];
+        auto *func = builder_->GetInsertBlock()->getParent();
+        auto *alloca = createEntryBlockAlloca(func, mangledName + ".tmp", structTy);
+
+        for (size_t i = 0; i < node->getFields().size(); ++i) {
+            int idx = getStructFieldIndex(mangledName, node->getFields()[i].name);
+            if (idx < 0 || !fieldValues[i])
+                continue;
+            auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, node->getFields()[i].name);
+            builder_->CreateStore(fieldValues[i], gep);
+        }
+
+        return builder_->CreateLoad(structTy, alloca, mangledName + ".val");
+    }
+
     auto stIt = structTypes_.find(typeName);
     if (stIt == structTypes_.end())
         return nullptr;
@@ -1637,6 +1709,97 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
         builder_->SetInsertPoint(savedInsertPoint);
 
     return func;
+}
+
+std::string IRGen::mangleGenericStruct(const std::string &baseName,
+                                        const std::vector<const TypeRepr *> &typeArgs) {
+    std::string result = baseName;
+    for (const auto *arg : typeArgs) {
+        result += "_";
+        result += arg->toString();
+    }
+    return result;
+}
+
+void IRGen::monomorphizeStruct(const StructDecl *structDecl,
+                                const std::vector<const TypeRepr *> &typeArgs) {
+    std::string mangledName = mangleGenericStruct(structDecl->getName(), typeArgs);
+    if (monomorphizedStructs_.count(mangledName))
+        return;
+
+    auto savedSubst = currentTypeSubst_;
+    currentTypeSubst_.clear();
+    const auto &typeParams = structDecl->getTypeParams();
+    for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i)
+        currentTypeSubst_[typeParams[i]] = typeArgs[i];
+
+    std::vector<llvm::Type *> fieldTypes;
+    std::vector<std::string> fieldNames;
+    for (auto &field : structDecl->getFields()) {
+        fieldTypes.push_back(toLLVMType(field->getType()));
+        fieldNames.push_back(field->getName());
+    }
+
+    auto *structType = llvm::StructType::create(*context_, fieldTypes, mangledName);
+    structTypes_[mangledName] = structType;
+    structFieldNames_[mangledName] = std::move(fieldNames);
+    monomorphizedStructs_[mangledName] = true;
+    currentTypeSubst_ = savedSubst;
+}
+
+std::vector<const TypeRepr *> IRGen::inferStructTypeArgs(
+    const StructDecl *structDecl,
+    const std::vector<StructLiteralExpr::FieldInit> &fieldInits,
+    const std::vector<llvm::Value *> &fieldValues) {
+    const auto &typeParams = structDecl->getTypeParams();
+    std::unordered_map<std::string, const TypeRepr *> inferred;
+
+    for (size_t fi = 0; fi < fieldInits.size(); ++fi) {
+        for (auto &fieldDecl : structDecl->getFields()) {
+            if (fieldDecl->getName() != fieldInits[fi].name)
+                continue;
+            const TypeRepr *ft = fieldDecl->getType();
+            if (!ft || ft->getKind() != TypeRepr::Kind::Named)
+                continue;
+            auto *named = static_cast<const NamedTypeRepr *>(ft);
+            for (const auto &tp : typeParams) {
+                if (named->getName() == tp && inferred.find(tp) == inferred.end()) {
+                    if (fi < fieldValues.size() && fieldValues[fi]) {
+                        llvm::Type *valTy = fieldValues[fi]->getType();
+                        const TypeRepr *inferredType = nullptr;
+                        if (valTy->isIntegerTy(32)) {
+                            inferredTypes_.push_back(makeI32Type());
+                            inferredType = inferredTypes_.back().get();
+                        } else if (valTy->isIntegerTy(64)) {
+                            inferredTypes_.push_back(makeI64Type());
+                            inferredType = inferredTypes_.back().get();
+                        } else if (valTy->isDoubleTy()) {
+                            inferredTypes_.push_back(makeF64Type());
+                            inferredType = inferredTypes_.back().get();
+                        } else if (valTy->isIntegerTy(1)) {
+                            inferredTypes_.push_back(makeBoolType());
+                            inferredType = inferredTypes_.back().get();
+                        } else if (valTy->isPointerTy()) {
+                            inferredTypes_.push_back(makeStringType());
+                            inferredType = inferredTypes_.back().get();
+                        }
+                        if (inferredType)
+                            inferred[tp] = inferredType;
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    std::vector<const TypeRepr *> result;
+    for (const auto &tp : typeParams) {
+        auto it = inferred.find(tp);
+        if (it != inferred.end())
+            result.push_back(it->second);
+    }
+    return result;
 }
 
 } // namespace liva

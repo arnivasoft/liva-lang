@@ -73,6 +73,14 @@ void ASTPrinter::visitVarDecl(VarDecl *node) {
 void ASTPrinter::visitStructDecl(StructDecl *node) {
     indent();
     os_ << "StructDecl '" << node->getName() << "'";
+    if (node->isGeneric()) {
+        os_ << "<";
+        for (size_t i = 0; i < node->getTypeParams().size(); ++i) {
+            if (i > 0) os_ << ", ";
+            os_ << node->getTypeParams()[i];
+        }
+        os_ << ">";
+    }
     if (node->isPublic())
         os_ << " pub";
     os_ << "\n";

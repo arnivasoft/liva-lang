@@ -554,3 +554,44 @@ TEST_F(SemaTest, GenericFunctionMultiTypeParams) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+TEST_F(SemaTest, GenericStructDecl) {
+    auto result = check(R"(
+        struct Box<T> { let data: T }
+        func main() {}
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericStructLiteralI32) {
+    auto result = check(R"(
+        struct Box<T> { let data: T }
+        func main() {
+            let b = Box { data: 42 }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericStructLiteralF64) {
+    auto result = check(R"(
+        struct Box<T> { let data: T }
+        func main() {
+            let b = Box { data: 3.14 }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericStructPair) {
+    auto result = check(R"(
+        struct Pair<T, U> {
+            let first: T
+            let second: U
+        }
+        func main() {
+            let p = Pair { first: 42, second: 3.14 }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}

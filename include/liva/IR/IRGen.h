@@ -134,6 +134,12 @@ private:
     /// Generic function AST nodes: "identity" -> FuncDecl*
     std::unordered_map<std::string, const FuncDecl *> genericFuncDecls_;
 
+    /// Generic struct AST nodes: "Box" -> StructDecl*
+    std::unordered_map<std::string, const StructDecl *> genericStructDecls_;
+
+    /// Cache of monomorphized structs: "Box_i32" -> true
+    std::unordered_map<std::string, bool> monomorphizedStructs_;
+
     /// Lifetime management for inferred TypeRepr objects
     std::vector<std::unique_ptr<TypeRepr>> inferredTypes_;
 
@@ -144,6 +150,20 @@ private:
     /// Generate mangled name for a monomorphized function
     std::string mangleGenericFunc(const std::string &baseName,
                                    const std::vector<const TypeRepr *> &typeArgs);
+
+    /// Monomorphize a generic struct with concrete type arguments
+    void monomorphizeStruct(const StructDecl *structDecl,
+                            const std::vector<const TypeRepr *> &typeArgs);
+
+    /// Generate mangled name for a monomorphized struct
+    std::string mangleGenericStruct(const std::string &baseName,
+                                     const std::vector<const TypeRepr *> &typeArgs);
+
+    /// Infer type arguments for a generic struct from field init values
+    std::vector<const TypeRepr *> inferStructTypeArgs(
+        const StructDecl *structDecl,
+        const std::vector<StructLiteralExpr::FieldInit> &fieldInits,
+        const std::vector<llvm::Value *> &fieldValues);
 
     /// Enum LLVM StructType for payload enums: enumName -> StructType
     std::unordered_map<std::string, llvm::StructType *> enumTypes_;

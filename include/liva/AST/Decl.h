@@ -134,6 +134,13 @@ public:
     const std::vector<std::unique_ptr<FieldDecl>> &getFields() const { return fields_; }
     bool isPublic() const { return isPublic_; }
 
+    /// Generic type parameters (e.g. {"T", "U"})
+    void setTypeParams(std::vector<std::string> typeParams) {
+        typeParams_ = std::move(typeParams);
+    }
+    const std::vector<std::string> &getTypeParams() const { return typeParams_; }
+    bool isGeneric() const { return !typeParams_.empty(); }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::StructDecl;
     }
@@ -142,6 +149,7 @@ private:
     std::string name_;
     std::vector<std::unique_ptr<FieldDecl>> fields_;
     bool isPublic_;
+    std::vector<std::string> typeParams_;
 };
 
 /// Enum case declaration

@@ -115,6 +115,18 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
     auto nameTok = expect(TokenKind::identifier);
     std::string name(nameTok.getText());
 
+    // Parse optional generic type parameters: <T, U>
+    std::vector<std::string> typeParams;
+    if (match(TokenKind::less)) {
+        if (!check(TokenKind::greater)) {
+            do {
+                auto paramTok = expect(TokenKind::identifier);
+                typeParams.push_back(std::string(paramTok.getText()));
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::greater);
+    }
+
     expect(TokenKind::l_brace);
 
     std::vector<std::unique_ptr<FieldDecl>> fields;
@@ -140,8 +152,12 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
 
     expect(TokenKind::r_brace);
 
-    return std::make_unique<StructDecl>(std::move(name), std::move(fields), isPublic,
-                                        rangeFrom(startLoc));
+    auto structDecl = std::make_unique<StructDecl>(std::move(name), std::move(fields), isPublic,
+                                                    rangeFrom(startLoc));
+    if (!typeParams.empty()) {
+        structDecl->setTypeParams(std::move(typeParams));
+    }
+    return structDecl;
 }
 
 std::unique_ptr<EnumDecl> Parser::parseEnumDecl(bool isPublic) {

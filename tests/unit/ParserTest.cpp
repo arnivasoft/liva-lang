@@ -314,3 +314,42 @@ TEST_F(ParserTest, NonGenericFunctionUnchanged) {
     EXPECT_FALSE(func->isGeneric());
     EXPECT_TRUE(func->getTypeParams().empty());
 }
+
+TEST_F(ParserTest, GenericStructSingleParam) {
+    auto result = parse(R"(
+        struct Box<T> { let data: T }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *s = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(s, nullptr);
+    EXPECT_TRUE(s->isGeneric());
+    EXPECT_EQ(s->getTypeParams().size(), 1);
+    EXPECT_EQ(s->getTypeParams()[0], "T");
+}
+
+TEST_F(ParserTest, GenericStructMultipleParams) {
+    auto result = parse(R"(
+        struct Pair<T, U> {
+            let first: T
+            let second: U
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *s = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(s, nullptr);
+    EXPECT_TRUE(s->isGeneric());
+    EXPECT_EQ(s->getTypeParams().size(), 2);
+    EXPECT_EQ(s->getTypeParams()[0], "T");
+    EXPECT_EQ(s->getTypeParams()[1], "U");
+}
+
+TEST_F(ParserTest, NonGenericStructUnchanged) {
+    auto result = parse(R"(
+        struct Point { let x: i32  let y: i32 }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *s = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(s, nullptr);
+    EXPECT_FALSE(s->isGeneric());
+    EXPECT_TRUE(s->getTypeParams().empty());
+}

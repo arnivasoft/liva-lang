@@ -119,9 +119,17 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
 }
 
 void TypeChecker::visitStructDecl(StructDecl *node) {
+    scopes_.pushScope();
+    for (const auto &tp : node->getTypeParams()) {
+        Symbol sym;
+        sym.name = tp;
+        sym.kind = Symbol::Kind::TypeParam;
+        scopes_.declare(tp, sym);
+    }
     for (auto &field : node->getFields()) {
         visitFieldDecl(field.get());
     }
+    scopes_.popScope();
 }
 
 void TypeChecker::visitEnumDecl(EnumDecl *node) {
