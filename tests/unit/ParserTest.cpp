@@ -353,3 +353,22 @@ TEST_F(ParserTest, NonGenericStructUnchanged) {
     EXPECT_FALSE(s->isGeneric());
     EXPECT_TRUE(s->getTypeParams().empty());
 }
+
+TEST_F(ParserTest, GenericImplBlock) {
+    auto result = parse(R"--(
+        struct Box<T> { let data: T }
+        impl Box<T> {
+            func get(self) -> T { return self.data }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_GE(result.tu->getDeclarations().size(), 2);
+    auto *impl = dynamic_cast<ImplDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(impl, nullptr);
+    EXPECT_TRUE(impl->isGeneric());
+    ASSERT_EQ(impl->getTypeParams().size(), 1);
+    EXPECT_EQ(impl->getTypeParams()[0], "T");
+    EXPECT_EQ(impl->getTypeName(), "Box");
+    ASSERT_EQ(impl->getMethods().size(), 1);
+    EXPECT_EQ(impl->getMethods()[0]->getName(), "get");
+}

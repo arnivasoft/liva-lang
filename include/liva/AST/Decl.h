@@ -210,6 +210,10 @@ public:
     bool hasProtocol() const { return !protocolName_.empty(); }
     const std::vector<std::unique_ptr<FuncDecl>> &getMethods() const { return methods_; }
 
+    void setTypeParams(std::vector<std::string> params) { typeParams_ = std::move(params); }
+    const std::vector<std::string> &getTypeParams() const { return typeParams_; }
+    bool isGeneric() const { return !typeParams_.empty(); }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::ImplDecl;
     }
@@ -218,6 +222,7 @@ private:
     std::string typeName_;
     std::string protocolName_;
     std::vector<std::unique_ptr<FuncDecl>> methods_;
+    std::vector<std::string> typeParams_;
 };
 
 /// Protocol (trait) declaration

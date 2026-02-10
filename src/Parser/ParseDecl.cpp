@@ -202,6 +202,18 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
 
     auto typeName = expect(TokenKind::identifier);
 
+    // Parse optional generic type parameters: <T, U>
+    std::vector<std::string> typeParams;
+    if (match(TokenKind::less)) {
+        if (!check(TokenKind::greater)) {
+            do {
+                auto paramTok = expect(TokenKind::identifier);
+                typeParams.push_back(std::string(paramTok.getText()));
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::greater);
+    }
+
     // Optional protocol conformance
     std::string protocolName;
     if (match(TokenKind::colon)) {
@@ -222,8 +234,11 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
 
     expect(TokenKind::r_brace);
 
-    return std::make_unique<ImplDecl>(std::string(typeName.getText()), std::move(protocolName),
+    auto implDecl = std::make_unique<ImplDecl>(std::string(typeName.getText()), std::move(protocolName),
                                       std::move(methods), rangeFrom(startLoc));
+    if (!typeParams.empty())
+        implDecl->setTypeParams(std::move(typeParams));
+    return implDecl;
 }
 
 std::unique_ptr<ProtocolDecl> Parser::parseProtocolDecl(bool isPublic) {

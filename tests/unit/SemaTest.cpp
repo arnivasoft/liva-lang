@@ -656,3 +656,41 @@ TEST_F(SemaTest, DynArrayIndex) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+TEST_F(SemaTest, GenericImplDecl) {
+    auto result = check(R"--(
+        struct Box<T> { let data: T }
+        impl Box<T> {
+            func get(self) -> T { return self.data }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericImplMethodCall) {
+    auto result = check(R"--(
+        struct Box<T> { let data: T }
+        impl Box<T> {
+            func get(self) -> T { return self.data }
+        }
+        func main() {
+            let b = Box { data: 42 }
+            let x = b.get()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GenericImplMultiTypeParams) {
+    auto result = check(R"--(
+        struct Pair<T, U> { let first: T  let second: U }
+        impl Pair<T, U> {
+            func getFirst(self) -> T { return self.first }
+        }
+        func main() {
+            let p = Pair { first: 1  second: 3.14 }
+            let x = p.getFirst()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

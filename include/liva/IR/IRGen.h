@@ -153,6 +153,18 @@ private:
     /// Cache of monomorphized structs: "Box_i32" -> true
     std::unordered_map<std::string, bool> monomorphizedStructs_;
 
+    /// Generic impl AST nodes: "Box" -> ImplDecl*
+    std::unordered_map<std::string, const ImplDecl *> genericImplDecls_;
+
+    /// Struct type args for monomorphized structs: "Box_i32" -> [i32 TypeRepr*]
+    std::unordered_map<std::string, std::vector<const TypeRepr *>> structTypeArgs_;
+
+    /// Monomorphize a method from a generic impl block
+    llvm::Function *monomorphizeMethod(const ImplDecl *implDecl,
+                                        const FuncDecl *methodDecl,
+                                        const std::string &mangledStructName,
+                                        const std::vector<const TypeRepr *> &typeArgs);
+
     /// Lifetime management for inferred TypeRepr objects
     std::vector<std::unique_ptr<TypeRepr>> inferredTypes_;
 
@@ -200,6 +212,9 @@ private:
     llvm::Value *emitEnumCaseConstruct(const std::string &enumName,
                                         const std::string &caseName, int tag,
                                         const std::vector<std::unique_ptr<Expr>> &args);
+
+    /// Emit runtime bounds check: panics if index >= size
+    void emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal);
 };
 
 #else

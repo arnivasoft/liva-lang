@@ -146,9 +146,17 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
         return;
     }
 
+    scopes_.pushScope();
+    for (const auto &tp : node->getTypeParams()) {
+        Symbol tpSym;
+        tpSym.name = tp;
+        tpSym.kind = Symbol::Kind::TypeParam;
+        scopes_.declare(tp, tpSym);
+    }
     for (auto &method : node->getMethods()) {
         visitFuncDecl(method.get());
     }
+    scopes_.popScope();
 }
 
 void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
