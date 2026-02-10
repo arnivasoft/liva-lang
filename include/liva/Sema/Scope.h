@@ -10,6 +10,7 @@ namespace liva {
 
 class FuncDecl;
 class StructDecl;
+class EnumDecl;
 
 /// Represents a symbol in the symbol table
 struct Symbol {
@@ -31,6 +32,7 @@ struct Symbol {
     // For type checking
     const FuncDecl *funcDecl = nullptr;
     const StructDecl *structDecl = nullptr;
+    const EnumDecl *enumDecl = nullptr;
 };
 
 /// Lexical scope for name resolution

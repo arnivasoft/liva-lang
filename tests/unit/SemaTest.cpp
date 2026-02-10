@@ -280,3 +280,158 @@ TEST_F(SemaTest, ArrayWithPrintln) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+// === Match Exhaustiveness Tests ===
+
+TEST_F(SemaTest, MatchExhaustiveAllCases) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red => println(0)
+                Color.Green => println(1)
+                Color.Blue => println(2)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MatchExhaustiveWithWildcard) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MatchNonExhaustive) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red => println(0)
+                Color.Green => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_nonexhaustive_match));
+}
+
+TEST_F(SemaTest, MatchNonExhaustiveSingleCase) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red => println(0)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_nonexhaustive_match));
+}
+
+TEST_F(SemaTest, MatchDuplicateArm) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red => println(0)
+                Color.Red => println(1)
+                Color.Green => println(2)
+                Color.Blue => println(3)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::warn_unreachable_match_arm));
+}
+
+TEST_F(SemaTest, MatchExhaustiveAssociatedValues) {
+    auto result = check(R"(
+        enum Shape {
+            case Circle(f64)
+            case Rectangle(f64, f64)
+            case Empty
+        }
+
+        func main() {
+            let s = Shape.Circle(3.14)
+            match s {
+                Shape.Circle(r) => println(r)
+                Shape.Rectangle(w, h) => println(w)
+                Shape.Empty => println(0)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MatchNonExhaustiveAssociatedValues) {
+    auto result = check(R"(
+        enum Shape {
+            case Circle(f64)
+            case Rectangle(f64, f64)
+            case Empty
+        }
+
+        func main() {
+            let s = Shape.Circle(3.14)
+            match s {
+                Shape.Circle(r) => println(r)
+                Shape.Rectangle(w, h) => println(w)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_nonexhaustive_match));
+}
+
+TEST_F(SemaTest, MatchIntegerNoExhaustivenessRequired) {
+    auto result = check(R"(
+        func main() {
+            let x: i32 = 5
+            match x {
+                1 => println(1)
+                2 => println(2)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}

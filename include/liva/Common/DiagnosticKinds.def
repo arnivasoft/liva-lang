@@ -62,11 +62,13 @@ DIAG(err_mut_ref_to_immutable,       error,   "cannot take mutable reference to 
 DIAG(err_main_not_found,             error,   "no 'main' function found")
 DIAG(err_break_outside_loop,         error,   "'break' statement outside of loop")
 DIAG(err_continue_outside_loop,      error,   "'continue' statement outside of loop")
+DIAG(err_nonexhaustive_match,        error,   "match is not exhaustive; missing case '%0'")
 
 // === Warnings ===
 DIAG(warn_unused_variable,           warning, "unused variable '%0'")
 DIAG(warn_unreachable_code,          warning, "code after return statement will never be executed")
 DIAG(warn_shadowed_variable,         warning, "variable '%0' shadows previous declaration")
+DIAG(warn_unreachable_match_arm,     warning, "unreachable match arm: case '%0' already handled")
 
 // === Notes ===
 DIAG(note_previous_declaration,      note,    "previous declaration of '%0' is here")

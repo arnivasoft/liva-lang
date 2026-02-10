@@ -1,4 +1,5 @@
 #include "liva/Sema/TypeChecker.h"
+#include <set>
 
 namespace liva {
 
@@ -46,6 +47,7 @@ void TypeChecker::check(TranslationUnit &tu) {
             Symbol sym;
             sym.name = enumDecl->getName();
             sym.kind = Symbol::Kind::EnumType;
+            sym.enumDecl = enumDecl;
             if (!scopes_.declare(sym.name, sym)) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              enumDecl->getName());
@@ -361,7 +363,47 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
 
 void TypeChecker::visitMatchExpr(MatchExpr *node) {
     visit(const_cast<Expr *>(node->getSubject()));
+
+    // Determine if subject is an enum type by examining arm patterns
+    const EnumDecl *subjectEnum = nullptr;
+    std::string enumName;
     for (auto &arm : node->getArms()) {
+        auto dotPos = arm.pattern.find('.');
+        if (dotPos != std::string::npos) {
+            enumName = arm.pattern.substr(0, dotPos);
+            auto *sym = scopes_.lookup(enumName);
+            if (sym && sym->kind == Symbol::Kind::EnumType && sym->enumDecl) {
+                subjectEnum = sym->enumDecl;
+            }
+            break;
+        }
+    }
+
+    bool hasWildcard = false;
+    std::set<std::string> coveredCases;
+
+    for (auto &arm : node->getArms()) {
+        // Check for wildcard
+        if (arm.pattern == "_") {
+            hasWildcard = true;
+        } else if (subjectEnum) {
+            // Extract case name from pattern like "Color.Red" or "Shape.Circle(r)"
+            auto dotPos = arm.pattern.find('.');
+            if (dotPos != std::string::npos) {
+                auto afterDot = arm.pattern.substr(dotPos + 1);
+                auto parenPos = afterDot.find('(');
+                std::string caseName = (parenPos != std::string::npos)
+                    ? afterDot.substr(0, parenPos)
+                    : afterDot;
+                if (coveredCases.count(caseName)) {
+                    diag_.report(node->getStartLoc(), DiagID::warn_unreachable_match_arm,
+                                 arm.pattern);
+                } else {
+                    coveredCases.insert(caseName);
+                }
+            }
+        }
+
         if (arm.body) {
             // Extract bindings from pattern: Shape.Circle(r) -> r
             scopes_.pushScope();
@@ -398,6 +440,16 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
             }
             visit(arm.body.get());
             scopes_.popScope();
+        }
+    }
+
+    // Exhaustiveness check for enum matches without wildcard
+    if (subjectEnum && !hasWildcard) {
+        for (auto &c : subjectEnum->getCases()) {
+            if (!coveredCases.count(c->getName())) {
+                diag_.report(node->getStartLoc(), DiagID::err_nonexhaustive_match,
+                             enumName + "." + c->getName());
+            }
         }
     }
 }
