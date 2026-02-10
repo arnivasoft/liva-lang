@@ -31,6 +31,7 @@ public:
         Array,       // [T; N] or [T]
         Reference,   // ref T, ref mut T
         Optional,    // T?
+        Result,      // Result<T, E>
         Function,    // (T1, T2) -> T3
         Generic,     // T<U, V>
         Inferred,    // Type to be inferred by the compiler
@@ -149,6 +150,19 @@ public:
 
 private:
     std::unique_ptr<TypeRepr> inner_;
+};
+
+/// Result type: Result<T, E>
+class ResultTypeRepr : public TypeRepr {
+public:
+    ResultTypeRepr(std::unique_ptr<TypeRepr> okType, std::unique_ptr<TypeRepr> errType)
+        : TypeRepr(Kind::Result), okType_(std::move(okType)), errType_(std::move(errType)) {}
+    const TypeRepr *getOkType() const { return okType_.get(); }
+    const TypeRepr *getErrType() const { return errType_.get(); }
+    std::string toString() const override;
+private:
+    std::unique_ptr<TypeRepr> okType_;
+    std::unique_ptr<TypeRepr> errType_;
 };
 
 /// Helper to create common types

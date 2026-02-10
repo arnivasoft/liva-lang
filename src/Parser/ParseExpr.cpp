@@ -83,6 +83,14 @@ std::unique_ptr<Expr> Parser::parseUnaryExpr() {
                                            rangeFrom(startLoc));
     }
 
+    // try expression
+    if (check(TokenKind::kw_try)) {
+        advance();
+        auto operand = parseUnaryExpr();
+        if (!operand) return nullptr;
+        return std::make_unique<TryExpr>(std::move(operand), rangeFrom(startLoc));
+    }
+
     // ref / ref mut
     if (check(TokenKind::kw_ref)) {
         advance();

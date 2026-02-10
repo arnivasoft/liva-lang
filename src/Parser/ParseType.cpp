@@ -80,6 +80,10 @@ std::unique_ptr<TypeRepr> Parser::parseBaseType() {
                 } while (match(TokenKind::comma));
             }
             expect(TokenKind::greater);
+            if (name == "Result" && typeArgs.size() == 2) {
+                return std::make_unique<ResultTypeRepr>(
+                    std::move(typeArgs[0]), std::move(typeArgs[1]));
+            }
             return std::make_unique<GenericTypeRepr>(std::move(name), std::move(typeArgs));
         }
 

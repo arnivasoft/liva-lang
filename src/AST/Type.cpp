@@ -38,6 +38,8 @@ std::string TypeRepr::toString() const {
         return "<ref>";
     case Kind::Optional:
         return "<optional>";
+    case Kind::Result:
+        return "<result>";
     case Kind::Function:
         return "<function>";
     case Kind::Generic:
@@ -127,6 +129,10 @@ std::string GenericTypeRepr::toString() const {
 
 std::string OptionalTypeRepr::toString() const {
     return inner_->toString() + "?";
+}
+
+std::string ResultTypeRepr::toString() const {
+    return "Result<" + okType_->toString() + ", " + errType_->toString() + ">";
 }
 
 std::unique_ptr<TypeRepr> makeVoidType() {

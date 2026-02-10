@@ -53,6 +53,7 @@ public:
         RangeExpr,
         UnwrapExpr,  // x! (force unwrap optional)
         ClosureExpr, // |x: i32| -> i32 { body }
+        TryExpr,     // try expr
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())

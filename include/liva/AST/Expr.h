@@ -21,7 +21,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::IntegerLiteralExpr &&
-               node->getKind() <= NodeKind::ClosureExpr;
+               node->getKind() <= NodeKind::TryExpr;
     }
 
 protected:
@@ -456,6 +456,18 @@ private:
     std::vector<Param> params_;
     std::unique_ptr<TypeRepr> returnType_;
     std::unique_ptr<BlockStmt> body_;
+};
+
+/// Try expression: try expr (early return on Err for Result types)
+class TryExpr : public Expr {
+public:
+    TryExpr(std::unique_ptr<Expr> operand, SourceRange range)
+        : Expr(NodeKind::TryExpr, range), operand_(std::move(operand)) {}
+    const Expr *getOperand() const { return operand_.get(); }
+    Expr *getOperand() { return operand_.get(); }
+    static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::TryExpr; }
+private:
+    std::unique_ptr<Expr> operand_;
 };
 
 } // namespace liva

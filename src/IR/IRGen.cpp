@@ -7,6 +7,7 @@
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
 #include <fstream>
+#include <set>
 
 namespace liva {
 
@@ -147,6 +148,101 @@ llvm::StructType *IRGen::getOptionalType(llvm::Type *innerType) {
     return ty;
 }
 
+llvm::StructType *IRGen::getResultType(llvm::Type *okType, llvm::Type *errType) {
+    auto key = std::make_pair(okType, errType);
+    auto it = resultTypes_.find(key);
+    if (it != resultTypes_.end()) return it->second;
+    const auto &dl = module_->getDataLayout();
+    uint64_t maxSize = std::max(dl.getTypeAllocSize(okType), dl.getTypeAllocSize(errType));
+    auto *payloadTy = llvm::ArrayType::get(builder_->getInt8Ty(), maxSize);
+    auto *ty = llvm::StructType::create(*context_, {builder_->getInt32Ty(), payloadTy}, "Result");
+    resultTypes_[key] = ty;
+    return ty;
+}
+
+llvm::Value *IRGen::emitResultOk(llvm::Type *okType, llvm::Type *errType, llvm::Value *value) {
+    auto *resTy = getResultType(okType, errType);
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *alloca = createEntryBlockAlloca(func, "result.ok.tmp", resTy);
+    auto *tagPtr = builder_->CreateStructGEP(resTy, alloca, 0, "res.tag");
+    builder_->CreateStore(builder_->getInt32(0), tagPtr);
+    auto *payloadPtr = builder_->CreateStructGEP(resTy, alloca, 1, "res.payload");
+    builder_->CreateStore(value, payloadPtr);
+    return builder_->CreateLoad(resTy, alloca, "result.ok.val");
+}
+
+llvm::Value *IRGen::emitResultErr(llvm::Type *okType, llvm::Type *errType, llvm::Value *value) {
+    auto *resTy = getResultType(okType, errType);
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *alloca = createEntryBlockAlloca(func, "result.err.tmp", resTy);
+    auto *tagPtr = builder_->CreateStructGEP(resTy, alloca, 0, "res.tag");
+    builder_->CreateStore(builder_->getInt32(1), tagPtr);
+    auto *payloadPtr = builder_->CreateStructGEP(resTy, alloca, 1, "res.payload");
+    builder_->CreateStore(value, payloadPtr);
+    return builder_->CreateLoad(resTy, alloca, "result.err.val");
+}
+
+llvm::StructType *IRGen::getTraitObjectTy() {
+    if (!traitObjectTy_) {
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        traitObjectTy_ = llvm::StructType::create(*context_, {ptrTy, ptrTy}, "trait_object");
+    }
+    return traitObjectTy_;
+}
+
+llvm::StructType *IRGen::getClosureObjTy() {
+    if (!closureObjTy_) {
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        closureObjTy_ = llvm::StructType::create(*context_, {ptrTy, ptrTy}, "closure_obj");
+    }
+    return closureObjTy_;
+}
+
+llvm::GlobalVariable *IRGen::getOrCreateVtable(const std::string &protocolName,
+                                                  const std::string &typeName) {
+    std::string vtableName = "vtable_" + protocolName + "_" + typeName;
+    auto it = vtableGlobals_.find(vtableName);
+    if (it != vtableGlobals_.end())
+        return it->second;
+
+    auto pmIt = protocolMethodNames_.find(protocolName);
+    if (pmIt == protocolMethodNames_.end())
+        return nullptr;
+
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+    std::vector<llvm::Constant *> funcs;
+
+    for (auto &methodName : pmIt->second) {
+        std::string mangledName = typeName + "_" + methodName;
+        auto *fn = module_->getFunction(mangledName);
+        if (!fn) {
+            funcs.push_back(llvm::ConstantPointerNull::get(ptrTy));
+        } else {
+            funcs.push_back(fn);
+        }
+    }
+
+    auto *arrayTy = llvm::ArrayType::get(ptrTy, funcs.size());
+    auto *init = llvm::ConstantArray::get(arrayTy, funcs);
+    auto *gv = new llvm::GlobalVariable(*module_, arrayTy, true,
+                                          llvm::GlobalValue::PrivateLinkage, init, vtableName);
+    vtableGlobals_[vtableName] = gv;
+    return gv;
+}
+
+llvm::Value *IRGen::visitProtocolDecl(ProtocolDecl *node) {
+    std::vector<std::string> methodNames;
+    std::unordered_map<std::string, int> methodIndices;
+    int idx = 0;
+    for (auto &method : node->getMethods()) {
+        methodNames.push_back(method->getName());
+        methodIndices[method->getName()] = idx++;
+    }
+    protocolMethodNames_[node->getName()] = std::move(methodNames);
+    protocolMethodIndices_[node->getName()] = std::move(methodIndices);
+    return nullptr;
+}
+
 llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
     if (!type)
         return builder_->getVoidTy();
@@ -197,8 +293,12 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         auto *optType = static_cast<const OptionalTypeRepr *>(type);
         return getOptionalType(toLLVMType(optType->getInner()));
     }
+    case TypeRepr::Kind::Result: {
+        auto *rt = static_cast<const ResultTypeRepr *>(type);
+        return getResultType(toLLVMType(rt->getOkType()), toLLVMType(rt->getErrType()));
+    }
     case TypeRepr::Kind::Function:
-        return llvm::PointerType::getUnqual(*context_);
+        return getClosureObjTy();
     default:
         return builder_->getInt32Ty();
     }
@@ -253,6 +353,9 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarDynArrayTypes = varDynArrayTypes_;
     auto oldVarOptionalTypes = varOptionalTypes_;
     auto oldVarFuncTypes = varFuncTypes_;
+    auto oldVarProtocolTypes = varProtocolTypes_;
+    auto oldVarResultTypes = varResultTypes_;
+    auto *oldFuncResultInfo = currentFuncResultInfo_;
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
@@ -260,6 +363,17 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varDynArrayTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
+    varProtocolTypes_.clear();
+    varResultTypes_.clear();
+    currentFuncResultInfo_ = nullptr;
+
+    // Track Result return type for try expressions
+    if (node->getReturnType() &&
+        node->getReturnType()->getKind() == TypeRepr::Kind::Result) {
+        auto *rt = static_cast<const ResultTypeRepr *>(node->getReturnType());
+        currentFuncResultInfoStorage_ = {toLLVMType(rt->getOkType()), toLLVMType(rt->getErrType())};
+        currentFuncResultInfo_ = &currentFuncResultInfoStorage_;
+    }
 
     // Create allocas for parameters
     i = 0;
@@ -268,6 +382,20 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         builder_->CreateStore(&arg, alloca);
         namedValues_[std::string(arg.getName())] = alloca;
         ++i;
+    }
+
+    // Populate varFuncTypes_ for function-typed parameters
+    for (auto &param : node->getParams()) {
+        if (param.type && param.type->getKind() == TypeRepr::Kind::Function) {
+            auto *ftr = static_cast<const FunctionTypeRepr *>(param.type.get());
+            std::vector<llvm::Type *> fParamTypes;
+            fParamTypes.push_back(llvm::PointerType::getUnqual(*context_)); // hidden env
+            for (auto &p : ftr->getParams())
+                fParamTypes.push_back(toLLVMType(p.get()));
+            llvm::Type *fRetTy = ftr->getReturnType()
+                ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
+            varFuncTypes_[param.name] = llvm::FunctionType::get(fRetTy, fParamTypes, false);
+        }
     }
 
     // Generate body
@@ -293,12 +421,88 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varDynArrayTypes_ = oldVarDynArrayTypes;
     varOptionalTypes_ = oldVarOptionalTypes;
     varFuncTypes_ = oldVarFuncTypes;
+    varProtocolTypes_ = oldVarProtocolTypes;
+    varResultTypes_ = oldVarResultTypes;
+    currentFuncResultInfo_ = oldFuncResultInfo;
 
     return func;
 }
 
 llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     auto *func = builder_->GetInsertBlock()->getParent();
+
+    // Protocol trait object: let s: ref Shape = circle
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Reference) {
+        auto *refType = static_cast<const ReferenceTypeRepr *>(node->getType());
+        if (refType->getInner() && refType->getInner()->getKind() == TypeRepr::Kind::Named) {
+            auto *namedInner = static_cast<const NamedTypeRepr *>(refType->getInner());
+            const std::string &protocolName = namedInner->getName();
+            auto pmIt = protocolMethodNames_.find(protocolName);
+            if (pmIt != protocolMethodNames_.end()) {
+                // This is a protocol trait object variable
+                auto *traitTy = getTraitObjectTy();
+                auto *alloca = createEntryBlockAlloca(func, node->getName(), traitTy);
+
+                // Get concrete type from init expression
+                std::string concreteType;
+                llvm::AllocaInst *dataAlloca = nullptr;
+                if (node->hasInit() &&
+                    node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                    auto *ident = static_cast<IdentifierExpr *>(
+                        const_cast<Expr *>(node->getInit()));
+                    auto stIt = varStructTypes_.find(ident->getName());
+                    if (stIt != varStructTypes_.end()) {
+                        concreteType = stIt->second;
+                        auto nvIt = namedValues_.find(ident->getName());
+                        if (nvIt != namedValues_.end())
+                            dataAlloca = nvIt->second;
+                    }
+                }
+
+                if (!concreteType.empty() && dataAlloca) {
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+                    // Store data pointer (pointer to concrete struct)
+                    auto *dataGEP = builder_->CreateStructGEP(traitTy, alloca, 0, "trait.data");
+                    builder_->CreateStore(dataAlloca, dataGEP);
+
+                    // Get or create vtable and store pointer
+                    auto *vtable = getOrCreateVtable(protocolName, concreteType);
+                    auto *vtableGEP = builder_->CreateStructGEP(traitTy, alloca, 1, "trait.vtable");
+                    builder_->CreateStore(vtable, vtableGEP);
+
+                    namedValues_[node->getName()] = alloca;
+                    varProtocolTypes_[node->getName()] = protocolName;
+                    return alloca;
+                }
+            }
+        }
+    }
+
+    // Result variable: let r: Result<i32, string> = Result.ok(42)
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Result) {
+        auto *rtRepr = static_cast<const ResultTypeRepr *>(node->getType());
+        auto *okLLVM = toLLVMType(rtRepr->getOkType());
+        auto *errLLVM = toLLVMType(rtRepr->getErrType());
+        auto *resTy = getResultType(okLLVM, errLLVM);
+        auto *alloca = createEntryBlockAlloca(func, node->getName(), resTy);
+
+        if (node->hasInit()) {
+            // Temporarily set currentFuncResultInfo_ so emitResultOk/Err can be used from visitCallExpr
+            ResultInfo ri = {okLLVM, errLLVM};
+            auto *oldRI = currentFuncResultInfo_;
+            currentFuncResultInfo_ = &ri;
+            auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+            currentFuncResultInfo_ = oldRI;
+            if (initVal) builder_->CreateStore(initVal, alloca);
+        }
+
+        namedValues_[node->getName()] = alloca;
+        varResultTypes_[node->getName()] = {okLLVM, errLLVM};
+        return alloca;
+    }
 
     // Optional variable: let x: i32? = 42 / let x: i32? = nil
     if (node->hasTypeAnnotation() && node->getType() &&
@@ -543,14 +747,15 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         node->getType()->getKind() == TypeRepr::Kind::Function) {
         auto *funcTypeRepr = static_cast<const FunctionTypeRepr *>(node->getType());
         std::vector<llvm::Type *> paramTypes;
+        paramTypes.push_back(llvm::PointerType::getUnqual(*context_)); // hidden env
         for (auto &p : funcTypeRepr->getParams())
             paramTypes.push_back(toLLVMType(p.get()));
         llvm::Type *retTy = funcTypeRepr->getReturnType()
             ? toLLVMType(funcTypeRepr->getReturnType())
             : builder_->getVoidTy();
         auto *llvmFuncTy = llvm::FunctionType::get(retTy, paramTypes, false);
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-        auto *alloca = createEntryBlockAlloca(func, node->getName(), ptrTy);
+        auto *closureObjTy = getClosureObjTy();
+        auto *alloca = createEntryBlockAlloca(func, node->getName(), closureObjTy);
         if (node->hasInit()) {
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal) builder_->CreateStore(initVal, alloca);
@@ -1021,6 +1226,57 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *memberExpr = static_cast<MemberExpr *>(node->getCallee());
         const auto &methodName = memberExpr->getMember();
 
+        // Result.ok(val) / Result.err(val) constructor
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            if (ident->getName() == "Result" && currentFuncResultInfo_ &&
+                (methodName == "ok" || methodName == "err")) {
+                if (!node->getArgs().empty()) {
+                    auto *argVal = visit(node->getArgs()[0].get());
+                    if (!argVal) return nullptr;
+                    if (methodName == "ok")
+                        return emitResultOk(currentFuncResultInfo_->okType,
+                                            currentFuncResultInfo_->errType, argVal);
+                    else
+                        return emitResultErr(currentFuncResultInfo_->okType,
+                                             currentFuncResultInfo_->errType, argVal);
+                }
+                return nullptr;
+            }
+        }
+
+        // r.unwrap() method for Result types
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            if (methodName == "unwrap") {
+                auto rtIt = varResultTypes_.find(ident->getName());
+                if (rtIt != varResultTypes_.end()) {
+                    auto nvIt = namedValues_.find(ident->getName());
+                    if (nvIt == namedValues_.end()) return nullptr;
+                    auto *resAlloca = nvIt->second;
+                    auto *resTy = getResultType(rtIt->second.okType, rtIt->second.errType);
+                    auto *tagPtr = builder_->CreateStructGEP(resTy, resAlloca, 0, "unwrap.tag");
+                    auto *tag = builder_->CreateLoad(builder_->getInt32Ty(), tagPtr, "unwrap.tag.val");
+                    auto *isOk = builder_->CreateICmpEQ(tag, builder_->getInt32(0), "unwrap.isok");
+
+                    auto *curFunc = builder_->GetInsertBlock()->getParent();
+                    auto *okBB = llvm::BasicBlock::Create(*context_, "unwrap.ok", curFunc);
+                    auto *panicBB = llvm::BasicBlock::Create(*context_, "unwrap.panic", curFunc);
+                    builder_->CreateCondBr(isOk, okBB, panicBB);
+
+                    builder_->SetInsertPoint(panicBB);
+                    auto *panicFn = module_->getFunction("liva_panic");
+                    auto *msg = builder_->CreateGlobalString("unwrap of Err Result value");
+                    builder_->CreateCall(panicFn, {msg});
+                    builder_->CreateUnreachable();
+
+                    builder_->SetInsertPoint(okBB);
+                    auto *payloadPtr = builder_->CreateStructGEP(resTy, resAlloca, 1, "unwrap.payload");
+                    return builder_->CreateLoad(rtIt->second.okType, payloadPtr, "unwrap.val");
+                }
+            }
+        }
+
         // Check for enum case constructor: Shape.Circle(3.14)
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
@@ -1070,6 +1326,75 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *popFn = module_->getFunction("liva_array_pop");
                     builder_->CreateCall(popFn, {lenField});
                     return nullptr;
+                }
+            }
+        }
+
+        // Dynamic dispatch for protocol trait objects: obj.method(args)
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            auto ptIt = varProtocolTypes_.find(ident->getName());
+            if (ptIt != varProtocolTypes_.end()) {
+                const std::string &protocolName = ptIt->second;
+                auto miIt = protocolMethodIndices_.find(protocolName);
+                if (miIt != protocolMethodIndices_.end()) {
+                    auto idxIt = miIt->second.find(methodName);
+                    if (idxIt != miIt->second.end()) {
+                        int methodIdx = idxIt->second;
+                        auto *traitTy = getTraitObjectTy();
+                        auto nvIt = namedValues_.find(ident->getName());
+                        if (nvIt != namedValues_.end()) {
+                            auto *traitAlloca = nvIt->second;
+
+                            // Load data pointer
+                            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                            auto *dataGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 0);
+                            auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "dyn.data");
+
+                            // Load vtable pointer
+                            auto *vtableGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 1);
+                            auto *vtablePtr = builder_->CreateLoad(ptrTy, vtableGEP, "dyn.vtable");
+
+                            // Get function pointer from vtable
+                            auto *arrayTy = llvm::ArrayType::get(ptrTy, miIt->second.size());
+                            auto *fnPtrGEP = builder_->CreateInBoundsGEP(
+                                arrayTy, vtablePtr,
+                                {builder_->getInt64(0), builder_->getInt64(methodIdx)},
+                                "dyn.fnptr.gep");
+                            auto *fnPtr = builder_->CreateLoad(ptrTy, fnPtrGEP, "dyn.fnptr");
+
+                            // Build function type from protocol method signature
+                            auto pcIt = protocolConformances_.find(protocolName);
+                            llvm::FunctionType *fnTy = nullptr;
+                            if (pcIt != protocolConformances_.end() && !pcIt->second.empty()) {
+                                std::string mangledName = pcIt->second[0] + "_" + methodName;
+                                auto *refFn = module_->getFunction(mangledName);
+                                if (refFn) fnTy = refFn->getFunctionType();
+                            }
+
+                            if (!fnTy) {
+                                std::vector<llvm::Type *> paramTys = {ptrTy};
+                                for (auto &arg : node->getArgs()) {
+                                    auto *val = visit(arg.get());
+                                    if (val) paramTys.push_back(val->getType());
+                                }
+                                fnTy = llvm::FunctionType::get(builder_->getInt32Ty(), paramTys, false);
+                            }
+
+                            // Build args: data_ptr as self + user args
+                            std::vector<llvm::Value *> args;
+                            args.push_back(dataPtr);
+                            for (auto &arg : node->getArgs()) {
+                                auto *val = visit(arg.get());
+                                if (!val) return nullptr;
+                                args.push_back(val);
+                            }
+
+                            if (fnTy->getReturnType()->isVoidTy())
+                                return builder_->CreateCall(fnTy, fnPtr, args);
+                            return builder_->CreateCall(fnTy, fnPtr, args, "dyncalltmp");
+                        }
+                    }
                 }
             }
         }
@@ -1218,14 +1543,21 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(printfFunc, {fmtStr, arg});
     }
 
-    // Check for indirect call through function-typed variable
+    // Check for indirect call through function-typed variable (closure object)
     auto funcIt = varFuncTypes_.find(funcName);
     if (funcIt != varFuncTypes_.end()) {
         auto namedIt = namedValues_.find(funcName);
         if (namedIt != namedValues_.end()) {
+            auto *closureObjTy = getClosureObjTy();
             auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-            auto *funcPtr = builder_->CreateLoad(ptrTy, namedIt->second, "func.ptr");
+            // Extract func_ptr and env_ptr from closure object
+            auto *funcGEP = builder_->CreateStructGEP(closureObjTy, namedIt->second, 0);
+            auto *funcPtr = builder_->CreateLoad(ptrTy, funcGEP, "func.ptr");
+            auto *envGEP = builder_->CreateStructGEP(closureObjTy, namedIt->second, 1);
+            auto *envPtr = builder_->CreateLoad(ptrTy, envGEP, "env.ptr");
+            // Build args: env first, then user args
             std::vector<llvm::Value *> args;
+            args.push_back(envPtr);
             for (auto &arg : node->getArgs()) {
                 auto *val = visit(arg.get());
                 if (!val) return nullptr;
@@ -1536,6 +1868,24 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         }
     }
 
+    // Result properties: r.isOk, r.isErr
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        auto rtIt = varResultTypes_.find(ident->getName());
+        if (rtIt != varResultTypes_.end()) {
+            auto nvIt = namedValues_.find(ident->getName());
+            if (nvIt != namedValues_.end()) {
+                auto *resTy = getResultType(rtIt->second.okType, rtIt->second.errType);
+                auto *tagPtr = builder_->CreateStructGEP(resTy, nvIt->second, 0, "res.tag");
+                auto *tag = builder_->CreateLoad(builder_->getInt32Ty(), tagPtr, "res.tag.val");
+                if (node->getMember() == "isOk")
+                    return builder_->CreateICmpEQ(tag, builder_->getInt32(0), "res.isok");
+                if (node->getMember() == "isErr")
+                    return builder_->CreateICmpEQ(tag, builder_->getInt32(1), "res.iserr");
+            }
+        }
+    }
+
     // Check for enum case reference: Color.Red
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
@@ -1641,7 +1991,196 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
     return builder_->CreateLoad(structTy, alloca, typeName + ".val");
 }
 
+// --- Free variable collection for closure capture ---
+
+static void collectFreeVarsImpl(const ASTNode *node,
+                                const std::set<std::string> &params,
+                                std::set<std::string> &locals,
+                                std::set<std::string> &freeVars) {
+    if (!node) return;
+    using NK = ASTNode::NodeKind;
+    switch (node->getKind()) {
+    // --- Expressions ---
+    case NK::IdentifierExpr: {
+        auto *id = static_cast<const IdentifierExpr *>(node);
+        if (params.find(id->getName()) == params.end() &&
+            locals.find(id->getName()) == locals.end())
+            freeVars.insert(id->getName());
+        break;
+    }
+    case NK::BinaryExpr: {
+        auto *e = static_cast<const BinaryExpr *>(node);
+        collectFreeVarsImpl(e->getLHS(), params, locals, freeVars);
+        collectFreeVarsImpl(e->getRHS(), params, locals, freeVars);
+        break;
+    }
+    case NK::UnaryExpr: {
+        auto *e = static_cast<const UnaryExpr *>(node);
+        collectFreeVarsImpl(e->getOperand(), params, locals, freeVars);
+        break;
+    }
+    case NK::CallExpr: {
+        auto *e = static_cast<const CallExpr *>(node);
+        collectFreeVarsImpl(e->getCallee(), params, locals, freeVars);
+        for (auto &arg : e->getArgs())
+            collectFreeVarsImpl(arg.get(), params, locals, freeVars);
+        break;
+    }
+    case NK::GroupExpr: {
+        auto *e = static_cast<const GroupExpr *>(node);
+        collectFreeVarsImpl(e->getExpr(), params, locals, freeVars);
+        break;
+    }
+    case NK::CastExpr: {
+        auto *e = static_cast<const CastExpr *>(node);
+        collectFreeVarsImpl(e->getExpr(), params, locals, freeVars);
+        break;
+    }
+    case NK::MemberExpr: {
+        auto *e = static_cast<const MemberExpr *>(node);
+        collectFreeVarsImpl(e->getObject(), params, locals, freeVars);
+        break;
+    }
+    case NK::IndexExpr: {
+        auto *e = static_cast<const IndexExpr *>(node);
+        collectFreeVarsImpl(e->getBase(), params, locals, freeVars);
+        collectFreeVarsImpl(e->getIndex(), params, locals, freeVars);
+        break;
+    }
+    case NK::AssignExpr: {
+        auto *e = static_cast<const AssignExpr *>(node);
+        collectFreeVarsImpl(e->getTarget(), params, locals, freeVars);
+        collectFreeVarsImpl(e->getValue(), params, locals, freeVars);
+        break;
+    }
+    case NK::UnwrapExpr: {
+        auto *e = static_cast<const UnwrapExpr *>(node);
+        collectFreeVarsImpl(e->getOperand(), params, locals, freeVars);
+        break;
+    }
+    case NK::RangeExpr: {
+        auto *e = static_cast<const RangeExpr *>(node);
+        collectFreeVarsImpl(e->getStart(), params, locals, freeVars);
+        collectFreeVarsImpl(e->getEnd(), params, locals, freeVars);
+        break;
+    }
+    case NK::MatchExpr: {
+        auto *e = static_cast<const MatchExpr *>(node);
+        collectFreeVarsImpl(e->getSubject(), params, locals, freeVars);
+        for (auto &arm : e->getArms())
+            collectFreeVarsImpl(arm.body.get(), params, locals, freeVars);
+        break;
+    }
+    case NK::ArrayLiteralExpr: {
+        auto *e = static_cast<const ArrayLiteralExpr *>(node);
+        for (auto &el : e->getElements())
+            collectFreeVarsImpl(el.get(), params, locals, freeVars);
+        break;
+    }
+    case NK::StructLiteralExpr: {
+        auto *e = static_cast<const StructLiteralExpr *>(node);
+        for (auto &f : e->getFields())
+            collectFreeVarsImpl(f.value.get(), params, locals, freeVars);
+        break;
+    }
+    case NK::TryExpr: {
+        auto *e = static_cast<const TryExpr *>(node);
+        collectFreeVarsImpl(e->getOperand(), params, locals, freeVars);
+        break;
+    }
+    case NK::ClosureExpr: {
+        auto *e = static_cast<const ClosureExpr *>(node);
+        std::set<std::string> innerParams = params;
+        for (auto &p : e->getParams())
+            innerParams.insert(p.name);
+        std::set<std::string> innerLocals = locals;
+        collectFreeVarsImpl(e->getBody(), innerParams, innerLocals, freeVars);
+        break;
+    }
+    // --- Statements ---
+    case NK::BlockStmt: {
+        auto *s = static_cast<const BlockStmt *>(node);
+        for (auto &stmt : s->getStatements())
+            collectFreeVarsImpl(stmt.get(), params, locals, freeVars);
+        break;
+    }
+    case NK::ReturnStmt: {
+        auto *s = static_cast<const ReturnStmt *>(node);
+        if (s->hasValue())
+            collectFreeVarsImpl(s->getValue(), params, locals, freeVars);
+        break;
+    }
+    case NK::ExprStmt: {
+        auto *s = static_cast<const ExprStmt *>(node);
+        collectFreeVarsImpl(s->getExpr(), params, locals, freeVars);
+        break;
+    }
+    case NK::IfStmt: {
+        auto *s = static_cast<const IfStmt *>(node);
+        collectFreeVarsImpl(s->getCondition(), params, locals, freeVars);
+        collectFreeVarsImpl(s->getThenBody(), params, locals, freeVars);
+        if (s->hasElse())
+            collectFreeVarsImpl(s->getElseBody(), params, locals, freeVars);
+        break;
+    }
+    case NK::IfLetStmt: {
+        auto *s = static_cast<const IfLetStmt *>(node);
+        collectFreeVarsImpl(s->getOptionalExpr(), params, locals, freeVars);
+        std::set<std::string> thenLocals = locals;
+        thenLocals.insert(s->getBindingName());
+        collectFreeVarsImpl(s->getThenBody(), params, thenLocals, freeVars);
+        if (s->hasElse())
+            collectFreeVarsImpl(s->getElseBody(), params, locals, freeVars);
+        break;
+    }
+    case NK::WhileStmt: {
+        auto *s = static_cast<const WhileStmt *>(node);
+        collectFreeVarsImpl(s->getCondition(), params, locals, freeVars);
+        collectFreeVarsImpl(s->getBody(), params, locals, freeVars);
+        break;
+    }
+    case NK::ForStmt: {
+        auto *s = static_cast<const ForStmt *>(node);
+        collectFreeVarsImpl(s->getIterable(), params, locals, freeVars);
+        std::set<std::string> bodyLocals = locals;
+        bodyLocals.insert(s->getVarName());
+        collectFreeVarsImpl(s->getBody(), params, bodyLocals, freeVars);
+        break;
+    }
+    // --- Declarations ---
+    case NK::VarDecl: {
+        auto *d = static_cast<const VarDecl *>(node);
+        if (d->hasInit())
+            collectFreeVarsImpl(d->getInit(), params, locals, freeVars);
+        locals.insert(d->getName());
+        break;
+    }
+    // Skip: Literals, Break, Continue, FuncDecl, StructDecl, etc.
+    default:
+        break;
+    }
+}
+
+static std::vector<std::string> collectFreeVars(
+    const ClosureExpr *closure,
+    const std::unordered_map<std::string, llvm::AllocaInst *> &outerScope) {
+    std::set<std::string> params;
+    for (auto &p : closure->getParams())
+        params.insert(p.name);
+    std::set<std::string> locals;
+    std::set<std::string> freeVars;
+    collectFreeVarsImpl(closure->getBody(), params, locals, freeVars);
+    // Filter: only keep names that exist in outerScope
+    std::vector<std::string> result;
+    for (auto &name : freeVars) {
+        if (outerScope.find(name) != outerScope.end())
+            result.push_back(name);
+    }
+    return result;
+}
+
 llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
+    // Save outer scope state
     auto savedBlock = builder_->GetInsertBlock();
     auto savedValues = namedValues_;
     auto savedStructTypes2 = varStructTypes_;
@@ -1650,10 +2189,49 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     auto savedDynArrayTypes2 = varDynArrayTypes_;
     auto savedOptionalTypes2 = varOptionalTypes_;
     auto savedFuncTypes2 = varFuncTypes_;
+    auto savedProtocolTypes2 = varProtocolTypes_;
+    auto savedResultTypes2 = varResultTypes_;
+    auto *savedFuncRI2 = currentFuncResultInfo_;
 
+    // --- Capture analysis ---
+    auto captured = collectFreeVars(node, namedValues_);
+
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+    // --- Build environment struct (in outer function context) ---
+    llvm::Value *envPtr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy));
+    llvm::StructType *envStructTy = nullptr;
+
+    if (!captured.empty()) {
+        std::vector<llvm::Type *> envFields;
+        for (auto &name : captured) {
+            auto *alloca = namedValues_[name];
+            envFields.push_back(alloca->getAllocatedType());
+        }
+        envStructTy = llvm::StructType::create(*context_, envFields,
+            "__env_" + std::to_string(closureCounter_));
+
+        auto *outerFunc = builder_->GetInsertBlock()->getParent();
+        auto *envAlloca = createEntryBlockAlloca(outerFunc, "env", envStructTy);
+
+        // Copy captured values into env struct
+        for (unsigned i = 0; i < captured.size(); ++i) {
+            auto *srcAlloca = namedValues_[captured[i]];
+            auto *val = builder_->CreateLoad(srcAlloca->getAllocatedType(), srcAlloca,
+                                             captured[i] + ".cap");
+            auto *gep = builder_->CreateStructGEP(envStructTy, envAlloca, i,
+                                                  "env." + captured[i]);
+            builder_->CreateStore(val, gep);
+        }
+        envPtr = envAlloca;
+    }
+
+    // --- Create closure function (hidden env param + user params) ---
     std::vector<llvm::Type *> paramTypes;
+    paramTypes.push_back(ptrTy); // hidden env parameter
     for (auto &p : node->getParams())
         paramTypes.push_back(toLLVMType(p.type.get()));
+
     llvm::Type *retTy = node->getReturnType()
         ? toLLVMType(node->getReturnType())
         : builder_->getVoidTy();
@@ -1663,6 +2241,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     auto *func = llvm::Function::Create(
         funcTy, llvm::Function::InternalLinkage, name, module_.get());
 
+    // --- Generate closure body ---
     auto *entry = llvm::BasicBlock::Create(*context_, "entry", func);
     builder_->SetInsertPoint(entry);
     namedValues_.clear();
@@ -1672,23 +2251,60 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varDynArrayTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
+    varProtocolTypes_.clear();
+    varResultTypes_.clear();
+    currentFuncResultInfo_ = nullptr;
 
-    unsigned i = 0;
-    for (auto &arg : func->args()) {
-        auto &param = node->getParams()[i];
-        arg.setName(param.name);
-        auto *alloca = createEntryBlockAlloca(func, param.name, paramTypes[i]);
-        builder_->CreateStore(&arg, alloca);
-        namedValues_[param.name] = alloca;
-        i++;
+    // Extract captured values from env
+    auto argIt = func->arg_begin();
+    llvm::Value *envArg = &*argIt; // first arg is env ptr
+    envArg->setName("env");
+    ++argIt;
+
+    if (!captured.empty() && envStructTy) {
+        for (unsigned i = 0; i < captured.size(); ++i) {
+            auto *fieldTy = envStructTy->getElementType(i);
+            auto *gep = builder_->CreateStructGEP(envStructTy, envArg, i,
+                                                  "env." + captured[i]);
+            auto *val = builder_->CreateLoad(fieldTy, gep, captured[i] + ".env");
+            auto *alloca = createEntryBlockAlloca(func, captured[i], fieldTy);
+            builder_->CreateStore(val, alloca);
+            namedValues_[captured[i]] = alloca;
+
+            // Restore type tracking for captured variables
+            auto stIt = savedStructTypes2.find(captured[i]);
+            if (stIt != savedStructTypes2.end())
+                varStructTypes_[captured[i]] = stIt->second;
+            auto enIt = savedEnumTypes2.find(captured[i]);
+            if (enIt != savedEnumTypes2.end())
+                varEnumTypes_[captured[i]] = enIt->second;
+            auto optIt = savedOptionalTypes2.find(captured[i]);
+            if (optIt != savedOptionalTypes2.end())
+                varOptionalTypes_[captured[i]] = optIt->second;
+            auto fnIt = savedFuncTypes2.find(captured[i]);
+            if (fnIt != savedFuncTypes2.end())
+                varFuncTypes_[captured[i]] = fnIt->second;
+        }
     }
 
+    // Bind user parameters
+    unsigned pi = 0;
+    for (; argIt != func->arg_end(); ++argIt, ++pi) {
+        auto &param = node->getParams()[pi];
+        argIt->setName(param.name);
+        auto *alloca = createEntryBlockAlloca(func, param.name, argIt->getType());
+        builder_->CreateStore(&*argIt, alloca);
+        namedValues_[param.name] = alloca;
+    }
+
+    // Generate body
     visit(node->getBody());
 
     if (!builder_->GetInsertBlock()->getTerminator()) {
         if (retTy->isVoidTy()) builder_->CreateRetVoid();
     }
 
+    // --- Restore outer scope and build closure object ---
     builder_->SetInsertPoint(savedBlock);
     namedValues_ = savedValues;
     varStructTypes_ = savedStructTypes2;
@@ -1697,12 +2313,29 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varDynArrayTypes_ = savedDynArrayTypes2;
     varOptionalTypes_ = savedOptionalTypes2;
     varFuncTypes_ = savedFuncTypes2;
+    varProtocolTypes_ = savedProtocolTypes2;
+    varResultTypes_ = savedResultTypes2;
+    currentFuncResultInfo_ = savedFuncRI2;
 
-    return func;
+    // Build closure object: { func_ptr, env_ptr }
+    auto *closureObjTy = getClosureObjTy();
+    auto *outerFunc = builder_->GetInsertBlock()->getParent();
+    auto *closureAlloca = createEntryBlockAlloca(outerFunc, "closure.obj", closureObjTy);
+    auto *funcGEP = builder_->CreateStructGEP(closureObjTy, closureAlloca, 0, "closure.func");
+    builder_->CreateStore(func, funcGEP);
+    auto *envGEP = builder_->CreateStructGEP(closureObjTy, closureAlloca, 1, "closure.env");
+    builder_->CreateStore(envPtr, envGEP);
+
+    return builder_->CreateLoad(closureObjTy, closureAlloca, "closure.val");
 }
 
 llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
     const auto &typeName = node->getTypeName();
+
+    // Record protocol conformance for vtable creation
+    if (node->hasProtocol()) {
+        protocolConformances_[node->getProtocolName()].push_back(typeName);
+    }
 
     for (auto &method : node->getMethods()) {
         // Mangled name: TypeName_methodName
@@ -1748,6 +2381,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarDynArrayTypes = varDynArrayTypes_;
         auto oldVarOptionalTypes = varOptionalTypes_;
         auto oldVarFuncTypes = varFuncTypes_;
+        auto oldVarProtocolTypes = varProtocolTypes_;
+        auto oldVarResultTypes = varResultTypes_;
+        auto *oldFuncRI = currentFuncResultInfo_;
         namedValues_.clear();
         varStructTypes_.clear();
         varEnumTypes_.clear();
@@ -1755,6 +2391,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varDynArrayTypes_.clear();
         varOptionalTypes_.clear();
         varFuncTypes_.clear();
+        varProtocolTypes_.clear();
+        varResultTypes_.clear();
+        currentFuncResultInfo_ = nullptr;
 
         // Create allocas for parameters
         i = 0;
@@ -1788,6 +2427,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varDynArrayTypes_ = oldVarDynArrayTypes;
         varOptionalTypes_ = oldVarOptionalTypes;
         varFuncTypes_ = oldVarFuncTypes;
+        varProtocolTypes_ = oldVarProtocolTypes;
+        varResultTypes_ = oldVarResultTypes;
+        currentFuncResultInfo_ = oldFuncRI;
     }
 
     return nullptr;
@@ -1885,12 +2527,27 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     // Find enum type name from subject (if it's an identifier)
     std::string enumTypeName;
     std::string subjectVarName;
+    bool isResultMatch = false;
     if (node->getSubject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<const IdentifierExpr *>(node->getSubject());
         subjectVarName = ident->getName();
         auto it = varEnumTypes_.find(subjectVarName);
         if (it != varEnumTypes_.end())
             enumTypeName = it->second;
+
+        // Check for Result type match
+        auto rtIt = varResultTypes_.find(subjectVarName);
+        if (rtIt != varResultTypes_.end()) {
+            isResultMatch = true;
+            enumTypeName = "Result";
+            // Set up temporary enum infrastructure for Result
+            enumCases_["Result"] = {{"Ok", 0}, {"Err", 1}};
+            auto *resTy = getResultType(rtIt->second.okType, rtIt->second.errType);
+            enumTypes_["Result"] = resTy;
+            enumCasePayloads_["Result"]["Ok"] = {rtIt->second.okType};
+            enumCasePayloads_["Result"]["Err"] = {rtIt->second.errType};
+            varEnumTypes_[subjectVarName] = "Result";
+        }
     }
 
     // Determine if this is a payload enum match
@@ -1996,6 +2653,15 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     }
 
     builder_->SetInsertPoint(mergeBB);
+
+    // Clean up temporary Result enum entries
+    if (isResultMatch) {
+        enumCases_.erase("Result");
+        enumTypes_.erase("Result");
+        enumCasePayloads_.erase("Result");
+        varEnumTypes_.erase(subjectVarName);
+    }
+
     return nullptr;
 }
 
@@ -2176,6 +2842,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarDynArrayTypes = varDynArrayTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
     auto savedVarFuncTypes = varFuncTypes_;
+    auto savedVarProtocolTypes = varProtocolTypes_;
+    auto savedVarResultTypes = varResultTypes_;
+    auto *savedFuncRI = currentFuncResultInfo_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
 
     // Set up type substitution map: T -> i32, U -> f64, ...
@@ -2212,6 +2881,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varDynArrayTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
+    varProtocolTypes_.clear();
+    varResultTypes_.clear();
+    currentFuncResultInfo_ = nullptr;
 
     // Create parameter allocas
     idx = 0;
@@ -2245,6 +2917,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varDynArrayTypes_ = savedVarDynArrayTypes;
     varOptionalTypes_ = savedVarOptionalTypes;
     varFuncTypes_ = savedVarFuncTypes;
+    varProtocolTypes_ = savedVarProtocolTypes;
+    varResultTypes_ = savedVarResultTypes;
+    currentFuncResultInfo_ = savedFuncRI;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 
@@ -2381,6 +3056,9 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto savedVarDynArrayTypes = varDynArrayTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
     auto savedVarFuncTypes = varFuncTypes_;
+    auto savedVarProtocolTypes2 = varProtocolTypes_;
+    auto savedVarResultTypes2 = varResultTypes_;
+    auto *savedFuncRI2 = currentFuncResultInfo_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
 
     // Set up type substitution from impl's type params
@@ -2421,6 +3099,9 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varDynArrayTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
+    varProtocolTypes_.clear();
+    varResultTypes_.clear();
+    currentFuncResultInfo_ = nullptr;
 
     // Create parameter allocas
     idx = 0;
@@ -2457,10 +3138,51 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varDynArrayTypes_ = savedVarDynArrayTypes;
     varOptionalTypes_ = savedVarOptionalTypes;
     varFuncTypes_ = savedVarFuncTypes;
+    varProtocolTypes_ = savedVarProtocolTypes2;
+    varResultTypes_ = savedVarResultTypes2;
+    currentFuncResultInfo_ = savedFuncRI2;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 
     return func;
+}
+
+llvm::Value *IRGen::visitTryExpr(TryExpr *node) {
+    if (!currentFuncResultInfo_) {
+        // If not in a Result-returning function, just evaluate the operand
+        return visit(node->getOperand());
+    }
+
+    // Evaluate operand (should return a Result value)
+    auto *resultVal = visit(node->getOperand());
+    if (!resultVal) return nullptr;
+
+    // Store to a temp alloca to extract tag
+    auto *resTy = getResultType(currentFuncResultInfo_->okType, currentFuncResultInfo_->errType);
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *tmpAlloca = createEntryBlockAlloca(func, "try.tmp", resTy);
+    builder_->CreateStore(resultVal, tmpAlloca);
+
+    auto *tagPtr = builder_->CreateStructGEP(resTy, tmpAlloca, 0, "try.tag");
+    auto *tag = builder_->CreateLoad(builder_->getInt32Ty(), tagPtr, "try.tag.val");
+    auto *isOk = builder_->CreateICmpEQ(tag, builder_->getInt32(0), "try.isok");
+
+    auto *okBB = llvm::BasicBlock::Create(*context_, "try.ok", func);
+    auto *errBB = llvm::BasicBlock::Create(*context_, "try.err", func);
+    builder_->CreateCondBr(isOk, okBB, errBB);
+
+    // Error path: propagate the Err by returning it
+    builder_->SetInsertPoint(errBB);
+    auto *errPayloadPtr = builder_->CreateStructGEP(resTy, tmpAlloca, 1, "try.err.payload");
+    auto *errVal = builder_->CreateLoad(currentFuncResultInfo_->errType, errPayloadPtr, "try.err.val");
+    auto *errResult = emitResultErr(currentFuncResultInfo_->okType,
+                                     currentFuncResultInfo_->errType, errVal);
+    builder_->CreateRet(errResult);
+
+    // Ok path: extract the Ok value and continue
+    builder_->SetInsertPoint(okBB);
+    auto *okPayloadPtr = builder_->CreateStructGEP(resTy, tmpAlloca, 1, "try.ok.payload");
+    return builder_->CreateLoad(currentFuncResultInfo_->okType, okPayloadPtr, "try.ok.val");
 }
 
 } // namespace liva

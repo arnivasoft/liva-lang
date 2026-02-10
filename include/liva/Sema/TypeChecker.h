@@ -6,6 +6,8 @@
 #include "liva/Sema/Scope.h"
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace liva {
 
@@ -56,6 +58,7 @@ public:
     void visitRangeExpr(RangeExpr *node);
     void visitUnwrapExpr(UnwrapExpr *node);
     void visitClosureExpr(ClosureExpr *node);
+    void visitTryExpr(TryExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
@@ -78,6 +81,12 @@ private:
     // Currently being checked function's return type
     const TypeRepr *currentReturnType_ = nullptr;
     int loopDepth_ = 0;
+
+    /// Protocol conformance tracking: protocolName → [conforming type names]
+    std::unordered_map<std::string, std::vector<std::string>> protocolConformances_;
+
+    /// Protocol method info: protocolName → [method names in order]
+    std::unordered_map<std::string, std::vector<std::string>> protocolMethods_;
 };
 
 } // namespace liva

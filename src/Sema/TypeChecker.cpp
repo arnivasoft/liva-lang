@@ -185,6 +185,8 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
                                  protoMethod->getName(), node->getProtocolName());
                 }
             }
+            // Record successful conformance
+            protocolConformances_[node->getProtocolName()].push_back(node->getTypeName());
         }
     }
 
@@ -202,11 +204,12 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
 }
 
 void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
-    scopes_.pushScope();
+    // Record method names in order (for vtable index)
+    std::vector<std::string> methodNames;
     for (auto &method : node->getMethods()) {
-        (void)method;
+        methodNames.push_back(method->getName());
     }
-    scopes_.popScope();
+    protocolMethods_[node->getName()] = std::move(methodNames);
 }
 
 void TypeChecker::visitExprStmt(ExprStmt *node) { visit(node->getExpr()); }
@@ -312,6 +315,8 @@ void TypeChecker::visitNilLiteralExpr(NilLiteralExpr *) {
 void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
     auto *sym = scopes_.lookup(node->getName());
     if (!sym) {
+        // Result is a built-in type constructor, not a declared identifier
+        if (node->getName() == "Result") return;
         diag_.report(node->getStartLoc(), DiagID::err_undeclared_identifier, node->getName());
         return;
     }
@@ -439,6 +444,19 @@ void TypeChecker::visitMemberExpr(MemberExpr *node) {
         node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
         node->getMember() == "length") {
         node->setResolvedType(makeI64Type());
+    }
+
+    // Result.isOk / Result.isErr → bool
+    if (node->getMember() == "isOk" || node->getMember() == "isErr") {
+        node->setResolvedType(makeBoolType());
+    }
+
+    // Result.ok / Result.err — static constructor access (no error)
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        if (ident->getName() == "Result") {
+            // Result.ok or Result.err — accepted
+        }
     }
 }
 
@@ -609,6 +627,25 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
             }
         }
     }
+
+    // Check for Result type match exhaustiveness
+    bool isResultMatch = false;
+    for (auto &arm : node->getArms()) {
+        if (arm.pattern.find("Result.Ok") != std::string::npos ||
+            arm.pattern.find("Result.Err") != std::string::npos) {
+            isResultMatch = true;
+            break;
+        }
+    }
+    if (isResultMatch && !hasWildcard) {
+        bool hasOk = false, hasErr = false;
+        for (auto &arm : node->getArms()) {
+            if (arm.pattern.find("Result.Ok") != std::string::npos) hasOk = true;
+            if (arm.pattern.find("Result.Err") != std::string::npos) hasErr = true;
+        }
+        if (!hasOk) diag_.report(node->getStartLoc(), DiagID::err_nonexhaustive_match, "Result.Ok");
+        if (!hasErr) diag_.report(node->getStartLoc(), DiagID::err_nonexhaustive_match, "Result.Err");
+    }
 }
 
 void TypeChecker::visitRangeExpr(RangeExpr *node) {
@@ -618,6 +655,10 @@ void TypeChecker::visitRangeExpr(RangeExpr *node) {
 
 void TypeChecker::visitUnwrapExpr(UnwrapExpr *node) {
     visit(node->getOperand());
+}
+
+void TypeChecker::visitTryExpr(TryExpr *node) {
+    visit(const_cast<Expr *>(node->getOperand()));
 }
 
 void TypeChecker::visitClosureExpr(ClosureExpr *node) {

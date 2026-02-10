@@ -428,6 +428,24 @@ TEST_F(ParserTest, ProtocolConformance) {
     ASSERT_GE(result.tu->getDeclarations().size(), 3);
 }
 
+TEST_F(ParserTest, RefProtocolTypeAnnotation) {
+    auto result = parse(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle { let r: f64 }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r }
+        }
+        func main() {
+            let c = Circle { r: 3.0 }
+            let s: ref Shape = c
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
 TEST_F(ParserTest, IfLetBasic) {
     auto result = parse(R"--(
         func main() {
@@ -459,6 +477,50 @@ TEST_F(ParserTest, NilCoalesceOperator) {
         func main() {
             let x: i32? = nil
             let y = x ?? 0
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ResultTypeAnnotation) {
+    auto result = parse(R"--(
+        func main() {
+            let r: Result<i32, string> = Result.ok(42)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto &decls = result.tu->getDeclarations();
+    ASSERT_EQ(decls.size(), 1);
+    auto *func = dynamic_cast<FuncDecl *>(decls[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *varDecl = dynamic_cast<VarDecl *>(stmts[0].get());
+    ASSERT_NE(varDecl, nullptr);
+    ASSERT_TRUE(varDecl->hasTypeAnnotation());
+    EXPECT_EQ(varDecl->getType()->getKind(), TypeRepr::Kind::Result);
+}
+
+TEST_F(ParserTest, TryExpression) {
+    auto result = parse(R"--(
+        func foo() -> Result<i32, string> {
+            return Result.ok(1)
+        }
+        func main() {
+            let x = try foo()
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ResultMatchExpression) {
+    auto result = parse(R"--(
+        func main() {
+            let r: Result<i32, string> = Result.ok(42)
+            let x = match r {
+                Result.Ok(v) => v
+                Result.Err(e) => 0
+            }
         }
     )--");
     ASSERT_FALSE(result.hasErrors);

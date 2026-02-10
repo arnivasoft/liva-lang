@@ -10,6 +10,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Value.h>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -74,6 +75,8 @@ public:
     llvm::Value *visitNilLiteralExpr(NilLiteralExpr *node);
     llvm::Value *visitUnwrapExpr(UnwrapExpr *node);
     llvm::Value *visitClosureExpr(ClosureExpr *node);
+    llvm::Value *visitProtocolDecl(ProtocolDecl *node);
+    llvm::Value *visitTryExpr(TryExpr *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -230,11 +233,53 @@ private:
     /// Track which variables are optional and their inner LLVM type
     std::unordered_map<std::string, llvm::Type *> varOptionalTypes_;
 
+    /// Result type support
+    struct ResultInfo { llvm::Type *okType; llvm::Type *errType; };
+    std::unordered_map<std::string, ResultInfo> varResultTypes_;
+    std::map<std::pair<llvm::Type *, llvm::Type *>, llvm::StructType *> resultTypes_;
+    ResultInfo *currentFuncResultInfo_ = nullptr;
+    ResultInfo currentFuncResultInfoStorage_;
+
+    llvm::StructType *getResultType(llvm::Type *okType, llvm::Type *errType);
+    llvm::Value *emitResultOk(llvm::Type *okType, llvm::Type *errType, llvm::Value *value);
+    llvm::Value *emitResultErr(llvm::Type *okType, llvm::Type *errType, llvm::Value *value);
+
     /// Function-typed variable tracking (for indirect calls)
     std::unordered_map<std::string, llvm::FunctionType *> varFuncTypes_;
 
     /// Counter for generating unique closure names
     int closureCounter_ = 0;
+
+    /// Closure object type: { ptr func_ptr, ptr env_ptr }
+    llvm::StructType *closureObjTy_ = nullptr;
+
+    /// Get or create the closure object type
+    llvm::StructType *getClosureObjTy();
+
+    /// Fat pointer (trait object) type: { ptr, ptr } = { data_ptr, vtable_ptr }
+    llvm::StructType *traitObjectTy_ = nullptr;
+
+    /// Get or create the trait object type
+    llvm::StructType *getTraitObjectTy();
+
+    /// Protocol method names in order: protocolName → [methodName...]
+    std::unordered_map<std::string, std::vector<std::string>> protocolMethodNames_;
+
+    /// Protocol method indices: protocolName → {methodName → index}
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> protocolMethodIndices_;
+
+    /// Vtable globals: "vtable_protocolName_typeName" → GlobalVariable*
+    std::unordered_map<std::string, llvm::GlobalVariable *> vtableGlobals_;
+
+    /// Protocol conformances: protocolName → [typeName...]
+    std::unordered_map<std::string, std::vector<std::string>> protocolConformances_;
+
+    /// Track which variables are protocol trait objects: varName → protocolName
+    std::unordered_map<std::string, std::string> varProtocolTypes_;
+
+    /// Get or create a vtable for type conforming to protocol
+    llvm::GlobalVariable *getOrCreateVtable(const std::string &protocolName,
+                                              const std::string &typeName);
 };
 
 #else

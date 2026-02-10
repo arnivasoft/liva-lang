@@ -66,6 +66,8 @@ DIAG(err_nonexhaustive_match,        error,   "match is not exhaustive; missing 
 DIAG(err_nil_without_optional,       error,   "'nil' can only be used with optional types")
 DIAG(err_undefined_protocol,         error,   "undefined protocol '%0'")
 DIAG(err_missing_protocol_method,    error,   "type does not implement protocol method '%0' required by '%1'")
+DIAG(err_no_conformance,             error,   "type '%0' does not conform to protocol '%1'")
+DIAG(err_try_on_non_result,          error,   "'try' can only be applied to Result type expressions")
 
 // === Warnings ===
 DIAG(warn_unused_variable,           warning, "unused variable '%0'")
