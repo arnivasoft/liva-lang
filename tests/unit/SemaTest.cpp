@@ -181,6 +181,54 @@ TEST_F(SemaTest, EnumAndMatch) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, EnumWithAssociatedValues) {
+    auto result = check(R"(
+        enum Shape {
+            case Circle(f64)
+            case Rectangle(f64, f64)
+            case Empty
+        }
+
+        func main() {
+            let s = Shape.Circle(3.14)
+            match s {
+                Shape.Circle(r) => println(r)
+                Shape.Rectangle(w, h) => println(w)
+                _ => println(0)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, BreakInWhileLoop) {
+    auto result = check(R"(
+        func main() {
+            var i: i32 = 0
+            while i < 10 {
+                if i == 5 { break }
+                i = i + 1
+            }
+            println(i)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ContinueInForLoop) {
+    auto result = check(R"(
+        func main() {
+            var sum: i32 = 0
+            for i in 0..10 {
+                if i == 3 { continue }
+                sum = sum + i
+            }
+            println(sum)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, ForLoop) {
     auto result = check(R"(
         func main() {
@@ -192,4 +240,43 @@ TEST_F(SemaTest, ForLoop) {
     // 'items' is undefined but for-loop variable 'i' should be in scope
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
+}
+
+TEST_F(SemaTest, ArrayLiteral) {
+    auto result = check(R"(
+        func main() {
+            let arr = [1, 2, 3]
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ArrayIndexAccess) {
+    auto result = check(R"(
+        func main() {
+            let arr = [10, 20, 30]
+            let x = arr[0]
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MutableArrayIndexAssign) {
+    auto result = check(R"(
+        func main() {
+            var arr = [1, 2, 3]
+            arr[1] = 42
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ArrayWithPrintln) {
+    auto result = check(R"(
+        func main() {
+            let arr = [10, 20, 30]
+            println(arr[0])
+        }
+    )");
+    EXPECT_TRUE(result.passed);
 }

@@ -362,8 +362,43 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
 void TypeChecker::visitMatchExpr(MatchExpr *node) {
     visit(const_cast<Expr *>(node->getSubject()));
     for (auto &arm : node->getArms()) {
-        if (arm.body)
+        if (arm.body) {
+            // Extract bindings from pattern: Shape.Circle(r) -> r
+            scopes_.pushScope();
+            auto parenPos = arm.pattern.find('(');
+            if (parenPos != std::string::npos) {
+                auto closePos = arm.pattern.find(')', parenPos);
+                if (closePos != std::string::npos) {
+                    auto bindingStr = arm.pattern.substr(parenPos + 1,
+                                                          closePos - parenPos - 1);
+                    size_t start = 0;
+                    while (start < bindingStr.size()) {
+                        auto commaPos = bindingStr.find(',', start);
+                        std::string binding;
+                        if (commaPos == std::string::npos) {
+                            binding = bindingStr.substr(start);
+                            start = bindingStr.size();
+                        } else {
+                            binding = bindingStr.substr(start, commaPos - start);
+                            start = commaPos + 1;
+                        }
+                        // Trim whitespace
+                        size_t b = binding.find_first_not_of(" \t");
+                        size_t e = binding.find_last_not_of(" \t");
+                        if (b != std::string::npos) {
+                            auto name = binding.substr(b, e - b + 1);
+                            Symbol sym;
+                            sym.name = name;
+                            sym.kind = Symbol::Kind::Variable;
+                            sym.isMutable = false;
+                            scopes_.declare(name, sym);
+                        }
+                    }
+                }
+            }
             visit(arm.body.get());
+            scopes_.popScope();
+        }
     }
 }
 

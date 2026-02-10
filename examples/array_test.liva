@@ -1,0 +1,22 @@
+// Array codegen integration test
+func main() {
+    // Array literal
+    let arr = [10, 20, 30]
+
+    // Index access
+    println(arr[0])
+    println(arr[1])
+    println(arr[2])
+
+    // Mutable array with index assignment
+    var nums = [1, 2, 3]
+    nums[0] = 100
+    nums[2] = 300
+    println(nums[0])
+    println(nums[1])
+    println(nums[2])
+
+    // Index with variable
+    var i: i32 = 1
+    println(arr[i])
+}

@@ -5,6 +5,7 @@
 #include "liva/Common/Diagnostics.h"
 
 #ifdef LIVA_HAS_LLVM
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -45,6 +46,8 @@ public:
     llvm::Value *visitIfStmt(IfStmt *node);
     llvm::Value *visitWhileStmt(WhileStmt *node);
     llvm::Value *visitForStmt(ForStmt *node);
+    llvm::Value *visitBreakStmt(BreakStmt *node);
+    llvm::Value *visitContinueStmt(ContinueStmt *node);
     llvm::Value *visitExprStmt(ExprStmt *node);
 
     llvm::Value *visitIntegerLiteralExpr(IntegerLiteralExpr *node);
@@ -65,6 +68,8 @@ public:
     llvm::Value *visitEnumCaseDecl(EnumCaseDecl *node);
     llvm::Value *visitMatchExpr(MatchExpr *node);
     llvm::Value *visitRangeExpr(RangeExpr *node);
+    llvm::Value *visitArrayLiteralExpr(ArrayLiteralExpr *node);
+    llvm::Value *visitIndexExpr(IndexExpr *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -77,6 +82,12 @@ private:
     llvm::AllocaInst *createEntryBlockAlloca(llvm::Function *func,
                                               const std::string &name,
                                               llvm::Type *type);
+
+    struct LoopContext {
+        llvm::BasicBlock *breakBB;     // break → buraya dallan
+        llvm::BasicBlock *continueBB;  // continue → buraya dallan
+    };
+    std::vector<LoopContext> loopStack_;
 
     DiagnosticsEngine &diag_;
     std::unique_ptr<llvm::LLVMContext> context_;
@@ -103,6 +114,36 @@ private:
 
     /// Variable to enum type name mapping
     std::unordered_map<std::string, std::string> varEnumTypes_;
+
+    /// Array variable tracking
+    struct ArrayInfo {
+        llvm::Type *elementType;
+        uint64_t size;
+    };
+    std::unordered_map<std::string, ArrayInfo> varArrayTypes_;
+
+    /// Enum LLVM StructType for payload enums: enumName -> StructType
+    std::unordered_map<std::string, llvm::StructType *> enumTypes_;
+
+    /// Per-case payload types: enumName -> caseName -> [llvm::Type*]
+    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<llvm::Type *>>>
+        enumCasePayloads_;
+
+    /// Pattern info for match expressions
+    struct PatternInfo {
+        std::string enumName;
+        std::string caseName;
+        std::vector<std::string> bindings;
+        int tag = -1;
+        bool isWildcard = false;
+    };
+
+    PatternInfo parseMatchPattern(const std::string &pattern,
+                                   const std::string &subjectEnumType);
+
+    llvm::Value *emitEnumCaseConstruct(const std::string &enumName,
+                                        const std::string &caseName, int tag,
+                                        const std::vector<std::unique_ptr<Expr>> &args);
 };
 
 #else
