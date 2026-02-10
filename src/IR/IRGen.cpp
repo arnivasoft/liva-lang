@@ -240,6 +240,7 @@ llvm::Value *IRGen::visitProtocolDecl(ProtocolDecl *node) {
     }
     protocolMethodNames_[node->getName()] = std::move(methodNames);
     protocolMethodIndices_[node->getName()] = std::move(methodIndices);
+    protocolDecls_[node->getName()] = node;
     return nullptr;
 }
 
@@ -2430,6 +2431,101 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varProtocolTypes_ = oldVarProtocolTypes;
         varResultTypes_ = oldVarResultTypes;
         currentFuncResultInfo_ = oldFuncRI;
+    }
+
+    // Generate default method implementations from protocol
+    if (node->hasProtocol()) {
+        auto pdIt = protocolDecls_.find(node->getProtocolName());
+        if (pdIt != protocolDecls_.end()) {
+            // Collect implemented method names
+            std::set<std::string> implMethods;
+            for (auto &m : node->getMethods())
+                implMethods.insert(m->getName());
+
+            for (auto &protoMethod : pdIt->second->getMethods()) {
+                if (implMethods.count(protoMethod->getName()) || !protoMethod->hasBody())
+                    continue;
+
+                std::string mangledName = typeName + "_" + protoMethod->getName();
+
+                std::vector<llvm::Type *> paramTypes;
+                for (auto &param : protoMethod->getParams()) {
+                    if (param.isSelf) {
+                        paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+                    } else {
+                        paramTypes.push_back(toLLVMType(param.type.get()));
+                    }
+                }
+
+                auto *returnType = toLLVMType(protoMethod->getReturnType());
+                auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+                auto *func = llvm::Function::Create(
+                    funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
+
+                size_t i = 0;
+                for (auto &arg : func->args()) {
+                    arg.setName(protoMethod->getParams()[i].name);
+                    ++i;
+                }
+
+                auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+                builder_->SetInsertPoint(entryBB);
+
+                auto oldNamedValues = namedValues_;
+                auto oldVarStructTypes = varStructTypes_;
+                auto oldVarEnumTypes = varEnumTypes_;
+                auto oldVarArrayTypes = varArrayTypes_;
+                auto oldVarDynArrayTypes = varDynArrayTypes_;
+                auto oldVarOptionalTypes = varOptionalTypes_;
+                auto oldVarFuncTypes = varFuncTypes_;
+                auto oldVarProtocolTypes = varProtocolTypes_;
+                auto oldVarResultTypes = varResultTypes_;
+                auto *oldFuncRI = currentFuncResultInfo_;
+                namedValues_.clear();
+                varStructTypes_.clear();
+                varEnumTypes_.clear();
+                varArrayTypes_.clear();
+                varDynArrayTypes_.clear();
+                varOptionalTypes_.clear();
+                varFuncTypes_.clear();
+                varProtocolTypes_.clear();
+                varResultTypes_.clear();
+                currentFuncResultInfo_ = nullptr;
+
+                i = 0;
+                for (auto &arg : func->args()) {
+                    auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()),
+                                                           arg.getType());
+                    builder_->CreateStore(&arg, alloca);
+                    namedValues_[std::string(arg.getName())] = alloca;
+                    if (protoMethod->getParams()[i].isSelf) {
+                        varStructTypes_["self"] = typeName;
+                    }
+                    ++i;
+                }
+
+                visitBlockStmt(const_cast<BlockStmt *>(protoMethod->getBody()));
+
+                if (!builder_->GetInsertBlock()->getTerminator()) {
+                    if (returnType->isVoidTy()) {
+                        builder_->CreateRetVoid();
+                    } else {
+                        builder_->CreateRet(llvm::Constant::getNullValue(returnType));
+                    }
+                }
+
+                namedValues_ = oldNamedValues;
+                varStructTypes_ = oldVarStructTypes;
+                varEnumTypes_ = oldVarEnumTypes;
+                varArrayTypes_ = oldVarArrayTypes;
+                varDynArrayTypes_ = oldVarDynArrayTypes;
+                varOptionalTypes_ = oldVarOptionalTypes;
+                varFuncTypes_ = oldVarFuncTypes;
+                varProtocolTypes_ = oldVarProtocolTypes;
+                varResultTypes_ = oldVarResultTypes;
+                currentFuncResultInfo_ = oldFuncRI;
+            }
+        }
     }
 
     return nullptr;

@@ -1,9 +1,11 @@
 #include "liva/Sema/TypeChecker.h"
+#include "liva/Sema/ModuleLoader.h"
 #include <set>
 
 namespace liva {
 
-TypeChecker::TypeChecker(DiagnosticsEngine &diag) : diag_(diag) { registerBuiltins(); }
+TypeChecker::TypeChecker(DiagnosticsEngine &diag, ModuleLoader *loader)
+    : diag_(diag), moduleLoader_(loader) { registerBuiltins(); }
 
 void TypeChecker::registerBuiltins() {
     // Register built-in functions
@@ -31,7 +33,18 @@ void TypeChecker::registerBuiltins() {
 void TypeChecker::check(TranslationUnit &tu) {
     // First pass: register all top-level declarations
     for (auto &decl : tu.getDeclarations()) {
-        if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
+        if (decl->getKind() == ASTNode::NodeKind::ImportDecl) {
+            auto *importDecl = static_cast<ImportDecl *>(decl.get());
+            if (moduleLoader_) {
+                auto *mod = moduleLoader_->loadModule(
+                    importDecl->getPath(), diag_, importDecl->getStartLoc());
+                if (mod) {
+                    for (auto &sym : mod->exportedSymbols) {
+                        scopes_.declare(sym.name, sym);
+                    }
+                }
+            }
+        } else if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
             auto *funcDecl = static_cast<FuncDecl *>(decl.get());
             Symbol sym;
             sym.name = funcDecl->getName();
@@ -113,6 +126,20 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
 }
 
 void TypeChecker::visitVarDecl(VarDecl *node) {
+    // Propagate function type annotation to untyped closure params
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Function &&
+        node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::ClosureExpr) {
+        auto *funcType = static_cast<const FunctionTypeRepr *>(node->getType());
+        auto *closure = static_cast<ClosureExpr *>(const_cast<Expr *>(node->getInit()));
+        for (size_t i = 0; i < closure->getParams().size() && i < funcType->getParams().size(); ++i) {
+            if (!closure->getParams()[i].type) {
+                closure->setParamType(i, cloneTypeRepr(funcType->getParams()[i].get()));
+            }
+        }
+    }
+
     if (node->hasInit()) {
         visit(const_cast<Expr *>(node->getInit()));
     }
@@ -179,7 +206,7 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
                         break;
                     }
                 }
-                if (!found) {
+                if (!found && !protoMethod->hasBody()) {
                     diag_.report(node->getStartLoc(),
                                  DiagID::err_missing_protocol_method,
                                  protoMethod->getName(), node->getProtocolName());
@@ -208,6 +235,10 @@ void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
     std::vector<std::string> methodNames;
     for (auto &method : node->getMethods()) {
         methodNames.push_back(method->getName());
+        // Type-check default method bodies
+        if (method->hasBody()) {
+            visitFuncDecl(method.get());
+        }
     }
     protocolMethods_[node->getName()] = std::move(methodNames);
 }
@@ -374,6 +405,31 @@ void TypeChecker::visitUnaryExpr(UnaryExpr *node) {
 
 void TypeChecker::visitCallExpr(CallExpr *node) {
     visit(node->getCallee());
+
+    // Propagate function param types to untyped closure args
+    if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
+        auto *sym = scopes_.lookup(ident->getName());
+        const std::vector<ParamDecl> *formalParams = nullptr;
+        if (sym && sym->funcDecl)
+            formalParams = &sym->funcDecl->getParams();
+        if (formalParams) {
+            for (size_t i = 0; i < node->getArgs().size() && i < formalParams->size(); ++i) {
+                if (node->getArgs()[i]->getKind() == ASTNode::NodeKind::ClosureExpr &&
+                    (*formalParams)[i].type &&
+                    (*formalParams)[i].type->getKind() == TypeRepr::Kind::Function) {
+                    auto *ft = static_cast<const FunctionTypeRepr *>((*formalParams)[i].type.get());
+                    auto *closure = static_cast<ClosureExpr *>(node->getArgs()[i].get());
+                    for (size_t j = 0; j < closure->getParams().size() && j < ft->getParams().size(); ++j) {
+                        if (!closure->getParams()[j].type) {
+                            closure->setParamType(j, cloneTypeRepr(ft->getParams()[j].get()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     for (auto &arg : node->getArgs()) {
         visit(arg.get());
     }

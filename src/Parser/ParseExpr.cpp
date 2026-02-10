@@ -259,6 +259,15 @@ std::unique_ptr<Expr> Parser::parsePostfixExpr(std::unique_ptr<Expr> base) {
     while (true) {
         if (check(TokenKind::l_paren)) {
             base = parseCallExpr(std::move(base));
+            // Check for trailing closure after call: apply(5) |x| { ... }
+            if (base && base->getKind() == ASTNode::NodeKind::CallExpr &&
+                (check(TokenKind::pipe) || check(TokenKind::pipe_pipe))) {
+                auto *call = static_cast<CallExpr *>(base.get());
+                auto trailingClosure = parseClosureExpr();
+                if (trailingClosure) {
+                    call->addArg(std::move(trailingClosure));
+                }
+            }
         } else if (check(TokenKind::dot)) {
             base = parseMemberExpr(std::move(base));
         } else if (check(TokenKind::l_bracket)) {
@@ -412,8 +421,10 @@ std::unique_ptr<Expr> Parser::parseClosureExpr() {
         if (!check(TokenKind::pipe)) {
             do {
                 auto name = expect(TokenKind::identifier).getText();
-                expect(TokenKind::colon);
-                auto type = parseType();
+                std::unique_ptr<TypeRepr> type;
+                if (match(TokenKind::colon)) {
+                    type = parseType();
+                }
                 ClosureExpr::Param p;
                 p.name = std::string(name);
                 p.type = std::move(type);

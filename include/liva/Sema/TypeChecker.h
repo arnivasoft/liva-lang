@@ -11,10 +11,12 @@
 
 namespace liva {
 
+class ModuleLoader;
+
 /// Performs type checking on the AST
 class TypeChecker : public ASTVisitor<TypeChecker> {
 public:
-    TypeChecker(DiagnosticsEngine &diag);
+    TypeChecker(DiagnosticsEngine &diag, ModuleLoader *loader = nullptr);
 
     /// Type-check an entire translation unit
     void check(TranslationUnit &tu);
@@ -76,6 +78,7 @@ private:
     const TypeRepr *resolveExprType(Expr *expr);
 
     DiagnosticsEngine &diag_;
+    ModuleLoader *moduleLoader_ = nullptr;
     ScopeStack scopes_;
 
     // Currently being checked function's return type

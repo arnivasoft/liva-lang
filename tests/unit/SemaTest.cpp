@@ -2,6 +2,7 @@
 #include "liva/Common/SourceLocation.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
+#include "liva/Sema/ModuleLoader.h"
 #include "liva/Sema/Sema.h"
 #include <gtest/gtest.h>
 
@@ -40,6 +41,27 @@ protected:
                 return true;
         }
         return false;
+    }
+
+    CheckResult checkWithModules(
+        const std::string &mainSource,
+        std::initializer_list<std::pair<std::string, std::string>> modules) {
+        CheckResult result;
+        result.sm = std::make_unique<SourceManager>("test.liva", mainSource);
+        result.diag.setSourceManager(result.sm.get());
+        Lexer lexer(*result.sm, result.diag);
+        Parser parser(lexer, result.diag);
+        result.tu = parser.parseTranslationUnit();
+        if (result.diag.hasErrors()) {
+            result.passed = false;
+            return result;
+        }
+        ModuleLoader loader;
+        for (auto &[name, src] : modules)
+            loader.registerSource(name, src);
+        Sema sema(result.diag, &loader);
+        result.passed = sema.analyze(*result.tu);
+        return result;
     }
 };
 
@@ -1025,5 +1047,206 @@ TEST_F(SemaTest, ClosureCaptureMultipleVars) {
             let f: (i32) -> i32 = |x: i32| -> i32 { return x + a + b }
         }
     )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === M16b: Closure Type Inference ===
+
+TEST_F(SemaTest, ClosureTypeInferenceFromVar) {
+    auto result = check(R"--(
+        func main() {
+            let f: (i32) -> i32 = |x| -> i32 { return x + 1 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClosureTypeInferenceFromParam) {
+    auto result = check(R"--(
+        func apply(f: (i32) -> i32, x: i32) -> i32 {
+            return f(x)
+        }
+        func main() {
+            let r = apply(|x| -> i32 { return x + 1 }, 5)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClosureTypeInferenceMultiParam) {
+    auto result = check(R"--(
+        func main() {
+            let f: (i32, i32) -> i32 = |x, y| -> i32 { return x + y }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === M16c: Trailing Closure Syntax ===
+
+TEST_F(SemaTest, TrailingClosureSema) {
+    auto result = check(R"--(
+        func apply(x: i32, f: (i32) -> i32) -> i32 {
+            return f(x)
+        }
+        func main() {
+            let r = apply(5) |x: i32| -> i32 { return x + 1 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TrailingClosureWithInference) {
+    auto result = check(R"--(
+        func apply(x: i32, f: (i32) -> i32) -> i32 {
+            return f(x)
+        }
+        func main() {
+            let r = apply(5) |x| -> i32 { return x + 1 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProtocolDefaultImplValid) {
+    auto result = check(R"--(
+        protocol Greetable {
+            func greet(self) -> string
+            func shout(self) -> string {
+                return self.greet()
+            }
+        }
+        struct Person { name: string }
+        impl Person: Greetable {
+            func greet(self) -> string { return self.name }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProtocolDefaultImplOverride) {
+    auto result = check(R"--(
+        protocol Greetable {
+            func greet(self) -> string
+            func shout(self) -> string {
+                return self.greet()
+            }
+        }
+        struct Person { name: string }
+        impl Person: Greetable {
+            func greet(self) -> string { return self.name }
+            func shout(self) -> string { return self.name }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProtocolDefaultImplMissingRequired) {
+    auto result = check(R"--(
+        protocol Greetable {
+            func greet(self) -> string
+            func shout(self) -> string {
+                return self.greet()
+            }
+        }
+        struct Person { name: string }
+        impl Person: Greetable {
+            func shout(self) -> string { return self.name }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_missing_protocol_method));
+}
+
+TEST_F(SemaTest, ProtocolDefaultImplMixed) {
+    auto result = check(R"--(
+        protocol Describable {
+            func name(self) -> string
+            func id(self) -> i32
+            func describe(self) -> string {
+                return self.name()
+            }
+        }
+        struct Item { label: string }
+        impl Item: Describable {
+            func name(self) -> string { return self.label }
+            func id(self) -> i32 { return 1 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === M17: Module System Tests ===
+
+TEST_F(SemaTest, ModuleImportPubFunc) {
+    auto result = checkWithModules(R"--(
+        import math
+        func main() { let x = add(1, 2) }
+    )--", {{"math", "pub func add(a: i32, b: i32) -> i32 { return a + b }"}});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ModuleImportNonPubFunc) {
+    auto result = checkWithModules(R"--(
+        import math
+        func main() { let x = helper() }
+    )--", {{"math", R"--(
+        pub func add(a: i32, b: i32) -> i32 { return a + b }
+        func helper() -> i32 { return 0 }
+    )--"}});
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
+}
+
+TEST_F(SemaTest, ModuleNotFound) {
+    auto result = checkWithModules(R"--(
+        import nonexistent
+        func main() {}
+    )--", {});
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_module_not_found));
+}
+
+TEST_F(SemaTest, ModuleCircularImport) {
+    auto result = checkWithModules(R"--(
+        import b
+        pub func mainFunc() -> i32 { return 1 }
+        func main() {}
+    )--", {{"b", "import test"}});
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_circular_import) ||
+                hasDiag(result, DiagID::err_module_not_found));
+}
+
+TEST_F(SemaTest, ModuleImportPubStruct) {
+    auto result = checkWithModules(R"--(
+        import types
+        func main() { let p = Point { x: 1, y: 2 } }
+    )--", {{"types", R"--(
+        pub struct Point {
+            x: i32
+            y: i32
+        }
+    )--"}});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ModuleMultipleImports) {
+    auto result = checkWithModules(R"--(
+        import math
+        import types
+        func main() {
+            let x = add(1, 2)
+            let p = Point { x: 1, y: 2 }
+        }
+    )--", {
+        {"math", "pub func add(a: i32, b: i32) -> i32 { return a + b }"},
+        {"types", R"--(
+            pub struct Point {
+                x: i32
+                y: i32
+            }
+        )--"}
+    });
     EXPECT_TRUE(result.passed);
 }

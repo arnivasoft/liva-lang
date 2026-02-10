@@ -5,6 +5,7 @@
 #include "liva/IR/IRGen.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
+#include "liva/Sema/ModuleLoader.h"
 #include "liva/Sema/Sema.h"
 #include <fstream>
 #include <iostream>
@@ -75,7 +76,13 @@ bool CompilerInstance::checkOnly() {
     if (!tu || diag_.hasErrors())
         return false;
 
-    Sema sema(diag_);
+    ModuleLoader loader;
+    std::string fname(sourceManager_->getFilename());
+    auto pos = fname.find_last_of("/\\");
+    if (pos != std::string::npos)
+        loader.setBasePath(fname.substr(0, pos + 1));
+
+    Sema sema(diag_, &loader);
     return sema.analyze(*tu);
 }
 
@@ -84,7 +91,13 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
     if (!tu || diag_.hasErrors())
         return false;
 
-    Sema sema(diag_);
+    ModuleLoader loader;
+    std::string fname(sourceManager_->getFilename());
+    auto pos = fname.find_last_of("/\\");
+    if (pos != std::string::npos)
+        loader.setBasePath(fname.substr(0, pos + 1));
+
+    Sema sema(diag_, &loader);
     if (!sema.analyze(*tu))
         return false;
 
@@ -106,7 +119,13 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     if (!tu || diag_.hasErrors())
         return false;
 
-    Sema sema(diag_);
+    ModuleLoader loader;
+    std::string fname(sourceManager_->getFilename());
+    auto pos = fname.find_last_of("/\\");
+    if (pos != std::string::npos)
+        loader.setBasePath(fname.substr(0, pos + 1));
+
+    Sema sema(diag_, &loader);
     if (!sema.analyze(*tu))
         return false;
 

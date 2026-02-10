@@ -176,4 +176,7 @@ std::unique_ptr<TypeRepr> makeInferredType();
 std::unique_ptr<TypeRepr> makeNamedType(const std::string &name);
 std::unique_ptr<TypeRepr> makePrimitiveType(TypeRepr::Kind kind);
 
+/// Deep-clone a TypeRepr tree
+std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type);
+
 } // namespace liva

@@ -2,8 +2,8 @@
 
 namespace liva {
 
-Sema::Sema(DiagnosticsEngine &diag)
-    : diag_(diag), typeChecker_(diag), ownershipChecker_(diag) {}
+Sema::Sema(DiagnosticsEngine &diag, ModuleLoader *loader)
+    : diag_(diag), typeChecker_(diag, loader), ownershipChecker_(diag) {}
 
 bool Sema::analyze(TranslationUnit &tu) {
     // Phase 1: Type checking (includes name resolution)

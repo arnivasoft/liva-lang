@@ -68,8 +68,9 @@ add_library(liva_sema STATIC
     src/Sema/TypeChecker.cpp
     src/Sema/OwnershipChecker.cpp
     src/Sema/Scope.cpp
+    src/Sema/ModuleLoader.cpp
 )
-target_link_libraries(liva_sema PUBLIC liva_ast liva_common)
+target_link_libraries(liva_sema PUBLIC liva_parser liva_ast liva_common)
 liva_set_compiler_flags(liva_sema)
 
 # liva_irgen (only if LLVM is available)

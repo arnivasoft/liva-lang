@@ -525,3 +525,59 @@ TEST_F(ParserTest, ResultMatchExpression) {
     )--");
     ASSERT_FALSE(result.hasErrors);
 }
+
+// === M16b: Closure Parameter Type Inference ===
+
+TEST_F(ParserTest, ClosureUntypedParams) {
+    auto result = parse(R"--(
+        func main() {
+            let f: (i32) -> i32 = |x| -> i32 { return x }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getName(), "main");
+}
+
+TEST_F(ParserTest, ClosureMixedParams) {
+    auto result = parse(R"--(
+        func main() {
+            let f = |x, y: i32| -> i32 { return y }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+// === M16c: Trailing Closure Syntax ===
+
+TEST_F(ParserTest, TrailingClosureBasic) {
+    auto result = parse(R"--(
+        func apply(x: i32, f: (i32) -> i32) -> i32 {
+            return f(x)
+        }
+        func main() {
+            let r = apply(5) |x: i32| -> i32 { return x + 1 }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ProtocolDefaultMethod) {
+    auto result = parse(R"--(
+        protocol Greetable {
+            func greet(self) -> string
+            func shout(self) -> string {
+                return self.greet()
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *proto = dynamic_cast<ProtocolDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(proto, nullptr);
+    EXPECT_EQ(proto->getMethods().size(), 2);
+    EXPECT_FALSE(proto->getMethods()[0]->hasBody());
+    EXPECT_TRUE(proto->getMethods()[1]->hasBody());
+}

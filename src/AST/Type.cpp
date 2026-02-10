@@ -171,4 +171,37 @@ std::unique_ptr<TypeRepr> makePrimitiveType(TypeRepr::Kind kind) {
     return std::make_unique<TypeRepr>(kind);
 }
 
+std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type) {
+    if (!type) return nullptr;
+    if (type->isPrimitive() || type->isVoid())
+        return makePrimitiveType(type->getKind());
+    switch (type->getKind()) {
+    case TypeRepr::Kind::Named: {
+        auto *n = static_cast<const NamedTypeRepr *>(type);
+        return makeNamedType(n->getName());
+    }
+    case TypeRepr::Kind::Optional: {
+        auto *o = static_cast<const OptionalTypeRepr *>(type);
+        return std::make_unique<OptionalTypeRepr>(cloneTypeRepr(o->getInner()));
+    }
+    case TypeRepr::Kind::Array: {
+        auto *a = static_cast<const ArrayTypeRepr *>(type);
+        return std::make_unique<ArrayTypeRepr>(cloneTypeRepr(a->getElement()), a->getSize());
+    }
+    case TypeRepr::Kind::Function: {
+        auto *f = static_cast<const FunctionTypeRepr *>(type);
+        std::vector<std::unique_ptr<TypeRepr>> params;
+        for (auto &p : f->getParams())
+            params.push_back(cloneTypeRepr(p.get()));
+        return std::make_unique<FunctionTypeRepr>(std::move(params), cloneTypeRepr(f->getReturnType()));
+    }
+    case TypeRepr::Kind::Result: {
+        auto *r = static_cast<const ResultTypeRepr *>(type);
+        return std::make_unique<ResultTypeRepr>(cloneTypeRepr(r->getOkType()), cloneTypeRepr(r->getErrType()));
+    }
+    default:
+        return makePrimitiveType(type->getKind());
+    }
+}
+
 } // namespace liva

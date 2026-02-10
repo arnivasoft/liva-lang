@@ -191,6 +191,9 @@ public:
     Expr *getCallee() { return callee_.get(); }
     const std::vector<std::unique_ptr<Expr>> &getArgs() const { return args_; }
 
+    /// Add an argument (for trailing closure support)
+    void addArg(std::unique_ptr<Expr> arg) { args_.push_back(std::move(arg)); }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::CallExpr;
     }
@@ -449,6 +452,12 @@ public:
     const TypeRepr *getReturnType() const { return returnType_.get(); }
     const BlockStmt *getBody() const { return body_.get(); }
     BlockStmt *getBody() { return body_.get(); }
+
+    /// Set the type of a parameter (for type inference)
+    void setParamType(size_t index, std::unique_ptr<TypeRepr> type) {
+        if (index < params_.size())
+            params_[index].type = std::move(type);
+    }
 
     static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::ClosureExpr; }
 

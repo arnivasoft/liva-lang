@@ -7,10 +7,12 @@
 
 namespace liva {
 
+class ModuleLoader;
+
 /// Main semantic analysis driver
 class Sema {
 public:
-    Sema(DiagnosticsEngine &diag);
+    Sema(DiagnosticsEngine &diag, ModuleLoader *loader = nullptr);
 
     /// Run all semantic analysis passes on the translation unit
     bool analyze(TranslationUnit &tu);

@@ -268,6 +268,9 @@ private:
     /// Protocol method indices: protocolName → {methodName → index}
     std::unordered_map<std::string, std::unordered_map<std::string, int>> protocolMethodIndices_;
 
+    /// Protocol declarations for default method lookup
+    std::unordered_map<std::string, const ProtocolDecl *> protocolDecls_;
+
     /// Vtable globals: "vtable_protocolName_typeName" → GlobalVariable*
     std::unordered_map<std::string, llvm::GlobalVariable *> vtableGlobals_;
 
