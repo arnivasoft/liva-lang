@@ -105,6 +105,14 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         scopes_.declare(tp, sym);
     }
 
+    // Validate trait bounds reference real protocols
+    for (auto &[paramName, boundProto] : node->getTypeParamBounds()) {
+        auto *protoSym = scopes_.lookup(boundProto);
+        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+        }
+    }
+
     // Register parameters
     for (auto &param : node->getParams()) {
         Symbol sym;
@@ -158,6 +166,12 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
     sym.type = node->getType();
     sym.isMutable = node->isMutable();
 
+    // Propagate init's resolved type when annotation is inferred
+    if ((!sym.type || sym.type->isInferred()) && node->hasInit() &&
+        node->getInit()->getResolvedType()) {
+        sym.type = node->getInit()->getResolvedType();
+    }
+
     if (!scopes_.declare(sym.name, sym)) {
         diag_.report(node->getStartLoc(), DiagID::err_redefinition, node->getName());
     }
@@ -170,6 +184,13 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
         sym.name = tp;
         sym.kind = Symbol::Kind::TypeParam;
         scopes_.declare(tp, sym);
+    }
+    // Validate trait bounds reference real protocols
+    for (auto &[paramName, boundProto] : node->getTypeParamBounds()) {
+        auto *protoSym = scopes_.lookup(boundProto);
+        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+        }
     }
     for (auto &field : node->getFields()) {
         visitFieldDecl(field.get());
@@ -223,6 +244,13 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
         tpSym.name = tp;
         tpSym.kind = Symbol::Kind::TypeParam;
         scopes_.declare(tp, tpSym);
+    }
+    // Validate trait bounds reference real protocols
+    for (auto &[paramName, boundProto] : node->getTypeParamBounds()) {
+        auto *protoSym = scopes_.lookup(boundProto);
+        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+        }
     }
     for (auto &method : node->getMethods()) {
         visitFuncDecl(method.get());
@@ -353,7 +381,12 @@ void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
     }
 
     if (sym->type) {
-        node->setResolvedType(makePrimitiveType(sym->type->getKind()));
+        if (sym->type->getKind() == TypeRepr::Kind::Named) {
+            auto *namedType = static_cast<const NamedTypeRepr *>(sym->type);
+            node->setResolvedType(makeNamedType(namedType->getName()));
+        } else {
+            node->setResolvedType(makePrimitiveType(sym->type->getKind()));
+        }
     }
 }
 
@@ -472,6 +505,22 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                         }
                     }
 
+                    // Check trait bounds
+                    const auto &bounds = sym->funcDecl->getTypeParamBounds();
+                    for (auto &[pName, boundProto] : bounds) {
+                        auto bindIt = typeBindings.find(pName);
+                        if (bindIt == typeBindings.end()) continue;
+                        std::string concreteName = typeToString(bindIt->second);
+                        auto confIt = protocolConformances_.find(boundProto);
+                        bool conforms = false;
+                        if (confIt != protocolConformances_.end()) {
+                            for (const auto &t : confIt->second)
+                                if (t == concreteName) { conforms = true; break; }
+                        }
+                        if (!conforms)
+                            diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
+                    }
+
                     // Resolve return type
                     const TypeRepr *retType = sym->funcDecl->getReturnType();
                     if (retType && retType->getKind() == TypeRepr::Kind::Named) {
@@ -545,6 +594,44 @@ void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
 
     for (auto &field : node->getFields()) {
         visit(field.value.get());
+    }
+
+    // Check trait bounds for generic structs
+    if (sym->structDecl && sym->structDecl->isGeneric()) {
+        const auto &bounds = sym->structDecl->getTypeParamBounds();
+        if (!bounds.empty()) {
+            // Infer type bindings from field values
+            std::unordered_map<std::string, const TypeRepr *> typeBindings;
+            const auto &typeParams = sym->structDecl->getTypeParams();
+            const auto &fields = sym->structDecl->getFields();
+            for (size_t i = 0; i < fields.size() && i < node->getFields().size(); ++i) {
+                const TypeRepr *fieldType = fields[i]->getType();
+                if (fieldType && fieldType->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(fieldType);
+                    for (const auto &tp : typeParams) {
+                        if (named->getName() == tp) {
+                            const TypeRepr *argType = node->getFields()[i].value->getResolvedType();
+                            if (argType) typeBindings[tp] = argType;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Check conformance for each bound
+            for (auto &[pName, boundProto] : bounds) {
+                auto bindIt = typeBindings.find(pName);
+                if (bindIt == typeBindings.end()) continue;
+                std::string concreteName = typeToString(bindIt->second);
+                auto confIt = protocolConformances_.find(boundProto);
+                bool conforms = false;
+                if (confIt != protocolConformances_.end()) {
+                    for (const auto &t : confIt->second)
+                        if (t == concreteName) { conforms = true; break; }
+                }
+                if (!conforms)
+                    diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
+            }
+        }
     }
 
     node->setResolvedType(makeNamedType(node->getTypeName()));

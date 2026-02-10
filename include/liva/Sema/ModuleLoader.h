@@ -32,6 +32,12 @@ public:
                        DiagnosticsEngine &callerDiag,
                        SourceLocation loc);
 
+    /// Get a previously loaded module from cache (for IRGen)
+    Module *getLoadedModule(const std::string &name) {
+        auto it = cache_.find(name);
+        return (it != cache_.end()) ? it->second.get() : nullptr;
+    }
+
 private:
     std::string resolveModuleName(const std::vector<std::string> &path);
     std::string resolveFilePath(const std::vector<std::string> &path);

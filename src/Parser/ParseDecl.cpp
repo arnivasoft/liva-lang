@@ -1,4 +1,5 @@
 #include "liva/Parser/Parser.h"
+#include <unordered_map>
 
 namespace liva {
 
@@ -37,13 +38,19 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic) {
     auto nameTok = expect(TokenKind::identifier);
     std::string name(nameTok.getText());
 
-    // Parse optional generic type parameters: <T, U>
+    // Parse optional generic type parameters: <T, U> or <T: Protocol>
     std::vector<std::string> typeParams;
+    std::unordered_map<std::string, std::string> typeParamBounds;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
                 auto paramTok = expect(TokenKind::identifier);
-                typeParams.push_back(std::string(paramTok.getText()));
+                std::string paramName(paramTok.getText());
+                typeParams.push_back(paramName);
+                if (match(TokenKind::colon)) {
+                    auto boundTok = expect(TokenKind::identifier);
+                    typeParamBounds[paramName] = std::string(boundTok.getText());
+                }
             } while (match(TokenKind::comma));
         }
         expect(TokenKind::greater);
@@ -78,6 +85,9 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic) {
                                                 isPublic, rangeFrom(startLoc));
     if (!typeParams.empty()) {
         funcDecl->setTypeParams(std::move(typeParams));
+    }
+    if (!typeParamBounds.empty()) {
+        funcDecl->setTypeParamBounds(std::move(typeParamBounds));
     }
     return funcDecl;
 }
@@ -115,13 +125,19 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
     auto nameTok = expect(TokenKind::identifier);
     std::string name(nameTok.getText());
 
-    // Parse optional generic type parameters: <T, U>
+    // Parse optional generic type parameters: <T, U> or <T: Protocol>
     std::vector<std::string> typeParams;
+    std::unordered_map<std::string, std::string> typeParamBounds;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
                 auto paramTok = expect(TokenKind::identifier);
-                typeParams.push_back(std::string(paramTok.getText()));
+                std::string paramName(paramTok.getText());
+                typeParams.push_back(paramName);
+                if (match(TokenKind::colon)) {
+                    auto boundTok = expect(TokenKind::identifier);
+                    typeParamBounds[paramName] = std::string(boundTok.getText());
+                }
             } while (match(TokenKind::comma));
         }
         expect(TokenKind::greater);
@@ -156,6 +172,9 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
                                                     rangeFrom(startLoc));
     if (!typeParams.empty()) {
         structDecl->setTypeParams(std::move(typeParams));
+    }
+    if (!typeParamBounds.empty()) {
+        structDecl->setTypeParamBounds(std::move(typeParamBounds));
     }
     return structDecl;
 }
@@ -202,13 +221,19 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
 
     auto typeName = expect(TokenKind::identifier);
 
-    // Parse optional generic type parameters: <T, U>
+    // Parse optional generic type parameters: <T, U> or <T: Protocol>
     std::vector<std::string> typeParams;
+    std::unordered_map<std::string, std::string> typeParamBounds;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
                 auto paramTok = expect(TokenKind::identifier);
-                typeParams.push_back(std::string(paramTok.getText()));
+                std::string paramName(paramTok.getText());
+                typeParams.push_back(paramName);
+                if (match(TokenKind::colon)) {
+                    auto boundTok = expect(TokenKind::identifier);
+                    typeParamBounds[paramName] = std::string(boundTok.getText());
+                }
             } while (match(TokenKind::comma));
         }
         expect(TokenKind::greater);
@@ -238,6 +263,8 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
                                       std::move(methods), rangeFrom(startLoc));
     if (!typeParams.empty())
         implDecl->setTypeParams(std::move(typeParams));
+    if (!typeParamBounds.empty())
+        implDecl->setTypeParamBounds(std::move(typeParamBounds));
     return implDecl;
 }
 

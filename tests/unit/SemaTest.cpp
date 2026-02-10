@@ -1250,3 +1250,138 @@ TEST_F(SemaTest, ModuleMultipleImports) {
     });
     EXPECT_TRUE(result.passed);
 }
+
+// --- Trait Bound Tests ---
+
+TEST_F(SemaTest, TraitBoundFuncValid) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        struct Person {
+            name: string
+        }
+        impl Person: Printable {
+            func toString(self) -> string { return self.name }
+        }
+        func show<T: Printable>(item: T) -> string { return item.toString() }
+        func main() {
+            let p = Person { name: "Alice" }
+            let s = show(p)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TraitBoundFuncViolation) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        struct Foo {
+            x: i32
+        }
+        func show<T: Printable>(item: T) -> string { return item.toString() }
+        func main() {
+            let f = Foo { x: 1 }
+            let s = show(f)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, TraitBoundPrimitiveViolation) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        func show<T: Printable>(item: T) -> string { return item.toString() }
+        func main() {
+            let s = show(42)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, TraitBoundStructValid) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        struct Person {
+            name: string
+        }
+        impl Person: Printable {
+            func toString(self) -> string { return self.name }
+        }
+        struct Wrapper<T: Printable> {
+            value: T
+        }
+        func main() {
+            let p = Person { name: "Alice" }
+            let w = Wrapper { value: p }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TraitBoundStructViolation) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        struct Foo {
+            x: i32
+        }
+        struct Wrapper<T: Printable> {
+            value: T
+        }
+        func main() {
+            let f = Foo { x: 1 }
+            let w = Wrapper { value: f }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, TraitBoundMixedParams) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        struct Person {
+            name: string
+        }
+        impl Person: Printable {
+            func toString(self) -> string { return self.name }
+        }
+        func combine<T: Printable, U>(a: T, b: U) -> string { return a.toString() }
+        func main() {
+            let p = Person { name: "Alice" }
+            let s = combine(p, 42)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TraitBoundUndefinedProtocol) {
+    auto result = check(R"--(
+        func show<T: NonExistent>(item: T) -> string { return item.toString() }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_protocol));
+}
+
+TEST_F(SemaTest, TraitBoundNoBoundBackwardCompat) {
+    auto result = check(R"--(
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let a = identity(42)
+            let b = identity("hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

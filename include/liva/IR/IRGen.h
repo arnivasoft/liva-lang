@@ -5,6 +5,7 @@
 #include "liva/Common/Diagnostics.h"
 
 #ifdef LIVA_HAS_LLVM
+#include "liva/Sema/ModuleLoader.h"
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
@@ -18,12 +19,17 @@
 
 namespace liva {
 
+class ModuleLoader; // forward declaration for stub
+
 #ifdef LIVA_HAS_LLVM
 
 /// Generates LLVM IR from the AST
 class IRGen : public ASTVisitor<IRGen, llvm::Value *> {
 public:
     IRGen(const std::string &moduleName, DiagnosticsEngine &diag);
+
+    /// Set module loader for cross-module IR generation
+    void setModuleLoader(ModuleLoader *loader) { moduleLoader_ = loader; }
 
     /// Generate IR for a translation unit
     bool generate(TranslationUnit &tu);
@@ -76,6 +82,7 @@ public:
     llvm::Value *visitUnwrapExpr(UnwrapExpr *node);
     llvm::Value *visitClosureExpr(ClosureExpr *node);
     llvm::Value *visitProtocolDecl(ProtocolDecl *node);
+    llvm::Value *visitImportDecl(ImportDecl *node);
     llvm::Value *visitTryExpr(TryExpr *node);
 
 private:
@@ -97,6 +104,8 @@ private:
     std::vector<LoopContext> loopStack_;
 
     DiagnosticsEngine &diag_;
+    ModuleLoader *moduleLoader_ = nullptr;
+    std::set<std::string> processedModules_;
     std::unique_ptr<llvm::LLVMContext> context_;
     std::unique_ptr<llvm::Module> module_;
     std::unique_ptr<llvm::IRBuilder<>> builder_;
@@ -291,6 +300,8 @@ private:
 class IRGen {
 public:
     IRGen(const std::string &, DiagnosticsEngine &diag) : diag_(diag) {}
+
+    void setModuleLoader(ModuleLoader *) {}
 
     bool generate(TranslationUnit &) {
         diag_.report(SourceLocation{}, DiagID::err_main_not_found);

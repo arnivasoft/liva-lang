@@ -102,6 +102,7 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
         return false;
 
     IRGen irgen(sourceManager_->getFilename().data(), diag_);
+    irgen.setModuleLoader(&loader);
     if (!irgen.generate(*tu))
         return false;
 
@@ -131,6 +132,7 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
 #ifdef LIVA_HAS_LLVM
     IRGen irgen(sourceManager_->getFilename().data(), diag_);
+    irgen.setModuleLoader(&loader);
     if (!irgen.generate(*tu))
         return false;
 

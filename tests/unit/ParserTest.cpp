@@ -581,3 +581,65 @@ TEST_F(ParserTest, ProtocolDefaultMethod) {
     EXPECT_FALSE(proto->getMethods()[0]->hasBody());
     EXPECT_TRUE(proto->getMethods()[1]->hasBody());
 }
+
+TEST_F(ParserTest, GenericFuncWithBound) {
+    auto result = parse("func show<T: Printable>(item: T) -> string { return item.toString() }");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isGeneric());
+    ASSERT_EQ(func->getTypeParams().size(), 1);
+    EXPECT_EQ(func->getTypeParams()[0], "T");
+    ASSERT_EQ(func->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
+}
+
+TEST_F(ParserTest, GenericFuncMultiParamsMixedBounds) {
+    auto result = parse("func combine<T: Printable, U>(a: T, b: U) -> string { return a.toString() }");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getTypeParams().size(), 2);
+    EXPECT_EQ(func->getTypeParams()[0], "T");
+    EXPECT_EQ(func->getTypeParams()[1], "U");
+    ASSERT_EQ(func->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
+    EXPECT_EQ(func->getTypeParamBounds().count("U"), 0);
+}
+
+TEST_F(ParserTest, GenericStructWithBound) {
+    auto result = parse(R"--(
+        struct Wrapper<T: Printable> {
+            value: T
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *s = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(s, nullptr);
+    EXPECT_TRUE(s->isGeneric());
+    ASSERT_EQ(s->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(s->getTypeParamBounds().at("T"), "Printable");
+}
+
+TEST_F(ParserTest, GenericImplWithBound) {
+    auto result = parse(R"--(
+        impl Wrapper<T: Printable> {
+            func show(self) -> string { return self.value.toString() }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *impl = dynamic_cast<ImplDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(impl, nullptr);
+    EXPECT_TRUE(impl->isGeneric());
+    ASSERT_EQ(impl->getTypeParamBounds().size(), 1);
+    EXPECT_EQ(impl->getTypeParamBounds().at("T"), "Printable");
+}
+
+TEST_F(ParserTest, GenericFuncNoBoundsStillWorks) {
+    auto result = parse("func identity<T>(x: T) -> T { return x }");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isGeneric());
+    EXPECT_TRUE(func->getTypeParamBounds().empty());
+}

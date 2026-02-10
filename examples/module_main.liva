@@ -1,0 +1,6 @@
+import math
+
+func main() {
+    let x = add(3, 4)
+    println(x)
+}

@@ -65,6 +65,50 @@ bool IRGen::generate(TranslationUnit &tu) {
     return true;
 }
 
+llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
+    if (!moduleLoader_) return nullptr;
+
+    std::string moduleName = node->getPathString();
+
+    // Don't process the same module twice
+    if (processedModules_.count(moduleName)) return nullptr;
+    processedModules_.insert(moduleName);
+
+    auto *mod = moduleLoader_->getLoadedModule(moduleName);
+    if (!mod || !mod->tu) return nullptr;
+
+    // Process all declarations from the imported module
+    for (auto &decl : mod->tu->getDeclarations()) {
+        if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
+            auto *funcDecl = static_cast<FuncDecl *>(decl.get());
+            if (funcDecl->isGeneric()) {
+                genericFuncDecls_[funcDecl->getName()] = funcDecl;
+                continue;
+            }
+        }
+
+        if (decl->getKind() == ASTNode::NodeKind::StructDecl) {
+            auto *structDecl = static_cast<StructDecl *>(decl.get());
+            if (structDecl->isGeneric()) {
+                genericStructDecls_[structDecl->getName()] = structDecl;
+                continue;
+            }
+        }
+
+        if (decl->getKind() == ASTNode::NodeKind::ImplDecl) {
+            auto *implDecl = static_cast<ImplDecl *>(decl.get());
+            if (implDecl->isGeneric()) {
+                genericImplDecls_[implDecl->getTypeName()] = implDecl;
+                continue;
+            }
+        }
+
+        visit(decl.get());
+    }
+
+    return nullptr;
+}
+
 void IRGen::dump() { module_->print(llvm::errs(), nullptr); }
 
 bool IRGen::writeToFile(const std::string &filename) {
