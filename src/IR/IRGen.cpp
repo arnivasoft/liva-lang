@@ -649,6 +649,48 @@ llvm::Value *IRGen::visitIfStmt(IfStmt *node) {
     return nullptr;
 }
 
+llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
+    llvm::AllocaInst *optAlloca = nullptr;
+    llvm::Type *innerType = nullptr;
+    if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        auto it = namedValues_.find(ident->getName());
+        if (it != namedValues_.end()) optAlloca = it->second;
+        auto optIt = varOptionalTypes_.find(ident->getName());
+        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+    }
+    if (!optAlloca || !innerType) return nullptr;
+
+    auto *optStructTy = getOptionalType(innerType);
+    auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
+    auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "iflet.hasval");
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *thenBB = llvm::BasicBlock::Create(*context_, "iflet.then", func);
+    auto *elseBB = llvm::BasicBlock::Create(*context_, "iflet.else", func);
+    auto *mergeBB2 = llvm::BasicBlock::Create(*context_, "iflet.merge", func);
+    builder_->CreateCondBr(hasVal, thenBB, node->hasElse() ? elseBB : mergeBB2);
+
+    // Then: unwrap + bind
+    builder_->SetInsertPoint(thenBB);
+    auto *valPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 1);
+    auto *unwrapped = builder_->CreateLoad(innerType, valPtr, "iflet.val");
+    auto *bindAlloca = createEntryBlockAlloca(func, node->getBindingName(), innerType);
+    builder_->CreateStore(unwrapped, bindAlloca);
+    auto saved = namedValues_;
+    namedValues_[node->getBindingName()] = bindAlloca;
+    visit(node->getThenBody());
+    namedValues_ = saved;
+    if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
+
+    // Else
+    builder_->SetInsertPoint(elseBB);
+    if (node->hasElse()) visit(node->getElseBody());
+    if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
+
+    builder_->SetInsertPoint(mergeBB2);
+    return nullptr;
+}
+
 llvm::Value *IRGen::visitWhileStmt(WhileStmt *node) {
     auto *func = builder_->GetInsertBlock()->getParent();
 
@@ -820,6 +862,10 @@ llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
 }
 
 llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
+    if (node->getOp() == BinaryExpr::Op::NilCoalesce) {
+        return emitNilCoalesce(node);
+    }
+
     auto *lhs = visit(node->getLHS());
     auto *rhs = visit(node->getRHS());
     if (!lhs || !rhs)
@@ -903,8 +949,52 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
         return builder_->CreateShl(lhs, rhs, "shltmp");
     case BinaryExpr::Op::Shr:
         return builder_->CreateAShr(lhs, rhs, "shrtmp");
+    case BinaryExpr::Op::NilCoalesce:
+        break; // handled above via early return
     }
     return nullptr;
+}
+
+llvm::Value *IRGen::emitNilCoalesce(BinaryExpr *node) {
+    llvm::AllocaInst *optAlloca = nullptr;
+    llvm::Type *innerType = nullptr;
+    if (node->getLHS()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getLHS());
+        auto it = namedValues_.find(ident->getName());
+        if (it != namedValues_.end()) optAlloca = it->second;
+        auto optIt = varOptionalTypes_.find(ident->getName());
+        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+    }
+    if (!optAlloca || !innerType) {
+        auto *lhs = visit(node->getLHS());
+        return lhs ? lhs : visit(node->getRHS());
+    }
+
+    auto *optStructTy = getOptionalType(innerType);
+    auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
+    auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "coal.hasval");
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *hasValBB = llvm::BasicBlock::Create(*context_, "coal.hasval", func);
+    auto *nilBB = llvm::BasicBlock::Create(*context_, "coal.nil", func);
+    auto *mergeBB = llvm::BasicBlock::Create(*context_, "coal.merge", func);
+    builder_->CreateCondBr(hasVal, hasValBB, nilBB);
+
+    builder_->SetInsertPoint(hasValBB);
+    auto *valPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 1);
+    auto *optVal = builder_->CreateLoad(innerType, valPtr, "coal.val");
+    auto *hasValEnd = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB);
+
+    builder_->SetInsertPoint(nilBB);
+    auto *defaultVal = visit(node->getRHS());
+    auto *nilEnd = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB);
+
+    builder_->SetInsertPoint(mergeBB);
+    auto *phi = builder_->CreatePHI(innerType, 2, "coal.result");
+    phi->addIncoming(optVal, hasValEnd);
+    phi->addIncoming(defaultVal, nilEnd);
+    return phi;
 }
 
 llvm::Value *IRGen::visitUnaryExpr(UnaryExpr *node) {

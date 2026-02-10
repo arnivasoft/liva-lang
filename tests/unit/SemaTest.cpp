@@ -772,3 +772,118 @@ TEST_F(SemaTest, ClosureNoParamsVoid) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Protocol Tests ===
+
+TEST_F(SemaTest, ProtocolDeclaration) {
+    auto result = check(R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        func main() {}
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProtocolConformanceValid) {
+    auto result = check(R"--(
+        protocol Greetable {
+            func greet(self) -> string
+        }
+        struct Person { let name: string }
+        impl Person: Greetable {
+            func greet(self) -> string { return self.name }
+        }
+        func main() {}
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProtocolConformanceMissingMethod) {
+    auto result = check(R"--(
+        protocol Greetable {
+            func greet(self) -> string
+        }
+        struct Person { let name: string }
+        impl Person: Greetable {
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_missing_protocol_method));
+}
+
+TEST_F(SemaTest, ProtocolUndefined) {
+    auto result = check(R"--(
+        struct Foo { let x: i32 }
+        impl Foo: NonExistent {
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_protocol));
+}
+
+TEST_F(SemaTest, ProtocolMultipleMethods) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+            func name(self) -> string
+        }
+        struct Circle { let radius: f64 }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.radius }
+            func name(self) -> string { return "circle" }
+        }
+        func main() {}
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, IfLetBindingInScope) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = 42
+            if let val = x {
+                println(val)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, IfLetWithElse) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = nil
+            if let val = x {
+                println(val)
+            } else {
+                println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NilCoalesceBasic) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = nil
+            let y = x ?? 0
+            println(y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NilCoalesceWithValue) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = 42
+            let y = x ?? 0
+            println(y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

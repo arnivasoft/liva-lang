@@ -44,6 +44,7 @@ public:
     llvm::Value *visitBlockStmt(BlockStmt *node);
     llvm::Value *visitReturnStmt(ReturnStmt *node);
     llvm::Value *visitIfStmt(IfStmt *node);
+    llvm::Value *visitIfLetStmt(IfLetStmt *node);
     llvm::Value *visitWhileStmt(WhileStmt *node);
     llvm::Value *visitForStmt(ForStmt *node);
     llvm::Value *visitBreakStmt(BreakStmt *node);
@@ -218,6 +219,9 @@ private:
 
     /// Emit runtime bounds check: panics if index >= size
     void emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal);
+
+    /// Emit nil coalescing operator (??) IR
+    llvm::Value *emitNilCoalesce(BinaryExpr *node);
 
     /// Get or create an Optional<T> struct type: { i1, T }
     llvm::StructType *getOptionalType(llvm::Type *innerType);

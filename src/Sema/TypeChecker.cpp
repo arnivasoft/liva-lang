@@ -62,6 +62,16 @@ void TypeChecker::check(TranslationUnit &tu) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              enumDecl->getName());
             }
+        } else if (decl->getKind() == ASTNode::NodeKind::ProtocolDecl) {
+            auto *protocolDecl = static_cast<ProtocolDecl *>(decl.get());
+            Symbol sym;
+            sym.name = protocolDecl->getName();
+            sym.kind = Symbol::Kind::ProtocolType;
+            sym.protocolDecl = protocolDecl;
+            if (!scopes_.declare(sym.name, sym)) {
+                diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
+                             protocolDecl->getName());
+            }
         }
     }
 
@@ -154,6 +164,30 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
         return;
     }
 
+    // Protocol conformance check
+    if (node->hasProtocol()) {
+        auto *protoSym = scopes_.lookup(node->getProtocolName());
+        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol,
+                         node->getProtocolName());
+        } else if (protoSym->protocolDecl) {
+            for (auto &protoMethod : protoSym->protocolDecl->getMethods()) {
+                bool found = false;
+                for (auto &implMethod : node->getMethods()) {
+                    if (implMethod->getName() == protoMethod->getName()) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    diag_.report(node->getStartLoc(),
+                                 DiagID::err_missing_protocol_method,
+                                 protoMethod->getName(), node->getProtocolName());
+                }
+            }
+        }
+    }
+
     scopes_.pushScope();
     for (const auto &tp : node->getTypeParams()) {
         Symbol tpSym;
@@ -168,11 +202,11 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
 }
 
 void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
+    scopes_.pushScope();
     for (auto &method : node->getMethods()) {
-        // Protocol methods may not have bodies
-        // Just register the signature
         (void)method;
     }
+    scopes_.popScope();
 }
 
 void TypeChecker::visitExprStmt(ExprStmt *node) { visit(node->getExpr()); }
@@ -187,6 +221,23 @@ void TypeChecker::visitIfStmt(IfStmt *node) {
     visit(const_cast<Expr *>(node->getCondition()));
 
     visit(node->getThenBody());
+
+    if (node->hasElse()) {
+        visit(node->getElseBody());
+    }
+}
+
+void TypeChecker::visitIfLetStmt(IfLetStmt *node) {
+    visit(node->getOptionalExpr());
+
+    scopes_.pushScope();
+    Symbol sym;
+    sym.name = node->getBindingName();
+    sym.kind = Symbol::Kind::Variable;
+    sym.isMutable = false;
+    scopes_.declare(sym.name, sym);
+    visitBlockStmt(node->getThenBody());
+    scopes_.popScope();
 
     if (node->hasElse()) {
         visit(node->getElseBody());
@@ -285,6 +336,12 @@ void TypeChecker::visitBinaryExpr(BinaryExpr *node) {
     case BinaryExpr::Op::And:
     case BinaryExpr::Op::Or:
         node->setResolvedType(makeBoolType());
+        break;
+    case BinaryExpr::Op::NilCoalesce:
+        if (node->getRHS()->getResolvedType()) {
+            node->setResolvedType(
+                makePrimitiveType(node->getRHS()->getResolvedType()->getKind()));
+        }
         break;
     default:
         // Arithmetic: result type matches operand types

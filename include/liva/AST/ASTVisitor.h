@@ -59,6 +59,9 @@ public:
         case ASTNode::NodeKind::ContinueStmt:
             return static_cast<Derived *>(this)->visitContinueStmt(
                 static_cast<ContinueStmt *>(node));
+        case ASTNode::NodeKind::IfLetStmt:
+            return static_cast<Derived *>(this)->visitIfLetStmt(
+                static_cast<IfLetStmt *>(node));
 
         // Expressions
         case ASTNode::NodeKind::IntegerLiteralExpr:
@@ -144,6 +147,7 @@ public:
     RetTy visitBlockStmt(BlockStmt *) { return RetTy(); }
     RetTy visitBreakStmt(BreakStmt *) { return RetTy(); }
     RetTy visitContinueStmt(ContinueStmt *) { return RetTy(); }
+    RetTy visitIfLetStmt(IfLetStmt *) { return RetTy(); }
 
     RetTy visitIntegerLiteralExpr(IntegerLiteralExpr *) { return RetTy(); }
     RetTy visitFloatLiteralExpr(FloatLiteralExpr *) { return RetTy(); }

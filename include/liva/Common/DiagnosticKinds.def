@@ -64,6 +64,8 @@ DIAG(err_break_outside_loop,         error,   "'break' statement outside of loop
 DIAG(err_continue_outside_loop,      error,   "'continue' statement outside of loop")
 DIAG(err_nonexhaustive_match,        error,   "match is not exhaustive; missing case '%0'")
 DIAG(err_nil_without_optional,       error,   "'nil' can only be used with optional types")
+DIAG(err_undefined_protocol,         error,   "undefined protocol '%0'")
+DIAG(err_missing_protocol_method,    error,   "type does not implement protocol method '%0' required by '%1'")
 
 // === Warnings ===
 DIAG(warn_unused_variable,           warning, "unused variable '%0'")

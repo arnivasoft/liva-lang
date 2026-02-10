@@ -172,6 +172,8 @@ Token Lexer::nextToken() {
     case '#':
         return makeToken(TokenKind::hash, startOffset);
     case '?':
+        if (match('?'))
+            return makeToken(TokenKind::question_question, startOffset);
         return makeToken(TokenKind::question, startOffset);
     case '~':
         return makeToken(TokenKind::tilde, startOffset);

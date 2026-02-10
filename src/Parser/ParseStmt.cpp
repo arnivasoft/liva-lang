@@ -92,9 +92,14 @@ std::unique_ptr<ReturnStmt> Parser::parseReturnStmt() {
     return std::make_unique<ReturnStmt>(std::move(value), rangeFrom(startLoc));
 }
 
-std::unique_ptr<IfStmt> Parser::parseIfStmt() {
+std::unique_ptr<ASTNode> Parser::parseIfStmt() {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_if);
+
+    // if let pattern → optional binding
+    if (check(TokenKind::kw_let)) {
+        return parseIfLetStmt(startLoc);
+    }
 
     auto condition = parseExpression();
     if (!condition)
@@ -107,7 +112,6 @@ std::unique_ptr<IfStmt> Parser::parseIfStmt() {
     std::unique_ptr<ASTNode> elseBody;
     if (match(TokenKind::kw_else)) {
         if (check(TokenKind::kw_if)) {
-            // else if chain
             elseBody = parseIfStmt();
         } else {
             elseBody = parseBlock();
@@ -116,6 +120,27 @@ std::unique_ptr<IfStmt> Parser::parseIfStmt() {
 
     return std::make_unique<IfStmt>(std::move(condition), std::move(thenBody),
                                     std::move(elseBody), rangeFrom(startLoc));
+}
+
+std::unique_ptr<IfLetStmt> Parser::parseIfLetStmt(SourceLocation ifLoc) {
+    expect(TokenKind::kw_let);
+    auto bindingName = expect(TokenKind::identifier);
+    expect(TokenKind::equal);
+    auto optionalExpr = parseExpression();
+    if (!optionalExpr) return nullptr;
+    auto thenBody = parseBlock();
+    if (!thenBody) return nullptr;
+    std::unique_ptr<ASTNode> elseBody;
+    if (match(TokenKind::kw_else)) {
+        if (check(TokenKind::kw_if)) {
+            elseBody = parseIfStmt();
+        } else {
+            elseBody = parseBlock();
+        }
+    }
+    return std::make_unique<IfLetStmt>(
+        std::string(bindingName.getText()), std::move(optionalExpr),
+        std::move(thenBody), std::move(elseBody), rangeFrom(ifLoc));
 }
 
 std::unique_ptr<WhileStmt> Parser::parseWhileStmt() {

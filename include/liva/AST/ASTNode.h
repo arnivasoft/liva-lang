@@ -29,6 +29,7 @@ public:
         BlockStmt,
         BreakStmt,
         ContinueStmt,
+        IfLetStmt,
 
         // Expressions
         IntegerLiteralExpr,

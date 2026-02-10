@@ -132,6 +132,7 @@ PUNCTUATOR(percent_equal,   "%=")
 PUNCTUATOR(at,          "@")
 PUNCTUATOR(hash,        "#")
 PUNCTUATOR(question,    "?")
+PUNCTUATOR(question_question, "??")
 PUNCTUATOR(underscore,  "_")
 
 #undef PUNCTUATOR

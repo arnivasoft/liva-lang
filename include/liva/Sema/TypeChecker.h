@@ -28,6 +28,7 @@ public:
     void visitExprStmt(ExprStmt *node);
     void visitReturnStmt(ReturnStmt *node);
     void visitIfStmt(IfStmt *node);
+    void visitIfLetStmt(IfLetStmt *node);
     void visitWhileStmt(WhileStmt *node);
     void visitForStmt(ForStmt *node);
     void visitBlockStmt(BlockStmt *node);

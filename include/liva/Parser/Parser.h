@@ -33,7 +33,8 @@ public:
     std::unique_ptr<ASTNode> parseStatement();
     std::unique_ptr<BlockStmt> parseBlock();
     std::unique_ptr<ReturnStmt> parseReturnStmt();
-    std::unique_ptr<IfStmt> parseIfStmt();
+    std::unique_ptr<ASTNode> parseIfStmt();
+    std::unique_ptr<IfLetStmt> parseIfLetStmt(SourceLocation ifLoc);
     std::unique_ptr<WhileStmt> parseWhileStmt();
     std::unique_ptr<ForStmt> parseForStmt();
 

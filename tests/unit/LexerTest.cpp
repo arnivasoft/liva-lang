@@ -245,3 +245,18 @@ TEST_F(LexerTest, StringInterpolationExpr) {
     expectToken(tokens[3], TokenKind::identifier);
     expectToken(tokens[4], TokenKind::string_interp_end);
 }
+
+TEST_F(LexerTest, NilCoalesceToken) {
+    auto tokens = lex("x ?? 0");
+    ASSERT_GE(tokens.size(), 3);
+    expectToken(tokens[0], TokenKind::identifier);
+    expectToken(tokens[1], TokenKind::question_question);
+    expectToken(tokens[2], TokenKind::integer_literal);
+}
+
+TEST_F(LexerTest, QuestionStillWorks) {
+    auto tokens = lex("i32?");
+    ASSERT_GE(tokens.size(), 2);
+    expectToken(tokens[0], TokenKind::kw_i32);
+    expectToken(tokens[1], TokenKind::question);
+}

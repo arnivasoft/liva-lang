@@ -16,7 +16,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::ExprStmt &&
-               node->getKind() <= NodeKind::ContinueStmt;
+               node->getKind() <= NodeKind::IfLetStmt;
     }
 };
 
@@ -157,6 +157,38 @@ public:
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::ContinueStmt;
     }
+};
+
+/// If-let statement: if let value = optExpr { ... } else { ... }
+class IfLetStmt : public Stmt {
+public:
+    IfLetStmt(std::string bindingName, std::unique_ptr<Expr> optionalExpr,
+              std::unique_ptr<BlockStmt> thenBody,
+              std::unique_ptr<ASTNode> elseBody, SourceRange range)
+        : Stmt(NodeKind::IfLetStmt, range),
+          bindingName_(std::move(bindingName)),
+          optionalExpr_(std::move(optionalExpr)),
+          thenBody_(std::move(thenBody)),
+          elseBody_(std::move(elseBody)) {}
+
+    const std::string &getBindingName() const { return bindingName_; }
+    const Expr *getOptionalExpr() const { return optionalExpr_.get(); }
+    Expr *getOptionalExpr() { return optionalExpr_.get(); }
+    const BlockStmt *getThenBody() const { return thenBody_.get(); }
+    BlockStmt *getThenBody() { return thenBody_.get(); }
+    const ASTNode *getElseBody() const { return elseBody_.get(); }
+    ASTNode *getElseBody() { return elseBody_.get(); }
+    bool hasElse() const { return elseBody_ != nullptr; }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::IfLetStmt;
+    }
+
+private:
+    std::string bindingName_;
+    std::unique_ptr<Expr> optionalExpr_;
+    std::unique_ptr<BlockStmt> thenBody_;
+    std::unique_ptr<ASTNode> elseBody_;
 };
 
 } // namespace liva

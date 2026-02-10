@@ -33,6 +33,7 @@ public:
     void visitBlockStmt(BlockStmt *node);
     void visitBreakStmt(BreakStmt *node);
     void visitContinueStmt(ContinueStmt *node);
+    void visitIfLetStmt(IfLetStmt *node);
 
     void visitIntegerLiteralExpr(IntegerLiteralExpr *node);
     void visitFloatLiteralExpr(FloatLiteralExpr *node);

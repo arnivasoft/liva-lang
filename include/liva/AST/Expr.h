@@ -127,6 +127,7 @@ public:
         Eq, NotEq, Less, LessEq, Greater, GreaterEq,
         And, Or,
         BitAnd, BitOr, BitXor, Shl, Shr,
+        NilCoalesce,
     };
 
     BinaryExpr(Op op, std::unique_ptr<Expr> lhs, std::unique_ptr<Expr> rhs, SourceRange range)

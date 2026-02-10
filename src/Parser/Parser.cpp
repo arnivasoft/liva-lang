@@ -53,6 +53,8 @@ std::unique_ptr<TranslationUnit> Parser::parseTranslationUnit() {
 
 int Parser::getBinaryOpPrecedence(TokenKind kind) const {
     switch (kind) {
+    case TokenKind::question_question:
+        return 0;
     case TokenKind::pipe_pipe:
         return 1;
     case TokenKind::amp_amp:
@@ -124,6 +126,8 @@ BinaryExpr::Op Parser::getBinaryOp(TokenKind kind) const {
         return BinaryExpr::Op::Shl;
     case TokenKind::greater_greater:
         return BinaryExpr::Op::Shr;
+    case TokenKind::question_question:
+        return BinaryExpr::Op::NilCoalesce;
     default:
         return BinaryExpr::Op::Add; // shouldn't reach
     }

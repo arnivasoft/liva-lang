@@ -41,6 +41,8 @@ const char *BinaryExpr::getOpSpelling() const {
         return "<<";
     case Op::Shr:
         return ">>";
+    case Op::NilCoalesce:
+        return "??";
     }
     return "<unknown>";
 }

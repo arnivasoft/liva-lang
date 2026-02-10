@@ -257,6 +257,30 @@ void ASTPrinter::visitContinueStmt(ContinueStmt *) {
     os_ << "ContinueStmt\n";
 }
 
+void ASTPrinter::visitIfLetStmt(IfLetStmt *node) {
+    indent();
+    os_ << "IfLetStmt '" << node->getBindingName() << "'\n";
+    increaseIndent();
+    indent();
+    os_ << "OptionalExpr:\n";
+    increaseIndent();
+    visit(const_cast<Expr *>(node->getOptionalExpr()));
+    decreaseIndent();
+    indent();
+    os_ << "Then:\n";
+    increaseIndent();
+    visit(node->getThenBody());
+    decreaseIndent();
+    if (node->hasElse()) {
+        indent();
+        os_ << "Else:\n";
+        increaseIndent();
+        visit(node->getElseBody());
+        decreaseIndent();
+    }
+    decreaseIndent();
+}
+
 // === Expressions ===
 
 void ASTPrinter::visitIntegerLiteralExpr(IntegerLiteralExpr *node) {

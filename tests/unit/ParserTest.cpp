@@ -413,3 +413,53 @@ TEST_F(ParserTest, ClosureExprNoParams) {
     )--");
     ASSERT_FALSE(result.hasErrors);
 }
+
+TEST_F(ParserTest, ProtocolConformance) {
+    auto result = parse(R"--(
+        protocol P {
+            func foo(self) -> i32
+        }
+        struct S { let x: i32 }
+        impl S: P {
+            func foo(self) -> i32 { return self.x }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_GE(result.tu->getDeclarations().size(), 3);
+}
+
+TEST_F(ParserTest, IfLetBasic) {
+    auto result = parse(R"--(
+        func main() {
+            let x: i32? = 42
+            if let val = x {
+                println(val)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, IfLetWithElse) {
+    auto result = parse(R"--(
+        func main() {
+            let x: i32? = nil
+            if let val = x {
+                println(val)
+            } else {
+                println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, NilCoalesceOperator) {
+    auto result = parse(R"--(
+        func main() {
+            let x: i32? = nil
+            let y = x ?? 0
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}

@@ -11,6 +11,7 @@ namespace liva {
 class FuncDecl;
 class StructDecl;
 class EnumDecl;
+class ProtocolDecl;
 
 /// Represents a symbol in the symbol table
 struct Symbol {
@@ -22,6 +23,7 @@ struct Symbol {
         EnumType,
         Field,
         TypeParam,
+        ProtocolType,
     };
 
     std::string name;
@@ -34,6 +36,7 @@ struct Symbol {
     const FuncDecl *funcDecl = nullptr;
     const StructDecl *structDecl = nullptr;
     const EnumDecl *enumDecl = nullptr;
+    const ProtocolDecl *protocolDecl = nullptr;
 };
 
 /// Lexical scope for name resolution
