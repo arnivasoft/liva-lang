@@ -122,6 +122,9 @@ private:
     };
     std::unordered_map<std::string, ArrayInfo> varArrayTypes_;
 
+    /// String constant interning
+    std::unordered_map<std::string, llvm::Constant *> stringConstants_;
+
     /// Enum LLVM StructType for payload enums: enumName -> StructType
     std::unordered_map<std::string, llvm::StructType *> enumTypes_;
 

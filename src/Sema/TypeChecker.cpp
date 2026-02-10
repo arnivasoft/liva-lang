@@ -16,6 +16,16 @@ void TypeChecker::registerBuiltins() {
     printlnSym.name = "println";
     printlnSym.kind = Symbol::Kind::Function;
     scopes_.declare("println", printlnSym);
+
+    Symbol lenSym;
+    lenSym.name = "len";
+    lenSym.kind = Symbol::Kind::Function;
+    scopes_.declare("len", lenSym);
+
+    Symbol toStringSym;
+    toStringSym.name = "toString";
+    toStringSym.kind = Symbol::Kind::Function;
+    scopes_.declare("toString", toStringSym);
 }
 
 void TypeChecker::check(TranslationUnit &tu) {
@@ -247,8 +257,12 @@ void TypeChecker::visitBinaryExpr(BinaryExpr *node) {
     default:
         // Arithmetic: result type matches operand types
         if (node->getLHS()->getResolvedType()) {
-            node->setResolvedType(
-                makePrimitiveType(node->getLHS()->getResolvedType()->getKind()));
+            if (node->getLHS()->getResolvedType()->getKind() == TypeRepr::Kind::String) {
+                node->setResolvedType(makeStringType());
+            } else {
+                node->setResolvedType(
+                    makePrimitiveType(node->getLHS()->getResolvedType()->getKind()));
+            }
         }
         break;
     }
@@ -273,16 +287,30 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
     // Try to resolve return type from callee
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
-        auto *sym = scopes_.lookup(ident->getName());
-        if (sym && sym->funcDecl && sym->funcDecl->getReturnType()) {
-            node->setResolvedType(
-                makePrimitiveType(sym->funcDecl->getReturnType()->getKind()));
+
+        if (ident->getName() == "len") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "toString") {
+            node->setResolvedType(makeStringType());
+        } else {
+            auto *sym = scopes_.lookup(ident->getName());
+            if (sym && sym->funcDecl && sym->funcDecl->getReturnType()) {
+                node->setResolvedType(
+                    makePrimitiveType(sym->funcDecl->getReturnType()->getKind()));
+            }
         }
     }
 }
 
 void TypeChecker::visitMemberExpr(MemberExpr *node) {
     visit(node->getObject());
+
+    // string.length → i64
+    if (node->getObject()->getResolvedType() &&
+        node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
+        node->getMember() == "length") {
+        node->setResolvedType(makeI64Type());
+    }
 }
 
 void TypeChecker::visitIndexExpr(IndexExpr *node) {

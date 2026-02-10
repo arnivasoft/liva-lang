@@ -49,10 +49,34 @@ bool IRGen::writeToFile(const std::string &filename) {
 }
 
 void IRGen::createRuntimeDecls() {
+    auto *i8PtrTy = llvm::PointerType::getUnqual(*context_);
+    auto *i32Ty = builder_->getInt32Ty();
+    auto *i64Ty = builder_->getInt64Ty();
+    auto *i8Ty = builder_->getInt8Ty();
+    auto *f64Ty = builder_->getDoubleTy();
+
     // printf declaration
-    auto *printfType = llvm::FunctionType::get(
-        builder_->getInt32Ty(), {llvm::PointerType::getUnqual(*context_)}, true);
+    auto *printfType = llvm::FunctionType::get(i32Ty, {i8PtrTy}, true);
     module_->getOrInsertFunction("printf", printfType);
+
+    // String runtime functions
+    auto *concatTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_concat", concatTy);
+
+    auto *equalTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_equal", equalTy);
+
+    auto *lenTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_length", lenTy);
+
+    auto *i32ToStrTy = llvm::FunctionType::get(i8PtrTy, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_i32_to_str", i32ToStrTy);
+
+    auto *f64ToStrTy = llvm::FunctionType::get(i8PtrTy, {f64Ty}, false);
+    module_->getOrInsertFunction("liva_f64_to_str", f64ToStrTy);
+
+    auto *boolToStrTy = llvm::FunctionType::get(i8PtrTy, {i8Ty}, false);
+    module_->getOrInsertFunction("liva_bool_to_str", boolToStrTy);
 }
 
 llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
@@ -519,7 +543,11 @@ llvm::Value *IRGen::visitBoolLiteralExpr(BoolLiteralExpr *node) {
 }
 
 llvm::Value *IRGen::visitStringLiteralExpr(StringLiteralExpr *node) {
-    return builder_->CreateGlobalString(node->getValue());
+    auto &val = stringConstants_[node->getValue()];
+    if (!val) {
+        val = builder_->CreateGlobalString(node->getValue());
+    }
+    return val;
 }
 
 llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
@@ -536,6 +564,33 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
     auto *rhs = visit(node->getRHS());
     if (!lhs || !rhs)
         return nullptr;
+
+    // Check for string operations via resolved type
+    bool isString = node->getLHS()->getResolvedType() &&
+        node->getLHS()->getResolvedType()->getKind() == TypeRepr::Kind::String;
+
+    if (isString) {
+        switch (node->getOp()) {
+        case BinaryExpr::Op::Add: {
+            auto *concatFn = module_->getFunction("liva_str_concat");
+            return builder_->CreateCall(concatFn, {lhs, rhs});
+        }
+        case BinaryExpr::Op::Eq: {
+            auto *equalFn = module_->getFunction("liva_str_equal");
+            auto *result = builder_->CreateCall(equalFn, {lhs, rhs});
+            return builder_->CreateICmpNE(result,
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context_), 0));
+        }
+        case BinaryExpr::Op::NotEq: {
+            auto *equalFn = module_->getFunction("liva_str_equal");
+            auto *result = builder_->CreateCall(equalFn, {lhs, rhs});
+            return builder_->CreateICmpEQ(result,
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context_), 0));
+        }
+        default:
+            break;
+        }
+    }
 
     // Check if float operations
     bool isFloat = lhs->getType()->isFloatingPointTy();
@@ -680,6 +735,37 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
         funcName = ident->getName();
+    }
+
+    // Handle len() built-in
+    if (funcName == "len") {
+        if (!node->getArgs().empty()) {
+            auto *arg = visit(node->getArgs()[0].get());
+            if (!arg) return nullptr;
+            auto *lenFn = module_->getFunction("liva_str_length");
+            return builder_->CreateCall(lenFn, {arg});
+        }
+        return nullptr;
+    }
+
+    // Handle toString() built-in
+    if (funcName == "toString") {
+        if (!node->getArgs().empty()) {
+            auto *arg = visit(node->getArgs()[0].get());
+            if (!arg) return nullptr;
+            if (arg->getType()->isIntegerTy(32)) {
+                return builder_->CreateCall(module_->getFunction("liva_i32_to_str"), {arg});
+            } else if (arg->getType()->isDoubleTy()) {
+                return builder_->CreateCall(module_->getFunction("liva_f64_to_str"), {arg});
+            } else if (arg->getType()->isIntegerTy(1)) {
+                auto *ext = builder_->CreateZExt(arg, llvm::Type::getInt8Ty(*context_));
+                return builder_->CreateCall(module_->getFunction("liva_bool_to_str"), {ext});
+            } else if (arg->getType()->isPointerTy()) {
+                return arg; // already a string
+            }
+            return arg;
+        }
+        return nullptr;
     }
 
     // Handle print/println built-ins
@@ -878,6 +964,16 @@ llvm::Value *IRGen::visitCastExpr(CastExpr *node) {
 }
 
 llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
+    // Check for string.length
+    if (node->getObject()->getResolvedType() &&
+        node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
+        node->getMember() == "length") {
+        auto *obj = visit(node->getObject());
+        if (!obj) return nullptr;
+        auto *lenFn = module_->getFunction("liva_str_length");
+        return builder_->CreateCall(lenFn, {obj});
+    }
+
     // Check for enum case reference: Color.Red
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());

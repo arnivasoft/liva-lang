@@ -25,6 +25,9 @@ TOKEN(string_literal,   "string literal")
 TOKEN(char_literal,     "char literal")
 TOKEN(bool_literal,     "bool literal")
 TOKEN(newline,          "newline")
+TOKEN(string_interp_begin, "string interpolation begin")
+TOKEN(string_interp_mid,   "string interpolation mid")
+TOKEN(string_interp_end,   "string interpolation end")
 
 // === Keywords ===
 KEYWORD(let,        "let")

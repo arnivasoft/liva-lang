@@ -132,6 +132,67 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
         return std::make_unique<StringLiteralExpr>(std::move(value), range);
     }
 
+    case TokenKind::string_interp_begin: {
+        // "hello \(name) world" → ("hello " + toString(name)) + " world"
+        auto text = current_.getStringValue();
+        advance(); // consume string_interp_begin
+
+        std::unique_ptr<Expr> result;
+        if (!text.empty()) {
+            result = std::make_unique<StringLiteralExpr>(text, rangeFrom(startLoc));
+        }
+
+        // Parse interpolated expression
+        auto expr = parseExpression();
+        // Wrap in toString() call
+        auto toStrCallee = std::make_unique<IdentifierExpr>("toString", rangeFrom(startLoc));
+        std::vector<std::unique_ptr<Expr>> toStrArgs;
+        toStrArgs.push_back(std::move(expr));
+        auto toStrCall = std::make_unique<CallExpr>(
+            std::move(toStrCallee), std::move(toStrArgs), rangeFrom(startLoc));
+
+        if (result) {
+            result = std::make_unique<BinaryExpr>(
+                BinaryExpr::Op::Add, std::move(result), std::move(toStrCall), rangeFrom(startLoc));
+        } else {
+            result = std::move(toStrCall);
+        }
+
+        // Handle mid segments
+        while (current_.is(TokenKind::string_interp_mid)) {
+            auto midText = current_.getStringValue();
+            advance();
+
+            if (!midText.empty()) {
+                auto midLit = std::make_unique<StringLiteralExpr>(midText, rangeFrom(startLoc));
+                result = std::make_unique<BinaryExpr>(
+                    BinaryExpr::Op::Add, std::move(result), std::move(midLit), rangeFrom(startLoc));
+            }
+
+            expr = parseExpression();
+            auto midCallee = std::make_unique<IdentifierExpr>("toString", rangeFrom(startLoc));
+            std::vector<std::unique_ptr<Expr>> midArgs;
+            midArgs.push_back(std::move(expr));
+            auto midCall = std::make_unique<CallExpr>(
+                std::move(midCallee), std::move(midArgs), rangeFrom(startLoc));
+            result = std::make_unique<BinaryExpr>(
+                BinaryExpr::Op::Add, std::move(result), std::move(midCall), rangeFrom(startLoc));
+        }
+
+        // Handle end segment
+        if (current_.is(TokenKind::string_interp_end)) {
+            auto endText = current_.getStringValue();
+            advance();
+            if (!endText.empty()) {
+                auto endLit = std::make_unique<StringLiteralExpr>(endText, rangeFrom(startLoc));
+                result = std::make_unique<BinaryExpr>(
+                    BinaryExpr::Op::Add, std::move(result), std::move(endLit), rangeFrom(startLoc));
+            }
+        }
+
+        return result;
+    }
+
     case TokenKind::kw_nil: {
         auto range = rangeFrom(startLoc);
         advance();

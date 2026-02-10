@@ -39,6 +39,7 @@ private:
     Token lexIdentifierOrKeyword();
     Token lexNumber();
     Token lexString();
+    Token lexStringContinuation();
     Token lexChar();
 
     Token makeToken(TokenKind kind, size_t startOffset);
@@ -57,6 +58,11 @@ private:
     // For peekToken
     bool hasPeeked_ = false;
     Token peekedToken_;
+
+    // String interpolation state
+    bool inInterpolation_ = false;
+    int interpParenDepth_ = 0;
+    bool continueString_ = false;
 };
 
 } // namespace liva

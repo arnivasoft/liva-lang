@@ -266,3 +266,13 @@ TEST_F(ParserTest, SelfParameter) {
     )");
     ASSERT_FALSE(result.hasErrors);
 }
+
+TEST_F(ParserTest, StringInterpolation) {
+    auto result = parse(R"--(
+        func test() {
+            let name = "world"
+            let msg = "hello \(name)!"
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}

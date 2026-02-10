@@ -435,3 +435,71 @@ TEST_F(SemaTest, MatchIntegerNoExhaustivenessRequired) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+// === String Operations Tests ===
+
+TEST_F(SemaTest, StringConcat) {
+    auto result = check(R"(
+        func main() {
+            let a = "hello"
+            let b = " world"
+            let c = a + b
+            println(c)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringComparison) {
+    auto result = check(R"(
+        func main() {
+            let a = "hello"
+            let b = "hello"
+            if a == b {
+                println(1)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringLen) {
+    auto result = check(R"(
+        func main() {
+            let n = len("hello")
+            println(n)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringLengthProperty) {
+    auto result = check(R"(
+        func main() {
+            let s = "hello"
+            let n = s.length
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringInterpolation) {
+    auto result = check(R"--(
+        func main() {
+            let name = "world"
+            let msg = "hello \(name)"
+            println(msg)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringConcatChain) {
+    auto result = check(R"(
+        func main() {
+            let a = "a" + "b" + "c"
+            println(a)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}

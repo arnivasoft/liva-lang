@@ -123,6 +123,11 @@ Token Lexer::nextToken() {
         return lexNumber();
     }
 
+    // String continuation after interpolation closing )
+    if (continueString_) {
+        return lexStringContinuation();
+    }
+
     // String literals
     if (c == '"') {
         return lexString();
@@ -137,8 +142,18 @@ Token Lexer::nextToken() {
     advance();
     switch (c) {
     case '(':
+        if (inInterpolation_) ++interpParenDepth_;
         return makeToken(TokenKind::l_paren, startOffset);
     case ')':
+        if (inInterpolation_) {
+            --interpParenDepth_;
+            if (interpParenDepth_ == 0) {
+                inInterpolation_ = false;
+                continueString_ = true;
+                // Don't emit r_paren — jump straight to string continuation
+                return lexStringContinuation();
+            }
+        }
         return makeToken(TokenKind::r_paren, startOffset);
     case '{':
         return makeToken(TokenKind::l_brace, startOffset);
@@ -368,6 +383,17 @@ Token Lexer::lexString() {
 
     while (currentPos_ < source_.size() && source_[currentPos_] != '"') {
         if (source_[currentPos_] == '\\') {
+            // Check for string interpolation: \(
+            if (currentPos_ + 1 < source_.size() && source_[currentPos_ + 1] == '(') {
+                // Everything from opening " to here is string_interp_begin
+                // We include the opening " but NOT the \(
+                auto tok = makeToken(TokenKind::string_interp_begin, startOffset);
+                advance(); // skip backslash
+                advance(); // skip (
+                inInterpolation_ = true;
+                interpParenDepth_ = 1;
+                return tok;
+            }
             advance(); // skip backslash
             if (currentPos_ < source_.size()) {
                 char escaped = source_[currentPos_];
@@ -393,6 +419,38 @@ Token Lexer::lexString() {
     }
 
     return makeToken(TokenKind::string_literal, startOffset);
+}
+
+Token Lexer::lexStringContinuation() {
+    continueString_ = false;
+    size_t startOffset = currentPos_;
+
+    while (currentPos_ < source_.size() && source_[currentPos_] != '"') {
+        if (source_[currentPos_] == '\\') {
+            // Check for another interpolation: \(
+            if (currentPos_ + 1 < source_.size() && source_[currentPos_ + 1] == '(') {
+                auto tok = makeToken(TokenKind::string_interp_mid, startOffset);
+                advance(); // skip backslash
+                advance(); // skip (
+                inInterpolation_ = true;
+                interpParenDepth_ = 1;
+                return tok;
+            }
+            advance(); // skip backslash
+            if (currentPos_ < source_.size())
+                advance(); // skip escaped char
+        } else if (source_[currentPos_] == '\n') {
+            break;
+        } else {
+            advance();
+        }
+    }
+
+    if (currentPos_ < source_.size() && source_[currentPos_] == '"') {
+        advance(); // skip closing "
+    }
+
+    return makeToken(TokenKind::string_interp_end, startOffset);
 }
 
 Token Lexer::lexChar() {

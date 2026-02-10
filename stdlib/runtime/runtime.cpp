@@ -73,6 +73,43 @@ int32_t liva_string_compare(const LivaString *a, const LivaString *b) {
     return strcmp(a->data, b->data);
 }
 
+// === Simple char*-based string operations ===
+
+char *liva_str_concat(const char *a, const char *b) {
+    size_t la = strlen(a), lb = strlen(b);
+    char *result = (char *)malloc(la + lb + 1);
+    memcpy(result, a, la);
+    memcpy(result + la, b, lb + 1);
+    return result;
+}
+
+int32_t liva_str_equal(const char *a, const char *b) {
+    return strcmp(a, b) == 0 ? 1 : 0;
+}
+
+int64_t liva_str_length(const char *a) {
+    return (int64_t)strlen(a);
+}
+
+char *liva_i32_to_str(int32_t value) {
+    char *buf = (char *)malloc(16);
+    snprintf(buf, 16, "%d", value);
+    return buf;
+}
+
+char *liva_f64_to_str(double value) {
+    char *buf = (char *)malloc(32);
+    snprintf(buf, 32, "%g", value);
+    return buf;
+}
+
+char *liva_bool_to_str(int8_t value) {
+    const char *s = value ? "true" : "false";
+    char *buf = (char *)malloc(6);
+    strcpy(buf, s);
+    return buf;
+}
+
 // === I/O ===
 
 void liva_print_i32(int32_t value) {

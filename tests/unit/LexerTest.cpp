@@ -208,3 +208,40 @@ TEST_F(LexerTest, ColonColon) {
     expectToken(tokens[1], TokenKind::coloncolon);
     expectToken(tokens[2], TokenKind::identifier);
 }
+
+TEST_F(LexerTest, StringInterpolationSimple) {
+    auto tokens = lex(R"--("hello \(x)")--");
+    ASSERT_GE(tokens.size(), 3);
+    expectToken(tokens[0], TokenKind::string_interp_begin);
+    EXPECT_EQ(tokens[0].getStringValue(), "hello ");
+    expectToken(tokens[1], TokenKind::identifier);
+    EXPECT_EQ(tokens[1].getText(), "x");
+    expectToken(tokens[2], TokenKind::string_interp_end);
+    EXPECT_EQ(tokens[2].getStringValue(), "");
+}
+
+TEST_F(LexerTest, StringInterpolationMulti) {
+    auto tokens = lex(R"--("\(a) and \(b)")--");
+    ASSERT_GE(tokens.size(), 5);
+    expectToken(tokens[0], TokenKind::string_interp_begin);
+    EXPECT_EQ(tokens[0].getStringValue(), "");
+    expectToken(tokens[1], TokenKind::identifier);
+    EXPECT_EQ(tokens[1].getText(), "a");
+    expectToken(tokens[2], TokenKind::string_interp_mid);
+    EXPECT_EQ(tokens[2].getStringValue(), " and ");
+    expectToken(tokens[3], TokenKind::identifier);
+    EXPECT_EQ(tokens[3].getText(), "b");
+    expectToken(tokens[4], TokenKind::string_interp_end);
+    EXPECT_EQ(tokens[4].getStringValue(), "");
+}
+
+TEST_F(LexerTest, StringInterpolationExpr) {
+    auto tokens = lex(R"--("val=\(a+b)")--");
+    ASSERT_GE(tokens.size(), 5);
+    expectToken(tokens[0], TokenKind::string_interp_begin);
+    EXPECT_EQ(tokens[0].getStringValue(), "val=");
+    expectToken(tokens[1], TokenKind::identifier);
+    expectToken(tokens[2], TokenKind::plus);
+    expectToken(tokens[3], TokenKind::identifier);
+    expectToken(tokens[4], TokenKind::string_interp_end);
+}

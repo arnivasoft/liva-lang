@@ -56,12 +56,43 @@ TokenKind lookupKeyword(std::string_view identifier) {
 }
 
 std::string Token::getStringValue() const {
-    if (text_.size() < 2)
+    if (text_.empty())
         return "";
-    // Remove surrounding quotes
+
+    // Determine the raw content range based on token kind
+    size_t start = 0;
+    size_t end = text_.size();
+
+    if (kind_ == TokenKind::string_literal) {
+        // Normal string: skip opening and closing quotes
+        if (text_.size() < 2) return "";
+        start = 1;
+        end = text_.size() - 1;
+    } else if (kind_ == TokenKind::string_interp_begin) {
+        // Token text: "hello  (from " up to \( exclusive, \( not consumed yet)
+        // Strip only the opening "
+        start = 1;
+        end = text_.size();
+    } else if (kind_ == TokenKind::string_interp_mid) {
+        // Token text: raw content between ) and \( (no quotes, no \()
+        start = 0;
+        end = text_.size();
+    } else if (kind_ == TokenKind::string_interp_end) {
+        // Token text: content" (closing " consumed by advance before makeToken)
+        // Strip the closing "
+        start = 0;
+        end = (text_.size() >= 1) ? text_.size() - 1 : text_.size();
+    } else {
+        // Fallback for other token types
+        if (text_.size() < 2) return "";
+        start = 1;
+        end = text_.size() - 1;
+    }
+
+    // Process escape sequences
     std::string result;
-    for (size_t i = 1; i < text_.size() - 1; ++i) {
-        if (text_[i] == '\\' && i + 1 < text_.size() - 1) {
+    for (size_t i = start; i < end; ++i) {
+        if (text_[i] == '\\' && i + 1 < end) {
             ++i;
             switch (text_[i]) {
             case 'n':
@@ -129,7 +160,9 @@ std::string Token::toString() const {
     std::string result;
     result += getTokenKindName(kind_);
     if (kind_ == TokenKind::identifier || kind_ == TokenKind::integer_literal ||
-        kind_ == TokenKind::float_literal || kind_ == TokenKind::string_literal) {
+        kind_ == TokenKind::float_literal || kind_ == TokenKind::string_literal ||
+        kind_ == TokenKind::string_interp_begin || kind_ == TokenKind::string_interp_mid ||
+        kind_ == TokenKind::string_interp_end) {
         result += " '";
         result += text_;
         result += "'";
