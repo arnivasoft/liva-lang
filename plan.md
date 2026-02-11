@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 203/203 gecen test (lexer:22, parser:53, sema:110, type:12, ownership:6)
+- **Test:** 210/210 gecen test (lexer:24, parser:56, sema:112, type:12, ownership:6)
 
 ---
 
@@ -113,7 +113,7 @@ kaynak kod (.liva)
 | BinaryExpr | `a + b`, `x == y`, `&&`, bit ops | Tam |
 | UnaryExpr | `-x`, `!b`, `~bits` | Tam |
 | CallExpr | `foo(a, b)`, `f(x)` indirect call | Tam |
-| MemberExpr | `obj.field`, `Color.Red` | Tam |
+| MemberExpr | `obj.field`, `obj?.field`, `Color.Red` | Tam |
 | IndexExpr | `arr[i]` | Tam |
 | AssignExpr | `x = 5`, `x += 1` | Tam |
 | StructLiteralExpr | `Point { x: 1.0, y: 2.0 }` | Tam |
@@ -320,11 +320,23 @@ kaynak kod (.liva)
 - `visitAssignExpr`: ref mut atamasi pointer uzerinden store (compound assignment dahil)
 - 3 yeni sema testi: RefParamFunction, RefMutParamFunction, RefPassThrough
 
+### M21: Optional Chaining [TAMAMLANDI]
+- `obj?.field` sozdizimi: Optional nesne nil ise nil doner, deger varsa alana erisir
+- Lexer: `question_dot` token (`?.`) — `??` sonrasi, `?` oncesi
+- AST: `MemberExpr`'e `isOptionalChain_` flag eklendi
+- Parser: `parsePostfixExpr`'de `?.` -> `parseMemberExpr(base, true)`
+- Sema: `visitMemberExpr` sonunda optional chain -> resolved type'i Optional'a sar
+- IRGen: `emitOptionalChainMember` — nil check -> unwrap struct -> GEP field -> rewrap Optional
+- IRGen: VarDecl optional codegen'de `varStructTypes_` kaydi (inner type Named ise)
+- IRGen: `emitNilCoalesce` — optional chain LHS destegi (MemberExpr isOptionalChain)
+- ASTPrinter: `?.` vs `.` gosterimi
+- 2 lexer, 3 parser, 2 sema testi
+
 ---
 
 ## Gelecek Milestone'lar
 
-### M20: Standart Kutuphane [PLANLANMADI]
+### M22: Standart Kutuphane [PLANLANMADI]
 
 **M20a: Temel Tipler**
 - `Map<K, V>` - hash map
@@ -339,12 +351,12 @@ kaynak kod (.liva)
 - `abs`, `min`, `max`, `sqrt`, `pow`
 - Trigonometrik fonksiyonlar
 
-### M21: Async/Await [PLANLANMADI]
+### M23: Async/Await [PLANLANMADI]
 - `async func fetch() -> String { ... }`
 - `let result = await fetch()`
 - Coroutine tabanli uygulama
 
-### M22: Derleme Zamani Degerlendirme [PLANLANMADI]
+### M24: Derleme Zamani Degerlendirme [PLANLANMADI]
 - `const` fonksiyonlar ve ifadeler
 - Compile-time array boyutu hesaplama
 
@@ -407,12 +419,12 @@ kaynak kod (.liva)
 
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
-| `tests/unit/LexerTest.cpp` | 22 | Token turleri, literaller, yorumlar, konum, string interpolasyon |
-| `tests/unit/ParserTest.cpp` | 53 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause |
-| `tests/unit/SemaTest.cpp` | 110 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr |
+| `tests/unit/LexerTest.cpp` | 24 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain |
+| `tests/unit/ParserTest.cpp` | 56 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain |
+| `tests/unit/SemaTest.cpp` | 112 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 6 | Move, borrow, use-after-move |
-| **Toplam** | **203** | |
+| **Toplam** | **210** | |
 
 ---
 
@@ -444,7 +456,7 @@ clang output.ll -o output.exe
 1. **OwnershipChecker IRGen'e entegre degil** - Ownership kontrolu yapiliyor ama codegen'e yansimitlmiyor
 2. **LifetimeAnalysis.h bos** - Lifetime analizi henuz uygulanmadi
 3. ~~**RefExpr codegen eksik**~~ - COZULDU (M20)
-4. **Optional chaining yok** - `obj?.method()` sozdizimi henuz desteklenmiyor
+4. ~~**Optional chaining yok**~~ - COZULDU (M21)
 5. **Closure capture by reference yok** - Sadece capture by value destekleniyor
 6. ~~**where clause yok**~~ - COZULDU (M19)
 7. **Associated types yok** - Protocol'larda iliskili tip tanimlama yok
@@ -455,7 +467,7 @@ clang output.ll -o output.exe
 ## Oncelik Sirasi (Onerilen)
 
 1. ~~**RefExpr codegen**~~ - TAMAMLANDI (M20)
-2. **Optional chaining** - `obj?.method()` sozdizimi
+2. ~~**Optional chaining**~~ - TAMAMLANDI (M21)
 3. **Standart kutuphane** - Map, Set, File I/O, matematik
 4. **Async/Await** - Ileri ozellik
 5. **Derleme zamani degerlendirme** - Optimizasyon
