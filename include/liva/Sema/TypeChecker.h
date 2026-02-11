@@ -96,6 +96,9 @@ private:
     /// Protocol method info: protocolName → [method names in order]
     std::unordered_map<std::string, std::vector<std::string>> protocolMethods_;
 
+    /// Protocol associated types: protocolName → [associated type names]
+    std::unordered_map<std::string, std::vector<std::string>> protocolAssociatedTypes_;
+
     /// Type alias tracking: aliasName → targetTypeRepr*
     std::unordered_map<std::string, const TypeRepr *> typeAliases_;
 

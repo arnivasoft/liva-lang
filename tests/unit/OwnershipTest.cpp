@@ -115,3 +115,47 @@ TEST_F(OwnershipTest, SimpleProgram) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+// === Lifetime Analysis Tests ===
+
+TEST_F(OwnershipTest, BorrowOutlivesValueInnerScope) {
+    // ref assigned from inner scope to outer variable — should fail
+    auto result = check(R"--(
+        func main() {
+            var x: i32 = 10
+            var r = ref x
+            {
+                var y: i32 = 42
+                r = ref y
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
+TEST_F(OwnershipTest, BorrowSameScope) {
+    // ref and value in same scope — should pass
+    auto result = check(R"(
+        func main() {
+            var x: i32 = 42
+            let r = ref x
+            println(r)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, BorrowOuterToInner) {
+    // ref in inner scope to outer value — should pass (outer lives longer)
+    auto result = check(R"(
+        func main() {
+            var x: i32 = 42
+            {
+                let r = ref x
+                println(r)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}

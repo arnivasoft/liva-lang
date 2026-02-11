@@ -2,6 +2,7 @@
 
 #include "liva/AST/Decl.h"
 #include "liva/Common/Diagnostics.h"
+#include "liva/Sema/LifetimeAnalysis.h"
 #include "liva/Sema/OwnershipChecker.h"
 #include "liva/Sema/TypeChecker.h"
 
@@ -29,6 +30,7 @@ private:
     DiagnosticsEngine &diag_;
     TypeChecker typeChecker_;
     OwnershipChecker ownershipChecker_;
+    LifetimeAnalysis lifetimeAnalysis_;
 };
 
 } // namespace liva

@@ -287,6 +287,12 @@ private:
     /// Track which variables are references and their inner LLVM type
     std::unordered_map<std::string, llvm::Type *> varRefTypes_;
 
+    /// Track variables that have been moved (passed by value to functions)
+    std::set<std::string> movedVars_;
+
+    /// Emit cleanup calls for heap-allocated resources before scope exit
+    void emitScopeCleanup();
+
     /// Track File-typed variables (opaque ptr = FILE*)
     std::set<std::string> varFileTypes_;
 

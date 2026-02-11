@@ -253,6 +253,13 @@ public:
         return typeParamBounds_;
     }
 
+    void setAssociatedTypes(std::unordered_map<std::string, std::string> types) {
+        associatedTypes_ = std::move(types);
+    }
+    const std::unordered_map<std::string, std::string> &getAssociatedTypes() const {
+        return associatedTypes_;
+    }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::ImplDecl;
     }
@@ -263,18 +270,22 @@ private:
     std::vector<std::unique_ptr<FuncDecl>> methods_;
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::string> typeParamBounds_;
+    std::unordered_map<std::string, std::string> associatedTypes_;
 };
 
 /// Protocol (trait) declaration
 class ProtocolDecl : public Decl {
 public:
     ProtocolDecl(std::string name, std::vector<std::unique_ptr<FuncDecl>> methods,
+                 std::vector<std::string> associatedTypes,
                  bool isPublic, SourceRange range)
         : Decl(NodeKind::ProtocolDecl, range), name_(std::move(name)),
-          methods_(std::move(methods)), isPublic_(isPublic) {}
+          methods_(std::move(methods)), associatedTypes_(std::move(associatedTypes)),
+          isPublic_(isPublic) {}
 
     const std::string &getName() const { return name_; }
     const std::vector<std::unique_ptr<FuncDecl>> &getMethods() const { return methods_; }
+    const std::vector<std::string> &getAssociatedTypes() const { return associatedTypes_; }
     bool isPublic() const { return isPublic_; }
 
     static bool classof(const ASTNode *node) {
@@ -284,6 +295,7 @@ public:
 private:
     std::string name_;
     std::vector<std::unique_ptr<FuncDecl>> methods_;
+    std::vector<std::string> associatedTypes_;
     bool isPublic_;
 };
 

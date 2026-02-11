@@ -17,7 +17,8 @@ struct Lifetime {
     static Lifetime anonymous() { return {"_", false}; }
 };
 
-/// Performs lifetime analysis (placeholder for future NLL implementation)
+/// Performs scope-based lifetime analysis.
+/// Detects when a reference outlives the value it borrows.
 class LifetimeAnalysis {
 public:
     LifetimeAnalysis(DiagnosticsEngine &diag);
@@ -29,6 +30,30 @@ public:
 
 private:
     DiagnosticsEngine &diag_;
+
+    /// Variable tracking info
+    struct VarInfo {
+        int scopeDepth;
+        SourceLocation declLoc;
+        std::string refTarget; // non-empty if this var is a reference to another var
+    };
+
+    int currentDepth_ = 0;
+    std::unordered_map<std::string, VarInfo> variables_;
+
+    void visitNode(ASTNode *node);
+    void visitBlockStmt(BlockStmt *node);
+    void visitVarDecl(VarDecl *node);
+    void visitAssignExpr(AssignExpr *node);
+    void visitIfStmt(IfStmt *node);
+    void visitWhileStmt(WhileStmt *node);
+    void visitForStmt(ForStmt *node);
+
+    /// Check for outlives violations when scope exits
+    void checkScopeExit(int exitingDepth);
+
+    /// Extract ref target name from a RefExpr
+    std::string getRefTarget(const Expr *expr) const;
 };
 
 } // namespace liva

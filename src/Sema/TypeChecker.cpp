@@ -320,6 +320,19 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
                                  protoMethod->getName(), node->getProtocolName());
                 }
             }
+            // Check associated types are provided
+            auto assocIt = protocolAssociatedTypes_.find(node->getProtocolName());
+            if (assocIt != protocolAssociatedTypes_.end()) {
+                for (auto &assocTypeName : assocIt->second) {
+                    auto &implAssocTypes = node->getAssociatedTypes();
+                    if (implAssocTypes.find(assocTypeName) == implAssocTypes.end()) {
+                        diag_.report(node->getStartLoc(),
+                                     DiagID::err_missing_associated_type,
+                                     node->getTypeName(), assocTypeName,
+                                     node->getProtocolName());
+                    }
+                }
+            }
             // Record successful conformance
             protocolConformances_[node->getProtocolName()].push_back(node->getTypeName());
         }
@@ -356,6 +369,11 @@ void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
         }
     }
     protocolMethods_[node->getName()] = std::move(methodNames);
+
+    // Record associated type names for this protocol
+    if (!node->getAssociatedTypes().empty()) {
+        protocolAssociatedTypes_[node->getName()] = node->getAssociatedTypes();
+    }
 }
 
 void TypeChecker::visitExprStmt(ExprStmt *node) { visit(node->getExpr()); }

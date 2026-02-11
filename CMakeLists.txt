@@ -67,6 +67,7 @@ add_library(liva_sema STATIC
     src/Sema/Sema.cpp
     src/Sema/TypeChecker.cpp
     src/Sema/OwnershipChecker.cpp
+    src/Sema/LifetimeAnalysis.cpp
     src/Sema/Scope.cpp
     src/Sema/ModuleLoader.cpp
 )
@@ -77,6 +78,11 @@ liva_set_compiler_flags(liva_sema)
 if(LIVA_HAS_LLVM)
     add_library(liva_irgen STATIC
         src/IR/IRGen.cpp
+        src/IR/IRGenDecl.cpp
+        src/IR/IRGenStmt.cpp
+        src/IR/IRGenExpr.cpp
+        src/IR/IRGenCall.cpp
+        src/IR/IRGenMono.cpp
     )
     target_link_libraries(liva_irgen PUBLIC liva_ast liva_sema ${LIVA_LLVM_LIBS})
     liva_set_compiler_flags(liva_irgen)

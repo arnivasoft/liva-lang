@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 302/302 gecen test (lexer:26, parser:62, sema:196, type:12, ownership:6)
+- **Test:** 322/322 gecen test (lexer:26, parser:66, sema:209, type:12, ownership:6, +3)
 
 ---
 
@@ -479,12 +479,43 @@ kaynak kod (.liva)
   - IRGen: typeAliases_ map, toLLVMType alias→target delegation
 - 6 test (parser:2, sema:4)
 
-### M31: Async/Await [PLANLANMADI]
+### M31: Tuple Types & Multi-Return [TAMAMLANDI]
+- `(i32, string)` tuple tipi → TupleTypeRepr
+- `(42, "hello")` tuple literal → TupleLiteralExpr
+- `func divmod(a: i32, b: i32) -> (i32, i32)` multi-return
+- `pair.0`, `pair.1` tuple element erisimi (MemberExpr integer member)
+- `let (x, y) = divmod(10, 3)` tuple destructuring (VarDecl.destructuredNames_)
+- IRGen: Tuple = LLVM anonymous StructType, alloca+GEP pattern
+- varTupleTypes_ map ile tuple degisken takibi
+- 4 parser, 4 sema testi
+
+### M32: Closure Capture by Reference [TAMAMLANDI]
+- Mutate edilen dis degiskenler otomatik referansla yakalanir
+- CapturedVar struct: {name, byRef} — byRef true if assigned in closure body
+- collectFreeVarsImpl: mutatedVars set tracks AssignExpr targets
+- By-ref env field = ptr (outer alloca address), by-value = value copy (unchanged)
+- Closure body: by-ref → load ptr from env, register in varRefTypes_ → double-load/store-through
+- varRefTypes_ save/clear/restore added to visitClosureExpr
+- Sema/Parser/Lexer degisikligi yok — mevcut immutability check yeterli
+- 4 sema testi
+
+### M33: Ownership + IRGen Integration [TAMAMLANDI]
+- Fonksiyon cikisinda heap-tahsisli koleksiyonlar (DynArray, Map, Set) otomatik temizlenir
+- `emitScopeCleanup()`: varDynArrayTypes_/varMapTypes_/varSetTypes_ uzerinden free cagrilari
+- `movedVars_` set: fonksiyona gecirilen koleksiyon degiskenleri moved olarak isaretlenir (double-free onleme)
+- visitReturnStmt: explicit ve implicit return'dan once cleanup
+- visitCallExpr: koleksiyon argumanlari moved olarak isaretlenir
+- visitAssignExpr: re-assignment moved flag'i siler (un-move)
+- visitClosureExpr: movedVars_ save/clear/restore
+- Kapsam: sadece fonksiyon seviyesi (block-level yok), File/String temizleme yok
+- 4 sema testi
+
+### M34: Async/Await [PLANLANMADI]
 - `async func fetch() -> String { ... }`
 - `let result = await fetch()`
 - Coroutine tabanli uygulama
 
-### M32: Derleme Zamani Degerlendirme [PLANLANMADI]
+### M35: Derleme Zamani Degerlendirme [PLANLANMADI]
 - `const` fonksiyonlar ve ifadeler
 - Compile-time array boyutu hesaplama
 
@@ -550,12 +581,12 @@ kaynak kod (.liva)
 
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
-| `tests/unit/LexerTest.cpp` | 24 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain |
-| `tests/unit/ParserTest.cpp` | 62 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases |
-| `tests/unit/SemaTest.cpp` | 196 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases |
+| `tests/unit/LexerTest.cpp` | 26 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings |
+| `tests/unit/ParserTest.cpp` | 66 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples |
+| `tests/unit/SemaTest.cpp` | 209 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 6 | Move, borrow, use-after-move |
-| **Toplam** | **302** | |
+| **Toplam** | **322** | |
 
 ---
 
@@ -584,11 +615,11 @@ clang output.ll -o output.exe
 
 ## Bilinen Sorunlar ve Teknik Borc
 
-1. **OwnershipChecker IRGen'e entegre degil** - Ownership kontrolu yapiliyor ama codegen'e yansimitlmiyor
+1. ~~**OwnershipChecker IRGen'e entegre degil**~~ - COZULDU (M33: DynArray/Map/Set auto-free)
 2. **LifetimeAnalysis.h bos** - Lifetime analizi henuz uygulanmadi
 3. ~~**RefExpr codegen eksik**~~ - COZULDU (M20)
 4. ~~**Optional chaining yok**~~ - COZULDU (M21)
-5. **Closure capture by reference yok** - Sadece capture by value destekleniyor
+5. ~~**Closure capture by reference yok**~~ - COZULDU (M32)
 6. ~~**where clause yok**~~ - COZULDU (M19)
 7. **Associated types yok** - Protocol'larda iliskili tip tanimlama yok
 8. **Ayri derleme yok** - Modul sistemi inline (tek LLVM Module'e ekleme)
@@ -609,5 +640,8 @@ clang output.ll -o output.exe
 10. ~~**Pratik ozellikler**~~ - TAMAMLANDI (M28 string indexing/multi-arg println/inferred type fix)
 11. ~~**Syntax kolayliklari**~~ - TAMAMLANDI (M29 multi-line strings/slicing/default args)
 12. ~~**Ternary & Type Aliases**~~ - TAMAMLANDI (M30 ternary expression/type aliases)
-13. **Async/Await** - Ileri ozellik
-14. **Derleme zamani degerlendirme** - Optimizasyon
+13. ~~**Tuple Types & Multi-Return**~~ - TAMAMLANDI (M31 tuple types/destructuring/multi-return)
+14. ~~**Closure Capture by Reference**~~ - TAMAMLANDI (M32 by-ref capture/varRefTypes reuse)
+15. ~~**Ownership + IRGen Integration**~~ - TAMAMLANDI (M33 auto-free DynArray/Map/Set/move tracking)
+16. **Async/Await** - Ileri ozellik
+17. **Derleme zamani degerlendirme** - Optimizasyon

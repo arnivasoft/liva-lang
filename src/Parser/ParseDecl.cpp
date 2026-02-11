@@ -296,12 +296,21 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
     expect(TokenKind::l_brace);
 
     std::vector<std::unique_ptr<FuncDecl>> methods;
+    std::unordered_map<std::string, std::string> associatedTypes;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
-        bool isPublic = false;
-        if (match(TokenKind::kw_pub)) {
-            isPublic = true;
+        if (check(TokenKind::kw_type)) {
+            advance();  // consume 'type'
+            auto assocName = expect(TokenKind::identifier);
+            expect(TokenKind::equal);
+            auto targetType = parseType();
+            associatedTypes[std::string(assocName.getText())] = targetType->toString();
+        } else {
+            bool isPublic = false;
+            if (match(TokenKind::kw_pub)) {
+                isPublic = true;
+            }
+            methods.push_back(parseFuncDecl(isPublic));
         }
-        methods.push_back(parseFuncDecl(isPublic));
     }
 
     expect(TokenKind::r_brace);
@@ -312,6 +321,8 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
         implDecl->setTypeParams(std::move(typeParams));
     if (!typeParamBounds.empty())
         implDecl->setTypeParamBounds(std::move(typeParamBounds));
+    if (!associatedTypes.empty())
+        implDecl->setAssociatedTypes(std::move(associatedTypes));
     return implDecl;
 }
 
@@ -325,13 +336,21 @@ std::unique_ptr<ProtocolDecl> Parser::parseProtocolDecl(bool isPublic) {
     expect(TokenKind::l_brace);
 
     std::vector<std::unique_ptr<FuncDecl>> methods;
+    std::vector<std::string> associatedTypes;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
-        methods.push_back(parseFuncDecl(false));
+        if (check(TokenKind::kw_type)) {
+            advance();  // consume 'type'
+            auto typeName = expect(TokenKind::identifier);
+            associatedTypes.push_back(std::string(typeName.getText()));
+        } else {
+            methods.push_back(parseFuncDecl(false));
+        }
     }
 
     expect(TokenKind::r_brace);
 
-    return std::make_unique<ProtocolDecl>(std::move(name), std::move(methods), isPublic,
+    return std::make_unique<ProtocolDecl>(std::move(name), std::move(methods),
+                                          std::move(associatedTypes), isPublic,
                                           rangeFrom(startLoc));
 }
 

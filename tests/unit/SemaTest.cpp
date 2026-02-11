@@ -2541,3 +2541,241 @@ TEST_F(SemaTest, TupleNested) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === M32: Closure Capture by Reference ===
+
+TEST_F(SemaTest, ClosureCaptureByRefVar) {
+    auto result = check(R"--(
+        func apply(f: () -> void) {
+            f()
+        }
+        func main() {
+            var count: i32 = 0
+            apply(| | -> void { count += 1 })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClosureCaptureImmutableMutate) {
+    auto result = check(R"--(
+        func apply(f: () -> void) {
+            f()
+        }
+        func main() {
+            let count: i32 = 0
+            apply(| | -> void { count += 1 })
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+TEST_F(SemaTest, ClosureCaptureByRefMultiple) {
+    auto result = check(R"--(
+        func apply(f: () -> void) {
+            f()
+        }
+        func main() {
+            var a: i32 = 0
+            var b: i32 = 0
+            apply(| | -> void {
+                a += 1
+                b += 2
+            })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClosureCaptureByRefReadOnly) {
+    auto result = check(R"--(
+        func apply(f: () -> i32) -> i32 {
+            return f()
+        }
+        func main() {
+            var x: i32 = 42
+            let result: i32 = apply(| | -> i32 { return x })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === M33: Ownership + IRGen Integration ===
+
+TEST_F(SemaTest, OwnershipDynArrayScopeCleanup) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            arr.push(4)
+            println(arr[0])
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OwnershipMapScopeCleanup) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            m.insert("a", 1)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OwnershipSetScopeCleanup) {
+    auto result = check(R"--(
+        func main() {
+            var s: Set<i32>
+            s.insert(42)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OwnershipMultipleCollections) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            var m: Map<string, i32>
+            var s: Set<i32>
+            arr.push(4)
+            m.insert("x", 10)
+            s.insert(1)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Associated Types Tests ===
+
+TEST_F(SemaTest, ProtocolWithAssociatedType) {
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+
+        struct IntBox {
+            value: i32
+        }
+
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 {
+                return self.value
+            }
+        }
+
+        func main() {
+            let b = IntBox { value: 42 }
+            println(b.get())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MissingAssociatedType) {
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+
+        struct IntBox {
+            value: i32
+        }
+
+        impl IntBox: Container {
+            func get(self) -> i32 {
+                return self.value
+            }
+        }
+
+        func main() {
+            let b = IntBox { value: 42 }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_missing_associated_type));
+}
+
+TEST_F(SemaTest, ProtocolWithMultipleAssociatedTypes) {
+    auto result = check(R"--(
+        protocol Converter {
+            type Input
+            type Output
+            func convert(self) -> i32
+        }
+
+        struct StrToInt {
+            data: string
+        }
+
+        impl StrToInt: Converter {
+            type Input = string
+            type Output = i32
+            func convert(self) -> i32 {
+                return 0
+            }
+        }
+
+        func main() {
+            let c = StrToInt { data: "hello" }
+            println(c.convert())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProtocolAssociatedTypePartialMissing) {
+    auto result = check(R"--(
+        protocol Converter {
+            type Input
+            type Output
+            func convert(self) -> i32
+        }
+
+        struct StrToInt {
+            data: string
+        }
+
+        impl StrToInt: Converter {
+            type Input = string
+            func convert(self) -> i32 {
+                return 0
+            }
+        }
+
+        func main() {
+            let c = StrToInt { data: "hello" }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_missing_associated_type));
+}
+
+TEST_F(SemaTest, ProtocolNoAssociatedTypesStillWorks) {
+    auto result = check(R"--(
+        protocol Greetable {
+            func greet(self) -> string
+        }
+
+        struct Person {
+            name: string
+        }
+
+        impl Person: Greetable {
+            func greet(self) -> string {
+                return "hello"
+            }
+        }
+
+        func main() {
+            let p = Person { name: "Alice" }
+            println(p.greet())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
