@@ -15,6 +15,9 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         return parseFuncDecl(isPublic, /*isAsync=*/true);
     case TokenKind::kw_func:
         return parseFuncDecl(isPublic);
+    case TokenKind::kw_const:
+        advance(); // consume 'const'
+        return parseConstDecl();
     case TokenKind::kw_let:
     case TokenKind::kw_var:
         return parseVarDecl();
@@ -386,6 +389,32 @@ std::unique_ptr<TypeAliasDecl> Parser::parseTypeAliasDecl(bool isPublic) {
 
     return std::make_unique<TypeAliasDecl>(std::move(name), std::move(targetType),
                                             isPublic, rangeFrom(startLoc));
+}
+
+std::unique_ptr<VarDecl> Parser::parseConstDecl() {
+    auto startLoc = current_.getLocation();
+    // 'const' already consumed by caller
+
+    auto nameTok = expect(TokenKind::identifier);
+    std::string name(nameTok.getText());
+
+    // Optional type annotation
+    std::unique_ptr<TypeRepr> type;
+    if (match(TokenKind::colon)) {
+        type = parseType();
+    } else {
+        type = makeInferredType();
+    }
+
+    // Initializer (required semantically, optional syntactically for better error recovery)
+    std::unique_ptr<Expr> init;
+    if (match(TokenKind::equal)) {
+        init = parseExpression();
+    }
+
+    return std::make_unique<VarDecl>(std::move(name), std::move(type),
+                                      std::move(init), /*isMutable=*/false,
+                                      rangeFrom(startLoc), /*isConst=*/true);
 }
 
 } // namespace liva

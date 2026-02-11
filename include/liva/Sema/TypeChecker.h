@@ -5,6 +5,7 @@
 #include "liva/Common/Diagnostics.h"
 #include "liva/Sema/Scope.h"
 #include <memory>
+#include <optional>
 #include <string>
 #include <set>
 #include <unordered_map>
@@ -112,6 +113,18 @@ private:
 
     /// File-typed variable tracking
     std::set<std::string> fileVariables_;
+
+    /// Compile-time constant evaluation
+    struct ConstValue {
+        enum Kind { Integer, Float, Bool, String };
+        Kind kind;
+        int64_t intVal = 0;
+        double floatVal = 0.0;
+        bool boolVal = false;
+        std::string strVal;
+    };
+    std::optional<ConstValue> evaluateConstExpr(const Expr *expr);
+    std::unordered_map<std::string, ConstValue> constValues_;
 };
 
 } // namespace liva

@@ -245,6 +245,15 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 }
 
 llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
+    // Const variable: no alloca, cache constant value
+    if (node->isConst() && node->hasInit()) {
+        auto *val = visit(const_cast<Expr *>(node->getInit()));
+        if (auto *constVal = llvm::dyn_cast<llvm::Constant>(val)) {
+            constValues_[node->getName()] = constVal;
+        }
+        return nullptr;
+    }
+
     auto *func = builder_->GetInsertBlock()->getParent();
 
     // Tuple destructuring: let (x, y) = expr

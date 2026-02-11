@@ -980,3 +980,29 @@ TEST_F(ParserTest, AwaitExpr) {
     ASSERT_NE(varDecl, nullptr);
     EXPECT_EQ(varDecl->getName(), "x");
 }
+
+// === M35: Const Declaration Tests ===
+
+TEST_F(ParserTest, ConstDeclBasic) {
+    auto result = parse("const x: i32 = 42");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    EXPECT_EQ(var->getName(), "x");
+    EXPECT_TRUE(var->isConst());
+    EXPECT_FALSE(var->isMutable());
+    EXPECT_TRUE(var->hasInit());
+}
+
+TEST_F(ParserTest, ConstDeclInferred) {
+    auto result = parse("const x = 42");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    EXPECT_EQ(var->getName(), "x");
+    EXPECT_TRUE(var->isConst());
+    EXPECT_FALSE(var->isMutable());
+    EXPECT_TRUE(var->hasInit());
+}

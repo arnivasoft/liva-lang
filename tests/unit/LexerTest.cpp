@@ -279,6 +279,46 @@ TEST_F(LexerTest, QuestionDotVsQuestionQuestion) {
     expectToken(tokens[4], TokenKind::identifier);
 }
 
+TEST_F(LexerTest, AllKeywords) {
+    // All 30 language keywords (true/false excluded — they lex as bool_literal)
+    auto tokens = lex(
+        "let var func return if else while for in struct "
+        "enum match case impl protocol ref mut import pub self "
+        "break continue as nil where async await const try type"
+    );
+    ASSERT_GE(tokens.size(), 30);
+    expectToken(tokens[0],  TokenKind::kw_let);
+    expectToken(tokens[1],  TokenKind::kw_var);
+    expectToken(tokens[2],  TokenKind::kw_func);
+    expectToken(tokens[3],  TokenKind::kw_return);
+    expectToken(tokens[4],  TokenKind::kw_if);
+    expectToken(tokens[5],  TokenKind::kw_else);
+    expectToken(tokens[6],  TokenKind::kw_while);
+    expectToken(tokens[7],  TokenKind::kw_for);
+    expectToken(tokens[8],  TokenKind::kw_in);
+    expectToken(tokens[9],  TokenKind::kw_struct);
+    expectToken(tokens[10], TokenKind::kw_enum);
+    expectToken(tokens[11], TokenKind::kw_match);
+    expectToken(tokens[12], TokenKind::kw_case);
+    expectToken(tokens[13], TokenKind::kw_impl);
+    expectToken(tokens[14], TokenKind::kw_protocol);
+    expectToken(tokens[15], TokenKind::kw_ref);
+    expectToken(tokens[16], TokenKind::kw_mut);
+    expectToken(tokens[17], TokenKind::kw_import);
+    expectToken(tokens[18], TokenKind::kw_pub);
+    expectToken(tokens[19], TokenKind::kw_self);
+    expectToken(tokens[20], TokenKind::kw_break);
+    expectToken(tokens[21], TokenKind::kw_continue);
+    expectToken(tokens[22], TokenKind::kw_as);
+    expectToken(tokens[23], TokenKind::kw_nil);
+    expectToken(tokens[24], TokenKind::kw_where);
+    expectToken(tokens[25], TokenKind::kw_async);
+    expectToken(tokens[26], TokenKind::kw_await);
+    expectToken(tokens[27], TokenKind::kw_const);
+    expectToken(tokens[28], TokenKind::kw_try);
+    expectToken(tokens[29], TokenKind::kw_type);
+}
+
 // ===== M29: Multi-line string literals =====
 
 TEST_F(LexerTest, MultiLineString) {

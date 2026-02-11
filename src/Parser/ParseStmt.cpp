@@ -4,6 +4,10 @@ namespace liva {
 
 std::unique_ptr<ASTNode> Parser::parseStatement() {
     switch (current_.getKind()) {
+    case TokenKind::kw_const: {
+        advance(); // consume 'const'
+        return parseConstDecl();
+    }
     case TokenKind::kw_let:
     case TokenKind::kw_var:
         return parseVarDecl();

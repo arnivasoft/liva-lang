@@ -1117,7 +1117,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *x = visit(node->getArgs()[0].get());
         if (!x) return nullptr;
         if (x->getType()->isDoubleTy()) {
-            auto *fn = llvm::Intrinsic::getDeclaration(
+            auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
                 module_.get(), llvm::Intrinsic::fabs, {llvm::Type::getDoubleTy(*context_)});
             return builder_->CreateCall(fn, {x}, "fabstmp");
         }
@@ -1133,7 +1133,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *b = visit(node->getArgs()[1].get());
         if (!a || !b) return nullptr;
         if (a->getType()->isDoubleTy()) {
-            auto *fn = llvm::Intrinsic::getDeclaration(
+            auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
                 module_.get(), llvm::Intrinsic::minnum, {llvm::Type::getDoubleTy(*context_)});
             return builder_->CreateCall(fn, {a, b}, "mintmp");
         }
@@ -1146,7 +1146,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *b = visit(node->getArgs()[1].get());
         if (!a || !b) return nullptr;
         if (a->getType()->isDoubleTy()) {
-            auto *fn = llvm::Intrinsic::getDeclaration(
+            auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
                 module_.get(), llvm::Intrinsic::maxnum, {llvm::Type::getDoubleTy(*context_)});
             return builder_->CreateCall(fn, {a, b}, "maxtmp");
         }
@@ -1159,7 +1159,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::sqrt, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "sqrttmp");
     }
@@ -1172,7 +1172,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
         if (y->getType()->isIntegerTy())
             y = builder_->CreateSIToFP(y, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::pow, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x, y}, "powtmp");
     }
@@ -1182,7 +1182,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::floor, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "floortmp");
     }
@@ -1192,7 +1192,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::ceil, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "ceiltmp");
     }
@@ -1202,7 +1202,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::log, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "logtmp");
     }
@@ -1212,7 +1212,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::log10, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "log10tmp");
     }
@@ -1222,7 +1222,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::sin, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "sintmp");
     }
@@ -1232,7 +1232,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::cos, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "costmp");
     }
@@ -1242,7 +1242,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!x) return nullptr;
         if (x->getType()->isIntegerTy())
             x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::tan, {llvm::Type::getDoubleTy(*context_)});
         return builder_->CreateCall(fn, {x}, "tantmp");
     }
@@ -1260,17 +1260,17 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             if (d->getType()->isIntegerTy())
                 d = builder_->CreateSIToFP(d, f64Ty, "tofp");
             auto *ten = llvm::ConstantFP::get(f64Ty, 10.0);
-            auto *powFn = llvm::Intrinsic::getDeclaration(
+            auto *powFn = llvm::Intrinsic::getOrInsertDeclaration(
                 module_.get(), llvm::Intrinsic::pow, {f64Ty});
             auto *factor = builder_->CreateCall(powFn, {ten, d}, "factor");
             auto *scaled = builder_->CreateFMul(x, factor, "scaled");
-            auto *roundFn = llvm::Intrinsic::getDeclaration(
+            auto *roundFn = llvm::Intrinsic::getOrInsertDeclaration(
                 module_.get(), llvm::Intrinsic::round, {f64Ty});
             auto *rounded = builder_->CreateCall(roundFn, {scaled}, "rounded");
             return builder_->CreateFDiv(rounded, factor, "roundtmp");
         }
         // round(x): round to nearest integer
-        auto *fn = llvm::Intrinsic::getDeclaration(
+        auto *fn = llvm::Intrinsic::getOrInsertDeclaration(
             module_.get(), llvm::Intrinsic::round, {f64Ty});
         return builder_->CreateCall(fn, {x}, "roundtmp");
     }

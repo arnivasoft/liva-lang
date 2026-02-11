@@ -185,6 +185,9 @@ private:
     /// Get or create the dynamic array struct type
     llvm::StructType *getDynArrayStructTy();
 
+    /// Compile-time constant values (no alloca needed)
+    std::unordered_map<std::string, llvm::Constant *> constValues_;
+
     /// String constant interning
     std::unordered_map<std::string, llvm::Constant *> stringConstants_;
 

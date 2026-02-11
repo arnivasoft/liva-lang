@@ -2877,3 +2877,136 @@ TEST_F(SemaTest, PubAsyncFunc) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === M35: Const Declaration Tests ===
+
+TEST_F(SemaTest, ConstDeclValid) {
+    auto result = check(R"--(
+        const x: i32 = 42
+        func main() {
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstDeclWithBinaryExpr) {
+    auto result = check(R"--(
+        const x = 1 + 2 * 3
+        func main() {
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstDeclWithUnaryExpr) {
+    auto result = check(R"--(
+        const x = -42
+        func main() {
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstDeclWithConstRef) {
+    auto result = check(R"--(
+        const a = 1
+        const b = a + 10
+        func main() {
+            println(b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstDeclNonConstInit) {
+    auto result = check(R"--(
+        func main() {
+            let x = 42
+            const y = x
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_const_init_not_constant));
+}
+
+TEST_F(SemaTest, ConstDeclRequiresInit) {
+    auto result = check("const x: i32\nfunc main() {}");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_const_requires_init));
+}
+
+TEST_F(SemaTest, ConstDeclWithTernary) {
+    auto result = check(R"--(
+        const x = true ? 1 : 2
+        func main() {
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstDeclWithCast) {
+    auto result = check(R"--(
+        const x = 42 as i64
+        func main() {
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstLocalInFunction) {
+    auto result = check(R"(
+        func main() {
+            const x = 42
+            println(x)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstLocalAssignmentError) {
+    auto result = check(R"(
+        func main() {
+            const x = 1
+            x = 2
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+TEST_F(SemaTest, ConstStringLiteral) {
+    auto result = check(R"--(
+        const greeting = "hello"
+        func main() {
+            println(greeting)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstInNestedScope) {
+    auto result = check(R"(
+        func main() {
+            if true {
+                const x = 10
+                println(x)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConstBoolExpr) {
+    auto result = check(R"(
+        const flag = true && false
+        func main() {
+            println(flag)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}

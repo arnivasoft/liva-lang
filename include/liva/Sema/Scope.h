@@ -31,6 +31,7 @@ struct Symbol {
     Kind kind;
     const TypeRepr *type = nullptr;
     bool isMutable = false;
+    bool isConstant = false;
     bool isPublic = false;
 
     // For type checking

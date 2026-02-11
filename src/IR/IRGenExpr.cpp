@@ -64,6 +64,12 @@ llvm::Value *IRGen::visitUnwrapExpr(UnwrapExpr *node) {
 }
 
 llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
+    // Check const values first (no alloca, direct constant)
+    auto constIt = constValues_.find(node->getName());
+    if (constIt != constValues_.end()) {
+        return constIt->second;
+    }
+
     auto it = namedValues_.find(node->getName());
     if (it != namedValues_.end()) {
         // Reference variable: double indirection (load ptr, then load through ptr)

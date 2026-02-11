@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 330/330 gecen test (lexer:26, parser:66, sema:214, type:12, ownership:9, +3)
+- **Test:** 356/356 gecen test (lexer:27, parser:72, sema:236, type:12, ownership:9)
 
 ---
 
@@ -58,13 +58,13 @@ kaynak kod (.liva)
 - GoogleTest entegrasyonu
 - Dizin yapisi: include/, src/, tests/, examples/
 
-### M1: Lexer [TAMAMLANDI] - 22 test
-- 77 token turu (anahtar kelimeler, operatorler, literaller, noktalamalar)
+### M1: Lexer [TAMAMLANDI] - 27 test
+- 102 token turu (anahtar kelimeler, operatorler, literaller, noktalamalar)
 - Tam token listesi:
   - **Ozel:** `eof`, `identifier`, `integer_literal`, `float_literal`, `string_literal`, `char_literal`, `bool_literal`, `newline`, `string_interp_begin`, `string_interp_mid`, `string_interp_end`
-  - **Anahtar kelimeler (27):** `func`, `struct`, `enum`, `impl`, `protocol`, `import`, `case`, `let`, `var`, `if`, `else`, `while`, `for`, `in`, `break`, `continue`, `return`, `match`, `as`, `pub`, `self`, `ref`, `mut`, `true`, `false`, `nil`, `where`, `async`, `await`, `try`
+  - **Anahtar kelimeler (32):** `func`, `struct`, `enum`, `impl`, `protocol`, `import`, `case`, `let`, `var`, `const`, `if`, `else`, `while`, `for`, `in`, `break`, `continue`, `return`, `match`, `as`, `pub`, `self`, `ref`, `mut`, `true`, `false`, `nil`, `where`, `async`, `await`, `try`, `type`
   - **Tip anahtar kelimeleri (13):** `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `string`, `void`
-  - **Operatorler & Noktalamalar (29):** `(){}[],;:.::->=>#@_+-*/%==!=<<=>>=&&||!&|^~<<>>=+=-=*=/=%=`
+  - **Operatorler & Noktalamalar (46):** `( ) { } [ ] , ; : . .. -> => :: + - * / % == != < <= > >= && || ! & | ^ ~ << >> = += -= *= /= %= @ # ? ?? ?. _`
 - Hex (0x), binary (0b), octal (0o) sayi literal destegi
 - Satir ve blok yorum destegi
 - String interpolasyon tokenleri (`\(expr)`)
@@ -533,18 +533,23 @@ kaynak kod (.liva)
 - `err_missing_associated_type` diagnostigi
 - 5 yeni sema testi
 
-### M34: Async/Await [PLANLANMADI]
-- `async func fetch() -> String { ... }`
-- `let result = await fetch()`
-- Coroutine tabanli uygulama
+### M34: Async/Await Faz 1 [TAMAMLANDI] - 3 test
+- `async func fetch() -> i32 { ... }` — async fonksiyon tanimlama
+- `let result = await fetch()` — await ifadesi
+- Senkron semantik (Task<T> = {i1, T}, gercek coroutine yok)
+- Diagnostikler: `err_await_outside_async`, `err_async_main`
 
-### M35: Derleme Zamani Degerlendirme [PLANLANMADI]
-- `const` fonksiyonlar ve ifadeler
-- Compile-time array boyutu hesaplama
+### M35: Derleme Zamani Degerlendirme [TAMAMLANDI] - 10 test
+- `const PI: f64 = 3.14159` — derleme zamani sabit (tip anotasyonlu)
+- `const MAX = 100` — tip cikarimli sabit
+- Desteklenen sabit ifadeler: literaller, aritmetik/mantiksal/bitwise ops, ternary, const referanslari, cast
+- Desteklenmeyen: fonksiyon cagrilari, closure, array/struct literal, runtime degisken referansi
+- Diagnostikler: `err_const_requires_init`, `err_const_init_not_constant`
+- IRGen: const degiskenler icin alloca yok, dogrudan llvm::Constant kullanimi
 
 ---
 
-## Diagnostik Envanterleri (56 tanimli)
+## Diagnostik Envanterleri (60 tanimli)
 
 ### Lexer Hatalari (6)
 - `err_unexpected_character`, `err_unterminated_string`, `err_unterminated_block_comment`
@@ -589,6 +594,12 @@ kaynak kod (.liva)
 ### Sema - Optional (1)
 - `err_nil_without_optional`
 
+### Sema - Async/Await (2)
+- `err_await_outside_async`, `err_async_main`
+
+### Sema - Const (2)
+- `err_const_requires_init`, `err_const_init_not_constant`
+
 ### Sema - Diger (3)
 - `err_main_not_found`, `err_break_outside_loop`, `err_continue_outside_loop`
 
@@ -605,12 +616,12 @@ kaynak kod (.liva)
 
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
-| `tests/unit/LexerTest.cpp` | 26 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings |
-| `tests/unit/ParserTest.cpp` | 66 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples |
-| `tests/unit/SemaTest.cpp` | 214 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types |
+| `tests/unit/LexerTest.cpp` | 27 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings |
+| `tests/unit/ParserTest.cpp` | 72 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const |
+| `tests/unit/SemaTest.cpp` | 236 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
-| **Toplam** | **330** | |
+| **Toplam** | **356** | |
 
 ---
 
@@ -669,5 +680,5 @@ clang output.ll -o output.exe
 14. ~~**Closure Capture by Reference**~~ - TAMAMLANDI (M32 by-ref capture/varRefTypes reuse)
 15. ~~**Ownership + IRGen Integration**~~ - TAMAMLANDI (M33 auto-free DynArray/Map/Set/move tracking)
 16. ~~**Teknik Borc Temizligi**~~ - TAMAMLANDI (TD1 IRGen split, TD2 LifetimeAnalysis, TD3 Associated Types)
-17. **Async/Await** - Ileri ozellik
-18. **Derleme zamani degerlendirme** - Optimizasyon
+17. ~~**Async/Await Faz 1**~~ - TAMAMLANDI (M34 senkron semantik Task<T>)
+18. ~~**Derleme zamani degerlendirme**~~ - TAMAMLANDI (M35 const keyword, compile-time eval)

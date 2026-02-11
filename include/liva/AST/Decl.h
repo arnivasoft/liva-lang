@@ -92,9 +92,9 @@ private:
 class VarDecl : public Decl {
 public:
     VarDecl(std::string name, std::unique_ptr<TypeRepr> type, std::unique_ptr<Expr> init,
-            bool isMutable, SourceRange range)
+            bool isMutable, SourceRange range, bool isConst = false)
         : Decl(NodeKind::VarDecl, range), name_(std::move(name)), type_(std::move(type)),
-          init_(std::move(init)), isMutable_(isMutable) {}
+          init_(std::move(init)), isMutable_(isMutable), isConst_(isConst) {}
 
     /// Tuple destructuring constructor: let (x, y) = expr
     VarDecl(std::vector<std::string> destructuredNames, std::unique_ptr<Expr> init,
@@ -109,6 +109,7 @@ public:
     Expr *getInit() { return init_.get(); }
     bool hasInit() const { return init_ != nullptr; }
     bool isMutable() const { return isMutable_; }
+    bool isConst() const { return isConst_; }
     bool hasTypeAnnotation() const { return type_ != nullptr && !type_->isInferred(); }
 
     bool isDestructured() const { return !destructuredNames_.empty(); }
@@ -123,6 +124,7 @@ private:
     std::unique_ptr<TypeRepr> type_;
     std::unique_ptr<Expr> init_;
     bool isMutable_;
+    bool isConst_ = false;
     std::vector<std::string> destructuredNames_;
 };
 

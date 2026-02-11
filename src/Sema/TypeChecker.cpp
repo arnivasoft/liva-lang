@@ -187,6 +187,35 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
 }
 
 void TypeChecker::visitVarDecl(VarDecl *node) {
+    // Const declaration: compile-time constant
+    if (node->isConst()) {
+        if (!node->hasInit()) {
+            diag_.report(node->getStartLoc(), DiagID::err_const_requires_init);
+            return;
+        }
+        visit(const_cast<Expr *>(node->getInit()));
+        auto constVal = evaluateConstExpr(node->getInit());
+        if (!constVal) {
+            diag_.report(node->getStartLoc(), DiagID::err_const_init_not_constant);
+            return;
+        }
+        constValues_[node->getName()] = *constVal;
+
+        Symbol sym;
+        sym.name = node->getName();
+        sym.kind = Symbol::Kind::Variable;
+        sym.type = node->getType();
+        sym.isMutable = false;
+        sym.isConstant = true;
+        if ((!sym.type || sym.type->isInferred()) && node->getInit()->getResolvedType()) {
+            sym.type = node->getInit()->getResolvedType();
+        }
+        if (!scopes_.declare(sym.name, sym)) {
+            diag_.report(node->getStartLoc(), DiagID::err_redefinition, node->getName());
+        }
+        return;
+    }
+
     // Tuple destructuring: let (x, y) = expr
     if (node->isDestructured()) {
         if (node->hasInit()) {
@@ -1435,6 +1464,207 @@ void TypeChecker::visitClosureExpr(ClosureExpr *node) {
 
     currentReturnType_ = prevReturn;
     scopes_.popScope();
+}
+
+std::optional<TypeChecker::ConstValue> TypeChecker::evaluateConstExpr(const Expr *expr) {
+    if (!expr) return std::nullopt;
+
+    switch (expr->getKind()) {
+    case ASTNode::NodeKind::IntegerLiteralExpr: {
+        auto *lit = static_cast<const IntegerLiteralExpr *>(expr);
+        ConstValue v;
+        v.kind = ConstValue::Integer;
+        v.intVal = lit->getValue();
+        return v;
+    }
+    case ASTNode::NodeKind::FloatLiteralExpr: {
+        auto *lit = static_cast<const FloatLiteralExpr *>(expr);
+        ConstValue v;
+        v.kind = ConstValue::Float;
+        v.floatVal = lit->getValue();
+        return v;
+    }
+    case ASTNode::NodeKind::BoolLiteralExpr: {
+        auto *lit = static_cast<const BoolLiteralExpr *>(expr);
+        ConstValue v;
+        v.kind = ConstValue::Bool;
+        v.boolVal = lit->getValue();
+        return v;
+    }
+    case ASTNode::NodeKind::StringLiteralExpr: {
+        auto *lit = static_cast<const StringLiteralExpr *>(expr);
+        ConstValue v;
+        v.kind = ConstValue::String;
+        v.strVal = lit->getValue();
+        return v;
+    }
+    case ASTNode::NodeKind::IdentifierExpr: {
+        auto *ident = static_cast<const IdentifierExpr *>(expr);
+        auto it = constValues_.find(ident->getName());
+        if (it != constValues_.end()) return it->second;
+        return std::nullopt;
+    }
+    case ASTNode::NodeKind::GroupExpr: {
+        auto *group = static_cast<const GroupExpr *>(expr);
+        return evaluateConstExpr(group->getExpr());
+    }
+    case ASTNode::NodeKind::UnaryExpr: {
+        auto *unary = static_cast<const UnaryExpr *>(expr);
+        auto operand = evaluateConstExpr(unary->getOperand());
+        if (!operand) return std::nullopt;
+        switch (unary->getOp()) {
+        case UnaryExpr::Op::Negate:
+            if (operand->kind == ConstValue::Integer) {
+                operand->intVal = -operand->intVal;
+                return operand;
+            }
+            if (operand->kind == ConstValue::Float) {
+                operand->floatVal = -operand->floatVal;
+                return operand;
+            }
+            return std::nullopt;
+        case UnaryExpr::Op::Not:
+            if (operand->kind == ConstValue::Bool) {
+                operand->boolVal = !operand->boolVal;
+                return operand;
+            }
+            return std::nullopt;
+        case UnaryExpr::Op::BitNot:
+            if (operand->kind == ConstValue::Integer) {
+                operand->intVal = ~operand->intVal;
+                return operand;
+            }
+            return std::nullopt;
+        }
+        return std::nullopt;
+    }
+    case ASTNode::NodeKind::BinaryExpr: {
+        auto *bin = static_cast<const BinaryExpr *>(expr);
+        auto lhs = evaluateConstExpr(bin->getLHS());
+        auto rhs = evaluateConstExpr(bin->getRHS());
+        if (!lhs || !rhs) return std::nullopt;
+
+        // Integer arithmetic
+        if (lhs->kind == ConstValue::Integer && rhs->kind == ConstValue::Integer) {
+            ConstValue v;
+            v.kind = ConstValue::Integer;
+            switch (bin->getOp()) {
+            case BinaryExpr::Op::Add: v.intVal = lhs->intVal + rhs->intVal; return v;
+            case BinaryExpr::Op::Sub: v.intVal = lhs->intVal - rhs->intVal; return v;
+            case BinaryExpr::Op::Mul: v.intVal = lhs->intVal * rhs->intVal; return v;
+            case BinaryExpr::Op::Div:
+                if (rhs->intVal == 0) return std::nullopt;
+                v.intVal = lhs->intVal / rhs->intVal; return v;
+            case BinaryExpr::Op::Mod:
+                if (rhs->intVal == 0) return std::nullopt;
+                v.intVal = lhs->intVal % rhs->intVal; return v;
+            case BinaryExpr::Op::BitAnd: v.intVal = lhs->intVal & rhs->intVal; return v;
+            case BinaryExpr::Op::BitOr:  v.intVal = lhs->intVal | rhs->intVal; return v;
+            case BinaryExpr::Op::BitXor: v.intVal = lhs->intVal ^ rhs->intVal; return v;
+            case BinaryExpr::Op::Shl:    v.intVal = lhs->intVal << rhs->intVal; return v;
+            case BinaryExpr::Op::Shr:    v.intVal = lhs->intVal >> rhs->intVal; return v;
+            case BinaryExpr::Op::Eq:  v.kind = ConstValue::Bool; v.boolVal = (lhs->intVal == rhs->intVal); return v;
+            case BinaryExpr::Op::NotEq: v.kind = ConstValue::Bool; v.boolVal = (lhs->intVal != rhs->intVal); return v;
+            case BinaryExpr::Op::Less: v.kind = ConstValue::Bool; v.boolVal = (lhs->intVal < rhs->intVal); return v;
+            case BinaryExpr::Op::LessEq: v.kind = ConstValue::Bool; v.boolVal = (lhs->intVal <= rhs->intVal); return v;
+            case BinaryExpr::Op::Greater: v.kind = ConstValue::Bool; v.boolVal = (lhs->intVal > rhs->intVal); return v;
+            case BinaryExpr::Op::GreaterEq: v.kind = ConstValue::Bool; v.boolVal = (lhs->intVal >= rhs->intVal); return v;
+            default: return std::nullopt;
+            }
+        }
+
+        // Float arithmetic
+        if (lhs->kind == ConstValue::Float && rhs->kind == ConstValue::Float) {
+            ConstValue v;
+            v.kind = ConstValue::Float;
+            switch (bin->getOp()) {
+            case BinaryExpr::Op::Add: v.floatVal = lhs->floatVal + rhs->floatVal; return v;
+            case BinaryExpr::Op::Sub: v.floatVal = lhs->floatVal - rhs->floatVal; return v;
+            case BinaryExpr::Op::Mul: v.floatVal = lhs->floatVal * rhs->floatVal; return v;
+            case BinaryExpr::Op::Div:
+                if (rhs->floatVal == 0.0) return std::nullopt;
+                v.floatVal = lhs->floatVal / rhs->floatVal; return v;
+            case BinaryExpr::Op::Eq:  v.kind = ConstValue::Bool; v.boolVal = (lhs->floatVal == rhs->floatVal); return v;
+            case BinaryExpr::Op::NotEq: v.kind = ConstValue::Bool; v.boolVal = (lhs->floatVal != rhs->floatVal); return v;
+            case BinaryExpr::Op::Less: v.kind = ConstValue::Bool; v.boolVal = (lhs->floatVal < rhs->floatVal); return v;
+            case BinaryExpr::Op::LessEq: v.kind = ConstValue::Bool; v.boolVal = (lhs->floatVal <= rhs->floatVal); return v;
+            case BinaryExpr::Op::Greater: v.kind = ConstValue::Bool; v.boolVal = (lhs->floatVal > rhs->floatVal); return v;
+            case BinaryExpr::Op::GreaterEq: v.kind = ConstValue::Bool; v.boolVal = (lhs->floatVal >= rhs->floatVal); return v;
+            default: return std::nullopt;
+            }
+        }
+
+        // Bool logic
+        if (lhs->kind == ConstValue::Bool && rhs->kind == ConstValue::Bool) {
+            ConstValue v;
+            v.kind = ConstValue::Bool;
+            switch (bin->getOp()) {
+            case BinaryExpr::Op::And: v.boolVal = lhs->boolVal && rhs->boolVal; return v;
+            case BinaryExpr::Op::Or:  v.boolVal = lhs->boolVal || rhs->boolVal; return v;
+            case BinaryExpr::Op::Eq:  v.boolVal = (lhs->boolVal == rhs->boolVal); return v;
+            case BinaryExpr::Op::NotEq: v.boolVal = (lhs->boolVal != rhs->boolVal); return v;
+            default: return std::nullopt;
+            }
+        }
+
+        // String concatenation
+        if (lhs->kind == ConstValue::String && rhs->kind == ConstValue::String) {
+            if (bin->getOp() == BinaryExpr::Op::Add) {
+                ConstValue v;
+                v.kind = ConstValue::String;
+                v.strVal = lhs->strVal + rhs->strVal;
+                return v;
+            }
+        }
+
+        return std::nullopt;
+    }
+    case ASTNode::NodeKind::TernaryExpr: {
+        auto *ternary = static_cast<const TernaryExpr *>(expr);
+        auto cond = evaluateConstExpr(ternary->getCondition());
+        auto then = evaluateConstExpr(ternary->getThenExpr());
+        auto els = evaluateConstExpr(ternary->getElseExpr());
+        if (!cond || !then || !els) return std::nullopt;
+        if (cond->kind != ConstValue::Bool) return std::nullopt;
+        return cond->boolVal ? then : els;
+    }
+    case ASTNode::NodeKind::CastExpr: {
+        auto *cast = static_cast<const CastExpr *>(expr);
+        auto operand = evaluateConstExpr(cast->getExpr());
+        if (!operand) return std::nullopt;
+        auto *targetType = cast->getTargetType();
+        if (!targetType) return std::nullopt;
+
+        auto kind = targetType->getKind();
+        bool isIntTarget = (kind == TypeRepr::Kind::I8 || kind == TypeRepr::Kind::I16 ||
+                            kind == TypeRepr::Kind::I32 || kind == TypeRepr::Kind::I64 ||
+                            kind == TypeRepr::Kind::U8 || kind == TypeRepr::Kind::U16 ||
+                            kind == TypeRepr::Kind::U32 || kind == TypeRepr::Kind::U64);
+        bool isFloatTarget = (kind == TypeRepr::Kind::F32 || kind == TypeRepr::Kind::F64);
+
+        if (operand->kind == ConstValue::Integer) {
+            if (isIntTarget) return operand;
+            if (isFloatTarget) {
+                ConstValue v;
+                v.kind = ConstValue::Float;
+                v.floatVal = static_cast<double>(operand->intVal);
+                return v;
+            }
+        }
+        if (operand->kind == ConstValue::Float) {
+            if (isIntTarget) {
+                ConstValue v;
+                v.kind = ConstValue::Integer;
+                v.intVal = static_cast<int64_t>(operand->floatVal);
+                return v;
+            }
+            if (isFloatTarget) return operand;
+        }
+        return std::nullopt;
+    }
+    default:
+        return std::nullopt;
+    }
 }
 
 } // namespace liva
