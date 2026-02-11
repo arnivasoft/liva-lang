@@ -245,6 +245,59 @@ void IRGen::createRuntimeDecls() {
     auto panicFn = module_->getOrInsertFunction("liva_panic", panicTy);
     if (auto *f = llvm::dyn_cast<llvm::Function>(panicFn.getCallee()))
         f->addFnAttr(llvm::Attribute::NoReturn);
+
+    // === Stdlib: Random ===
+    auto *randIntTy = llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_rand_int", randIntTy);
+
+    auto *randFloatTy = llvm::FunctionType::get(f64Ty, {}, false);
+    module_->getOrInsertFunction("liva_rand_float", randFloatTy);
+
+    // === Stdlib: Process/Env ===
+    auto *envGetTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_env_get", envGetTy);
+
+    auto *exitTy = llvm::FunctionType::get(builder_->getVoidTy(), {i32Ty}, false);
+    auto exitFn = module_->getOrInsertFunction("liva_exit", exitTy);
+    if (auto *f = llvm::dyn_cast<llvm::Function>(exitFn.getCallee()))
+        f->addFnAttr(llvm::Attribute::NoReturn);
+
+    auto *argsTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_args", argsTy);
+
+    // === Stdlib: Date/Time ===
+    auto *clockTy = llvm::FunctionType::get(f64Ty, {}, false);
+    module_->getOrInsertFunction("liva_clock", clockTy);
+
+    auto *clockMsTy = llvm::FunctionType::get(i64Ty, {}, false);
+    module_->getOrInsertFunction("liva_clock_ms", clockMsTy);
+
+    auto *sleepTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
+    module_->getOrInsertFunction("liva_sleep", sleepTy);
+
+    // === Stdlib: Regex ===
+    auto *regexMatchTy = llvm::FunctionType::get(i8Ty, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_match", regexMatchTy);
+
+    auto *regexFindTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_find", regexFindTy);
+
+    auto *regexFindAllTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_find_all", regexFindAllTy);
+
+    auto *regexReplaceTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_replace", regexReplaceTy);
+
+    // === Stdlib: Networking ===
+    auto *httpGetTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_http_get", httpGetTy);
+
+    auto *httpPostTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_http_post", httpPostTy);
+
+    // Coroutine + async runtime
+    declareCoroutineIntrinsics();
+    declareAsyncRuntimeFuncs();
 }
 
 llvm::StructType *IRGen::getDynArrayStructTy() {
@@ -278,13 +331,55 @@ llvm::StructType *IRGen::getOptionalType(llvm::Type *innerType) {
     return ty;
 }
 
-llvm::StructType *IRGen::getTaskType(llvm::Type *innerType) {
-    auto it = taskTypes_.find(innerType);
-    if (it != taskTypes_.end()) return it->second;
-    auto *ty = llvm::StructType::create(*context_,
-        {builder_->getInt1Ty(), innerType}, "Task");
-    taskTypes_[innerType] = ty;
-    return ty;
+void IRGen::declareCoroutineIntrinsics() {
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+    auto *i64Ty = builder_->getInt64Ty();
+    auto *voidTy = builder_->getVoidTy();
+
+    // malloc/free for coroutine frame allocation
+    auto *mallocTy = llvm::FunctionType::get(ptrTy, {i64Ty}, false);
+    module_->getOrInsertFunction("malloc", mallocTy);
+
+    auto *freeTy = llvm::FunctionType::get(voidTy, {ptrTy}, false);
+    module_->getOrInsertFunction("free", freeTy);
+}
+
+void IRGen::declareAsyncRuntimeFuncs() {
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+    auto *i8Ty = builder_->getInt8Ty();
+    auto *voidTy = builder_->getVoidTy();
+
+    // LivaTask *liva_task_create(void *coro_handle)
+    auto *createTy = llvm::FunctionType::get(ptrTy, {ptrTy}, false);
+    module_->getOrInsertFunction("liva_task_create", createTy);
+
+    // void liva_task_complete(LivaTask *task)
+    auto *voidPtrTy = llvm::FunctionType::get(voidTy, {ptrTy}, false);
+    module_->getOrInsertFunction("liva_task_complete", voidPtrTy);
+
+    // int8_t liva_task_is_done(LivaTask *task)
+    auto *isDoneTy = llvm::FunctionType::get(i8Ty, {ptrTy}, false);
+    module_->getOrInsertFunction("liva_task_is_done", isDoneTy);
+
+    // void *liva_task_get_handle(LivaTask *task)
+    auto *getHandleTy = llvm::FunctionType::get(ptrTy, {ptrTy}, false);
+    module_->getOrInsertFunction("liva_task_get_handle", getHandleTy);
+
+    // void liva_task_set_parent(LivaTask *child, LivaTask *parent)
+    auto *setParentTy = llvm::FunctionType::get(voidTy, {ptrTy, ptrTy}, false);
+    module_->getOrInsertFunction("liva_task_set_parent", setParentTy);
+
+    // void liva_task_destroy(LivaTask *task)
+    module_->getOrInsertFunction("liva_task_destroy", voidPtrTy);
+
+    // void liva_coro_resume(void *handle)
+    module_->getOrInsertFunction("liva_coro_resume", voidPtrTy);
+
+    // void liva_coro_destroy(void *handle)
+    module_->getOrInsertFunction("liva_coro_destroy", voidPtrTy);
+
+    // void liva_scheduler_run(LivaTask *root)
+    module_->getOrInsertFunction("liva_scheduler_run", voidPtrTy);
 }
 
 llvm::StructType *IRGen::getResultType(llvm::Type *okType, llvm::Type *errType) {
@@ -437,8 +532,9 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
     }
     case TypeRepr::Kind::Generic: {
         auto *genType = static_cast<const GenericTypeRepr *>(type);
-        if (genType->getBaseName() == "Task" && !genType->getTypeArgs().empty()) {
-            return getTaskType(toLLVMType(genType->getTypeArgs()[0].get()));
+        if (genType->getBaseName() == "Task") {
+            // Phase 2: Task<T> is opaque ptr (LivaTask*)
+            return llvm::PointerType::getUnqual(*context_);
         }
         // Other generics (Map, Set, etc.) are handled elsewhere
         return llvm::PointerType::getUnqual(*context_);

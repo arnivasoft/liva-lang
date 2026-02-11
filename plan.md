@@ -4,9 +4,9 @@
 
 **Liva**, Swift benzeri sozdizimi ve Rust tarzi ownership/borrowing semantigine sahip bir programlama dili. C++20 ile yazilmis derleyici LLVM 21 backend kullaniyor.
 
-- **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
+- **Platform:** Windows, LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 365/365 gecen test (lexer:33, parser:75, sema:236, type:12, ownership:9)
+- **Test:** 398/398 gecen test (lexer:33, parser:78, sema:266, type:12, ownership:9)
 
 ---
 
@@ -690,6 +690,7 @@ clang output.ll -o output.exe
 17. ~~**Async/Await Faz 1**~~ - TAMAMLANDI (M34 senkron semantik Task<T>)
 18. ~~**Derleme zamani degerlendirme**~~ - TAMAMLANDI (M35 const keyword, compile-time eval)
 19. ~~**Teknik Borc 4**~~ - TAMAMLANDI (TD4 deprecated LLVM API fix, test coverage, plan.md tutarliligi)
+20. ~~**Zengin Stdlib (I2)**~~ - TAMAMLANDI (14 yeni builtin: randInt, randFloat, env, exit, args, clock, clockMs, sleep, regexMatch, regexFind, regexFindAll, regexReplace, httpGet, httpPost)
 
 ---
 
@@ -699,8 +700,8 @@ clang output.ll -o output.exe
 
 | # | Ozellik | Aciklama | Karmasiklik |
 |---|---------|----------|-------------|
-| F1 | **Async/Await Faz 2** | Gercek coroutine destegi (LLVM coroutines), runtime scheduler | Yuksek |
-| F2 | **Coklu Trait Bound** | `T: Printable + Hashable` sozdizimi ile coklu kisitlama | Orta |
+| F1 | **Async/Await Faz 2** | Gercek coroutine destegi (LLVM coroutines), runtime scheduler | Yuksek | [TAMAMLANDI] |
+| F2 | **Coklu Trait Bound** | `T: Printable + Hashable` sozdizimi ile coklu kisitlama | Orta | [TAMAMLANDI] |
 | F3 | **Guard Clause (Pattern)** | `case .Circle(r) where r > 0 =>` match arm koruma ifadesi | Orta |
 | F4 | **Drop Trait / Destructor** | Kullanici tanimli kaynak temizleme, scope cikisinda otomatik cagrilan `drop(self)` | Yuksek |
 | F5 | **Operator Overloading** | `+`, `==`, `<` vb. operatorleri struct/enum icin ozellestirme (`protocol Add { ... }`) | Orta |
@@ -713,7 +714,7 @@ clang output.ll -o output.exe
 | # | Ozellik | Aciklama | Karmasiklik |
 |---|---------|----------|-------------|
 | I1 | **Ayri Derleme** | Modul basina ayri LLVM Module / object file + linking | Yuksek |
-| I2 | **Zengin Stdlib** | Daha kapsamli standart kutuphane (date/time, regex, networking) | Yuksek |
+| I2 | **Zengin Stdlib** | Daha kapsamli standart kutuphane (date/time, regex, networking) | Yuksek | [TAMAMLANDI] |
 
 ### Araclar
 

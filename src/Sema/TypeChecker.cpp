@@ -58,6 +58,17 @@ void TypeChecker::registerBuiltins() {
         sym.kind = Symbol::Kind::Function;
         scopes_.declare(name, sym);
     }
+
+    // Stdlib: Random, Process/Env, Date/Time, Regex, Networking
+    for (auto &name : {"randInt", "randFloat", "env", "exit", "args",
+                        "clock", "clockMs", "sleep",
+                        "regexMatch", "regexFind", "regexFindAll", "regexReplace",
+                        "httpGet", "httpPost"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
 }
 
 void TypeChecker::check(TranslationUnit &tu) {
@@ -78,9 +89,6 @@ void TypeChecker::check(TranslationUnit &tu) {
             auto *funcDecl = static_cast<FuncDecl *>(decl.get());
             // Track async functions
             if (funcDecl->isAsync()) {
-                if (funcDecl->getName() == "main") {
-                    diag_.report(decl->getStartLoc(), DiagID::err_async_main);
-                }
                 asyncFuncNames_.insert(funcDecl->getName());
             }
             Symbol sym;
@@ -158,10 +166,12 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     }
 
     // Validate trait bounds reference real protocols
-    for (auto &[paramName, boundProto] : node->getTypeParamBounds()) {
-        auto *protoSym = scopes_.lookup(boundProto);
-        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
-            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+    for (auto &[paramName, boundProtos] : node->getTypeParamBounds()) {
+        for (auto &boundProto : boundProtos) {
+            auto *protoSym = scopes_.lookup(boundProto);
+            if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+                diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+            }
         }
     }
 
@@ -302,10 +312,12 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
         scopes_.declare(tp, sym);
     }
     // Validate trait bounds reference real protocols
-    for (auto &[paramName, boundProto] : node->getTypeParamBounds()) {
-        auto *protoSym = scopes_.lookup(boundProto);
-        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
-            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+    for (auto &[paramName, boundProtos] : node->getTypeParamBounds()) {
+        for (auto &boundProto : boundProtos) {
+            auto *protoSym = scopes_.lookup(boundProto);
+            if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+                diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+            }
         }
     }
     for (auto &field : node->getFields()) {
@@ -387,10 +399,12 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
         scopes_.declare(tp, tpSym);
     }
     // Validate trait bounds reference real protocols
-    for (auto &[paramName, boundProto] : node->getTypeParamBounds()) {
-        auto *protoSym = scopes_.lookup(boundProto);
-        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
-            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+    for (auto &[paramName, boundProtos] : node->getTypeParamBounds()) {
+        for (auto &boundProto : boundProtos) {
+            auto *protoSym = scopes_.lookup(boundProto);
+            if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+                diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+            }
         }
     }
     for (auto &method : node->getMethods()) {
@@ -830,6 +844,42 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "parseFloat") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeF64Type());
             node->setResolvedType(std::move(optType));
+        // Stdlib: Random
+        } else if (ident->getName() == "randInt") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "randFloat") {
+            node->setResolvedType(makeF64Type());
+        // Stdlib: Process/Env
+        } else if (ident->getName() == "env") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "exit") {
+            // void — no resolved type needed
+        } else if (ident->getName() == "args") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
+        // Stdlib: Date/Time
+        } else if (ident->getName() == "clock") {
+            node->setResolvedType(makeF64Type());
+        } else if (ident->getName() == "clockMs") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "sleep") {
+            // void — no resolved type needed
+        // Stdlib: Regex
+        } else if (ident->getName() == "regexMatch") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "regexFind") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "regexFindAll") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
+        } else if (ident->getName() == "regexReplace") {
+            node->setResolvedType(makeStringType());
+        // Stdlib: Networking
+        } else if (ident->getName() == "httpGet" || ident->getName() == "httpPost") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
         } else {
             auto *sym = scopes_.lookup(ident->getName());
             if (sym && sym->type &&
@@ -862,18 +912,20 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
 
                     // Check trait bounds
                     const auto &bounds = sym->funcDecl->getTypeParamBounds();
-                    for (auto &[pName, boundProto] : bounds) {
+                    for (auto &[pName, boundProtos] : bounds) {
                         auto bindIt = typeBindings.find(pName);
                         if (bindIt == typeBindings.end()) continue;
                         std::string concreteName = typeToString(bindIt->second);
-                        auto confIt = protocolConformances_.find(boundProto);
-                        bool conforms = false;
-                        if (confIt != protocolConformances_.end()) {
-                            for (const auto &t : confIt->second)
-                                if (t == concreteName) { conforms = true; break; }
+                        for (auto &boundProto : boundProtos) {
+                            auto confIt = protocolConformances_.find(boundProto);
+                            bool conforms = false;
+                            if (confIt != protocolConformances_.end()) {
+                                for (const auto &t : confIt->second)
+                                    if (t == concreteName) { conforms = true; break; }
+                            }
+                            if (!conforms)
+                                diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
                         }
-                        if (!conforms)
-                            diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
                     }
 
                     // Resolve return type
@@ -1185,18 +1237,20 @@ void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
                 }
             }
             // Check conformance for each bound
-            for (auto &[pName, boundProto] : bounds) {
+            for (auto &[pName, boundProtos] : bounds) {
                 auto bindIt = typeBindings.find(pName);
                 if (bindIt == typeBindings.end()) continue;
                 std::string concreteName = typeToString(bindIt->second);
-                auto confIt = protocolConformances_.find(boundProto);
-                bool conforms = false;
-                if (confIt != protocolConformances_.end()) {
-                    for (const auto &t : confIt->second)
-                        if (t == concreteName) { conforms = true; break; }
+                for (auto &boundProto : boundProtos) {
+                    auto confIt = protocolConformances_.find(boundProto);
+                    bool conforms = false;
+                    if (confIt != protocolConformances_.end()) {
+                        for (const auto &t : confIt->second)
+                            if (t == concreteName) { conforms = true; break; }
+                    }
+                    if (!conforms)
+                        diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
                 }
-                if (!conforms)
-                    diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
             }
         }
     }

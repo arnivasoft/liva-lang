@@ -2824,14 +2824,226 @@ TEST_F(SemaTest, AwaitOutsideAsync) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_await_outside_async));
 }
 
-TEST_F(SemaTest, AsyncMainForbidden) {
+TEST_F(SemaTest, AsyncMainValid) {
     auto result = check(R"--(
         async func main() {
             println(42)
         }
     )--");
-    EXPECT_FALSE(result.passed);
-    EXPECT_TRUE(hasDiag(result, DiagID::err_async_main));
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncMainWithReturn) {
+    auto result = check(R"--(
+        async func main() -> i32 {
+            return 0
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncAwaitVoidFunc) {
+    auto result = check(R"--(
+        async func doWork() {
+            println(1)
+        }
+        async func process() {
+            await doWork()
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncMultipleAwait) {
+    auto result = check(R"--(
+        async func fetchA() -> i32 {
+            return 1
+        }
+        async func fetchB() -> i32 {
+            return 2
+        }
+        async func process() -> i32 {
+            let a: i32 = await fetchA()
+            let b: i32 = await fetchB()
+            return a + b
+        }
+        func main() {
+            println(process())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncNestedAwait) {
+    auto result = check(R"--(
+        async func inner() -> i32 {
+            return 42
+        }
+        async func outer() -> i32 {
+            return await inner()
+        }
+        async func top() -> i32 {
+            return await outer()
+        }
+        func main() {
+            println(top())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncAwaitInIf) {
+    auto result = check(R"--(
+        async func getValue() -> i32 {
+            return 10
+        }
+        async func process(flag: bool) -> i32 {
+            if flag {
+                let v: i32 = await getValue()
+                return v
+            }
+            return 0
+        }
+        func main() {
+            println(process(true))
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncAwaitInWhile) {
+    auto result = check(R"--(
+        async func step() -> i32 {
+            return 1
+        }
+        async func loop_func() -> i32 {
+            var sum: i32 = 0
+            var i: i32 = 0
+            while i < 3 {
+                sum = sum + await step()
+                i = i + 1
+            }
+            return sum
+        }
+        func main() {
+            println(loop_func())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncAwaitInForLoop) {
+    auto result = check(R"--(
+        async func compute(x: i32) -> i32 {
+            return x * 2
+        }
+        async func sum_loop() -> i32 {
+            var total: i32 = 0
+            for i in 0..3 {
+                total = total + await compute(i)
+            }
+            return total
+        }
+        func main() {
+            println(sum_loop())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncFuncReturnsTask) {
+    auto result = check(R"--(
+        async func fetchData() -> i32 {
+            return 42
+        }
+        func main() {
+            let task = fetchData()
+            println(task)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncAwaitNonAsyncCall) {
+    auto result = check(R"--(
+        func syncFunc() -> i32 {
+            return 42
+        }
+        async func process() -> i32 {
+            let v: i32 = syncFunc()
+            return v
+        }
+        func main() {
+            println(process())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncVoidFunc) {
+    auto result = check(R"--(
+        async func doSomething() {
+            println(1)
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncWithMultipleParams) {
+    auto result = check(R"--(
+        async func combine(a: i32, b: i32, c: i32) -> i32 {
+            return a + b + c
+        }
+        async func run() -> i32 {
+            return await combine(1, 2, 3)
+        }
+        func main() {
+            println(run())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncCallChain) {
+    auto result = check(R"--(
+        async func f1() -> i32 { return 1 }
+        async func f2() -> i32 {
+            let v: i32 = await f1()
+            return v + 1
+        }
+        async func f3() -> i32 {
+            let v: i32 = await f2()
+            return v + 1
+        }
+        async func f4() -> i32 {
+            let v: i32 = await f3()
+            return v + 1
+        }
+        func main() {
+            println(f4())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncAwaitArithmetic) {
+    auto result = check(R"--(
+        async func getA() -> i32 { return 10 }
+        async func getB() -> i32 { return 20 }
+        async func compute() -> i32 {
+            return await getA() + await getB()
+        }
+        func main() {
+            println(compute())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
 }
 
 TEST_F(SemaTest, AsyncFuncWithParams) {
@@ -3008,5 +3220,202 @@ TEST_F(SemaTest, ConstBoolExpr) {
             println(flag)
         }
     )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MultiBoundValid) {
+    auto result = check(R"--(
+        protocol P1 {
+            func p1(self)
+        }
+        protocol P2 {
+            func p2(self)
+        }
+        struct S {
+            let x: i32
+        }
+        impl S : P1 {
+            func p1(self) {}
+        }
+        impl S : P2 {
+            func p2(self) {}
+        }
+        func show<T: P1 + P2>(x: T) {}
+        func main() {
+            let s = S { x: 1 }
+            show(s)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MultiBoundViolation) {
+    auto result = check(R"--(
+        protocol P1 {
+            func p1(self)
+        }
+        protocol P2 {
+            func p2(self)
+        }
+        struct S {
+            let x: i32
+        }
+        impl S : P1 {
+            func p1(self) {}
+        }
+        func show<T: P1 + P2>(x: T) {}
+        func main() {
+            let s = S { x: 1 }
+            show(s)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, MultiBoundUndefinedProto) {
+    auto result = check(R"--(
+        protocol Real {
+            func r(self)
+        }
+        func show<T: Real + Fake>(x: T) {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_protocol));
+}
+
+// === Stdlib: Random ===
+
+TEST_F(SemaTest, RandIntType) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = randInt(1, 100)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RandFloatType) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = randFloat()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Stdlib: Process/Env ===
+
+TEST_F(SemaTest, EnvType) {
+    auto result = check(R"--(
+        func main() {
+            let path: string? = env("PATH")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ExitType) {
+    auto result = check(R"--(
+        func main() {
+            exit(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ArgsType) {
+    auto result = check(R"--(
+        func main() {
+            let a: [string] = args()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Stdlib: Date/Time ===
+
+TEST_F(SemaTest, ClockType) {
+    auto result = check(R"--(
+        func main() {
+            let t: f64 = clock()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClockMsType) {
+    auto result = check(R"--(
+        func main() {
+            let t: i64 = clockMs()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SleepType) {
+    auto result = check(R"--(
+        func main() {
+            sleep(100)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Stdlib: Regex ===
+
+TEST_F(SemaTest, RegexMatchType) {
+    auto result = check(R"--(
+        func main() {
+            let m: bool = regexMatch("hello", "hel.*")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexFindType) {
+    auto result = check(R"--(
+        func main() {
+            let m: string? = regexFind("abc123", "[0-9]+")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexFindAllType) {
+    auto result = check(R"--(
+        func main() {
+            let m: [string] = regexFindAll("a1b2", "[0-9]")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexReplaceType) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = regexReplace("hi", "h", "H")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Stdlib: Networking ===
+
+TEST_F(SemaTest, HttpGetType) {
+    auto result = check(R"--(
+        func main() {
+            let r: string? = httpGet("https://example.com")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HttpPostType) {
+    auto result = check(R"--(
+        func main() {
+            let r: string? = httpPost("https://example.com", "data")
+        }
+    )--");
     EXPECT_TRUE(result.passed);
 }

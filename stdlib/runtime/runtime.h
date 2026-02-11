@@ -209,6 +209,76 @@ int8_t liva_set_contains(void *entries, int64_t cap,
 int8_t liva_set_remove(void *entries, int64_t *size, int64_t cap,
                        const void *elem, int64_t elem_size, int8_t key_kind);
 
+// === Random ===
+
+/// Random integer in [min, max] range
+int32_t liva_rand_int(int32_t min, int32_t max);
+
+/// Random float in [0.0, 1.0)
+double liva_rand_float();
+
+// === Process/Env ===
+
+/// Get environment variable (returns malloc'd copy or NULL)
+char *liva_env_get(const char *name);
+
+/// Exit process with code
+[[noreturn]] void liva_exit(int32_t code);
+
+/// Get command line arguments, sets count
+char **liva_args(int64_t *count);
+
+// === Date/Time ===
+
+/// Current time as seconds since epoch (f64)
+double liva_clock();
+
+/// Current time in milliseconds
+int64_t liva_clock_ms();
+
+/// Sleep for given milliseconds
+void liva_sleep(int64_t ms);
+
+// === Regex ===
+
+/// Check if entire string matches pattern
+int8_t liva_regex_match(const char *str, const char *pattern);
+
+/// Find first match of pattern in string (returns malloc'd or NULL)
+char *liva_regex_find(const char *str, const char *pattern);
+
+/// Find all matches, sets count, returns malloc'd array of malloc'd strings
+char **liva_regex_find_all(const char *str, const char *pattern, int64_t *count);
+
+/// Replace all matches of pattern with replacement, returns malloc'd
+char *liva_regex_replace(const char *str, const char *pattern, const char *replacement);
+
+// === Networking ===
+
+/// HTTP GET request, returns malloc'd response body or NULL on failure
+char *liva_http_get(const char *url);
+
+/// HTTP POST request, returns malloc'd response body or NULL on failure
+char *liva_http_post(const char *url, const char *body);
+
+// === Async/Coroutine Runtime ===
+
+typedef struct LivaTask {
+    void *handle;            // Coroutine frame pointer
+    struct LivaTask *parent; // Parent task waiting on us (or NULL)
+    int8_t done;             // 1 = completed
+} LivaTask;
+
+LivaTask *liva_task_create(void *coro_handle);
+void liva_task_complete(LivaTask *task);
+int8_t liva_task_is_done(LivaTask *task);
+void *liva_task_get_handle(LivaTask *task);
+void liva_task_set_parent(LivaTask *child, LivaTask *parent);
+void liva_task_destroy(LivaTask *task);
+void liva_coro_resume(void *handle);
+void liva_coro_destroy(void *handle);
+void liva_scheduler_run(LivaTask *root);
+
 // === Panic ===
 
 /// Called when an unrecoverable error occurs

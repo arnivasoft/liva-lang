@@ -59,24 +59,21 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
     if (node->hasValue()) {
         auto *val = visit(node->getValue());
         emitScopeCleanup();
-        if (currentIsAsync_ && asyncDeclaredRetType_) {
-            // Wrap return value in Task { done: true, result: val }
-            auto *taskTy = getTaskType(asyncDeclaredRetType_);
-            llvm::Value *taskVal = llvm::UndefValue::get(taskTy);
-            taskVal = builder_->CreateInsertValue(taskVal, builder_->getTrue(), 0, "task.done");
-            taskVal = builder_->CreateInsertValue(taskVal, val, 1, "task.result");
-            return builder_->CreateRet(taskVal);
+        if (currentIsAsync_ && currentCoroPromise_) {
+            // Phase 2: store to promise and branch to coro.final
+            builder_->CreateStore(val, currentCoroPromise_);
+            builder_->CreateBr(currentCoroFinalBB_);
+            return nullptr;
         }
         return builder_->CreateRet(val);
     }
     emitScopeCleanup();
-    if (currentIsAsync_ && asyncDeclaredRetType_) {
-        auto *taskTy = getTaskType(asyncDeclaredRetType_);
-        llvm::Value *taskVal = llvm::UndefValue::get(taskTy);
-        taskVal = builder_->CreateInsertValue(taskVal, builder_->getTrue(), 0, "task.done");
-        taskVal = builder_->CreateInsertValue(taskVal,
-            llvm::Constant::getNullValue(asyncDeclaredRetType_), 1, "task.result");
-        return builder_->CreateRet(taskVal);
+    if (currentIsAsync_ && currentCoroPromise_) {
+        // Phase 2: void return — just branch to coro.final
+        builder_->CreateStore(
+            llvm::Constant::getNullValue(asyncDeclaredRetType_), currentCoroPromise_);
+        builder_->CreateBr(currentCoroFinalBB_);
+        return nullptr;
     }
     return builder_->CreateRetVoid();
 }

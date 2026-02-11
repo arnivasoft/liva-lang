@@ -285,14 +285,22 @@ private:
     llvm::StructType *getOptionalType(llvm::Type *innerType);
     std::unordered_map<llvm::Type *, llvm::StructType *> optionalTypes_;
 
-    /// Get or create a Task<T> struct type: { i1, T } (same layout as Optional)
-    llvm::StructType *getTaskType(llvm::Type *innerType);
-    std::unordered_map<llvm::Type *, llvm::StructType *> taskTypes_;
-
     /// Async function tracking
     std::set<std::string> asyncFuncNames_;
     bool currentIsAsync_ = false;
     llvm::Type *asyncDeclaredRetType_ = nullptr;
+
+    /// Phase 2 Coroutine State
+    llvm::AllocaInst *currentCoroTask_ = nullptr;     // LivaTask* alloca
+    llvm::Value *currentCoroHandle_ = nullptr;          // coro.begin handle
+    llvm::Value *currentCoroId_ = nullptr;              // coro.id token
+    llvm::AllocaInst *currentCoroPromise_ = nullptr;    // Promise alloca (return value)
+    llvm::BasicBlock *currentCoroFinalBB_ = nullptr;    // Final suspend block
+    llvm::BasicBlock *currentCoroCleanupBB_ = nullptr;  // Cleanup block
+    llvm::BasicBlock *currentCoroSuspendBB_ = nullptr;  // Suspend/ret block
+
+    void declareCoroutineIntrinsics();
+    void declareAsyncRuntimeFuncs();
 
     /// Track which variables are optional and their inner LLVM type
     std::unordered_map<std::string, llvm::Type *> varOptionalTypes_;

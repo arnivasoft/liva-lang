@@ -1063,10 +1063,75 @@ llvm::Value *IRGen::visitRefExpr(RefExpr *node) {
 }
 
 llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
-    auto *taskVal = visit(node->getOperand());
-    if (!taskVal) return nullptr;
-    // Extract the result field (index 1) from Task { i1 done, T result }
-    return builder_->CreateExtractValue(taskVal, 1, "await.result");
+    auto *childTask = visit(node->getOperand());
+    if (!childTask) return nullptr;
+
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+    auto *func = builder_->GetInsertBlock()->getParent();
+
+    // Check if child task is already done
+    auto *isDoneFn = module_->getFunction("liva_task_is_done");
+    auto *doneI8 = builder_->CreateCall(isDoneFn, {childTask}, "done.i8");
+    auto *isDone = builder_->CreateICmpNE(doneI8, builder_->getInt8(0), "is.done");
+
+    auto *awaitReadyBB = llvm::BasicBlock::Create(*context_, "await.ready", func);
+    auto *awaitSuspendBB = llvm::BasicBlock::Create(*context_, "await.suspend", func);
+    builder_->CreateCondBr(isDone, awaitReadyBB, awaitSuspendBB);
+
+    // await.suspend: set parent and suspend
+    builder_->SetInsertPoint(awaitSuspendBB);
+    auto *curTask = builder_->CreateLoad(ptrTy, currentCoroTask_, "cur.task");
+    auto *setParentFn = module_->getFunction("liva_task_set_parent");
+    builder_->CreateCall(setParentFn, {childTask, curTask});
+
+    auto *coroSuspendFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+        llvm::Intrinsic::coro_suspend);
+    auto *noneToken = llvm::ConstantTokenNone::get(*context_);
+    auto *suspVal = builder_->CreateCall(coroSuspendFn,
+        {noneToken, builder_->getFalse()}, "sus");
+    auto *sw = builder_->CreateSwitch(suspVal, currentCoroSuspendBB_, 2);
+    sw->addCase(builder_->getInt8(0), awaitReadyBB);
+    sw->addCase(builder_->getInt8(1), currentCoroCleanupBB_);
+
+    // await.ready: extract result from child's promise
+    builder_->SetInsertPoint(awaitReadyBB);
+
+    // Determine the result type from the await operand's resolved type
+    llvm::Type *resultType = nullptr;
+    auto *operandType = node->getOperand()->getResolvedType();
+    if (operandType && operandType->getKind() == TypeRepr::Kind::Generic) {
+        auto *genType = static_cast<const GenericTypeRepr *>(operandType);
+        if (genType->getBaseName() == "Task" && !genType->getTypeArgs().empty()) {
+            resultType = toLLVMType(genType->getTypeArgs()[0].get());
+        }
+    }
+    if (!resultType) {
+        resultType = asyncDeclaredRetType_ ? asyncDeclaredRetType_ : builder_->getInt1Ty();
+    }
+
+    if (resultType->isVoidTy()) {
+        resultType = builder_->getInt1Ty();
+    }
+
+    // Get child handle and read promise
+    auto *getHandleFn = module_->getFunction("liva_task_get_handle");
+    auto *childHdl = builder_->CreateCall(getHandleFn, {childTask}, "child.hdl");
+
+    auto *coroPromiseFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+        llvm::Intrinsic::coro_promise);
+    auto &dl = module_->getDataLayout();
+    unsigned align = dl.getABITypeAlign(resultType).value();
+    auto *promisePtr = builder_->CreateCall(coroPromiseFn,
+        {childHdl, builder_->getInt32(align), builder_->getFalse()}, "child.promise");
+    auto *result = builder_->CreateLoad(resultType, promisePtr, "await.result");
+
+    // Cleanup child
+    auto *coroDestroyFn = module_->getFunction("liva_coro_destroy");
+    builder_->CreateCall(coroDestroyFn, {childHdl});
+    auto *taskDestroyFn = module_->getFunction("liva_task_destroy");
+    builder_->CreateCall(taskDestroyFn, {childTask});
+
+    return result;
 }
 
 } // namespace liva

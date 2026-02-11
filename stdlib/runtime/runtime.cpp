@@ -3,6 +3,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
+#include <cmath>
+#include <regex>
+#include <string>
+#include <vector>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
+#endif
 
 extern "C" {
 
@@ -709,6 +721,357 @@ int8_t liva_set_contains(void *entries, int64_t cap,
 int8_t liva_set_remove(void *entries, int64_t *size, int64_t cap,
                        const void *elem, int64_t elem_size, int8_t key_kind) {
     return liva_map_remove(entries, size, cap, elem, elem_size, 0, key_kind);
+}
+
+// === Random ===
+
+static bool rand_seeded = false;
+static void ensure_rand_seeded() {
+    if (!rand_seeded) {
+        srand((unsigned)time(nullptr));
+        rand_seeded = true;
+    }
+}
+
+int32_t liva_rand_int(int32_t min, int32_t max) {
+    ensure_rand_seeded();
+    if (min > max) { int32_t t = min; min = max; max = t; }
+    if (min == max) return min;
+    return (int32_t)(rand() % (max - min + 1)) + min;
+}
+
+double liva_rand_float() {
+    ensure_rand_seeded();
+    return (double)rand() / (double)RAND_MAX;
+}
+
+// === Process/Env ===
+
+char *liva_env_get(const char *name) {
+    if (!name) return nullptr;
+    const char *val = getenv(name);
+    if (!val) return nullptr;
+    size_t len = strlen(val);
+    char *copy = (char *)malloc(len + 1);
+    memcpy(copy, val, len + 1);
+    return copy;
+}
+
+void liva_exit(int32_t code) {
+    exit(code);
+}
+
+char **liva_args(int64_t *count) {
+#ifdef _WIN32
+    int argc = __argc;
+    char **argv = __argv;
+#else
+    // Fallback: no args available on non-Windows without main() args
+    int argc = 0;
+    char **argv = nullptr;
+#endif
+    *count = (int64_t)argc;
+    char **result = (char **)malloc((size_t)argc * sizeof(char *));
+    for (int i = 0; i < argc; i++) {
+        size_t len = strlen(argv[i]);
+        result[i] = (char *)malloc(len + 1);
+        memcpy(result[i], argv[i], len + 1);
+    }
+    return result;
+}
+
+// === Date/Time ===
+
+double liva_clock() {
+    return (double)time(nullptr);
+}
+
+int64_t liva_clock_ms() {
+#ifdef _WIN32
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER uli;
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    // FILETIME is 100-nanosecond intervals since 1601-01-01
+    // Convert to ms since Unix epoch (1970-01-01)
+    return (int64_t)((uli.QuadPart - 116444736000000000ULL) / 10000ULL);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+#endif
+}
+
+void liva_sleep(int64_t ms) {
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000;
+    nanosleep(&ts, nullptr);
+#endif
+}
+
+// === Regex ===
+
+int8_t liva_regex_match(const char *str, const char *pattern) {
+    if (!str || !pattern) return 0;
+    try {
+        std::regex re(pattern);
+        return std::regex_match(std::string(str), re) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+char *liva_regex_find(const char *str, const char *pattern) {
+    if (!str || !pattern) return nullptr;
+    try {
+        std::regex re(pattern);
+        std::smatch m;
+        std::string s(str);
+        if (std::regex_search(s, m, re)) {
+            std::string match = m[0].str();
+            char *result = (char *)malloc(match.size() + 1);
+            memcpy(result, match.c_str(), match.size() + 1);
+            return result;
+        }
+    } catch (...) {}
+    return nullptr;
+}
+
+char **liva_regex_find_all(const char *str, const char *pattern, int64_t *count) {
+    *count = 0;
+    if (!str || !pattern) return nullptr;
+    try {
+        std::regex re(pattern);
+        std::string s(str);
+        std::vector<std::string> matches;
+        auto begin = std::sregex_iterator(s.begin(), s.end(), re);
+        auto end = std::sregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            matches.push_back((*it)[0].str());
+        }
+        *count = (int64_t)matches.size();
+        char **result = (char **)malloc(matches.size() * sizeof(char *));
+        for (size_t i = 0; i < matches.size(); i++) {
+            result[i] = (char *)malloc(matches[i].size() + 1);
+            memcpy(result[i], matches[i].c_str(), matches[i].size() + 1);
+        }
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+char *liva_regex_replace(const char *str, const char *pattern, const char *replacement) {
+    if (!str || !pattern || !replacement) {
+        size_t len = str ? strlen(str) : 0;
+        char *copy = (char *)malloc(len + 1);
+        if (str) memcpy(copy, str, len + 1);
+        else copy[0] = '\0';
+        return copy;
+    }
+    try {
+        std::regex re(pattern);
+        std::string result = std::regex_replace(std::string(str), re, std::string(replacement));
+        char *out = (char *)malloc(result.size() + 1);
+        memcpy(out, result.c_str(), result.size() + 1);
+        return out;
+    } catch (...) {
+        size_t len = strlen(str);
+        char *copy = (char *)malloc(len + 1);
+        memcpy(copy, str, len + 1);
+        return copy;
+    }
+}
+
+// === Networking ===
+
+#ifdef _WIN32
+// Helper: parse URL into host, path, port, and https flag
+static bool parse_url(const char *url, std::wstring &host, std::wstring &path,
+                      int &port, bool &https) {
+    std::string u(url);
+    https = true;
+    port = 443;
+    size_t proto_end = u.find("://");
+    if (proto_end != std::string::npos) {
+        std::string proto = u.substr(0, proto_end);
+        if (proto == "http") { https = false; port = 80; }
+        u = u.substr(proto_end + 3);
+    }
+    size_t slash = u.find('/');
+    std::string h = (slash != std::string::npos) ? u.substr(0, slash) : u;
+    std::string p = (slash != std::string::npos) ? u.substr(slash) : "/";
+    // Check for port in host
+    size_t colon = h.find(':');
+    if (colon != std::string::npos) {
+        port = atoi(h.substr(colon + 1).c_str());
+        h = h.substr(0, colon);
+    }
+    host.assign(h.begin(), h.end());
+    path.assign(p.begin(), p.end());
+    return !host.empty();
+}
+
+static char *winhttp_request(const char *url, const char *method, const char *body) {
+    std::wstring host, path;
+    int port;
+    bool https;
+    if (!parse_url(url, host, path, port, https)) return nullptr;
+
+    HINTERNET hSession = WinHttpOpen(L"Liva/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return nullptr;
+
+    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), (INTERNET_PORT)port, 0);
+    if (!hConnect) { WinHttpCloseHandle(hSession); return nullptr; }
+
+    std::wstring wmethod(method, method + strlen(method));
+    DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, wmethod.c_str(), path.c_str(),
+                                             nullptr, WINHTTP_NO_REFERER,
+                                             WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return nullptr;
+    }
+
+    DWORD bodyLen = body ? (DWORD)strlen(body) : 0;
+    BOOL sent = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                                    body ? (LPVOID)body : WINHTTP_NO_REQUEST_DATA,
+                                    bodyLen, bodyLen, 0);
+    if (!sent || !WinHttpReceiveResponse(hRequest, nullptr)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return nullptr;
+    }
+
+    // Read response
+    std::string response;
+    DWORD bytesRead = 0;
+    char buf[4096];
+    while (WinHttpReadData(hRequest, buf, sizeof(buf), &bytesRead) && bytesRead > 0) {
+        response.append(buf, bytesRead);
+        bytesRead = 0;
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+
+    char *result = (char *)malloc(response.size() + 1);
+    memcpy(result, response.c_str(), response.size() + 1);
+    return result;
+}
+#endif
+
+char *liva_http_get(const char *url) {
+#ifdef _WIN32
+    return winhttp_request(url, "GET", nullptr);
+#else
+    (void)url;
+    return nullptr;
+#endif
+}
+
+char *liva_http_post(const char *url, const char *body) {
+#ifdef _WIN32
+    return winhttp_request(url, "POST", body);
+#else
+    (void)url;
+    (void)body;
+    return nullptr;
+#endif
+}
+
+// === Async/Coroutine Runtime ===
+
+// Ready queue for cooperative scheduler (simple FIFO)
+static LivaTask *ready_queue[1024];
+static int ready_head = 0;
+static int ready_tail = 0;
+
+static void ready_push(LivaTask *task) {
+    ready_queue[ready_tail % 1024] = task;
+    ready_tail++;
+}
+
+static LivaTask *ready_pop() {
+    if (ready_head == ready_tail) return nullptr;
+    LivaTask *task = ready_queue[ready_head % 1024];
+    ready_head++;
+    return task;
+}
+
+LivaTask *liva_task_create(void *coro_handle) {
+    LivaTask *task = (LivaTask *)malloc(sizeof(LivaTask));
+    task->handle = coro_handle;
+    task->parent = nullptr;
+    task->done = 0;
+    return task;
+}
+
+void liva_task_complete(LivaTask *task) {
+    task->done = 1;
+    if (task->parent) {
+        ready_push(task->parent);
+    }
+}
+
+int8_t liva_task_is_done(LivaTask *task) {
+    return task->done;
+}
+
+void *liva_task_get_handle(LivaTask *task) {
+    return task->handle;
+}
+
+void liva_task_set_parent(LivaTask *child, LivaTask *parent) {
+    child->parent = parent;
+}
+
+void liva_task_destroy(LivaTask *task) {
+    free(task);
+}
+
+void liva_coro_resume(void *handle) {
+    // Coroutine frame layout: [resume_fn_ptr, destroy_fn_ptr, ...]
+    // resume_fn_ptr is at offset 0
+    void (*resume_fn)(void *) = *((void (**)(void *))handle);
+    resume_fn(handle);
+}
+
+void liva_coro_destroy(void *handle) {
+    // destroy_fn_ptr is at offset 1 (sizeof(void*))
+    void (**fn_ptrs)(void *) = (void (**)(void *))handle;
+    void (*destroy_fn)(void *) = fn_ptrs[1];
+    destroy_fn(handle);
+}
+
+void liva_scheduler_run(LivaTask *root) {
+    // Reset queue
+    ready_head = 0;
+    ready_tail = 0;
+
+    // Resume root coroutine
+    if (!root->done) {
+        liva_coro_resume(root->handle);
+    }
+
+    // Process ready queue until root is done
+    while (!root->done) {
+        LivaTask *task = ready_pop();
+        if (!task) break;  // No more tasks — deadlock prevention
+        if (!task->done) {
+            liva_coro_resume(task->handle);
+        }
+    }
 }
 
 // === Panic ===

@@ -77,27 +77,35 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     }
 
     auto *returnType = toLLVMType(node->getReturnType());
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
-    // Async functions: wrap return type in Task<T>
+    // Async functions: return ptr (LivaTask*) instead of {i1, T}
     llvm::Type *asyncInnerRetType = nullptr;
+    bool isAsyncMain = false;
     if (node->isAsync()) {
         asyncFuncNames_.insert(node->getName());
         asyncInnerRetType = returnType;
         if (returnType->isVoidTy()) {
             asyncInnerRetType = builder_->getInt1Ty(); // placeholder for Void tasks
         }
-        returnType = getTaskType(asyncInnerRetType);
+        returnType = ptrTy;  // Phase 2: returns LivaTask*
+        if (node->getName() == "main") {
+            isAsyncMain = true;
+        }
     }
 
-    // C ABI: main must return i32
+    // C ABI: main must return i32 (non-async main)
     bool isMain = (node->getName() == "main");
-    if (isMain && returnType->isVoidTy()) {
+    if (isMain && !node->isAsync() && returnType->isVoidTy()) {
         returnType = builder_->getInt32Ty();
     }
 
+    // For async main, the coroutine is named "liva_async_main"
+    std::string funcName = isAsyncMain ? "liva_async_main" : node->getName();
+
     auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
     auto *func = llvm::Function::Create(
-        funcType, llvm::Function::ExternalLinkage, node->getName(), *module_);
+        funcType, llvm::Function::ExternalLinkage, funcName, *module_);
 
     // Set parameter names
     size_t i = 0;
@@ -133,8 +141,24 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto *oldFuncResultInfo = currentFuncResultInfo_;
     bool oldIsAsync = currentIsAsync_;
     auto *oldAsyncRetType = asyncDeclaredRetType_;
+    // Save coroutine state
+    auto *oldCoroTask = currentCoroTask_;
+    auto *oldCoroHandle = currentCoroHandle_;
+    auto *oldCoroId = currentCoroId_;
+    auto *oldCoroPromise = currentCoroPromise_;
+    auto *oldCoroFinalBB = currentCoroFinalBB_;
+    auto *oldCoroCleanupBB = currentCoroCleanupBB_;
+    auto *oldCoroSuspendBB = currentCoroSuspendBB_;
+
     currentIsAsync_ = node->isAsync();
     asyncDeclaredRetType_ = node->isAsync() ? asyncInnerRetType : nullptr;
+    currentCoroTask_ = nullptr;
+    currentCoroHandle_ = nullptr;
+    currentCoroId_ = nullptr;
+    currentCoroPromise_ = nullptr;
+    currentCoroFinalBB_ = nullptr;
+    currentCoroCleanupBB_ = nullptr;
+    currentCoroSuspendBB_ = nullptr;
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
@@ -159,6 +183,76 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         auto *rt = static_cast<const ResultTypeRepr *>(node->getReturnType());
         currentFuncResultInfoStorage_ = {toLLVMType(rt->getOkType()), toLLVMType(rt->getErrType())};
         currentFuncResultInfo_ = &currentFuncResultInfoStorage_;
+    }
+
+    // === Phase 2 Coroutine Ramp Setup (for async functions) ===
+    if (node->isAsync()) {
+        auto *i8Ty = builder_->getInt8Ty();
+        auto *i32Ty = builder_->getInt32Ty();
+        auto *i64Ty = builder_->getInt64Ty();
+        auto *i1Ty = builder_->getInt1Ty();
+        auto *tokenTy = llvm::Type::getTokenTy(*context_);
+
+        // Promise alloca — stores the return value
+        currentCoroPromise_ = createEntryBlockAlloca(func, "coro.promise", asyncInnerRetType);
+        builder_->CreateStore(llvm::Constant::getNullValue(asyncInnerRetType), currentCoroPromise_);
+
+        // Task alloca — stores LivaTask* pointer
+        currentCoroTask_ = createEntryBlockAlloca(func, "coro.task.alloca", ptrTy);
+
+        // @llvm.coro.id(i32 0, ptr %promise, ptr null, ptr null)
+        auto *coroIdFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+            llvm::Intrinsic::coro_id);
+        currentCoroId_ = builder_->CreateCall(coroIdFn, {
+            i32Ty->isIntegerTy() ? builder_->getInt32(0) : builder_->getInt32(0),
+            currentCoroPromise_,
+            llvm::ConstantPointerNull::get(ptrTy),
+            llvm::ConstantPointerNull::get(ptrTy)
+        }, "coro.id");
+
+        // @llvm.coro.alloc(token %id)
+        auto *coroAllocFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+            llvm::Intrinsic::coro_alloc);
+        auto *needAlloc = builder_->CreateCall(coroAllocFn, {currentCoroId_}, "need.alloc");
+
+        auto *coroAllocBB = llvm::BasicBlock::Create(*context_, "coro.alloc", func);
+        auto *coroInitBB = llvm::BasicBlock::Create(*context_, "coro.init", func);
+        builder_->CreateCondBr(needAlloc, coroAllocBB, coroInitBB);
+
+        // coro.alloc: allocate frame
+        builder_->SetInsertPoint(coroAllocBB);
+        auto *coroSizeFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+            llvm::Intrinsic::coro_size, {i64Ty});
+        auto *frameSize = builder_->CreateCall(coroSizeFn, {}, "coro.size");
+        auto *mallocFn = module_->getFunction("malloc");
+        auto *frameMem = builder_->CreateCall(mallocFn, {frameSize}, "coro.mem");
+        builder_->CreateBr(coroInitBB);
+
+        // coro.init: phi for memory, then coro.begin
+        builder_->SetInsertPoint(coroInitBB);
+        auto *phiMem = builder_->CreatePHI(ptrTy, 2, "rawmem");
+        phiMem->addIncoming(frameMem, coroAllocBB);
+        phiMem->addIncoming(llvm::ConstantPointerNull::get(ptrTy), entryBB);
+
+        auto *coroBeginFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+            llvm::Intrinsic::coro_begin);
+        currentCoroHandle_ = builder_->CreateCall(coroBeginFn,
+            {currentCoroId_, phiMem}, "coro.hdl");
+
+        // Create LivaTask
+        auto *taskCreateFn = module_->getFunction("liva_task_create");
+        auto *task = builder_->CreateCall(taskCreateFn, {currentCoroHandle_}, "task");
+        builder_->CreateStore(task, currentCoroTask_);
+
+        // Create the coro.final, coro.cleanup, coro.suspend blocks (will be filled later)
+        currentCoroFinalBB_ = llvm::BasicBlock::Create(*context_, "coro.final", func);
+        currentCoroCleanupBB_ = llvm::BasicBlock::Create(*context_, "coro.cleanup", func);
+        currentCoroSuspendBB_ = llvm::BasicBlock::Create(*context_, "coro.suspend", func);
+
+        // Create body block and branch to it
+        auto *bodyBB = llvm::BasicBlock::Create(*context_, "coro.body", func);
+        builder_->CreateBr(bodyBB);
+        builder_->SetInsertPoint(bodyBB);
     }
 
     // Create allocas for parameters
@@ -199,25 +293,64 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     // Generate body
     visitBlockStmt(const_cast<BlockStmt *>(node->getBody()));
 
-    // Add implicit return if needed
+    // Add implicit return / terminator
     if (!builder_->GetInsertBlock()->getTerminator()) {
         emitScopeCleanup();
-        if (isMain) {
-            // main always returns i32 0 implicitly
+        if (currentIsAsync_ && currentCoroFinalBB_) {
+            // Async: store null to promise and branch to coro.final
+            if (currentCoroPromise_) {
+                builder_->CreateStore(
+                    llvm::Constant::getNullValue(asyncDeclaredRetType_), currentCoroPromise_);
+            }
+            builder_->CreateBr(currentCoroFinalBB_);
+        } else if (isMain && !isAsyncMain) {
             builder_->CreateRet(builder_->getInt32(0));
-        } else if (currentIsAsync_) {
-            // Async func: return Task { done: true, result: nullValue }
-            auto *taskTy = getTaskType(asyncDeclaredRetType_);
-            llvm::Value *taskVal = llvm::UndefValue::get(taskTy);
-            taskVal = builder_->CreateInsertValue(taskVal, builder_->getTrue(), 0, "task.done");
-            taskVal = builder_->CreateInsertValue(taskVal,
-                llvm::Constant::getNullValue(asyncDeclaredRetType_), 1, "task.result");
-            builder_->CreateRet(taskVal);
         } else if (returnType->isVoidTy()) {
             builder_->CreateRetVoid();
         } else {
             builder_->CreateRet(llvm::Constant::getNullValue(returnType));
         }
+    }
+
+    // === Phase 2 Coroutine Final/Cleanup/Suspend blocks ===
+    if (node->isAsync() && currentCoroFinalBB_) {
+        auto *i8Ty = builder_->getInt8Ty();
+        auto *tokenTy = llvm::Type::getTokenTy(*context_);
+
+        // coro.final: mark task complete + final suspend
+        builder_->SetInsertPoint(currentCoroFinalBB_);
+        auto *taskLoad = builder_->CreateLoad(ptrTy, currentCoroTask_, "task.final");
+        auto *completeFn = module_->getFunction("liva_task_complete");
+        builder_->CreateCall(completeFn, {taskLoad});
+
+        auto *coroSuspendFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+            llvm::Intrinsic::coro_suspend);
+        auto *noneToken = llvm::ConstantTokenNone::get(*context_);
+        auto *finalSuspend = builder_->CreateCall(coroSuspendFn,
+            {noneToken, builder_->getTrue()}, "fs");
+        auto *sw = builder_->CreateSwitch(finalSuspend, currentCoroSuspendBB_, 2);
+        sw->addCase(builder_->getInt8(0), currentCoroSuspendBB_);
+        sw->addCase(builder_->getInt8(1), currentCoroCleanupBB_);
+
+        // coro.cleanup: free coroutine frame
+        builder_->SetInsertPoint(currentCoroCleanupBB_);
+        auto *coroFreeFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+            llvm::Intrinsic::coro_free);
+        auto *freeMem = builder_->CreateCall(coroFreeFn,
+            {currentCoroId_, currentCoroHandle_}, "coro.free.mem");
+        auto *freeFn = module_->getFunction("free");
+        builder_->CreateCall(freeFn, {freeMem});
+        builder_->CreateBr(currentCoroSuspendBB_);
+
+        // coro.suspend: coro.end + return task
+        builder_->SetInsertPoint(currentCoroSuspendBB_);
+        auto *coroEndFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+            llvm::Intrinsic::coro_end);
+        auto *noneToken2 = llvm::ConstantTokenNone::get(*context_);
+        builder_->CreateCall(coroEndFn,
+            {currentCoroHandle_, builder_->getFalse(), noneToken2});
+        auto *taskRet = builder_->CreateLoad(ptrTy, currentCoroTask_, "task.ret");
+        builder_->CreateRet(taskRet);
     }
 
     // Restore named values
@@ -240,6 +373,64 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     currentFuncResultInfo_ = oldFuncResultInfo;
     currentIsAsync_ = oldIsAsync;
     asyncDeclaredRetType_ = oldAsyncRetType;
+    // Restore coroutine state
+    currentCoroTask_ = oldCoroTask;
+    currentCoroHandle_ = oldCoroHandle;
+    currentCoroId_ = oldCoroId;
+    currentCoroPromise_ = oldCoroPromise;
+    currentCoroFinalBB_ = oldCoroFinalBB;
+    currentCoroCleanupBB_ = oldCoroCleanupBB;
+    currentCoroSuspendBB_ = oldCoroSuspendBB;
+
+    // === Async Main Wrapper ===
+    if (isAsyncMain) {
+        // Generate: i32 @main() { call @liva_async_main(); scheduler_run; destroy; ret 0 }
+        auto *i32Ty = builder_->getInt32Ty();
+        auto *mainFuncType = llvm::FunctionType::get(i32Ty, {}, false);
+        auto *mainFunc = llvm::Function::Create(
+            mainFuncType, llvm::Function::ExternalLinkage, "main", *module_);
+        auto *mainEntry = llvm::BasicBlock::Create(*context_, "entry", mainFunc);
+        builder_->SetInsertPoint(mainEntry);
+
+        // Call liva_async_main()
+        auto *asyncTask = builder_->CreateCall(func, {}, "root.task");
+
+        // Run scheduler
+        auto *schedulerFn = module_->getFunction("liva_scheduler_run");
+        builder_->CreateCall(schedulerFn, {asyncTask});
+
+        // Get result from promise if non-void return type
+        auto *declaredRet = toLLVMType(node->getReturnType());
+        if (declaredRet->isIntegerTy(32)) {
+            // Get handle, then use coro.promise to read result
+            auto *getHandleFn = module_->getFunction("liva_task_get_handle");
+            auto *hdl = builder_->CreateCall(getHandleFn, {asyncTask}, "root.hdl");
+
+            auto *coroPromiseFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
+                llvm::Intrinsic::coro_promise);
+            auto *promisePtr = builder_->CreateCall(coroPromiseFn,
+                {hdl, builder_->getInt32(4), builder_->getFalse()}, "promise.ptr");
+            auto *result = builder_->CreateLoad(i32Ty, promisePtr, "main.result");
+
+            // Cleanup
+            auto *coroDestroyFn = module_->getFunction("liva_coro_destroy");
+            builder_->CreateCall(coroDestroyFn, {hdl});
+            auto *taskDestroyFn = module_->getFunction("liva_task_destroy");
+            builder_->CreateCall(taskDestroyFn, {asyncTask});
+
+            builder_->CreateRet(result);
+        } else {
+            // Void or other: just cleanup and return 0
+            auto *getHandleFn = module_->getFunction("liva_task_get_handle");
+            auto *hdl = builder_->CreateCall(getHandleFn, {asyncTask}, "root.hdl");
+            auto *coroDestroyFn = module_->getFunction("liva_coro_destroy");
+            builder_->CreateCall(coroDestroyFn, {hdl});
+            auto *taskDestroyFn = module_->getFunction("liva_task_destroy");
+            builder_->CreateCall(taskDestroyFn, {asyncTask});
+
+            builder_->CreateRet(builder_->getInt32(0));
+        }
+    }
 
     return func;
 }
