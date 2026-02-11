@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 356/356 gecen test (lexer:27, parser:72, sema:236, type:12, ownership:9)
+- **Test:** 365/365 gecen test (lexer:33, parser:75, sema:236, type:12, ownership:9)
 
 ---
 
@@ -58,7 +58,7 @@ kaynak kod (.liva)
 - GoogleTest entegrasyonu
 - Dizin yapisi: include/, src/, tests/, examples/
 
-### M1: Lexer [TAMAMLANDI] - 27 test
+### M1: Lexer [TAMAMLANDI] - 33 test
 - 102 token turu (anahtar kelimeler, operatorler, literaller, noktalamalar)
 - Tam token listesi:
   - **Ozel:** `eof`, `identifier`, `integer_literal`, `float_literal`, `string_literal`, `char_literal`, `bool_literal`, `newline`, `string_interp_begin`, `string_interp_mid`, `string_interp_end`
@@ -539,7 +539,7 @@ kaynak kod (.liva)
 - Senkron semantik (Task<T> = {i1, T}, gercek coroutine yok)
 - Diagnostikler: `err_await_outside_async`, `err_async_main`
 
-### M35: Derleme Zamani Degerlendirme [TAMAMLANDI] - 10 test
+### M35: Derleme Zamani Degerlendirme [TAMAMLANDI] - 13 test
 - `const PI: f64 = 3.14159` — derleme zamani sabit (tip anotasyonlu)
 - `const MAX = 100` — tip cikarimli sabit
 - Desteklenen sabit ifadeler: literaller, aritmetik/mantiksal/bitwise ops, ternary, const referanslari, cast
@@ -549,7 +549,14 @@ kaynak kod (.liva)
 
 ---
 
-## Diagnostik Envanterleri (60 tanimli)
+### TD4: Teknik Borc Temizligi [TAMAMLANDI]
+- Deprecated LLVM API: 15x `getDeclaration` → `getOrInsertDeclaration` (IRGenCall.cpp)
+- Test coverage: AllKeywords lexer testi, 5 local const sema testi
+- plan.md sayisal tutarsizliklari duzeltildi (token/keyword/test sayilari)
+
+---
+
+## Diagnostik Envanterleri (65 tanimli)
 
 ### Lexer Hatalari (6)
 - `err_unexpected_character`, `err_unterminated_string`, `err_unterminated_block_comment`
@@ -616,12 +623,12 @@ kaynak kod (.liva)
 
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
-| `tests/unit/LexerTest.cpp` | 27 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings |
-| `tests/unit/ParserTest.cpp` | 72 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const |
+| `tests/unit/LexerTest.cpp` | 33 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings, hata yollari, bitwise tokenlar |
+| `tests/unit/ParserTest.cpp` | 75 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const, hata yollari |
 | `tests/unit/SemaTest.cpp` | 236 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
-| **Toplam** | **356** | |
+| **Toplam** | **365** | |
 
 ---
 
@@ -682,3 +689,35 @@ clang output.ll -o output.exe
 16. ~~**Teknik Borc Temizligi**~~ - TAMAMLANDI (TD1 IRGen split, TD2 LifetimeAnalysis, TD3 Associated Types)
 17. ~~**Async/Await Faz 1**~~ - TAMAMLANDI (M34 senkron semantik Task<T>)
 18. ~~**Derleme zamani degerlendirme**~~ - TAMAMLANDI (M35 const keyword, compile-time eval)
+19. ~~**Teknik Borc 4**~~ - TAMAMLANDI (TD4 deprecated LLVM API fix, test coverage, plan.md tutarliligi)
+
+---
+
+## Gelecek Ozellikler (Planlanmis)
+
+### Dil Ozellikleri
+
+| # | Ozellik | Aciklama | Karmasiklik |
+|---|---------|----------|-------------|
+| F1 | **Async/Await Faz 2** | Gercek coroutine destegi (LLVM coroutines), runtime scheduler | Yuksek |
+| F2 | **Coklu Trait Bound** | `T: Printable + Hashable` sozdizimi ile coklu kisitlama | Orta |
+| F3 | **Guard Clause (Pattern)** | `case .Circle(r) where r > 0 =>` match arm koruma ifadesi | Orta |
+| F4 | **Drop Trait / Destructor** | Kullanici tanimli kaynak temizleme, scope cikisinda otomatik cagrilan `drop(self)` | Yuksek |
+| F5 | **Operator Overloading** | `+`, `==`, `<` vb. operatorleri struct/enum icin ozellestirme (`protocol Add { ... }`) | Orta |
+| F6 | **Custom Iterator** | `Iterator` protokolu, `next() -> T?` ile `for-in` genisletme | Orta |
+| F7 | **Variadic Fonksiyonlar** | Degisken sayida arguman destegi (`func print(args: T...)`) | Orta |
+| F8 | **Nested Pattern Matching** | `match` icinde ic ice pattern esleme (`case .Some(.Circle(r)) =>`) | Orta |
+
+### Altyapi
+
+| # | Ozellik | Aciklama | Karmasiklik |
+|---|---------|----------|-------------|
+| I1 | **Ayri Derleme** | Modul basina ayri LLVM Module / object file + linking | Yuksek |
+| I2 | **Zengin Stdlib** | Daha kapsamli standart kutuphane (date/time, regex, networking) | Yuksek |
+
+### Araclar
+
+| # | Ozellik | Aciklama | Karmasiklik |
+|---|---------|----------|-------------|
+| T1 | **REPL** | Interaktif komut satiri degerlendirme (JIT ile) | Orta |
+| T2 | **LSP Sunucusu** | IDE destegi — otomatik tamamlama, hata gosterimi, go-to-definition | Yuksek |

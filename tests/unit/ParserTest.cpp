@@ -983,6 +983,37 @@ TEST_F(ParserTest, AwaitExpr) {
 
 // === M35: Const Declaration Tests ===
 
+// ===== TD5: Parser Error Path Tests =====
+
+TEST_F(ParserTest, ErrorExpectedExpression) {
+    auto result = parse("func main() { let x = }");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics())
+        if (d.id == DiagID::err_expected_expression) found = true;
+    EXPECT_TRUE(found);
+}
+
+TEST_F(ParserTest, ErrorExpectedType) {
+    auto result = parse("func main() { let x: = 1 }");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics())
+        if (d.id == DiagID::err_expected_type) found = true;
+    EXPECT_TRUE(found);
+}
+
+TEST_F(ParserTest, ErrorExpectedToken) {
+    auto result = parse("func main( { }");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics())
+        if (d.id == DiagID::err_expected_token) found = true;
+    EXPECT_TRUE(found);
+}
+
+// === M35: Const Declaration Tests ===
+
 TEST_F(ParserTest, ConstDeclBasic) {
     auto result = parse("const x: i32 = 42");
     ASSERT_FALSE(result.hasErrors);

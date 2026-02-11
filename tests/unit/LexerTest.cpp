@@ -319,6 +319,60 @@ TEST_F(LexerTest, AllKeywords) {
     expectToken(tokens[29], TokenKind::kw_type);
 }
 
+// ===== TD5: Error Path Tests =====
+
+TEST_F(LexerTest, UnterminatedString) {
+    auto tokens = lex("\"hello");
+    EXPECT_TRUE(diag_.hasErrors());
+    ASSERT_FALSE(diag_.getDiagnostics().empty());
+    EXPECT_EQ(diag_.getDiagnostics()[0].id, DiagID::err_unterminated_string);
+}
+
+TEST_F(LexerTest, UnterminatedBlockComment) {
+    auto tokens = lex("/* comment");
+    EXPECT_TRUE(diag_.hasErrors());
+    ASSERT_FALSE(diag_.getDiagnostics().empty());
+    EXPECT_EQ(diag_.getDiagnostics()[0].id, DiagID::err_unterminated_block_comment);
+}
+
+TEST_F(LexerTest, InvalidEscapeSequence) {
+    auto tokens = lex("\"test\\q\"");
+    EXPECT_TRUE(diag_.hasErrors());
+    bool found = false;
+    for (auto &d : diag_.getDiagnostics())
+        if (d.id == DiagID::err_invalid_escape_sequence) found = true;
+    EXPECT_TRUE(found);
+}
+
+TEST_F(LexerTest, EmptyCharLiteral) {
+    auto tokens = lex("''");
+    EXPECT_TRUE(diag_.hasErrors());
+    ASSERT_FALSE(diag_.getDiagnostics().empty());
+    EXPECT_EQ(diag_.getDiagnostics()[0].id, DiagID::err_empty_char_literal);
+}
+
+TEST_F(LexerTest, UnexpectedCharacter) {
+    auto tokens = lex("`");
+    EXPECT_TRUE(diag_.hasErrors());
+    ASSERT_FALSE(diag_.getDiagnostics().empty());
+    EXPECT_EQ(diag_.getDiagnostics()[0].id, DiagID::err_unexpected_character);
+}
+
+// ===== TD5: Bitwise & Special Token Tests =====
+
+TEST_F(LexerTest, BitwiseAndSpecialTokens) {
+    auto tokens = lex("& | ^ ~ << >> @ #");
+    ASSERT_GE(tokens.size(), 8u);
+    expectToken(tokens[0], TokenKind::amp);
+    expectToken(tokens[1], TokenKind::pipe);
+    expectToken(tokens[2], TokenKind::caret);
+    expectToken(tokens[3], TokenKind::tilde);
+    expectToken(tokens[4], TokenKind::less_less);
+    expectToken(tokens[5], TokenKind::greater_greater);
+    expectToken(tokens[6], TokenKind::at);
+    expectToken(tokens[7], TokenKind::hash);
+}
+
 // ===== M29: Multi-line string literals =====
 
 TEST_F(LexerTest, MultiLineString) {
