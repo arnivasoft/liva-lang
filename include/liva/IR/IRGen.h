@@ -89,6 +89,7 @@ public:
     llvm::Value *visitTernaryExpr(TernaryExpr *node);
     llvm::Value *visitRefExpr(RefExpr *node);
     llvm::Value *visitTypeAliasDecl(TypeAliasDecl *node);
+    llvm::Value *visitAwaitExpr(AwaitExpr *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -280,6 +281,15 @@ private:
     /// Get or create an Optional<T> struct type: { i1, T }
     llvm::StructType *getOptionalType(llvm::Type *innerType);
     std::unordered_map<llvm::Type *, llvm::StructType *> optionalTypes_;
+
+    /// Get or create a Task<T> struct type: { i1, T } (same layout as Optional)
+    llvm::StructType *getTaskType(llvm::Type *innerType);
+    std::unordered_map<llvm::Type *, llvm::StructType *> taskTypes_;
+
+    /// Async function tracking
+    std::set<std::string> asyncFuncNames_;
+    bool currentIsAsync_ = false;
+    llvm::Type *asyncDeclaredRetType_ = nullptr;
 
     /// Track which variables are optional and their inner LLVM type
     std::unordered_map<std::string, llvm::Type *> varOptionalTypes_;

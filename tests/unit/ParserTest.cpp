@@ -940,3 +940,43 @@ TEST_F(ParserTest, TupleMemberAccess) {
     ASSERT_NE(member, nullptr);
     EXPECT_EQ(member->getMember(), "0");
 }
+
+TEST_F(ParserTest, AsyncFuncDecl) {
+    auto result = parse("async func fetchData() -> i32 { return 42 }");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getName(), "fetchData");
+    EXPECT_TRUE(fn->isAsync());
+}
+
+TEST_F(ParserTest, PubAsyncFuncDecl) {
+    auto result = parse("pub async func getData() -> string { return \"hello\" }");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getName(), "getData");
+    EXPECT_TRUE(fn->isPublic());
+    EXPECT_TRUE(fn->isAsync());
+}
+
+TEST_F(ParserTest, AwaitExpr) {
+    auto result = parse(R"--(
+        async func fetchData() -> i32 { return 42 }
+        async func main2() -> i32 {
+            let x: i32 = await fetchData()
+            return x
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_GE(result.tu->getDeclarations().size(), 2);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_TRUE(fn->isAsync());
+    // First statement should be a VarDecl with await in init
+    auto *varDecl = dynamic_cast<VarDecl *>(fn->getBody()->getStatements()[0].get());
+    ASSERT_NE(varDecl, nullptr);
+    EXPECT_EQ(varDecl->getName(), "x");
+}

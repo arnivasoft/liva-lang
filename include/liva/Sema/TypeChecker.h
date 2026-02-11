@@ -66,6 +66,7 @@ public:
     void visitClosureExpr(ClosureExpr *node);
     void visitTryExpr(TryExpr *node);
     void visitTernaryExpr(TernaryExpr *node);
+    void visitAwaitExpr(AwaitExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
@@ -104,6 +105,10 @@ private:
 
     /// Resolve a type through aliases (returns target if alias, else original)
     const TypeRepr *resolveAlias(const TypeRepr *type) const;
+
+    /// Async function tracking
+    bool currentIsAsync_ = false;
+    std::set<std::string> asyncFuncNames_;
 
     /// File-typed variable tracking
     std::set<std::string> fileVariables_;

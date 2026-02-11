@@ -76,6 +76,13 @@ void TypeChecker::check(TranslationUnit &tu) {
             }
         } else if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
             auto *funcDecl = static_cast<FuncDecl *>(decl.get());
+            // Track async functions
+            if (funcDecl->isAsync()) {
+                if (funcDecl->getName() == "main") {
+                    diag_.report(decl->getStartLoc(), DiagID::err_async_main);
+                }
+                asyncFuncNames_.insert(funcDecl->getName());
+            }
             Symbol sym;
             sym.name = funcDecl->getName();
             sym.kind = Symbol::Kind::Function;
@@ -138,6 +145,10 @@ void TypeChecker::check(TranslationUnit &tu) {
 void TypeChecker::visitFuncDecl(FuncDecl *node) {
     scopes_.pushScope();
 
+    // Save/restore async state
+    bool prevIsAsync = currentIsAsync_;
+    currentIsAsync_ = node->isAsync();
+
     // Register type parameters in scope
     for (const auto &tp : node->getTypeParams()) {
         Symbol sym;
@@ -171,6 +182,7 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     }
 
     currentReturnType_ = nullptr;
+    currentIsAsync_ = prevIsAsync;
     scopes_.popScope();
 }
 
@@ -854,6 +866,13 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                 }
             }
         }
+
+        // Wrap return type in Task<T> for async function calls
+        if (asyncFuncNames_.count(ident->getName()) && node->getResolvedType()) {
+            std::vector<std::unique_ptr<TypeRepr>> taskArgs;
+            taskArgs.push_back(cloneTypeRepr(node->getResolvedType()));
+            node->setResolvedType(std::make_unique<GenericTypeRepr>("Task", std::move(taskArgs)));
+        }
     }
 
     // Map/Set method call resolution: m.insert(), m.get(), m.contains(), m.remove()
@@ -1373,6 +1392,26 @@ void TypeChecker::visitTernaryExpr(TernaryExpr *node) {
     // Propagate then-branch type as result type
     if (node->getThenExpr()->getResolvedType()) {
         node->setResolvedType(cloneTypeRepr(node->getThenExpr()->getResolvedType()));
+    }
+}
+
+void TypeChecker::visitAwaitExpr(AwaitExpr *node) {
+    if (!currentIsAsync_) {
+        diag_.report(node->getStartLoc(), DiagID::err_await_outside_async);
+    }
+    visit(node->getOperand());
+    // Unwrap Task<T> to T
+    auto *operandType = node->getOperand()->getResolvedType();
+    if (operandType && operandType->getKind() == TypeRepr::Kind::Generic) {
+        auto *genType = static_cast<const GenericTypeRepr *>(operandType);
+        if (genType->getBaseName() == "Task" && !genType->getTypeArgs().empty()) {
+            node->setResolvedType(cloneTypeRepr(genType->getTypeArgs()[0].get()));
+            return;
+        }
+    }
+    // If not a Task type, propagate operand type (tolerant for non-async calls)
+    if (operandType) {
+        node->setResolvedType(cloneTypeRepr(operandType));
     }
 }
 

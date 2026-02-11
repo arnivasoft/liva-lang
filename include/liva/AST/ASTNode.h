@@ -58,6 +58,7 @@ public:
         ClosureExpr, // |x: i32| -> i32 { body }
         TryExpr,     // try expr
         TernaryExpr, // condition ? then : else
+        AwaitExpr,   // await expr
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())

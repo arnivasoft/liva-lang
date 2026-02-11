@@ -10,6 +10,9 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
     }
 
     switch (current_.getKind()) {
+    case TokenKind::kw_async:
+        advance(); // consume 'async'
+        return parseFuncDecl(isPublic, /*isAsync=*/true);
     case TokenKind::kw_func:
         return parseFuncDecl(isPublic);
     case TokenKind::kw_let:
@@ -33,7 +36,7 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
     }
 }
 
-std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic) {
+std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_func);
 
@@ -94,7 +97,7 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic) {
 
     auto funcDecl = std::make_unique<FuncDecl>(std::move(name), std::move(params),
                                                 std::move(returnType), std::move(body),
-                                                isPublic, rangeFrom(startLoc));
+                                                isPublic, rangeFrom(startLoc), isAsync);
     if (!typeParams.empty()) {
         funcDecl->setTypeParams(std::move(typeParams));
     }

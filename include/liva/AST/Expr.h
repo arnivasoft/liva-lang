@@ -21,7 +21,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::IntegerLiteralExpr &&
-               node->getKind() <= NodeKind::TernaryExpr;
+               node->getKind() <= NodeKind::AwaitExpr;
     }
 
 protected:
@@ -520,6 +520,18 @@ public:
     const Expr *getOperand() const { return operand_.get(); }
     Expr *getOperand() { return operand_.get(); }
     static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::TryExpr; }
+private:
+    std::unique_ptr<Expr> operand_;
+};
+
+/// Await expression: await expr (unwrap Task<T> to T)
+class AwaitExpr : public Expr {
+public:
+    AwaitExpr(std::unique_ptr<Expr> operand, SourceRange range)
+        : Expr(NodeKind::AwaitExpr, range), operand_(std::move(operand)) {}
+    const Expr *getOperand() const { return operand_.get(); }
+    Expr *getOperand() { return operand_.get(); }
+    static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::AwaitExpr; }
 private:
     std::unique_ptr<Expr> operand_;
 };

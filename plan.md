@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 322/322 gecen test (lexer:26, parser:66, sema:209, type:12, ownership:6, +3)
+- **Test:** 330/330 gecen test (lexer:26, parser:66, sema:214, type:12, ownership:9, +3)
 
 ---
 
@@ -22,7 +22,7 @@ kaynak kod (.liva)
 [Parser] --> AST (Abstract Syntax Tree)
     |          liva_parser
     v
-[Sema] --> Type checking + Ownership checking
+[Sema] --> Type checking + Ownership checking + Lifetime analysis
     |        liva_sema
     v
 [IRGen] --> LLVM IR
@@ -37,8 +37,8 @@ kaynak kod (.liva)
 - `liva_lexer` - Token, TokenKinds.def, Lexer (depends: liva_common)
 - `liva_ast` - ASTNode, Expr, Stmt, Decl, Type, ASTVisitor, ASTPrinter (depends: liva_common)
 - `liva_parser` - Parser (ParseDecl, ParseStmt, ParseExpr, ParseType) (depends: liva_lexer, liva_ast)
-- `liva_sema` - Sema, TypeChecker, OwnershipChecker, Scope (depends: liva_ast, liva_common)
-- `liva_irgen` - IRGen (depends: liva_ast, liva_sema, LLVM)
+- `liva_sema` - Sema, TypeChecker, OwnershipChecker, LifetimeAnalysis, Scope, ModuleLoader (depends: liva_ast, liva_common)
+- `liva_irgen` - IRGen (6 dosya: IRGen, IRGenDecl, IRGenStmt, IRGenExpr, IRGenCall, IRGenMono) (depends: liva_ast, liva_sema, LLVM)
 - `liva_codegen` - CodeGen, TargetInfo (depends: liva_irgen, LLVM)
 
 ### livac Komut Satiri
@@ -85,7 +85,7 @@ kaynak kod (.liva)
 | EnumDecl | `enum Color { case Red; case Green }` | Tam |
 | EnumCaseDecl | `case Circle(f64)` - iliskili tipler | Tam |
 | ImplDecl | `impl<T> Box<T> { func get(self) -> T { ... } }` | Tam (generic dahil) |
-| ProtocolDecl | `protocol Drawable { func draw(self) }` | Tam (static + dynamic dispatch, defaults) |
+| ProtocolDecl | `protocol Drawable { type Item; func draw(self) }` | Tam (static + dynamic dispatch, defaults, associated types) |
 | ImportDecl | `import foo::bar` | Tam (sema + codegen) |
 
 **Ifadeler (Stmt):**
@@ -151,16 +151,15 @@ kaynak kod (.liva)
 - Printf tabanli I/O (`print`/`println`)
 - Tip donusumleri (cast: int<->float, int<->int)
 
-### M5: Ownership Kontrolu (Kismi) [TAMAMLANDI] - 6 test
+### M5: Ownership Kontrolu [TAMAMLANDI] - 9 test
 - Sahiplik durumu makinesi: Owned -> Moved/Borrowed -> Dropped
 - Move semantigi takibi
 - Immutable/mutable borrow kontrolu
 - Use-after-move tespiti
 - Immutable degiskene atama tespiti
 - Borrow catismasi tespiti
+- Scope-based lifetime analysis (borrow-outlives checking)
 - **Sinirlamalar:**
-  - OwnershipChecker IRGen pipeline'ina entegre degil
-  - Lifetime analizi henuz uygulanmadi (LifetimeAnalysis.h bos)
   - Copy trait tespiti basit (sadece primitifler)
 
 ### M6: Enum Codegen + Match [TAMAMLANDI]
@@ -334,7 +333,7 @@ kaynak kod (.liva)
 
 ---
 
-## Gelecek Milestone'lar
+## Tamamlanan Ek Milestone'lar
 
 ### M22c: Math Built-ins [TAMAMLANDI]
 - `abs`, `min`, `max`: ayni tip donusu (int/float)
@@ -363,10 +362,6 @@ kaynak kod (.liva)
 - Sema: `fileVariables_` set, registerBuiltins, visitCallExpr/visitIfLetStmt
 - IRGen: `varFileTypes_`, `varFileOptionalTypes_`, File.open -> Optional<ptr>, if-let unwrap
 - 10 sema testi
-
----
-
-## Gelecek Milestone'lar
 
 ### M23: For-in Koleksiyonlari [TAMAMLANDI]
 - `for item in array { ... }` — dinamik dizi iterasyonu (idx loop over data ptr)
@@ -510,6 +505,34 @@ kaynak kod (.liva)
 - Kapsam: sadece fonksiyon seviyesi (block-level yok), File/String temizleme yok
 - 4 sema testi
 
+### TD1: IRGen.cpp Bolme [TAMAMLANDI]
+- 5,542 satirlik monolitik IRGen.cpp dosyasi 6 dosyaya bolundu
+- Tum metotlar ayni `IRGen` sinifinda kalir, sadece .cpp implementasyonlari ayrildi
+- `src/IR/IRGen.cpp` — Core: constructor, generate(), createRuntimeDecls(), tip helper'lari (~500 satir)
+- `src/IR/IRGenDecl.cpp` — Bildirim visitor'lari (~1600 satir)
+- `src/IR/IRGenStmt.cpp` — Ifade visitor'lari + emitScopeCleanup (~570 satir)
+- `src/IR/IRGenExpr.cpp` — Expression visitor'lari + CapturedVar/collectFreeVars + closures (~2000 satir)
+- `src/IR/IRGenCall.cpp` — Call/member/match/assign visitor'lari (~1600 satir)
+- `src/IR/IRGenMono.cpp` — Monomorfizasyon (~350 satir)
+
+### TD2: LifetimeAnalysis Implementasyonu [TAMAMLANDI]
+- Scope-tabanli borrow-outlives checking, Sema::analyze() Phase 3 olarak calisir
+- Her degiskene tanimlandigi scope derinligini atar (VarInfo{scopeDepth, declLoc, refTarget})
+- Referanslarin refer ettikleri degiskeni asip asmadigini kontrol eder
+- `visitBlockStmt`: scope push/pop, `visitVarDecl`: ref init kontrolu
+- `visitAssignExpr`: ref re-assignment scope kontrolu, `checkScopeExit`: blok cikisinda outlives kontrolu
+- `err_borrow_outlives_value` diagnostigi
+- 3 yeni ownership testi (BorrowOutlivesValueInnerScope, BorrowSameScope, BorrowOuterToInner)
+
+### TD3: Associated Types [TAMAMLANDI]
+- Protokollarda iliskili tip tanimlama: `protocol Container { type Item; func get(self) -> i32 }`
+- Impl bloklarinda iliskili tip belirtme: `impl X: Container { type Item = i32; ... }`
+- AST: ProtocolDecl.associatedTypes_ (vector<string>), ImplDecl.associatedTypes_ (map<string,string>)
+- Parser: parseProtocolDecl'de `kw_type` → associatedTypes listesi, parseImplDecl'de `type Name = Type` → map
+- Sema: protocolAssociatedTypes_ map, visitImplDecl'de eksik associated type kontrolu
+- `err_missing_associated_type` diagnostigi
+- 5 yeni sema testi
+
 ### M34: Async/Await [PLANLANMADI]
 - `async func fetch() -> String { ... }`
 - `let result = await fetch()`
@@ -521,7 +544,7 @@ kaynak kod (.liva)
 
 ---
 
-## Diagnostik Envanterleri (55 tanimli)
+## Diagnostik Envanterleri (56 tanimli)
 
 ### Lexer Hatalari (6)
 - `err_unexpected_character`, `err_unterminated_string`, `err_unterminated_block_comment`
@@ -547,8 +570,9 @@ kaynak kod (.liva)
 - `err_immut_borrow_conflict`, `err_move_while_borrowed`, `err_borrow_outlives_value`
 - `err_double_move`, `err_partial_move`, `err_mut_ref_to_immutable`
 
-### Sema - Protocol/Trait (3)
+### Sema - Protocol/Trait (4)
 - `err_undefined_protocol`, `err_missing_protocol_method`, `err_no_conformance`
+- `err_missing_associated_type`
 
 ### Sema - Error Handling (1)
 - `err_try_on_non_result`
@@ -583,10 +607,10 @@ kaynak kod (.liva)
 |-------------|------|--------|
 | `tests/unit/LexerTest.cpp` | 26 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings |
 | `tests/unit/ParserTest.cpp` | 66 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples |
-| `tests/unit/SemaTest.cpp` | 209 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup |
+| `tests/unit/SemaTest.cpp` | 214 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
-| `tests/unit/OwnershipTest.cpp` | 6 | Move, borrow, use-after-move |
-| **Toplam** | **322** | |
+| `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
+| **Toplam** | **330** | |
 
 ---
 
@@ -616,13 +640,14 @@ clang output.ll -o output.exe
 ## Bilinen Sorunlar ve Teknik Borc
 
 1. ~~**OwnershipChecker IRGen'e entegre degil**~~ - COZULDU (M33: DynArray/Map/Set auto-free)
-2. **LifetimeAnalysis.h bos** - Lifetime analizi henuz uygulanmadi
+2. ~~**LifetimeAnalysis.h bos**~~ - COZULDU (TD2: scope-based borrow-outlives checking)
 3. ~~**RefExpr codegen eksik**~~ - COZULDU (M20)
 4. ~~**Optional chaining yok**~~ - COZULDU (M21)
 5. ~~**Closure capture by reference yok**~~ - COZULDU (M32)
 6. ~~**where clause yok**~~ - COZULDU (M19)
-7. **Associated types yok** - Protocol'larda iliskili tip tanimlama yok
-8. **Ayri derleme yok** - Modul sistemi inline (tek LLVM Module'e ekleme)
+7. ~~**Associated types yok**~~ - COZULDU (TD3: protocol/impl associated types)
+8. ~~**IRGen.cpp tek monolitik dosya**~~ - COZULDU (TD1: 6 dosyaya bolundu)
+9. **Ayri derleme yok** - Modul sistemi inline (tek LLVM Module'e ekleme)
 
 ---
 
@@ -643,5 +668,6 @@ clang output.ll -o output.exe
 13. ~~**Tuple Types & Multi-Return**~~ - TAMAMLANDI (M31 tuple types/destructuring/multi-return)
 14. ~~**Closure Capture by Reference**~~ - TAMAMLANDI (M32 by-ref capture/varRefTypes reuse)
 15. ~~**Ownership + IRGen Integration**~~ - TAMAMLANDI (M33 auto-free DynArray/Map/Set/move tracking)
-16. **Async/Await** - Ileri ozellik
-17. **Derleme zamani degerlendirme** - Optimizasyon
+16. ~~**Teknik Borc Temizligi**~~ - TAMAMLANDI (TD1 IRGen split, TD2 LifetimeAnalysis, TD3 Associated Types)
+17. **Async/Await** - Ileri ozellik
+18. **Derleme zamani degerlendirme** - Optimizasyon

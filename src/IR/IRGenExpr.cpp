@@ -1056,6 +1056,13 @@ llvm::Value *IRGen::visitRefExpr(RefExpr *node) {
     return nullptr;
 }
 
+llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
+    auto *taskVal = visit(node->getOperand());
+    if (!taskVal) return nullptr;
+    // Extract the result field (index 1) from Task { i1 done, T result }
+    return builder_->CreateExtractValue(taskVal, 1, "await.result");
+}
+
 } // namespace liva
 
 #endif // LIVA_HAS_LLVM

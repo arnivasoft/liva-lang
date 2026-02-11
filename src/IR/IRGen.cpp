@@ -278,6 +278,15 @@ llvm::StructType *IRGen::getOptionalType(llvm::Type *innerType) {
     return ty;
 }
 
+llvm::StructType *IRGen::getTaskType(llvm::Type *innerType) {
+    auto it = taskTypes_.find(innerType);
+    if (it != taskTypes_.end()) return it->second;
+    auto *ty = llvm::StructType::create(*context_,
+        {builder_->getInt1Ty(), innerType}, "Task");
+    taskTypes_[innerType] = ty;
+    return ty;
+}
+
 llvm::StructType *IRGen::getResultType(llvm::Type *okType, llvm::Type *errType) {
     auto key = std::make_pair(okType, errType);
     auto it = resultTypes_.find(key);
@@ -425,6 +434,14 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         for (auto &e : tupType->getElements())
             elemTypes.push_back(toLLVMType(e.get()));
         return llvm::StructType::get(*context_, elemTypes);
+    }
+    case TypeRepr::Kind::Generic: {
+        auto *genType = static_cast<const GenericTypeRepr *>(type);
+        if (genType->getBaseName() == "Task" && !genType->getTypeArgs().empty()) {
+            return getTaskType(toLLVMType(genType->getTypeArgs()[0].get()));
+        }
+        // Other generics (Map, Set, etc.) are handled elsewhere
+        return llvm::PointerType::getUnqual(*context_);
     }
     case TypeRepr::Kind::Function:
         return getClosureObjTy();

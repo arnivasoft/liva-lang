@@ -21,7 +21,7 @@ public:
 
     // Declaration parsing (ParseDecl.cpp)
     std::unique_ptr<ASTNode> parseTopLevelDecl();
-    std::unique_ptr<FuncDecl> parseFuncDecl(bool isPublic = false);
+    std::unique_ptr<FuncDecl> parseFuncDecl(bool isPublic = false, bool isAsync = false);
     std::unique_ptr<VarDecl> parseVarDecl();
     std::unique_ptr<StructDecl> parseStructDecl(bool isPublic = false);
     std::unique_ptr<EnumDecl> parseEnumDecl(bool isPublic = false);

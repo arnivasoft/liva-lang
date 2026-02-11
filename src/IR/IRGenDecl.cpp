@@ -78,6 +78,17 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     auto *returnType = toLLVMType(node->getReturnType());
 
+    // Async functions: wrap return type in Task<T>
+    llvm::Type *asyncInnerRetType = nullptr;
+    if (node->isAsync()) {
+        asyncFuncNames_.insert(node->getName());
+        asyncInnerRetType = returnType;
+        if (returnType->isVoidTy()) {
+            asyncInnerRetType = builder_->getInt1Ty(); // placeholder for Void tasks
+        }
+        returnType = getTaskType(asyncInnerRetType);
+    }
+
     // C ABI: main must return i32
     bool isMain = (node->getName() == "main");
     if (isMain && returnType->isVoidTy()) {
@@ -120,6 +131,10 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarTupleTypes = varTupleTypes_;
     auto oldMovedVars = movedVars_;
     auto *oldFuncResultInfo = currentFuncResultInfo_;
+    bool oldIsAsync = currentIsAsync_;
+    auto *oldAsyncRetType = asyncDeclaredRetType_;
+    currentIsAsync_ = node->isAsync();
+    asyncDeclaredRetType_ = node->isAsync() ? asyncInnerRetType : nullptr;
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
@@ -190,6 +205,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         if (isMain) {
             // main always returns i32 0 implicitly
             builder_->CreateRet(builder_->getInt32(0));
+        } else if (currentIsAsync_) {
+            // Async func: return Task { done: true, result: nullValue }
+            auto *taskTy = getTaskType(asyncDeclaredRetType_);
+            llvm::Value *taskVal = llvm::UndefValue::get(taskTy);
+            taskVal = builder_->CreateInsertValue(taskVal, builder_->getTrue(), 0, "task.done");
+            taskVal = builder_->CreateInsertValue(taskVal,
+                llvm::Constant::getNullValue(asyncDeclaredRetType_), 1, "task.result");
+            builder_->CreateRet(taskVal);
         } else if (returnType->isVoidTy()) {
             builder_->CreateRetVoid();
         } else {
@@ -215,6 +238,8 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varTupleTypes_ = oldVarTupleTypes;
     movedVars_ = oldMovedVars;
     currentFuncResultInfo_ = oldFuncResultInfo;
+    currentIsAsync_ = oldIsAsync;
+    asyncDeclaredRetType_ = oldAsyncRetType;
 
     return func;
 }

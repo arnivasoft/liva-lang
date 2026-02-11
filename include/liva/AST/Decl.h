@@ -40,10 +40,10 @@ class FuncDecl : public Decl {
 public:
     FuncDecl(std::string name, std::vector<ParamDecl> params,
              std::unique_ptr<TypeRepr> returnType, std::unique_ptr<BlockStmt> body,
-             bool isPublic, SourceRange range)
+             bool isPublic, SourceRange range, bool isAsync = false)
         : Decl(NodeKind::FuncDecl, range), name_(std::move(name)),
           params_(std::move(params)), returnType_(std::move(returnType)),
-          body_(std::move(body)), isPublic_(isPublic) {}
+          body_(std::move(body)), isPublic_(isPublic), isAsync_(isAsync) {}
 
     const std::string &getName() const { return name_; }
     const std::vector<ParamDecl> &getParams() const { return params_; }
@@ -51,6 +51,7 @@ public:
     const BlockStmt *getBody() const { return body_.get(); }
     BlockStmt *getBody() { return body_.get(); }
     bool isPublic() const { return isPublic_; }
+    bool isAsync() const { return isAsync_; }
     bool hasBody() const { return body_ != nullptr; }
 
     /// Check if this is a method (has self parameter)
@@ -82,6 +83,7 @@ private:
     std::unique_ptr<TypeRepr> returnType_;
     std::unique_ptr<BlockStmt> body_;
     bool isPublic_;
+    bool isAsync_ = false;
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::string> typeParamBounds_;
 };

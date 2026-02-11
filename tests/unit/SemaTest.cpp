@@ -2779,3 +2779,101 @@ TEST_F(SemaTest, ProtocolNoAssociatedTypesStillWorks) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Async/Await Tests ===
+
+TEST_F(SemaTest, AsyncFuncValid) {
+    auto result = check(R"--(
+        async func fetchData() -> i32 {
+            return 42
+        }
+        func main() {
+            println(fetchData())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncFuncWithAwait) {
+    auto result = check(R"--(
+        async func fetchData() -> i32 {
+            return 42
+        }
+        async func process() -> i32 {
+            let x: i32 = await fetchData()
+            return x
+        }
+        func main() {
+            println(process())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AwaitOutsideAsync) {
+    auto result = check(R"--(
+        async func fetchData() -> i32 {
+            return 42
+        }
+        func main() {
+            let x: i32 = await fetchData()
+            println(x)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_await_outside_async));
+}
+
+TEST_F(SemaTest, AsyncMainForbidden) {
+    auto result = check(R"--(
+        async func main() {
+            println(42)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_async_main));
+}
+
+TEST_F(SemaTest, AsyncFuncWithParams) {
+    auto result = check(R"--(
+        async func add(a: i32, b: i32) -> i32 {
+            return a + b
+        }
+        func main() {
+            println(add(1, 2))
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncFuncChained) {
+    auto result = check(R"--(
+        async func step1() -> i32 {
+            return 10
+        }
+        async func step2() -> i32 {
+            let a: i32 = await step1()
+            return a + 5
+        }
+        async func step3() -> i32 {
+            let b: i32 = await step2()
+            return b + 3
+        }
+        func main() {
+            println(step3())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PubAsyncFunc) {
+    auto result = check(R"--(
+        pub async func fetchData() -> i32 {
+            return 42
+        }
+        func main() {
+            println(fetchData())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
