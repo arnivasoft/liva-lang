@@ -3,7 +3,21 @@
 namespace liva {
 
 std::unique_ptr<Expr> Parser::parseExpression() {
-    return parsePrecedenceExpr(0);
+    auto expr = parsePrecedenceExpr(0);
+    if (!expr) return nullptr;
+    // Ternary operator: condition ? thenExpr : elseExpr (lowest precedence)
+    if (check(TokenKind::question)) {
+        auto startLoc = expr->getStartLoc();
+        advance(); // consume ?
+        auto thenExpr = parseExpression();
+        if (!thenExpr) return nullptr;
+        expect(TokenKind::colon);
+        auto elseExpr = parseExpression();
+        if (!elseExpr) return nullptr;
+        return std::make_unique<TernaryExpr>(std::move(expr), std::move(thenExpr),
+                                              std::move(elseExpr), rangeFrom(startLoc));
+    }
+    return expr;
 }
 
 std::unique_ptr<Expr> Parser::parsePrecedenceExpr(int minPrec) {
@@ -233,6 +247,23 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
         auto expr = parseExpression();
         if (!expr)
             return nullptr;
+
+        // Comma → tuple literal
+        if (match(TokenKind::comma)) {
+            std::vector<std::unique_ptr<Expr>> elements;
+            elements.push_back(std::move(expr));
+            if (!check(TokenKind::r_paren)) {
+                do {
+                    auto elem = parseExpression();
+                    if (!elem) return nullptr;
+                    elements.push_back(std::move(elem));
+                } while (match(TokenKind::comma));
+            }
+            expect(TokenKind::r_paren);
+            return std::make_unique<TupleLiteralExpr>(std::move(elements), rangeFrom(startLoc));
+        }
+
+        // No comma → grouping expression
         expect(TokenKind::r_paren);
         return std::make_unique<GroupExpr>(std::move(expr), rangeFrom(startLoc));
     }
@@ -312,6 +343,14 @@ std::unique_ptr<Expr> Parser::parseMemberExpr(std::unique_ptr<Expr> object,
         expect(TokenKind::question_dot);
     else
         expect(TokenKind::dot);
+
+    // Tuple element access: .0, .1, etc.
+    if (check(TokenKind::integer_literal)) {
+        auto idx = current_;
+        advance();
+        return std::make_unique<MemberExpr>(std::move(object),
+            std::string(idx.getText()), rangeFrom(startLoc), isOptionalChain);
+    }
 
     auto member = expect(TokenKind::identifier);
 

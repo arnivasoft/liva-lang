@@ -146,6 +146,63 @@ TEST_F(ParserTest, ForInLoop) {
     ASSERT_FALSE(result.hasErrors);
 }
 
+TEST_F(ParserTest, ForInTuplePattern) {
+    auto result = parse(R"(
+        func test() {
+            for (k, v) in m {
+                println(k)
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *forStmt = dynamic_cast<ForStmt *>(stmts[0].get());
+    ASSERT_NE(forStmt, nullptr);
+    EXPECT_TRUE(forStmt->hasTuplePattern());
+    EXPECT_EQ(forStmt->getVarName(), "k");
+    EXPECT_EQ(forStmt->getVarName2(), "v");
+}
+
+TEST_F(ParserTest, ForInSingleVar) {
+    auto result = parse(R"(
+        func test() {
+            for x in arr {
+                println(x)
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *forStmt = dynamic_cast<ForStmt *>(stmts[0].get());
+    ASSERT_NE(forStmt, nullptr);
+    EXPECT_FALSE(forStmt->hasTuplePattern());
+    EXPECT_EQ(forStmt->getVarName(), "x");
+}
+
+TEST_F(ParserTest, WhileLetParsing) {
+    auto result = parse(R"(
+        func test() {
+            while let x = opt {
+                println(x)
+            }
+        }
+    )");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *whileLet = dynamic_cast<WhileLetStmt *>(stmts[0].get());
+    ASSERT_NE(whileLet, nullptr);
+    EXPECT_EQ(whileLet->getBindingName(), "x");
+}
+
 TEST_F(ParserTest, BinaryExpressions) {
     auto result = parse(R"(
         func test() {
@@ -759,4 +816,127 @@ TEST_F(ParserTest, RegularMemberUnchanged) {
     ASSERT_NE(member, nullptr);
     EXPECT_FALSE(member->isOptionalChain());
     EXPECT_EQ(member->getMember(), "x");
+}
+
+// ===== M29: Default Function Arguments =====
+
+TEST_F(ParserTest, DefaultArgParsing) {
+    auto result = parse(R"--(
+        func greet(name: string = "World") {
+            println(name)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "greet");
+    ASSERT_EQ(func->getParams().size(), 1u);
+    EXPECT_TRUE(func->getParams()[0].hasDefault());
+}
+
+TEST_F(ParserTest, TernaryExpression) {
+    auto result = parse(R"--(
+        func test() {
+            let x = true ? 1 : 0
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 1u);
+    auto *varDecl = dynamic_cast<VarDecl *>(stmts[0].get());
+    ASSERT_NE(varDecl, nullptr);
+    auto *ternary = dynamic_cast<TernaryExpr *>(const_cast<Expr *>(varDecl->getInit()));
+    ASSERT_NE(ternary, nullptr);
+}
+
+TEST_F(ParserTest, TypeAlias) {
+    auto result = parse(R"--(
+        type Int = i32
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *alias = dynamic_cast<TypeAliasDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(alias, nullptr);
+    EXPECT_EQ(alias->getName(), "Int");
+    EXPECT_EQ(alias->getTargetType()->getKind(), TypeRepr::Kind::I32);
+}
+
+TEST_F(ParserTest, TypeAliasNamed) {
+    auto result = parse(R"--(
+        struct Point {
+            x: i32
+            y: i32
+        }
+        type Pos = Point
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_GE(result.tu->getDeclarations().size(), 2u);
+    auto *alias = dynamic_cast<TypeAliasDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(alias, nullptr);
+    EXPECT_EQ(alias->getName(), "Pos");
+    auto *target = dynamic_cast<const NamedTypeRepr *>(alias->getTargetType());
+    ASSERT_NE(target, nullptr);
+    EXPECT_EQ(target->getName(), "Point");
+}
+
+// --- Tuple Tests ---
+
+TEST_F(ParserTest, TupleType) {
+    auto result = parse(R"--(
+        func f() -> (i32, string) {
+            return (1, "hello")
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto *retType = dynamic_cast<const TupleTypeRepr *>(fn->getReturnType());
+    ASSERT_NE(retType, nullptr);
+    EXPECT_EQ(retType->getArity(), 2u);
+    EXPECT_EQ(retType->getElements()[0]->getKind(), TypeRepr::Kind::I32);
+    EXPECT_EQ(retType->getElements()[1]->getKind(), TypeRepr::Kind::String);
+}
+
+TEST_F(ParserTest, TupleLiteral) {
+    auto result = parse(R"--(
+        let x = (1, "hello")
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    auto *tuple = dynamic_cast<TupleLiteralExpr *>(var->getInit());
+    ASSERT_NE(tuple, nullptr);
+    EXPECT_EQ(tuple->getArity(), 2u);
+}
+
+TEST_F(ParserTest, TupleDestructuring) {
+    auto result = parse(R"--(
+        let (x, y) = (1, 2)
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    EXPECT_TRUE(var->isDestructured());
+    EXPECT_EQ(var->getDestructuredNames().size(), 2u);
+    EXPECT_EQ(var->getDestructuredNames()[0], "x");
+    EXPECT_EQ(var->getDestructuredNames()[1], "y");
+}
+
+TEST_F(ParserTest, TupleMemberAccess) {
+    auto result = parse(R"--(
+        func main() {
+            let pair = (1, 2)
+            let a = pair.0
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    // Second statement: let a = pair.0
+    auto *stmt = dynamic_cast<VarDecl *>(fn->getBody()->getStatements()[1].get());
+    ASSERT_NE(stmt, nullptr);
+    auto *member = dynamic_cast<MemberExpr *>(stmt->getInit());
+    ASSERT_NE(member, nullptr);
+    EXPECT_EQ(member->getMember(), "0");
 }

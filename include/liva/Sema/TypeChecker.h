@@ -6,6 +6,7 @@
 #include "liva/Sema/Scope.h"
 #include <memory>
 #include <string>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -28,11 +29,13 @@ public:
     void visitEnumDecl(EnumDecl *node);
     void visitImplDecl(ImplDecl *node);
     void visitProtocolDecl(ProtocolDecl *node);
+    void visitTypeAliasDecl(TypeAliasDecl *node);
 
     void visitExprStmt(ExprStmt *node);
     void visitReturnStmt(ReturnStmt *node);
     void visitIfStmt(IfStmt *node);
     void visitIfLetStmt(IfLetStmt *node);
+    void visitWhileLetStmt(WhileLetStmt *node);
     void visitWhileStmt(WhileStmt *node);
     void visitForStmt(ForStmt *node);
     void visitBlockStmt(BlockStmt *node);
@@ -53,6 +56,7 @@ public:
     void visitAssignExpr(AssignExpr *node);
     void visitStructLiteralExpr(StructLiteralExpr *node);
     void visitArrayLiteralExpr(ArrayLiteralExpr *node);
+    void visitTupleLiteralExpr(TupleLiteralExpr *node);
     void visitCastExpr(CastExpr *node);
     void visitRefExpr(RefExpr *node);
     void visitGroupExpr(GroupExpr *node);
@@ -61,6 +65,7 @@ public:
     void visitUnwrapExpr(UnwrapExpr *node);
     void visitClosureExpr(ClosureExpr *node);
     void visitTryExpr(TryExpr *node);
+    void visitTernaryExpr(TernaryExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
@@ -90,6 +95,15 @@ private:
 
     /// Protocol method info: protocolName → [method names in order]
     std::unordered_map<std::string, std::vector<std::string>> protocolMethods_;
+
+    /// Type alias tracking: aliasName → targetTypeRepr*
+    std::unordered_map<std::string, const TypeRepr *> typeAliases_;
+
+    /// Resolve a type through aliases (returns target if alias, else original)
+    const TypeRepr *resolveAlias(const TypeRepr *type) const;
+
+    /// File-typed variable tracking
+    std::set<std::string> fileVariables_;
 };
 
 } // namespace liva

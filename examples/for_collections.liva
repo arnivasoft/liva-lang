@@ -1,0 +1,23 @@
+func main() {
+    var arr: [i32] = [10, 20, 30]
+    for item in arr {
+        println(item)
+    }
+
+    var m: Map<string, i32>
+    m.insert("a", 1)
+    m.insert("b", 2)
+    for key in m {
+        println(key)
+    }
+    for (k, v) in m {
+        println(k)
+    }
+
+    var s: Set<i32>
+    s.insert(10)
+    s.insert(20)
+    for item in s {
+        println(item)
+    }
+}

@@ -173,7 +173,7 @@ TEST_F(SemaTest, UndefinedStruct) {
 
 TEST_F(SemaTest, FunctionWithIfElse) {
     auto result = check(R"(
-        func abs(x: i32) -> i32 {
+        func my_abs(x: i32) -> i32 {
             if x < 0 {
                 return -x
             }
@@ -1507,6 +1507,1036 @@ TEST_F(SemaTest, OptionalChainingWithNilCoalescing) {
         func main() {
             var p: Point? = nil
             let val = p?.x ?? 0
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// --- Math built-in tests ---
+
+TEST_F(SemaTest, MathAbsI32) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = -5
+            let y = abs(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathMinI32) {
+    auto result = check(R"--(
+        func main() {
+            let a: i32 = 3
+            let b: i32 = 7
+            let c = min(a, b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathMaxI32) {
+    auto result = check(R"--(
+        func main() {
+            let a: i32 = 3
+            let b: i32 = 7
+            let c = max(a, b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathSqrt) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 9.0
+            let y = sqrt(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathPow) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 2.0
+            let y: f64 = 3.0
+            let z = pow(x, y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathFloor) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 3.7
+            let y = floor(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathCeil) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 3.2
+            let y = ceil(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathLog) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 2.718
+            let y = log(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathLog10) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 100.0
+            let y = log10(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathSin) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 1.57
+            let y = sin(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathCos) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 0.0
+            let y = cos(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathTan) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 0.785
+            let y = tan(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathRound) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 10.44
+            let y = round(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MathRoundWithDigits) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64 = 126.46415
+            let a = round(x, 2)
+            let b = round(x, 0)
+            let c: i32 = -2
+            let d = round(x, c)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== Map/Set Tests =====
+
+TEST_F(SemaTest, MapDeclare) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MapInsert) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            m.insert("key", 42)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MapGet) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            m.insert("key", 42)
+            let v = m.get("key")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MapContains) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            m.insert("key", 42)
+            let has = m.contains("key")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MapRemove) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            m.insert("key", 42)
+            m.remove("key")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MapSize) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            let n = m.size
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SetDeclare) {
+    auto result = check(R"--(
+        func main() {
+            var s: Set<i32>
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SetInsertContains) {
+    auto result = check(R"--(
+        func main() {
+            var s: Set<i32>
+            s.insert(42)
+            let has = s.contains(42)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === M20b: I/O Tests ===
+
+TEST_F(SemaTest, ReadLineFunction) {
+    auto result = check(R"--(
+        func main() {
+            let s = readLine()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FormatFunction) {
+    auto result = check(R"--(
+        func main() {
+            let s = format("{}", 42)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FormatMultiArgs) {
+    auto result = check(R"--(
+        func main() {
+            let s = format("{} {}", 1, 2)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileOpenType) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("a.txt", "r")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileReadLine) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("a.txt", "r")
+            if let file = f {
+                let line = file.readLine()
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileReadAll) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("a.txt", "r")
+            if let file = f {
+                let all = file.readAll()
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileWrite) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("a.txt", "w")
+            if let file = f {
+                file.write("hello")
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileWriteLine) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("a.txt", "w")
+            if let file = f {
+                file.writeLine("hello")
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileClose) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("a.txt", "r")
+            if let file = f {
+                file.close()
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileIfLetPipeline) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("a.txt", "r")
+            if let file = f {
+                let line = file.readLine()
+                file.close()
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === For-in Collection Tests ===
+
+TEST_F(SemaTest, ForInDynArray) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            for item in arr {
+                let x = item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForInDynArrayType) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [10, 20, 30]
+            for item in arr {
+                let x: i32 = item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForInMapKey) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            for key in m {
+                let k = key
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForInMapTuple) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            for (k, v) in m {
+                let key = k
+                let val = v
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForInSet) {
+    auto result = check(R"--(
+        func main() {
+            var s: Set<i32>
+            for item in s {
+                let x = item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForInTupleNonMap) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            for (k, v) in arr {
+                let x = k
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_tuple_for_requires_map));
+}
+
+TEST_F(SemaTest, ForInMapTupleType) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i32>
+            for (k, v) in m {
+                let key: string = k
+                let val: i32 = v
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForInBreakContinue) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            for item in arr {
+                if item == 2 {
+                    break
+                }
+                continue
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === String Method Tests ===
+
+TEST_F(SemaTest, StringContains) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello world"
+            let b: bool = s.contains("world")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringStartsWith) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello"
+            let b: bool = s.startsWith("hel")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringEndsWith) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello"
+            let b: bool = s.endsWith("llo")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringIndexOf) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello"
+            let i: i64 = s.indexOf("ll")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringSubstring) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello world"
+            let sub: string = s.substring(0, 5)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringTrim) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "  hello  "
+            let t: string = s.trim()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringToUpperLower) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "Hello"
+            let u: string = s.toUpper()
+            let l: string = s.toLower()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringReplace) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello world"
+            let r: string = s.replace("world", "liva")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Type Conversion Tests ===
+
+TEST_F(SemaTest, ParseInt) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32? = parseInt("42")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ParseInt64) {
+    auto result = check(R"--(
+        func main() {
+            let x: i64? = parseInt64("123456789")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ParseFloat) {
+    auto result = check(R"--(
+        func main() {
+            let x: f64? = parseFloat("3.14")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ParseIntIfLet) {
+    auto result = check(R"--(
+        func main() {
+            let result = parseInt("42")
+            if let val = result {
+                println(val)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M25a: String.split() =====
+
+TEST_F(SemaTest, StringSplit) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "a,b,c"
+            let parts = s.split(",")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M25b: DynArray Methods =====
+
+TEST_F(SemaTest, DynArrayContains) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            let found: bool = arr.contains(2)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayIndexOf) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [10, 20, 30]
+            let idx: i64 = arr.indexOf(20)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayReverse) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            arr.reverse()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M25c: DynArray Properties =====
+
+TEST_F(SemaTest, DynArrayLengthType) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            let n: i64 = arr.length
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayIsEmptyType) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            let empty: bool = arr.isEmpty
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M26: Higher-Order Array Methods =====
+
+TEST_F(SemaTest, DynArrayForEach) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            arr.forEach(|x: i32| {
+                println(x)
+            })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayForEachInferred) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            arr.forEach(|x| {
+                println(x)
+            })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayMap) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3]
+            let doubled = arr.map(|x| -> i32 { return x * 2 })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayFilter) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3, 4, 5]
+            let evens = arr.filter(|x| -> bool { return x > 2 })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayFilterInferred) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3, 4, 5]
+            arr.filter(|x: i32| -> bool { return x > 2 })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayReduce) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3, 4, 5]
+            let sum = arr.reduce(0, |acc: i32, x: i32| -> i32 { return acc + x })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArrayReduceInferred) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [1, 2, 3, 4, 5]
+            let sum = arr.reduce(0, |acc: i32, x| -> i32 { return acc + x })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, EnumMethodBasic) {
+    auto result = check(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        impl Color {
+            func isRed(self) -> bool {
+                return true
+            }
+        }
+        func main() {
+            let c = Color.Red
+            let r = c.isRed()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, EnumMethodWithParams) {
+    auto result = check(R"--(
+        enum Direction {
+            case North
+            case South
+            case East
+            case West
+        }
+        impl Direction {
+            func opposite(self) -> i32 {
+                return 0
+            }
+            func name(self) -> string {
+                return "dir"
+            }
+        }
+        func main() {
+            let d = Direction.North
+            let n = d.name()
+            let o = d.opposite()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WhileLetBasic) {
+    auto result = check(R"--(
+        func main() {
+            var x: i32? = 42
+            while let val = x {
+                println(val)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WhileLetBreak) {
+    auto result = check(R"--(
+        func main() {
+            var x: i32? = 10
+            while let val = x {
+                break
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M28: String Indexing =====
+
+TEST_F(SemaTest, StringIndexing) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello"
+            let ch = s[0]
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringIndexingType) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello"
+            let ch = s[1]
+            println(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M28: Multi-arg println =====
+
+TEST_F(SemaTest, PrintlnMultiArg) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = 10
+            let y: i32 = 20
+            println(x, y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PrintlnMultiArgMixed) {
+    auto result = check(R"--(
+        func main() {
+            let name: string = "world"
+            let age: i32 = 25
+            let pi: f64 = 3.14
+            println(name, age, pi)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M29: Array/String Slicing =====
+
+TEST_F(SemaTest, StringSlicing) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello world"
+            let sub = s[0..5]
+            println(sub)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynArraySlicing) {
+    auto result = check(R"--(
+        func main() {
+            var arr: [i32] = [10, 20, 30, 40, 50]
+            let sub = arr[1..3]
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M29: Default Function Arguments =====
+
+TEST_F(SemaTest, DefaultArgBasic) {
+    auto result = check(R"--(
+        func greet(name: string = "World") {
+            println(name)
+        }
+        func main() {
+            greet("Alice")
+            greet()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DefaultArgMultiple) {
+    auto result = check(R"--(
+        func add(a: i32, b: i32 = 10) -> i32 {
+            return a + b
+        }
+        func main() {
+            let x = add(5, 3)
+            let y = add(5)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== M30: Ternary Expression =====
+
+TEST_F(SemaTest, TernaryBasic) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = 10
+            let y = x > 5 ? 1 : 0
+            println(y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TernaryString) {
+    auto result = check(R"--(
+        func main() {
+            let flag: bool = true
+            let msg = flag ? "yes" : "no"
+            println(msg)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === M30: Type Aliases ===
+
+TEST_F(SemaTest, TypeAliasBasic) {
+    auto result = check(R"--(
+        type Int = i32
+        func main() {
+            let x: Int = 42
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TypeAliasStruct) {
+    auto result = check(R"--(
+        struct Point {
+            x: i32
+            y: i32
+        }
+        type Pos = Point
+        func main() {
+            let p = Pos { x: 1, y: 2 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TypeAliasUndefinedTarget) {
+    auto result = check(R"--(
+        type Foo = NonExistent
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+TEST_F(SemaTest, TypeAliasRedefinition) {
+    auto result = check(R"--(
+        type Int = i32
+        type Int = i64
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+// --- Tuple Tests ---
+
+TEST_F(SemaTest, TupleLiteralType) {
+    auto result = check(R"--(
+        func main() {
+            let x: (i32, string) = (42, "hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TupleReturn) {
+    auto result = check(R"--(
+        func divmod(a: i32, b: i32) -> (i32, i32) {
+            return (a, b)
+        }
+        func main() {
+            let r = divmod(10, 3)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TupleElementAccess) {
+    auto result = check(R"--(
+        func main() {
+            let pair = (42, "hello")
+            let x = pair.0
+            let y = pair.1
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TupleDestructure) {
+    auto result = check(R"--(
+        func main() {
+            let (a, b) = (1, "hi")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TupleArityMismatch) {
+    auto result = check(R"--(
+        func main() {
+            let (a, b, c) = (1, 2)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+TEST_F(SemaTest, TupleIndexOutOfRange) {
+    auto result = check(R"--(
+        func main() {
+            let pair = (1, 2)
+            let x = pair.5
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+TEST_F(SemaTest, TupleInFunction) {
+    auto result = check(R"--(
+        func swap(a: i32, b: i32) -> (i32, i32) {
+            return (b, a)
+        }
+        func main() {
+            let (x, y) = swap(1, 2)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TupleNested) {
+    auto result = check(R"--(
+        func main() {
+            let t = (1, ("hello", true))
+            let inner = t.1
         }
     )--");
     EXPECT_TRUE(result.passed);

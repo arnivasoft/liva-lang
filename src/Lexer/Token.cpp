@@ -64,10 +64,19 @@ std::string Token::getStringValue() const {
     size_t end = text_.size();
 
     if (kind_ == TokenKind::string_literal) {
-        // Normal string: skip opening and closing quotes
-        if (text_.size() < 2) return "";
-        start = 1;
-        end = text_.size() - 1;
+        // Triple-quoted multi-line string: """..."""
+        if (text_.size() >= 6 && text_[0] == '"' && text_[1] == '"' && text_[2] == '"') {
+            start = 3;
+            end = text_.size() - 3;
+            // Skip optional leading newline
+            if (start < end && text_[start] == '\n') ++start;
+            else if (start + 1 < end && text_[start] == '\r' && text_[start + 1] == '\n') start += 2;
+        } else {
+            // Normal string: skip opening and closing quotes
+            if (text_.size() < 2) return "";
+            start = 1;
+            end = text_.size() - 1;
+        }
     } else if (kind_ == TokenKind::string_interp_begin) {
         // Token text: "hello  (from " up to \( exclusive, \( not consumed yet)
         // Strip only the opening "

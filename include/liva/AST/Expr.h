@@ -21,7 +21,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::IntegerLiteralExpr &&
-               node->getKind() <= NodeKind::TryExpr;
+               node->getKind() <= NodeKind::TernaryExpr;
     }
 
 protected:
@@ -344,6 +344,23 @@ private:
     std::vector<std::unique_ptr<Expr>> elements_;
 };
 
+/// Tuple literal: (1, "hello", true)
+class TupleLiteralExpr : public Expr {
+public:
+    TupleLiteralExpr(std::vector<std::unique_ptr<Expr>> elements, SourceRange range)
+        : Expr(NodeKind::TupleLiteralExpr, range), elements_(std::move(elements)) {}
+
+    const std::vector<std::unique_ptr<Expr>> &getElements() const { return elements_; }
+    size_t getArity() const { return elements_.size(); }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::TupleLiteralExpr;
+    }
+
+private:
+    std::vector<std::unique_ptr<Expr>> elements_;
+};
+
 /// Cast expression: expr as Type
 class CastExpr : public Expr {
 public:
@@ -435,6 +452,31 @@ public:
 
 private:
     std::unique_ptr<Expr> operand_;
+};
+
+/// Ternary expression: condition ? thenExpr : elseExpr
+class TernaryExpr : public Expr {
+public:
+    TernaryExpr(std::unique_ptr<Expr> condition, std::unique_ptr<Expr> thenExpr,
+                std::unique_ptr<Expr> elseExpr, SourceRange range)
+        : Expr(NodeKind::TernaryExpr, range), condition_(std::move(condition)),
+          thenExpr_(std::move(thenExpr)), elseExpr_(std::move(elseExpr)) {}
+
+    const Expr *getCondition() const { return condition_.get(); }
+    const Expr *getThenExpr() const { return thenExpr_.get(); }
+    const Expr *getElseExpr() const { return elseExpr_.get(); }
+    Expr *getCondition() { return condition_.get(); }
+    Expr *getThenExpr() { return thenExpr_.get(); }
+    Expr *getElseExpr() { return elseExpr_.get(); }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::TernaryExpr;
+    }
+
+private:
+    std::unique_ptr<Expr> condition_;
+    std::unique_ptr<Expr> thenExpr_;
+    std::unique_ptr<Expr> elseExpr_;
 };
 
 /// Closure expression: |x: i32| -> i32 { return x * 2 }

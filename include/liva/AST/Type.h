@@ -33,6 +33,7 @@ public:
         Optional,    // T?
         Result,      // Result<T, E>
         Function,    // (T1, T2) -> T3
+        Tuple,       // (T1, T2)
         Generic,     // T<U, V>
         Inferred,    // Type to be inferred by the compiler
     };
@@ -121,6 +122,20 @@ public:
 private:
     std::vector<std::unique_ptr<TypeRepr>> params_;
     std::unique_ptr<TypeRepr> returnType_;
+};
+
+/// Tuple type: (T1, T2, ...)
+class TupleTypeRepr : public TypeRepr {
+public:
+    explicit TupleTypeRepr(std::vector<std::unique_ptr<TypeRepr>> elements)
+        : TypeRepr(Kind::Tuple), elements_(std::move(elements)) {}
+
+    const std::vector<std::unique_ptr<TypeRepr>> &getElements() const { return elements_; }
+    size_t getArity() const { return elements_.size(); }
+    std::string toString() const override;
+
+private:
+    std::vector<std::unique_ptr<TypeRepr>> elements_;
 };
 
 /// Generic type: T<U, V>

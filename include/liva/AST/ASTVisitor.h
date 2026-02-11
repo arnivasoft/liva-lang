@@ -36,6 +36,9 @@ public:
         case ASTNode::NodeKind::ImportDecl:
             return static_cast<Derived *>(this)->visitImportDecl(
                 static_cast<ImportDecl *>(node));
+        case ASTNode::NodeKind::TypeAliasDecl:
+            return static_cast<Derived *>(this)->visitTypeAliasDecl(
+                static_cast<TypeAliasDecl *>(node));
 
         // Statements
         case ASTNode::NodeKind::ExprStmt:
@@ -62,6 +65,9 @@ public:
         case ASTNode::NodeKind::IfLetStmt:
             return static_cast<Derived *>(this)->visitIfLetStmt(
                 static_cast<IfLetStmt *>(node));
+        case ASTNode::NodeKind::WhileLetStmt:
+            return static_cast<Derived *>(this)->visitWhileLetStmt(
+                static_cast<WhileLetStmt *>(node));
 
         // Expressions
         case ASTNode::NodeKind::IntegerLiteralExpr:
@@ -108,6 +114,9 @@ public:
         case ASTNode::NodeKind::ArrayLiteralExpr:
             return static_cast<Derived *>(this)->visitArrayLiteralExpr(
                 static_cast<ArrayLiteralExpr *>(node));
+        case ASTNode::NodeKind::TupleLiteralExpr:
+            return static_cast<Derived *>(this)->visitTupleLiteralExpr(
+                static_cast<TupleLiteralExpr *>(node));
         case ASTNode::NodeKind::CastExpr:
             return static_cast<Derived *>(this)->visitCastExpr(static_cast<CastExpr *>(node));
         case ASTNode::NodeKind::RefExpr:
@@ -127,6 +136,9 @@ public:
         case ASTNode::NodeKind::TryExpr:
             return static_cast<Derived *>(this)->visitTryExpr(
                 static_cast<TryExpr *>(node));
+        case ASTNode::NodeKind::TernaryExpr:
+            return static_cast<Derived *>(this)->visitTernaryExpr(
+                static_cast<TernaryExpr *>(node));
         }
         return RetTy();
     }
@@ -141,6 +153,7 @@ public:
     RetTy visitImplDecl(ImplDecl *) { return RetTy(); }
     RetTy visitProtocolDecl(ProtocolDecl *) { return RetTy(); }
     RetTy visitImportDecl(ImportDecl *) { return RetTy(); }
+    RetTy visitTypeAliasDecl(TypeAliasDecl *) { return RetTy(); }
 
     RetTy visitExprStmt(ExprStmt *) { return RetTy(); }
     RetTy visitReturnStmt(ReturnStmt *) { return RetTy(); }
@@ -151,6 +164,7 @@ public:
     RetTy visitBreakStmt(BreakStmt *) { return RetTy(); }
     RetTy visitContinueStmt(ContinueStmt *) { return RetTy(); }
     RetTy visitIfLetStmt(IfLetStmt *) { return RetTy(); }
+    RetTy visitWhileLetStmt(WhileLetStmt *) { return RetTy(); }
 
     RetTy visitIntegerLiteralExpr(IntegerLiteralExpr *) { return RetTy(); }
     RetTy visitFloatLiteralExpr(FloatLiteralExpr *) { return RetTy(); }
@@ -167,6 +181,7 @@ public:
     RetTy visitStructLiteralExpr(StructLiteralExpr *) { return RetTy(); }
     RetTy visitMatchExpr(MatchExpr *) { return RetTy(); }
     RetTy visitArrayLiteralExpr(ArrayLiteralExpr *) { return RetTy(); }
+    RetTy visitTupleLiteralExpr(TupleLiteralExpr *) { return RetTy(); }
     RetTy visitCastExpr(CastExpr *) { return RetTy(); }
     RetTy visitRefExpr(RefExpr *) { return RetTy(); }
     RetTy visitGroupExpr(GroupExpr *) { return RetTy(); }
@@ -174,6 +189,7 @@ public:
     RetTy visitUnwrapExpr(UnwrapExpr *) { return RetTy(); }
     RetTy visitClosureExpr(ClosureExpr *) { return RetTy(); }
     RetTy visitTryExpr(TryExpr *) { return RetTy(); }
+    RetTy visitTernaryExpr(TernaryExpr *) { return RetTy(); }
 };
 
 } // namespace liva

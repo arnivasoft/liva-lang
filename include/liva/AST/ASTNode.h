@@ -19,6 +19,7 @@ public:
         ImplDecl,
         ProtocolDecl,
         ImportDecl,
+        TypeAliasDecl,
 
         // Statements
         ExprStmt,
@@ -30,6 +31,7 @@ public:
         BreakStmt,
         ContinueStmt,
         IfLetStmt,
+        WhileLetStmt,
 
         // Expressions
         IntegerLiteralExpr,
@@ -47,6 +49,7 @@ public:
         StructLiteralExpr,
         MatchExpr,
         ArrayLiteralExpr,
+        TupleLiteralExpr,
         CastExpr,
         RefExpr,
         GroupExpr,
@@ -54,6 +57,7 @@ public:
         UnwrapExpr,  // x! (force unwrap optional)
         ClosureExpr, // |x: i32| -> i32 { body }
         TryExpr,     // try expr
+        TernaryExpr, // condition ? then : else
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())

@@ -16,7 +16,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::ExprStmt &&
-               node->getKind() <= NodeKind::IfLetStmt;
+               node->getKind() <= NodeKind::WhileLetStmt;
     }
 };
 
@@ -100,7 +100,7 @@ private:
     std::unique_ptr<ASTNode> body_;
 };
 
-/// For-in statement: for x in range { ... }
+/// For-in statement: for x in range { ... } or for (k, v) in map { ... }
 class ForStmt : public Stmt {
 public:
     ForStmt(std::string varName, std::unique_ptr<Expr> iterable,
@@ -108,7 +108,16 @@ public:
         : Stmt(NodeKind::ForStmt, range), varName_(std::move(varName)),
           iterable_(std::move(iterable)), body_(std::move(body)) {}
 
+    ForStmt(std::string varName1, std::string varName2,
+            std::unique_ptr<Expr> iterable,
+            std::unique_ptr<ASTNode> body, SourceRange range)
+        : Stmt(NodeKind::ForStmt, range), varName_(std::move(varName1)),
+          varName2_(std::move(varName2)),
+          iterable_(std::move(iterable)), body_(std::move(body)) {}
+
     const std::string &getVarName() const { return varName_; }
+    bool hasTuplePattern() const { return !varName2_.empty(); }
+    const std::string &getVarName2() const { return varName2_; }
     const Expr *getIterable() const { return iterable_.get(); }
     const ASTNode *getBody() const { return body_.get(); }
 
@@ -118,6 +127,7 @@ public:
 
 private:
     std::string varName_;
+    std::string varName2_;
     std::unique_ptr<Expr> iterable_;
     std::unique_ptr<ASTNode> body_;
 };
@@ -189,6 +199,32 @@ private:
     std::unique_ptr<Expr> optionalExpr_;
     std::unique_ptr<BlockStmt> thenBody_;
     std::unique_ptr<ASTNode> elseBody_;
+};
+
+/// while-let statement: while let x = optional { body }
+class WhileLetStmt : public Stmt {
+public:
+    WhileLetStmt(std::string bindingName, std::unique_ptr<Expr> optionalExpr,
+                 std::unique_ptr<BlockStmt> body, SourceRange range)
+        : Stmt(NodeKind::WhileLetStmt, range),
+          bindingName_(std::move(bindingName)),
+          optionalExpr_(std::move(optionalExpr)),
+          body_(std::move(body)) {}
+
+    const std::string &getBindingName() const { return bindingName_; }
+    const Expr *getOptionalExpr() const { return optionalExpr_.get(); }
+    Expr *getOptionalExpr() { return optionalExpr_.get(); }
+    const BlockStmt *getBody() const { return body_.get(); }
+    BlockStmt *getBody() { return body_.get(); }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::WhileLetStmt;
+    }
+
+private:
+    std::string bindingName_;
+    std::unique_ptr<Expr> optionalExpr_;
+    std::unique_ptr<BlockStmt> body_;
 };
 
 } // namespace liva

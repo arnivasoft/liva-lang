@@ -1,0 +1,21 @@
+func main() {
+    // Map example
+    var m: Map<string, i32>
+    m.insert("hello", 42)
+    m.insert("world", 99)
+    let val = m.get("hello")
+    let has = m.contains("hello")
+    m.remove("world")
+    let n = m.size
+    let e = m.isEmpty
+
+    // Set example
+    var s: Set<i32>
+    s.insert(10)
+    s.insert(20)
+    s.insert(30)
+    let found = s.contains(20)
+    s.remove(10)
+    let sn = s.size
+    let se = s.isEmpty
+}

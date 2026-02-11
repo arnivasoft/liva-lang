@@ -1,0 +1,15 @@
+func greet(name: string = "World") {
+    println("Hello", name)
+}
+
+func add(a: i32, b: i32 = 10) -> i32 {
+    return a + b
+}
+
+func main() {
+    greet("Alice")
+    greet()
+    let x = add(5, 3)
+    let y = add(5)
+    println(x, y)
+}

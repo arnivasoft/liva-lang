@@ -143,9 +143,22 @@ std::unique_ptr<IfLetStmt> Parser::parseIfLetStmt(SourceLocation ifLoc) {
         std::move(thenBody), std::move(elseBody), rangeFrom(ifLoc));
 }
 
-std::unique_ptr<WhileStmt> Parser::parseWhileStmt() {
+std::unique_ptr<ASTNode> Parser::parseWhileStmt() {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_while);
+
+    // while let x = optional { body }
+    if (current_.getKind() == TokenKind::kw_let) {
+        advance(); // consume 'let'
+        auto bindingName = expect(TokenKind::identifier).getText();
+        expect(TokenKind::equal);
+        auto optionalExpr = parseExpression();
+        if (!optionalExpr) return nullptr;
+        auto body = parseBlock();
+        if (!body) return nullptr;
+        return std::make_unique<WhileLetStmt>(std::string(bindingName),
+            std::move(optionalExpr), std::move(body), rangeFrom(startLoc));
+    }
 
     auto condition = parseExpression();
     if (!condition)
@@ -163,6 +176,30 @@ std::unique_ptr<ForStmt> Parser::parseForStmt() {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_for);
 
+    // Tuple pattern: for (k, v) in map { ... }
+    if (current_.getKind() == TokenKind::l_paren) {
+        advance(); // '('
+        auto var1 = expect(TokenKind::identifier);
+        expect(TokenKind::comma);
+        auto var2 = expect(TokenKind::identifier);
+        expect(TokenKind::r_paren);
+        expect(TokenKind::kw_in);
+
+        auto iterable = parseExpression();
+        if (!iterable)
+            return nullptr;
+
+        auto body = parseBlock();
+        if (!body)
+            return nullptr;
+
+        return std::make_unique<ForStmt>(std::string(var1.getText()),
+                                         std::string(var2.getText()),
+                                         std::move(iterable), std::move(body),
+                                         rangeFrom(startLoc));
+    }
+
+    // Single variable: for x in expr { ... }
     auto varName = expect(TokenKind::identifier);
     expect(TokenKind::kw_in);
 

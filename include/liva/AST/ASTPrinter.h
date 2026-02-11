@@ -34,6 +34,7 @@ public:
     void visitBreakStmt(BreakStmt *node);
     void visitContinueStmt(ContinueStmt *node);
     void visitIfLetStmt(IfLetStmt *node);
+    void visitWhileLetStmt(WhileLetStmt *node);
 
     void visitIntegerLiteralExpr(IntegerLiteralExpr *node);
     void visitFloatLiteralExpr(FloatLiteralExpr *node);
@@ -50,6 +51,7 @@ public:
     void visitStructLiteralExpr(StructLiteralExpr *node);
     void visitMatchExpr(MatchExpr *node);
     void visitArrayLiteralExpr(ArrayLiteralExpr *node);
+    void visitTupleLiteralExpr(TupleLiteralExpr *node);
     void visitCastExpr(CastExpr *node);
     void visitRefExpr(RefExpr *node);
     void visitGroupExpr(GroupExpr *node);

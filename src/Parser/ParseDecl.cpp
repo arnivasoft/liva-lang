@@ -25,6 +25,8 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         return parseProtocolDecl(isPublic);
     case TokenKind::kw_import:
         return parseImportDecl();
+    case TokenKind::kw_type:
+        return parseTypeAliasDecl(isPublic);
     default:
         diag_.report(current_.getLocation(), DiagID::err_expected_declaration);
         return nullptr;
@@ -106,6 +108,21 @@ std::unique_ptr<VarDecl> Parser::parseVarDecl() {
     auto startLoc = current_.getLocation();
     bool isMutable = current_.is(TokenKind::kw_var);
     advance(); // consume let/var
+
+    // Tuple destructuring: let (x, y) = expr
+    if (check(TokenKind::l_paren)) {
+        advance(); // consume (
+        std::vector<std::string> names;
+        do {
+            auto name = expect(TokenKind::identifier);
+            names.push_back(std::string(name.getText()));
+        } while (match(TokenKind::comma));
+        expect(TokenKind::r_paren);
+        expect(TokenKind::equal);
+        auto init = parseExpression();
+        return std::make_unique<VarDecl>(std::move(names), std::move(init),
+                                          isMutable, rangeFrom(startLoc));
+    }
 
     auto nameTok = expect(TokenKind::identifier);
     std::string name(nameTok.getText());
@@ -332,6 +349,21 @@ std::unique_ptr<ImportDecl> Parser::parseImportDecl() {
     }
 
     return std::make_unique<ImportDecl>(std::move(path), rangeFrom(startLoc));
+}
+
+std::unique_ptr<TypeAliasDecl> Parser::parseTypeAliasDecl(bool isPublic) {
+    auto startLoc = current_.getLocation();
+    expect(TokenKind::kw_type);
+
+    auto nameTok = expect(TokenKind::identifier);
+    std::string name(nameTok.getText());
+
+    expect(TokenKind::equal);
+
+    auto targetType = parseType();
+
+    return std::make_unique<TypeAliasDecl>(std::move(name), std::move(targetType),
+                                            isPublic, rangeFrom(startLoc));
 }
 
 } // namespace liva

@@ -281,6 +281,23 @@ void ASTPrinter::visitIfLetStmt(IfLetStmt *node) {
     decreaseIndent();
 }
 
+void ASTPrinter::visitWhileLetStmt(WhileLetStmt *node) {
+    indent();
+    os_ << "WhileLetStmt '" << node->getBindingName() << "'\n";
+    increaseIndent();
+    indent();
+    os_ << "OptionalExpr:\n";
+    increaseIndent();
+    visit(const_cast<Expr *>(node->getOptionalExpr()));
+    decreaseIndent();
+    indent();
+    os_ << "Body:\n";
+    increaseIndent();
+    visit(node->getBody());
+    decreaseIndent();
+    decreaseIndent();
+}
+
 // === Expressions ===
 
 void ASTPrinter::visitIntegerLiteralExpr(IntegerLiteralExpr *node) {
@@ -407,6 +424,16 @@ void ASTPrinter::visitMatchExpr(MatchExpr *node) {
 void ASTPrinter::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     indent();
     os_ << "ArrayLiteral\n";
+    increaseIndent();
+    for (auto &elem : node->getElements()) {
+        visit(elem.get());
+    }
+    decreaseIndent();
+}
+
+void ASTPrinter::visitTupleLiteralExpr(TupleLiteralExpr *node) {
+    indent();
+    os_ << "TupleLiteral\n";
     increaseIndent();
     for (auto &elem : node->getElements()) {
         visit(elem.get());

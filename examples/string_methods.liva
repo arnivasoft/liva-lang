@@ -1,0 +1,18 @@
+func main() {
+    let s: string = "Hello World"
+
+    let has: bool = s.contains("World")
+    let starts: bool = s.startsWith("Hello")
+    let ends: bool = s.endsWith("World")
+    let idx: i64 = s.indexOf("World")
+    let sub: string = s.substring(0, 5)
+    let trimmed: string = s.trim()
+    let upper: string = s.toUpper()
+    let lower: string = s.toLower()
+    let replaced: string = s.replace("World", "Liva")
+
+    println(sub)
+    println(upper)
+    println(lower)
+    println(replaced)
+}

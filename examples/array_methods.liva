@@ -1,0 +1,23 @@
+func main() {
+    var arr: [i32] = [10, 20, 30, 40, 50]
+
+    // DynArray properties
+    let n = arr.length
+    let empty = arr.isEmpty
+    println(n)
+    println(empty)
+
+    // DynArray methods
+    let found = arr.contains(30)
+    println(found)
+
+    let idx = arr.indexOf(40)
+    println(idx)
+
+    arr.reverse()
+    println(arr.length)
+
+    // String split
+    let csv: string = "hello,world,foo,bar"
+    let parts = csv.split(",")
+}

@@ -54,6 +54,76 @@ char *liva_f64_to_str(double value);
 /// Convert bool to string, returns malloc'd result
 char *liva_bool_to_str(int8_t value);
 
+// === Type Conversion (String → Number) ===
+
+/// Parse string to i32, returns 1 on success, 0 on failure
+int8_t liva_str_parse_i32(const char *str, int32_t *result);
+
+/// Parse string to i64, returns 1 on success, 0 on failure
+int8_t liva_str_parse_i64(const char *str, int64_t *result);
+
+/// Parse string to f64, returns 1 on success, 0 on failure
+int8_t liva_str_parse_f64(const char *str, double *result);
+
+// === String Methods ===
+
+/// Check if string contains substring
+int8_t liva_str_contains(const char *str, const char *substr);
+
+/// Check if string starts with prefix
+int8_t liva_str_starts_with(const char *str, const char *prefix);
+
+/// Check if string ends with suffix
+int8_t liva_str_ends_with(const char *str, const char *suffix);
+
+/// Find index of substring (-1 if not found)
+int64_t liva_str_index_of(const char *str, const char *substr);
+
+/// Extract substring (start index, length), returns malloc'd result
+char *liva_str_substring(const char *str, int64_t start, int64_t length);
+
+/// Trim whitespace from both ends, returns malloc'd result
+char *liva_str_trim(const char *str);
+
+/// Convert to upper case, returns malloc'd result
+char *liva_str_to_upper(const char *str);
+
+/// Convert to lower case, returns malloc'd result
+char *liva_str_to_lower(const char *str);
+
+/// Replace all occurrences of old with new, returns malloc'd result
+char *liva_str_replace(const char *str, const char *old_sub, const char *new_sub);
+
+/// Split string by delimiter, returns malloc'd array of malloc'd strings
+/// count is set to the number of parts
+char **liva_str_split(const char *str, const char *delim, int64_t *count);
+
+// === File I/O ===
+
+/// Open a file, returns FILE* or NULL on failure
+void *liva_file_open(const char *path, const char *mode);
+
+/// Close a file handle
+void liva_file_close(void *fp);
+
+/// Read a line from file, returns malloc'd string or NULL on EOF
+char *liva_file_read_line(void *fp);
+
+/// Read entire file contents, returns malloc'd string
+char *liva_file_read_all(void *fp);
+
+/// Write a string to file
+void liva_file_write(void *fp, const char *str);
+
+/// Write a string + newline to file
+void liva_file_write_line(void *fp, const char *str);
+
+/// Read a line from stdin, returns malloc'd string
+char *liva_read_line();
+
+/// Convert i64 to string, returns malloc'd result
+char *liva_i64_to_str(int64_t value);
+
 // === I/O ===
 
 /// Print functions
@@ -78,6 +148,66 @@ void liva_array_push(void **data_ptr, int64_t *len_ptr, int64_t *cap_ptr,
 
 /// Pop last element from dynamic array
 void liva_array_pop(int64_t *len_ptr);
+
+/// Check if array contains element (returns 1 if found, 0 otherwise)
+/// key_kind: 0=memcmp (numeric), 1=strcmp (string)
+int8_t liva_array_contains(void *data, int64_t len, const void *elem,
+                            int64_t elem_size, int8_t key_kind);
+
+/// Find index of element in array (-1 if not found)
+int64_t liva_array_index_of(void *data, int64_t len, const void *elem,
+                             int64_t elem_size, int8_t key_kind);
+
+/// Reverse array in-place
+void liva_array_reverse(void *data, int64_t len, int64_t elem_size);
+
+// === Hash Map ===
+
+/// Allocate hash map entry buffer (zero-initialized)
+void *liva_map_new(int64_t capacity, int64_t entry_stride);
+
+/// Free hash map entry buffer
+void liva_map_free(void *entries);
+
+/// Insert key-value pair into map (may resize)
+void liva_map_insert(void **entries, int64_t *size, int64_t *cap,
+                     const void *key, const void *value,
+                     int64_t key_size, int64_t val_size, int8_t key_kind);
+
+/// Get value pointer for key (returns NULL if not found)
+void *liva_map_get(void *entries, int64_t cap,
+                   const void *key, int64_t key_size, int64_t val_size,
+                   int8_t key_kind);
+
+/// Remove key from map (returns 1 if found, 0 otherwise)
+int8_t liva_map_remove(void *entries, int64_t *size, int64_t cap,
+                       const void *key, int64_t key_size, int64_t val_size,
+                       int8_t key_kind);
+
+/// Check if key exists in map
+int8_t liva_map_contains(void *entries, int64_t cap,
+                         const void *key, int64_t key_size, int64_t val_size,
+                         int8_t key_kind);
+
+// === Hash Set ===
+
+/// Allocate hash set entry buffer (zero-initialized)
+void *liva_set_new(int64_t capacity, int64_t entry_stride);
+
+/// Free hash set entry buffer
+void liva_set_free(void *entries);
+
+/// Insert element into set (may resize)
+void liva_set_insert(void **entries, int64_t *size, int64_t *cap,
+                     const void *elem, int64_t elem_size, int8_t key_kind);
+
+/// Check if element exists in set
+int8_t liva_set_contains(void *entries, int64_t cap,
+                         const void *elem, int64_t elem_size, int8_t key_kind);
+
+/// Remove element from set (returns 1 if found, 0 otherwise)
+int8_t liva_set_remove(void *entries, int64_t *size, int64_t cap,
+                       const void *elem, int64_t elem_size, int8_t key_kind);
 
 // === Panic ===
 

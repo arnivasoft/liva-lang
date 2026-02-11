@@ -1,0 +1,24 @@
+func main() {
+    // stdin'den oku
+    let name = readLine()
+    println(format("Hello, {}!", name))
+
+    // File açma
+    let f = File.open("test.txt", "w")
+    if let file = f {
+        file.writeLine("Hello from Liva!")
+        file.close()
+    }
+
+    // Dosya okuma
+    let f2 = File.open("test.txt", "r")
+    if let reader = f2 {
+        let all = reader.readAll()
+        println(all)
+        reader.close()
+    }
+
+    // format çoklu argüman
+    let msg = format("x = {}, y = {}", 10, 20)
+    println(msg)
+}

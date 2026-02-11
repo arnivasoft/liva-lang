@@ -60,6 +60,7 @@ KEYWORD(where,      "where")
 KEYWORD(async,      "async")
 KEYWORD(await,      "await")
 KEYWORD(try,        "try")
+KEYWORD(type,       "type")
 
 // === Type keywords ===
 KEYWORD(i8,         "i8")

@@ -42,6 +42,8 @@ std::string TypeRepr::toString() const {
         return "<result>";
     case Kind::Function:
         return "<function>";
+    case Kind::Tuple:
+        return "<tuple>";
     case Kind::Generic:
         return "<generic>";
     case Kind::Inferred:
@@ -113,6 +115,17 @@ std::string FunctionTypeRepr::toString() const {
         result += params_[i]->toString();
     }
     result += ") -> " + returnType_->toString();
+    return result;
+}
+
+std::string TupleTypeRepr::toString() const {
+    std::string result = "(";
+    for (size_t i = 0; i < elements_.size(); ++i) {
+        if (i > 0)
+            result += ", ";
+        result += elements_[i]->toString();
+    }
+    result += ")";
     return result;
 }
 
@@ -198,6 +211,13 @@ std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type) {
     case TypeRepr::Kind::Result: {
         auto *r = static_cast<const ResultTypeRepr *>(type);
         return std::make_unique<ResultTypeRepr>(cloneTypeRepr(r->getOkType()), cloneTypeRepr(r->getErrType()));
+    }
+    case TypeRepr::Kind::Tuple: {
+        auto *t = static_cast<const TupleTypeRepr *>(type);
+        std::vector<std::unique_ptr<TypeRepr>> elems;
+        for (auto &e : t->getElements())
+            elems.push_back(cloneTypeRepr(e.get()));
+        return std::make_unique<TupleTypeRepr>(std::move(elems));
     }
     default:
         return makePrimitiveType(type->getKind());

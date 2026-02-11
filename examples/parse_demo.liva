@@ -1,0 +1,9 @@
+func main() {
+    let a: i32? = parseInt("42")
+    let b: i64? = parseInt64("123456789")
+    let c: f64? = parseFloat("3.14")
+
+    if let val = a {
+        println(val)
+    }
+}

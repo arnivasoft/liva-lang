@@ -107,19 +107,30 @@ std::unique_ptr<TypeRepr> Parser::parseBaseType() {
         return std::make_unique<ArrayTypeRepr>(std::move(elemType), size);
     }
 
-    // Function type: (T1, T2) -> T3
+    // Function type: (T1, T2) -> T3  or  Tuple type: (T1, T2)
     case TokenKind::l_paren: {
         advance();
-        std::vector<std::unique_ptr<TypeRepr>> paramTypes;
+        std::vector<std::unique_ptr<TypeRepr>> types;
         if (!check(TokenKind::r_paren)) {
             do {
-                paramTypes.push_back(parseType());
+                types.push_back(parseType());
             } while (match(TokenKind::comma));
         }
         expect(TokenKind::r_paren);
-        expect(TokenKind::arrow);
-        auto returnType = parseType();
-        return std::make_unique<FunctionTypeRepr>(std::move(paramTypes), std::move(returnType));
+
+        // Arrow → function type
+        if (match(TokenKind::arrow)) {
+            auto returnType = parseType();
+            return std::make_unique<FunctionTypeRepr>(std::move(types), std::move(returnType));
+        }
+
+        // Single element → just grouping, return the inner type
+        if (types.size() == 1) {
+            return std::move(types[0]);
+        }
+
+        // Multiple elements → tuple type
+        return std::make_unique<TupleTypeRepr>(std::move(types));
     }
 
     default:
@@ -168,6 +179,12 @@ ParamDecl Parser::parseParamDecl() {
     }
 
     param.type = parseType();
+
+    // Optional default value: name: Type = expr
+    if (match(TokenKind::equal)) {
+        param.defaultValue = parseExpression();
+    }
+
     return param;
 }
 

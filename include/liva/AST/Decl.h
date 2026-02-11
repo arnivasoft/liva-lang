@@ -10,6 +10,8 @@
 
 namespace liva {
 
+class Expr;  // forward declaration for ParamDecl default value
+
 /// Base class for all declarations
 class Decl : public ASTNode {
 public:
@@ -17,7 +19,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::FuncDecl &&
-               node->getKind() <= NodeKind::ImportDecl;
+               node->getKind() <= NodeKind::TypeAliasDecl;
     }
 };
 
@@ -29,6 +31,8 @@ struct ParamDecl {
     bool isMutRef = false;
     bool isSelf = false;
     SourceLocation location;
+    std::unique_ptr<Expr> defaultValue;  // optional: func foo(x: i32 = 10)
+    bool hasDefault() const { return defaultValue != nullptr; }
 };
 
 /// Function declaration: func name(params) -> ReturnType { body }
@@ -90,6 +94,13 @@ public:
         : Decl(NodeKind::VarDecl, range), name_(std::move(name)), type_(std::move(type)),
           init_(std::move(init)), isMutable_(isMutable) {}
 
+    /// Tuple destructuring constructor: let (x, y) = expr
+    VarDecl(std::vector<std::string> destructuredNames, std::unique_ptr<Expr> init,
+            bool isMutable, SourceRange range)
+        : Decl(NodeKind::VarDecl, range), name_(""), type_(nullptr),
+          init_(std::move(init)), isMutable_(isMutable),
+          destructuredNames_(std::move(destructuredNames)) {}
+
     const std::string &getName() const { return name_; }
     const TypeRepr *getType() const { return type_.get(); }
     const Expr *getInit() const { return init_.get(); }
@@ -97,6 +108,9 @@ public:
     bool hasInit() const { return init_ != nullptr; }
     bool isMutable() const { return isMutable_; }
     bool hasTypeAnnotation() const { return type_ != nullptr && !type_->isInferred(); }
+
+    bool isDestructured() const { return !destructuredNames_.empty(); }
+    const std::vector<std::string> &getDestructuredNames() const { return destructuredNames_; }
 
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::VarDecl;
@@ -107,6 +121,7 @@ private:
     std::unique_ptr<TypeRepr> type_;
     std::unique_ptr<Expr> init_;
     bool isMutable_;
+    std::vector<std::string> destructuredNames_;
 };
 
 /// Struct field declaration
@@ -296,6 +311,28 @@ public:
 
 private:
     std::vector<std::string> path_;
+};
+
+/// Type alias declaration: type Name = TargetType
+class TypeAliasDecl : public Decl {
+public:
+    TypeAliasDecl(std::string name, std::unique_ptr<TypeRepr> targetType,
+                  bool isPublic, SourceRange range)
+        : Decl(NodeKind::TypeAliasDecl, range), name_(std::move(name)),
+          targetType_(std::move(targetType)), isPublic_(isPublic) {}
+
+    const std::string &getName() const { return name_; }
+    const TypeRepr *getTargetType() const { return targetType_.get(); }
+    bool isPublic() const { return isPublic_; }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::TypeAliasDecl;
+    }
+
+private:
+    std::string name_;
+    std::unique_ptr<TypeRepr> targetType_;
+    bool isPublic_;
 };
 
 /// Translation unit - the top-level node representing an entire file

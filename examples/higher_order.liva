@@ -1,0 +1,19 @@
+func main() {
+    var arr: [i32] = [1, 2, 3, 4, 5]
+
+    // forEach: print each element
+    arr.forEach(|x: i32| {
+        println(x)
+    })
+
+    // map: double each element
+    let doubled = arr.map(|x: i32| -> i32 { return x * 2 })
+
+    // filter: keep only elements > 2
+    let big = arr.filter(|x: i32| -> bool { return x > 2 })
+
+    // forEach with inferred type
+    arr.forEach(|x| {
+        println(x)
+    })
+}

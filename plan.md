@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, llvm-mingw Clang 21.1.8 (MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 210/210 gecen test (lexer:24, parser:56, sema:112, type:12, ownership:6)
+- **Test:** 302/302 gecen test (lexer:26, parser:62, sema:196, type:12, ownership:6)
 
 ---
 
@@ -336,33 +336,161 @@ kaynak kod (.liva)
 
 ## Gelecek Milestone'lar
 
-### M22: Standart Kutuphane [PLANLANMADI]
+### M22c: Math Built-ins [TAMAMLANDI]
+- `abs`, `min`, `max`: ayni tip donusu (int/float)
+- `sqrt`, `pow`, `floor`, `ceil`, `log`, `log10`, `sin`, `cos`, `tan`, `round`: f64 donusu
+- Sema: registerBuiltins + visitCallExpr tip cozumlemesi
+- IRGen: LLVM Intrinsic kullanimi, otomatik SIToFP donusumu
+- `round(x, d)`: cok basamakli yuvarlama destegi
 
-**M20a: Temel Tipler**
-- `Map<K, V>` - hash map
-- `Set<T>` - hash set
+### M20a: Map/Set Collections [TAMAMLANDI]
+- `Map<K, V>` — FNV-1a hash, open-addressing linear probing, tombstone deletion
+- `Set<T>` — Map ile val_size=0 olarak uygulanir
+- Runtime: `liva_map_new/insert/get/contains/remove`, `liva_set_new/insert/contains/remove`
+- Entry layout: [1B state][8B hash][key_size key][val_size value]
+- Load factor > 0.75 -> 2x rehash
+- LLVM struct: `{ ptr entries, i64 size, i64 capacity }`
+- Sema: GenericTypeRepr, method type resolution
+- IRGen: visitVarDecl alloca + init, visitCallExpr method codegen
+- 10 sema testi
 
-**M20b: I/O**
-- `File` tipi, okuma/yazma
-- `stdin`, `stdout`, `stderr`
-- Formatlama: `format("x = {}", x)`
+### M20b: I/O System [TAMAMLANDI]
+- `File.open(path, mode)` -> `File?` (Optional), `file.readLine()` -> `string?`
+- `file.readAll()` -> `string`, `file.write(s)`, `file.writeLine(s)`, `file.close()`
+- `readLine()` -> stdin'den satir okuma -> `string`
+- `format("x = {}, y = {}", x, y)` -> string formatlama ({} placeholders)
+- Runtime: `liva_file_open/close/read_line/read_all/write/write_line`, `liva_read_line`, `liva_i64_to_str`
+- Sema: `fileVariables_` set, registerBuiltins, visitCallExpr/visitIfLetStmt
+- IRGen: `varFileTypes_`, `varFileOptionalTypes_`, File.open -> Optional<ptr>, if-let unwrap
+- 10 sema testi
 
-**M20c: Matematik**
-- `abs`, `min`, `max`, `sqrt`, `pow`
-- Trigonometrik fonksiyonlar
+---
 
-### M23: Async/Await [PLANLANMADI]
+## Gelecek Milestone'lar
+
+### M23: For-in Koleksiyonlari [TAMAMLANDI]
+- `for item in array { ... }` — dinamik dizi iterasyonu (idx loop over data ptr)
+- `for key in map { ... }` — Map key iterasyonu (capacity loop, state==1 check)
+- `for (key, value) in map { ... }` — Map tuple iterasyonu (tuple destructuring)
+- `for item in set { ... }` — Set iterasyonu (Map ile ayni, val_size=0)
+- AST: ForStmt varName2_, hasTuplePattern(), yeni constructor
+- Parser: `(k, v)` tuple pattern ayristirma
+- Sema: visitForStmt tip cikarimi ([T]->T, Map<K,V>->K/K+V, Set<T>->T)
+- IRGen: DynArray/Map/Set inline iterasyon codegen (condBB/bodyBB/latchBB/exitBB)
+- `err_tuple_for_requires_map` diagnostigi
+- 2 parser, 8 sema testi
+
+### M24: String Metodlari [TAMAMLANDI]
+- `s.contains("sub")` -> bool, `s.startsWith("pre")` -> bool, `s.endsWith("suf")` -> bool
+- `s.indexOf("sub")` -> i64 (-1 if not found)
+- `s.substring(start, length)` -> string, `s.trim()` -> string
+- `s.toUpper()` -> string, `s.toLower()` -> string
+- `s.replace("old", "new")` -> string
+- `s.split(",")` -> `[string]` (DynArray<string>) codegen tamamlandi
+- Runtime: liva_str_contains, liva_str_starts_with, liva_str_ends_with, liva_str_index_of, liva_str_substring, liva_str_trim, liva_str_to_upper, liva_str_to_lower, liva_str_replace, liva_str_split
+- Sema: visitCallExpr MemberExpr string type method resolution
+- IRGen: string method codegen (i8 -> i1 trunc for bool, auto i32 -> i64 sext for substring)
+- 8 sema testi
+
+### M22d: Type Conversion Built-ins [TAMAMLANDI]
+- `parseInt(str)` -> `i32?`, `parseInt64(str)` -> `i64?`, `parseFloat(str)` -> `f64?`
+- Runtime: liva_str_parse_i32, liva_str_parse_i64, liva_str_parse_f64 (C strtol/strtoll/strtod)
+- Success → Optional(value), failure → nil
+- Sema: registerBuiltins, visitCallExpr Optional return type
+- IRGen: runtime call → tmp alloca → Optional struct wrap
+- 4 sema testi (ParseInt, ParseInt64, ParseFloat, ParseIntIfLet)
+
+### M25: Stdlib Enhancements [TAMAMLANDI]
+- **String.split() Codegen**: `s.split(",")` → DynArray struct {ptr, i64, i64}
+  - Sema: split() → ArrayTypeRepr(dynamic, string) resolved type
+  - IRGen: liva_str_split(str, delim, &count) → DynArray struct wrap
+- **DynArray Methods**: `arr.contains(val)`, `arr.indexOf(val)`, `arr.reverse()`
+  - Runtime: liva_array_contains (memcmp/strcmp), liva_array_index_of, liva_array_reverse
+  - Sema: visitCallExpr DynArray type → contains→bool, indexOf→i64, reverse→void
+  - IRGen: load data+len, elem alloca, runtime call, i8→i1 trunc for bool
+- **DynArray Properties**: `arr.length` → i64, `arr.isEmpty` → bool
+  - Sema: visitMemberExpr Array(dynamic) type detection
+  - IRGen: already existed (GEP field 1 / icmp eq 0)
+- 6 sema testi (StringSplit, DynArrayContains, DynArrayIndexOf, DynArrayReverse, DynArrayLengthType, DynArrayIsEmptyType)
+
+### M26: Higher-Order Array Methods [TAMAMLANDI]
+- **forEach/map/filter**: `arr.forEach(|x| {...})`, `arr.map(|x| -> T {...})`, `arr.filter(|x| -> bool {...})`
+  - Sema: closure param type inference from DynArray element type (untyped `|x|` params)
+  - Sema: return types — forEach→void, map→ArrayTypeRepr(dynamic), filter→ArrayTypeRepr(dynamic)
+  - IRGen: inline loop codegen calling closure via indirect function pointer
+  - forEach: void loop, map: new array + store results, filter: new array + conditional copy
+  - Fix: save elemType/elemSize/arrAlloca BEFORE visit(closure) — iterator invalidation
+  - Fix: visitVarDecl init with dynamic Array resolved type → DynArray alloca + varDynArrayTypes_
+  - Chaining: `let d = arr.map(...); d.forEach(...)` works correctly
+- 5 sema testi (DynArrayForEach, DynArrayForEachInferred, DynArrayMap, DynArrayFilter, DynArrayFilterInferred)
+
+### M27: Language Enhancements [TAMAMLANDI]
+- **reduce()**: `arr.reduce(0, |acc, x| -> i32 { return acc + x })`
+  - Sema: closure param 1 (x) type inference from element type, return type from init
+  - IRGen: inline loop with accumulator alloca, 2-param closure call
+- **Enum Methods**: `impl Color { func describe(self) -> string { ... } }`
+  - IRGen: varEnumTypes_ lookup for method dispatch (in addition to varStructTypes_)
+  - visitImplDecl: detect enum type → varEnumTypes_["self"] registration
+- **while-let**: `while let x = optional { ... }`
+  - AST: WhileLetStmt node (Stmt.h), Parser: while + let token detection
+  - Sema: scope-based optional unwrap (not resolvedType — avoids cast crash)
+  - IRGen: condBB(check hasVal)/bodyBB(unwrap+bind+body)/exitBB + loopStack_
+- 7 test (parser:1, sema:6)
+
+### M28: Practical Enhancements [TAMAMLANDI]
+- **String Indexing**: `s[i]` → `liva_str_substring(s, i, 1)` ile tek karakter string
+  - Sema: visitIndexExpr base string ise resolved type → String
+  - IRGen: liva_str_length ile bounds check + liva_str_substring(s, i, 1)
+- **Multi-arg println**: `println(a, b, c)` → arglar arasi bosluk, sonda newline
+  - IRGen: visitCallExpr println/print loop over all args with space separator
+- **Inferred type fix**: `let ch = s[0]` gibi annotation'siz var'larda init value tipi kullanilir
+  - IRGen: visitVarDecl fallback init value'nun LLVM tipini kullanir (i32 default yerine)
+- 4 test (sema:4)
+
+### M29: Syntax & Convenience [TAMAMLANDI]
+- **Multi-line String Literals**: `"""..."""` — triple-quote syntax
+  - Lexer: lexString detect `"""` → scan until closing `"""`
+  - Token.getStringValue(): strip 3 quotes from each end + optional leading newline
+- **Array/String Slicing**: `arr[1..3]` ve `s[0..5]`
+  - Parser: zaten `parseExpression()` RangeExpr olarak ayrıstirir
+  - Sema: visitIndexExpr range+array → cloneTypeRepr, string slicing → string type
+  - IRGen: DynArray → liva_array_new + memcpy, String → liva_str_substring(s, start, len)
+- **Default Function Arguments**: `func greet(name: string = "World")`
+  - AST: ParamDecl.defaultValue + hasDefault()
+  - Parser: parseParamDecl `= expr` desteği
+  - IRGen: funcDecls_ map, visitCallExpr missing args → default value codegen
+- 7 test (lexer:2, parser:1, sema:4)
+
+### M30: Ternary Expression & Type Aliases [TAMAMLANDI]
+- **Ternary Expression**: `x > 5 ? "big" : "small"`
+  - Lexer: `?` tokendan sonra `:` bağlamında ternary ayrıştırma
+  - AST: TernaryExpr node (condition, thenExpr, elseExpr)
+  - Parser: ternary en düşük öncelik, parseExpression() içinde (parsePrecedenceExpr değil)
+  - Sema: visitTernaryExpr then-branch tipini propagate eder
+  - IRGen: conditional branch + PHI node merge
+- **Type Aliases**: `type Int = i32`, `type Pos = Point`
+  - Lexer: `kw_type` keyword
+  - AST: TypeAliasDecl (name, targetType, isPublic), NodeKind::TypeAliasDecl
+  - Parser: parseTypeAliasDecl — `type Name = Type`
+  - Scope: Symbol::Kind::TypeAlias + aliasTarget field
+  - Sema: typeAliases_ map, resolveAlias() helper, typesCompatible alias resolution
+  - Sema: visitStructLiteralExpr alias→struct resolution
+  - Sema: visitCallExpr return type alias resolution (ownership checker uyumluluğu)
+  - IRGen: typeAliases_ map, toLLVMType alias→target delegation
+- 6 test (parser:2, sema:4)
+
+### M31: Async/Await [PLANLANMADI]
 - `async func fetch() -> String { ... }`
 - `let result = await fetch()`
 - Coroutine tabanli uygulama
 
-### M24: Derleme Zamani Degerlendirme [PLANLANMADI]
+### M32: Derleme Zamani Degerlendirme [PLANLANMADI]
 - `const` fonksiyonlar ve ifadeler
 - Compile-time array boyutu hesaplama
 
 ---
 
-## Diagnostik Envanterleri (54 tanimli)
+## Diagnostik Envanterleri (55 tanimli)
 
 ### Lexer Hatalari (6)
 - `err_unexpected_character`, `err_unterminated_string`, `err_unterminated_block_comment`
@@ -397,6 +525,9 @@ kaynak kod (.liva)
 ### Sema - Module (2)
 - `err_module_not_found`, `err_circular_import`
 
+### Sema - For-in (1)
+- `err_tuple_for_requires_map`
+
 ### Sema - Match (1)
 - `err_nonexhaustive_match`
 
@@ -420,11 +551,11 @@ kaynak kod (.liva)
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
 | `tests/unit/LexerTest.cpp` | 24 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain |
-| `tests/unit/ParserTest.cpp` | 56 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain |
-| `tests/unit/SemaTest.cpp` | 112 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain |
+| `tests/unit/ParserTest.cpp` | 62 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases |
+| `tests/unit/SemaTest.cpp` | 196 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 6 | Move, borrow, use-after-move |
-| **Toplam** | **210** | |
+| **Toplam** | **302** | |
 
 ---
 
@@ -468,6 +599,15 @@ clang output.ll -o output.exe
 
 1. ~~**RefExpr codegen**~~ - TAMAMLANDI (M20)
 2. ~~**Optional chaining**~~ - TAMAMLANDI (M21)
-3. **Standart kutuphane** - Map, Set, File I/O, matematik
-4. **Async/Await** - Ileri ozellik
-5. **Derleme zamani degerlendirme** - Optimizasyon
+3. ~~**Standart kutuphane**~~ - TAMAMLANDI (M22c Math, M20a Map/Set, M20b I/O)
+4. ~~**For-in koleksiyonlari**~~ - TAMAMLANDI (M23)
+5. ~~**String metodlari**~~ - TAMAMLANDI (M24)
+6. ~~**Tip donusumleri**~~ - TAMAMLANDI (M22d parseInt/parseFloat)
+7. ~~**Stdlib gelistirmeleri**~~ - TAMAMLANDI (M25 split/DynArray methods)
+8. ~~**Higher-order array methods**~~ - TAMAMLANDI (M26 forEach/map/filter)
+9. ~~**Dil gelistirmeleri**~~ - TAMAMLANDI (M27 reduce/enum methods/while-let)
+10. ~~**Pratik ozellikler**~~ - TAMAMLANDI (M28 string indexing/multi-arg println/inferred type fix)
+11. ~~**Syntax kolayliklari**~~ - TAMAMLANDI (M29 multi-line strings/slicing/default args)
+12. ~~**Ternary & Type Aliases**~~ - TAMAMLANDI (M30 ternary expression/type aliases)
+13. **Async/Await** - Ileri ozellik
+14. **Derleme zamani degerlendirme** - Optimizasyon

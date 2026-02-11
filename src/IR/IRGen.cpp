@@ -2,6 +2,7 @@
 
 #ifdef LIVA_HAS_LLVM
 
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Host.h>
@@ -150,6 +151,62 @@ void IRGen::createRuntimeDecls() {
     auto *boolToStrTy = llvm::FunctionType::get(i8PtrTy, {i8Ty}, false);
     module_->getOrInsertFunction("liva_bool_to_str", boolToStrTy);
 
+    auto *i64ToStrTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_i64_to_str", i64ToStrTy);
+
+    // String method runtime functions
+    auto *strBoolTy = llvm::FunctionType::get(i8Ty, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_contains", strBoolTy);
+    module_->getOrInsertFunction("liva_str_starts_with", strBoolTy);
+    module_->getOrInsertFunction("liva_str_ends_with", strBoolTy);
+
+    auto *strIndexOfTy = llvm::FunctionType::get(i64Ty, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_index_of", strIndexOfTy);
+
+    auto *strSubstringTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_str_substring", strSubstringTy);
+
+    auto *strNoArgTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_trim", strNoArgTy);
+    module_->getOrInsertFunction("liva_str_to_upper", strNoArgTy);
+    module_->getOrInsertFunction("liva_str_to_lower", strNoArgTy);
+
+    auto *strReplaceTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_replace", strReplaceTy);
+
+    auto *strSplitTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_str_split", strSplitTy);
+
+    // Type conversion: string → number (returns i8 success flag, writes to output ptr)
+    auto *parseI32Ty = llvm::FunctionType::get(i8Ty, {i8PtrTy, llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_str_parse_i32", parseI32Ty);
+
+    auto *parseI64Ty = llvm::FunctionType::get(i8Ty, {i8PtrTy, llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_str_parse_i64", parseI64Ty);
+
+    auto *parseF64Ty = llvm::FunctionType::get(i8Ty, {i8PtrTy, llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_str_parse_f64", parseF64Ty);
+
+    // File I/O runtime
+    auto *fileOpenTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_file_open", fileOpenTy);
+
+    auto *fileCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_file_close", fileCloseTy);
+
+    auto *fileReadLineTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_file_read_line", fileReadLineTy);
+
+    auto *fileReadAllTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_file_read_all", fileReadAllTy);
+
+    auto *fileWriteTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_file_write", fileWriteTy);
+    module_->getOrInsertFunction("liva_file_write_line", fileWriteTy);
+
+    auto *readLineTy = llvm::FunctionType::get(i8PtrTy, {}, false);
+    module_->getOrInsertFunction("liva_read_line", readLineTy);
+
     // Dynamic array runtime
     auto *arrayNewTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i64Ty}, false);
     module_->getOrInsertFunction("liva_array_new", arrayNewTy);
@@ -164,6 +221,68 @@ void IRGen::createRuntimeDecls() {
 
     auto *arrayPopTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_array_pop", arrayPopTy);
+
+    // liva_array_contains(ptr, i64, ptr, i64, i8) -> i8
+    auto *arrayContainsTy = llvm::FunctionType::get(i8Ty,
+        {i8PtrTy, i64Ty, i8PtrTy, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_array_contains", arrayContainsTy);
+
+    // liva_array_index_of(ptr, i64, ptr, i64, i8) -> i64
+    auto *arrayIndexOfTy = llvm::FunctionType::get(i64Ty,
+        {i8PtrTy, i64Ty, i8PtrTy, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_array_index_of", arrayIndexOfTy);
+
+    // liva_array_reverse(ptr, i64, i64) -> void
+    auto *arrayReverseTy = llvm::FunctionType::get(builder_->getVoidTy(),
+        {i8PtrTy, i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_array_reverse", arrayReverseTy);
+
+    // Hash map runtime
+    // liva_map_new(capacity, entry_stride) -> ptr
+    auto *mapNewTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_map_new", mapNewTy);
+
+    auto *mapFreeTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_map_free", mapFreeTy);
+
+    // liva_map_insert(ptr*, i64*, i64*, ptr, ptr, i64, i64, i8)
+    auto *mapInsertTy = llvm::FunctionType::get(builder_->getVoidTy(),
+        {i8PtrTy, i8PtrTy, i8PtrTy, i8PtrTy, i8PtrTy, i64Ty, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_map_insert", mapInsertTy);
+
+    // liva_map_get(ptr, i64, ptr, i64, i64, i8) -> ptr
+    auto *mapGetTy = llvm::FunctionType::get(i8PtrTy,
+        {i8PtrTy, i64Ty, i8PtrTy, i64Ty, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_map_get", mapGetTy);
+
+    // liva_map_remove(ptr, i64*, i64, ptr, i64, i64, i8) -> i8
+    auto *mapRemoveTy = llvm::FunctionType::get(i8Ty,
+        {i8PtrTy, i8PtrTy, i64Ty, i8PtrTy, i64Ty, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_map_remove", mapRemoveTy);
+
+    // liva_map_contains(ptr, i64, ptr, i64, i64, i8) -> i8
+    auto *mapContainsTy = llvm::FunctionType::get(i8Ty,
+        {i8PtrTy, i64Ty, i8PtrTy, i64Ty, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_map_contains", mapContainsTy);
+
+    // Hash set runtime
+    module_->getOrInsertFunction("liva_set_new", mapNewTy);
+    module_->getOrInsertFunction("liva_set_free", mapFreeTy);
+
+    // liva_set_insert(ptr*, i64*, i64*, ptr, i64, i8)
+    auto *setInsertTy = llvm::FunctionType::get(builder_->getVoidTy(),
+        {i8PtrTy, i8PtrTy, i8PtrTy, i8PtrTy, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_set_insert", setInsertTy);
+
+    // liva_set_contains(ptr, i64, ptr, i64, i8) -> i8
+    auto *setContainsTy = llvm::FunctionType::get(i8Ty,
+        {i8PtrTy, i64Ty, i8PtrTy, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_set_contains", setContainsTy);
+
+    // liva_set_remove(ptr, i64*, i64, ptr, i64, i8) -> i8
+    auto *setRemoveTy = llvm::FunctionType::get(i8Ty,
+        {i8PtrTy, i8PtrTy, i64Ty, i8PtrTy, i64Ty, i8Ty}, false);
+    module_->getOrInsertFunction("liva_set_remove", setRemoveTy);
 
     // liva_panic(msg) — noreturn
     auto *panicTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
@@ -181,6 +300,17 @@ llvm::StructType *IRGen::getDynArrayStructTy() {
             "DynArray");
     }
     return dynArrayStructTy_;
+}
+
+llvm::StructType *IRGen::getMapStructTy() {
+    if (!mapStructTy_) {
+        mapStructTy_ = llvm::StructType::create(*context_,
+            {llvm::PointerType::getUnqual(*context_),
+             builder_->getInt64Ty(),
+             builder_->getInt64Ty()},
+            "MapStruct");
+    }
+    return mapStructTy_;
 }
 
 llvm::StructType *IRGen::getOptionalType(llvm::Type *innerType) {
@@ -322,6 +452,11 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         if (substIt != currentTypeSubst_.end()) {
             return toLLVMType(substIt->second);
         }
+        // Check type alias map
+        auto aliasIt = typeAliases_.find(named->getName());
+        if (aliasIt != typeAliases_.end()) {
+            return toLLVMType(aliasIt->second);
+        }
         auto it = structTypes_.find(named->getName());
         if (it != structTypes_.end())
             return it->second;
@@ -342,6 +477,13 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         auto *rt = static_cast<const ResultTypeRepr *>(type);
         return getResultType(toLLVMType(rt->getOkType()), toLLVMType(rt->getErrType()));
     }
+    case TypeRepr::Kind::Tuple: {
+        auto *tupType = static_cast<const TupleTypeRepr *>(type);
+        std::vector<llvm::Type *> elemTypes;
+        for (auto &e : tupType->getElements())
+            elemTypes.push_back(toLLVMType(e.get()));
+        return llvm::StructType::get(*context_, elemTypes);
+    }
     case TypeRepr::Kind::Function:
         return getClosureObjTy();
     case TypeRepr::Kind::Reference:
@@ -360,6 +502,9 @@ llvm::AllocaInst *IRGen::createEntryBlockAlloca(llvm::Function *func,
 }
 
 llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
+    // Store FuncDecl for default arg lookup
+    funcDecls_[node->getName()] = node;
+
     // Build function type
     std::vector<llvm::Type *> paramTypes;
     for (auto &param : node->getParams()) {
@@ -402,25 +547,35 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarEnumTypes = varEnumTypes_;
     auto oldVarArrayTypes = varArrayTypes_;
     auto oldVarDynArrayTypes = varDynArrayTypes_;
+    auto oldVarMapTypes = varMapTypes_;
+    auto oldVarSetTypes = varSetTypes_;
     auto oldVarOptionalTypes = varOptionalTypes_;
     auto oldVarFuncTypes = varFuncTypes_;
     auto oldVarProtocolTypes = varProtocolTypes_;
     auto oldVarResultTypes = varResultTypes_;
     auto oldVarRefTypes = varRefTypes_;
+    auto oldVarFileTypes = varFileTypes_;
+    auto oldVarFileOptionalTypes = varFileOptionalTypes_;
+    auto oldVarTupleTypes = varTupleTypes_;
     auto *oldFuncResultInfo = currentFuncResultInfo_;
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varMapTypes_.clear();
+    varSetTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
     varResultTypes_.clear();
     varRefTypes_.clear();
+    varFileTypes_.clear();
+    varFileOptionalTypes_.clear();
+    varTupleTypes_.clear();
     currentFuncResultInfo_ = nullptr;
 
-    // Track Result return type for try expressions
+    // Track Result return type for try expressions (visitFuncDecl)
     if (node->getReturnType() &&
         node->getReturnType()->getKind() == TypeRepr::Kind::Result) {
         auto *rt = static_cast<const ResultTypeRepr *>(node->getReturnType());
@@ -484,11 +639,16 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varEnumTypes_ = oldVarEnumTypes;
     varArrayTypes_ = oldVarArrayTypes;
     varDynArrayTypes_ = oldVarDynArrayTypes;
+    varMapTypes_ = oldVarMapTypes;
+    varSetTypes_ = oldVarSetTypes;
     varOptionalTypes_ = oldVarOptionalTypes;
     varFuncTypes_ = oldVarFuncTypes;
     varProtocolTypes_ = oldVarProtocolTypes;
     varResultTypes_ = oldVarResultTypes;
     varRefTypes_ = oldVarRefTypes;
+    varFileTypes_ = oldVarFileTypes;
+    varFileOptionalTypes_ = oldVarFileOptionalTypes;
+    varTupleTypes_ = oldVarTupleTypes;
     currentFuncResultInfo_ = oldFuncResultInfo;
 
     return func;
@@ -496,6 +656,37 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
 llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     auto *func = builder_->GetInsertBlock()->getParent();
+
+    // Tuple destructuring: let (x, y) = expr
+    if (node->isDestructured()) {
+        if (!node->hasInit()) return nullptr;
+        auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+        if (!initVal) return nullptr;
+
+        // Get tuple element types from init's resolved type
+        auto *initType = node->getInit()->getResolvedType();
+        if (!initType || initType->getKind() != TypeRepr::Kind::Tuple)
+            return nullptr;
+
+        auto *tupleTypeRepr = static_cast<const TupleTypeRepr *>(initType);
+        auto *tupleTy = toLLVMType(initType);
+
+        // Store the whole tuple to a temp alloca
+        auto *tupleAlloca = createEntryBlockAlloca(func, "tuple.dest", tupleTy);
+        builder_->CreateStore(initVal, tupleAlloca);
+
+        // Extract each element and assign to named variables
+        for (size_t i = 0; i < node->getDestructuredNames().size(); ++i) {
+            auto *elemTy = toLLVMType(tupleTypeRepr->getElements()[i].get());
+            auto *gep = builder_->CreateStructGEP(tupleTy, tupleAlloca, i);
+            auto *val = builder_->CreateLoad(elemTy, gep);
+
+            auto *elemAlloca = createEntryBlockAlloca(func, node->getDestructuredNames()[i], elemTy);
+            builder_->CreateStore(val, elemAlloca);
+            namedValues_[node->getDestructuredNames()[i]] = elemAlloca;
+        }
+        return tupleAlloca;
+    }
 
     // Protocol trait object: let s: ref Shape = circle
     if (node->hasTypeAnnotation() && node->getType() &&
@@ -568,6 +759,29 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         namedValues_[node->getName()] = alloca;
         varResultTypes_[node->getName()] = {okLLVM, errLLVM};
         return alloca;
+    }
+
+    // File.open() init: let f = File.open("path", "mode") → Optional<ptr>
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::CallExpr) {
+        auto *callInit = static_cast<CallExpr *>(const_cast<Expr *>(node->getInit()));
+        if (callInit->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            auto *me = static_cast<MemberExpr *>(callInit->getCallee());
+            if (me->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *id = static_cast<IdentifierExpr *>(me->getObject());
+                if (id->getName() == "File" && me->getMember() == "open") {
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                    auto *optTy = getOptionalType(ptrTy);
+                    auto *alloca = createEntryBlockAlloca(func, node->getName(), optTy);
+                    auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+                    if (initVal) builder_->CreateStore(initVal, alloca);
+                    namedValues_[node->getName()] = alloca;
+                    varOptionalTypes_[node->getName()] = ptrTy;
+                    varFileOptionalTypes_.insert(node->getName());
+                    return alloca;
+                }
+            }
+        }
     }
 
     // Optional variable: let x: i32? = 42 / let x: i32? = nil
@@ -785,6 +999,69 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         }
     }
 
+    // Map declaration: var m: Map<K, V>
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Generic) {
+        auto *genType = static_cast<const GenericTypeRepr *>(node->getType());
+        if (genType->getBaseName() == "Map" && genType->getTypeArgs().size() >= 2) {
+            auto *keyType = toLLVMType(genType->getTypeArgs()[0].get());
+            auto *valType = toLLVMType(genType->getTypeArgs()[1].get());
+            const llvm::DataLayout &dl = module_->getDataLayout();
+            uint64_t keySize = dl.getTypeAllocSize(keyType);
+            uint64_t valSize = dl.getTypeAllocSize(valType);
+            int8_t keyKind = (genType->getTypeArgs()[0]->getKind() == TypeRepr::Kind::String) ? 1 : 0;
+
+            int64_t initCap = 16;
+            int64_t stride = 9 + (int64_t)keySize + (int64_t)valSize;
+
+            auto *structTy = getMapStructTy();
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+
+            auto *newFn = module_->getFunction("liva_map_new");
+            auto *dataPtr = builder_->CreateCall(newFn,
+                {builder_->getInt64(initCap), builder_->getInt64(stride)}, "map.entries");
+
+            auto *dataField = builder_->CreateStructGEP(structTy, alloca, 0, "map.entries.ptr");
+            builder_->CreateStore(dataPtr, dataField);
+            auto *sizeField = builder_->CreateStructGEP(structTy, alloca, 1, "map.size.ptr");
+            builder_->CreateStore(builder_->getInt64(0), sizeField);
+            auto *capField = builder_->CreateStructGEP(structTy, alloca, 2, "map.cap.ptr");
+            builder_->CreateStore(builder_->getInt64(initCap), capField);
+
+            namedValues_[node->getName()] = alloca;
+            varMapTypes_[node->getName()] = {keyType, valType, keySize, valSize, keyKind};
+            return alloca;
+        }
+
+        if (genType->getBaseName() == "Set" && !genType->getTypeArgs().empty()) {
+            auto *elemType = toLLVMType(genType->getTypeArgs()[0].get());
+            const llvm::DataLayout &dl = module_->getDataLayout();
+            uint64_t elemSize = dl.getTypeAllocSize(elemType);
+            int8_t keyKind = (genType->getTypeArgs()[0]->getKind() == TypeRepr::Kind::String) ? 1 : 0;
+
+            int64_t initCap = 16;
+            int64_t stride = 9 + (int64_t)elemSize;  // val_size=0 for sets
+
+            auto *structTy = getMapStructTy();
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+
+            auto *newFn = module_->getFunction("liva_set_new");
+            auto *dataPtr = builder_->CreateCall(newFn,
+                {builder_->getInt64(initCap), builder_->getInt64(stride)}, "set.entries");
+
+            auto *dataField = builder_->CreateStructGEP(structTy, alloca, 0, "set.entries.ptr");
+            builder_->CreateStore(dataPtr, dataField);
+            auto *sizeField = builder_->CreateStructGEP(structTy, alloca, 1, "set.size.ptr");
+            builder_->CreateStore(builder_->getInt64(0), sizeField);
+            auto *capField = builder_->CreateStructGEP(structTy, alloca, 2, "set.cap.ptr");
+            builder_->CreateStore(builder_->getInt64(initCap), capField);
+
+            namedValues_[node->getName()] = alloca;
+            varSetTypes_[node->getName()] = {elemType, elemSize, keyKind};
+            return alloca;
+        }
+    }
+
     // Array literal init: let arr = [10, 20, 30]
     if (node->hasInit() &&
         node->getInit()->getKind() == ASTNode::NodeKind::ArrayLiteralExpr) {
@@ -836,15 +1113,76 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         return alloca;
     }
 
-    auto *type = toLLVMType(node->getType());
-    auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
-
-    if (node->hasInit()) {
+    // Tuple variable: let pair = (1, "hello") or let r = divmod(10, 3)
+    if (node->hasInit() && node->getInit()->getResolvedType() &&
+        node->getInit()->getResolvedType()->getKind() == TypeRepr::Kind::Tuple) {
+        auto *tupleTypeRepr = static_cast<const TupleTypeRepr *>(node->getInit()->getResolvedType());
+        auto *tupleTy = toLLVMType(tupleTypeRepr);
+        auto *alloca = createEntryBlockAlloca(func, node->getName(), tupleTy);
         auto *initVal = visit(const_cast<Expr *>(node->getInit()));
-        if (initVal)
-            builder_->CreateStore(initVal, alloca);
+        if (initVal) builder_->CreateStore(initVal, alloca);
+        namedValues_[node->getName()] = alloca;
+        TupleInfo ti;
+        for (auto &e : tupleTypeRepr->getElements())
+            ti.elementTypes.push_back(toLLVMType(e.get()));
+        varTupleTypes_[node->getName()] = ti;
+        return alloca;
     }
 
+    // Also handle tuple type annotation: let x: (i32, string) = ...
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Tuple) {
+        auto *tupleTypeRepr = static_cast<const TupleTypeRepr *>(node->getType());
+        auto *tupleTy = toLLVMType(tupleTypeRepr);
+        auto *alloca = createEntryBlockAlloca(func, node->getName(), tupleTy);
+        if (node->hasInit()) {
+            auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+            if (initVal) builder_->CreateStore(initVal, alloca);
+        }
+        namedValues_[node->getName()] = alloca;
+        TupleInfo ti;
+        for (auto &e : tupleTypeRepr->getElements())
+            ti.elementTypes.push_back(toLLVMType(e.get()));
+        varTupleTypes_[node->getName()] = ti;
+        return alloca;
+    }
+
+    // Init returns DynArray (map/filter/split): let doubled = arr.map(...)
+    if (node->hasInit() && node->getInit()->getResolvedType() &&
+        node->getInit()->getResolvedType()->getKind() == TypeRepr::Kind::Array) {
+        auto *arrReprType = static_cast<const ArrayTypeRepr *>(node->getInit()->getResolvedType());
+        if (arrReprType->isDynamic()) {
+            auto *elemType = toLLVMType(arrReprType->getElement());
+            const llvm::DataLayout &dl = module_->getDataLayout();
+            uint64_t elemSize = dl.getTypeAllocSize(elemType);
+            auto *structTy = getDynArrayStructTy();
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+            auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+            if (initVal) builder_->CreateStore(initVal, alloca);
+            namedValues_[node->getName()] = alloca;
+            varDynArrayTypes_[node->getName()] = {elemType, elemSize};
+            return alloca;
+        }
+    }
+
+    // Fallback: visit init first to determine correct type for inferred vars
+    if (node->hasInit()) {
+        auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+        auto *type = toLLVMType(node->getType());
+        // Use init value's type when annotation is absent/inferred (avoids i32 default)
+        if (initVal && type == builder_->getInt32Ty() &&
+            initVal->getType() != builder_->getInt32Ty()) {
+            type = initVal->getType();
+        }
+        auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
+        if (initVal)
+            builder_->CreateStore(initVal, alloca);
+        namedValues_[node->getName()] = alloca;
+        return alloca;
+    }
+
+    auto *type = toLLVMType(node->getType());
+    auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
     namedValues_[node->getName()] = alloca;
     return alloca;
 }
@@ -953,9 +1291,31 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     auto *bindAlloca = createEntryBlockAlloca(func, node->getBindingName(), innerType);
     builder_->CreateStore(unwrapped, bindAlloca);
     auto saved = namedValues_;
+    auto savedFileTypes = varFileTypes_;
     namedValues_[node->getBindingName()] = bindAlloca;
+    // If the optional expression was File.open, the unwrapped value is a File ptr
+    if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::CallExpr) {
+        auto *callExpr = static_cast<CallExpr *>(node->getOptionalExpr());
+        if (callExpr->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            auto *me = static_cast<MemberExpr *>(callExpr->getCallee());
+            if (me->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *id = static_cast<IdentifierExpr *>(me->getObject());
+                if (id->getName() == "File" && me->getMember() == "open") {
+                    varFileTypes_.insert(node->getBindingName());
+                }
+            }
+        }
+    }
+    // Also check if the optional source was a File-optional variable
+    if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        if (varFileOptionalTypes_.count(ident->getName())) {
+            varFileTypes_.insert(node->getBindingName());
+        }
+    }
     visit(node->getThenBody());
     namedValues_ = saved;
+    varFileTypes_ = savedFileTypes;
     if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
 
     // Else
@@ -964,6 +1324,55 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
 
     builder_->SetInsertPoint(mergeBB2);
+    return nullptr;
+}
+
+llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
+    // while let x = optional { body }
+    // Becomes: loop { check hasVal; if false → exit; unwrap; body; continue }
+    llvm::AllocaInst *optAlloca = nullptr;
+    llvm::Type *innerType = nullptr;
+    if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        auto it = namedValues_.find(ident->getName());
+        if (it != namedValues_.end()) optAlloca = it->second;
+        auto optIt = varOptionalTypes_.find(ident->getName());
+        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+    }
+    if (!optAlloca || !innerType) return nullptr;
+
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *optStructTy = getOptionalType(innerType);
+
+    auto *condBB = llvm::BasicBlock::Create(*context_, "whilelet.cond", func);
+    auto *bodyBB = llvm::BasicBlock::Create(*context_, "whilelet.body", func);
+    auto *exitBB = llvm::BasicBlock::Create(*context_, "whilelet.exit", func);
+
+    builder_->CreateBr(condBB);
+
+    // Cond: check hasVal
+    builder_->SetInsertPoint(condBB);
+    auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
+    auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "whilelet.hasval");
+    builder_->CreateCondBr(hasVal, bodyBB, exitBB);
+
+    // Body: unwrap + bind + execute body
+    builder_->SetInsertPoint(bodyBB);
+    auto *valPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 1);
+    auto *unwrapped = builder_->CreateLoad(innerType, valPtr, "whilelet.val");
+    auto *bindAlloca = createEntryBlockAlloca(func, node->getBindingName(), innerType);
+    builder_->CreateStore(unwrapped, bindAlloca);
+
+    auto saved = namedValues_;
+    namedValues_[node->getBindingName()] = bindAlloca;
+    loopStack_.push_back({exitBB, condBB});
+    visit(node->getBody());
+    loopStack_.pop_back();
+    namedValues_ = saved;
+    if (!builder_->GetInsertBlock()->getTerminator())
+        builder_->CreateBr(condBB);
+
+    builder_->SetInsertPoint(exitBB);
     return nullptr;
 }
 
@@ -1048,6 +1457,221 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         // Exit
         builder_->SetInsertPoint(exitBB);
         return nullptr;
+    }
+
+    // Check if iterable is an identifier referencing a collection
+    if (node->getIterable()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(
+            const_cast<Expr *>(node->getIterable()));
+        const std::string &iterName = ident->getName();
+
+        // === DynArray iteration: for item in arr ===
+        auto daIt = varDynArrayTypes_.find(iterName);
+        if (daIt != varDynArrayTypes_.end()) {
+            auto *elemType = daIt->second.elementType;
+            auto *structTy = getDynArrayStructTy();
+            auto *arrAlloca = namedValues_[iterName];
+
+            // Load data pointer and length
+            auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0, "da.data.ptr");
+            auto *dataPtr = builder_->CreateLoad(builder_->getPtrTy(), dataField, "da.data");
+            auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1, "da.len.ptr");
+            auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "da.len");
+
+            // Index variable
+            auto *idxVar = createEntryBlockAlloca(func, "for.idx", builder_->getInt64Ty());
+            builder_->CreateStore(builder_->getInt64(0), idxVar);
+
+            // Loop variable
+            auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
+            namedValues_[node->getVarName()] = loopVar;
+
+            auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
+            auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
+            auto *latchBB = llvm::BasicBlock::Create(*context_, "for.latch", func);
+            auto *exitBB = llvm::BasicBlock::Create(*context_, "for.exit", func);
+
+            builder_->CreateBr(condBB);
+
+            // Condition: idx < len
+            builder_->SetInsertPoint(condBB);
+            auto *idx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *cond = builder_->CreateICmpSLT(idx, len, "for.cmp");
+            builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+            // Body: load element, store to loop var
+            builder_->SetInsertPoint(bodyBB);
+            auto *elemPtr = builder_->CreateGEP(elemType, dataPtr, idx, "elem.ptr");
+            auto *elem = builder_->CreateLoad(elemType, elemPtr, "elem");
+            builder_->CreateStore(elem, loopVar);
+
+            loopStack_.push_back({exitBB, latchBB});
+            visit(const_cast<ASTNode *>(node->getBody()));
+            loopStack_.pop_back();
+            if (!builder_->GetInsertBlock()->getTerminator())
+                builder_->CreateBr(latchBB);
+
+            // Latch: idx++
+            builder_->SetInsertPoint(latchBB);
+            auto *curIdx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *nextIdx = builder_->CreateAdd(curIdx, builder_->getInt64(1), "idx.inc");
+            builder_->CreateStore(nextIdx, idxVar);
+            builder_->CreateBr(condBB);
+
+            builder_->SetInsertPoint(exitBB);
+            return nullptr;
+        }
+
+        // === Map iteration ===
+        auto mapIt = varMapTypes_.find(iterName);
+        if (mapIt != varMapTypes_.end()) {
+            auto &info = mapIt->second;
+            auto *structTy = getMapStructTy();
+            auto *mapAlloca = namedValues_[iterName];
+
+            int64_t stride = 9 + (int64_t)info.keySize + (int64_t)info.valSize;
+
+            // Load entries pointer and capacity
+            auto *entriesField = builder_->CreateStructGEP(structTy, mapAlloca, 0, "map.entries.ptr");
+            auto *entriesPtr = builder_->CreateLoad(builder_->getPtrTy(), entriesField, "map.entries");
+            auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2, "map.cap.ptr");
+            auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField, "map.cap");
+
+            // Index variable
+            auto *idxVar = createEntryBlockAlloca(func, "for.idx", builder_->getInt64Ty());
+            builder_->CreateStore(builder_->getInt64(0), idxVar);
+
+            // Loop variable(s)
+            auto *keyVar = createEntryBlockAlloca(func, node->getVarName(), info.keyType);
+            namedValues_[node->getVarName()] = keyVar;
+
+            llvm::AllocaInst *valVar = nullptr;
+            if (node->hasTuplePattern()) {
+                valVar = createEntryBlockAlloca(func, node->getVarName2(), info.valType);
+                namedValues_[node->getVarName2()] = valVar;
+            }
+
+            auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
+            auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
+            auto *processBB = llvm::BasicBlock::Create(*context_, "for.process", func);
+            auto *latchBB = llvm::BasicBlock::Create(*context_, "for.latch", func);
+            auto *exitBB = llvm::BasicBlock::Create(*context_, "for.exit", func);
+
+            builder_->CreateBr(condBB);
+
+            // Condition: idx < capacity
+            builder_->SetInsertPoint(condBB);
+            auto *idx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *cond = builder_->CreateICmpSLT(idx, cap, "for.cmp");
+            builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+            // Body: check if entry is occupied (state == 1)
+            builder_->SetInsertPoint(bodyBB);
+            auto *offset = builder_->CreateMul(idx, builder_->getInt64(stride), "entry.offset");
+            auto *entryPtr = builder_->CreateGEP(builder_->getInt8Ty(), entriesPtr, offset, "entry.ptr");
+            auto *state = builder_->CreateLoad(builder_->getInt8Ty(), entryPtr, "entry.state");
+            auto *isOccupied = builder_->CreateICmpEQ(state, builder_->getInt8(1), "is.occupied");
+            builder_->CreateCondBr(isOccupied, processBB, latchBB);
+
+            // Process: extract key (and optionally value)
+            builder_->SetInsertPoint(processBB);
+            auto *keyRaw = builder_->CreateGEP(builder_->getInt8Ty(), entryPtr,
+                builder_->getInt64(9), "key.raw");
+            auto *key = builder_->CreateLoad(info.keyType, keyRaw, "key");
+            builder_->CreateStore(key, keyVar);
+
+            if (node->hasTuplePattern() && valVar) {
+                auto *valRaw = builder_->CreateGEP(builder_->getInt8Ty(), entryPtr,
+                    builder_->getInt64(9 + (int64_t)info.keySize), "val.raw");
+                auto *val = builder_->CreateLoad(info.valType, valRaw, "val");
+                builder_->CreateStore(val, valVar);
+            }
+
+            loopStack_.push_back({exitBB, latchBB});
+            visit(const_cast<ASTNode *>(node->getBody()));
+            loopStack_.pop_back();
+            if (!builder_->GetInsertBlock()->getTerminator())
+                builder_->CreateBr(latchBB);
+
+            // Latch: idx++
+            builder_->SetInsertPoint(latchBB);
+            auto *curIdx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *nextIdx = builder_->CreateAdd(curIdx, builder_->getInt64(1), "idx.inc");
+            builder_->CreateStore(nextIdx, idxVar);
+            builder_->CreateBr(condBB);
+
+            builder_->SetInsertPoint(exitBB);
+            return nullptr;
+        }
+
+        // === Set iteration: for item in set ===
+        auto setIt = varSetTypes_.find(iterName);
+        if (setIt != varSetTypes_.end()) {
+            auto &info = setIt->second;
+            auto *structTy = getMapStructTy();  // Set uses same struct as Map
+            auto *setAlloca = namedValues_[iterName];
+
+            int64_t stride = 9 + (int64_t)info.elemSize;  // val_size=0
+
+            // Load entries pointer and capacity
+            auto *entriesField = builder_->CreateStructGEP(structTy, setAlloca, 0, "set.entries.ptr");
+            auto *entriesPtr = builder_->CreateLoad(builder_->getPtrTy(), entriesField, "set.entries");
+            auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2, "set.cap.ptr");
+            auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField, "set.cap");
+
+            // Index variable
+            auto *idxVar = createEntryBlockAlloca(func, "for.idx", builder_->getInt64Ty());
+            builder_->CreateStore(builder_->getInt64(0), idxVar);
+
+            // Loop variable
+            auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), info.elemType);
+            namedValues_[node->getVarName()] = loopVar;
+
+            auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
+            auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
+            auto *processBB = llvm::BasicBlock::Create(*context_, "for.process", func);
+            auto *latchBB = llvm::BasicBlock::Create(*context_, "for.latch", func);
+            auto *exitBB = llvm::BasicBlock::Create(*context_, "for.exit", func);
+
+            builder_->CreateBr(condBB);
+
+            // Condition: idx < capacity
+            builder_->SetInsertPoint(condBB);
+            auto *idx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *cond = builder_->CreateICmpSLT(idx, cap, "for.cmp");
+            builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+            // Body: check if entry is occupied (state == 1)
+            builder_->SetInsertPoint(bodyBB);
+            auto *offset = builder_->CreateMul(idx, builder_->getInt64(stride), "entry.offset");
+            auto *entryPtr = builder_->CreateGEP(builder_->getInt8Ty(), entriesPtr, offset, "entry.ptr");
+            auto *state = builder_->CreateLoad(builder_->getInt8Ty(), entryPtr, "entry.state");
+            auto *isOccupied = builder_->CreateICmpEQ(state, builder_->getInt8(1), "is.occupied");
+            builder_->CreateCondBr(isOccupied, processBB, latchBB);
+
+            // Process: extract element
+            builder_->SetInsertPoint(processBB);
+            auto *elemRaw = builder_->CreateGEP(builder_->getInt8Ty(), entryPtr,
+                builder_->getInt64(9), "elem.raw");
+            auto *elem = builder_->CreateLoad(info.elemType, elemRaw, "elem");
+            builder_->CreateStore(elem, loopVar);
+
+            loopStack_.push_back({exitBB, latchBB});
+            visit(const_cast<ASTNode *>(node->getBody()));
+            loopStack_.pop_back();
+            if (!builder_->GetInsertBlock()->getTerminator())
+                builder_->CreateBr(latchBB);
+
+            // Latch: idx++
+            builder_->SetInsertPoint(latchBB);
+            auto *curIdx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *nextIdx = builder_->CreateAdd(curIdx, builder_->getInt64(1), "idx.inc");
+            builder_->CreateStore(nextIdx, idxVar);
+            builder_->CreateBr(condBB);
+
+            builder_->SetInsertPoint(exitBB);
+            return nullptr;
+        }
     }
 
     // Fallback: just emit body once
@@ -1476,6 +2100,187 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // File.open(path, mode) → Optional<ptr>
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            if (ident->getName() == "File" && methodName == "open" &&
+                node->getArgs().size() >= 2) {
+                auto *pathVal = visit(node->getArgs()[0].get());
+                auto *modeVal = visit(node->getArgs()[1].get());
+                if (!pathVal || !modeVal) return nullptr;
+
+                auto *openFn = module_->getFunction("liva_file_open");
+                auto *fp = builder_->CreateCall(openFn, {pathVal, modeVal}, "file.fp");
+                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+                // Build Optional<ptr>: { i1, ptr }
+                auto *isNull = builder_->CreateICmpEQ(fp,
+                    llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
+                    "file.isnull");
+                auto *hasVal = builder_->CreateNot(isNull, "file.hasval");
+                auto *optTy = getOptionalType(ptrTy);
+                auto *curFunc = builder_->GetInsertBlock()->getParent();
+                auto *optAlloca = createEntryBlockAlloca(curFunc, "file.opt", optTy);
+                auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+                builder_->CreateStore(hasVal, hasValPtr);
+                auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+                builder_->CreateStore(fp, valPtr);
+                return builder_->CreateLoad(optTy, optAlloca, "file.opt.val");
+            }
+        }
+
+        // File instance methods: file.readLine(), file.readAll(), file.write(), file.writeLine(), file.close()
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            if (varFileTypes_.count(ident->getName())) {
+                auto nvIt = namedValues_.find(ident->getName());
+                if (nvIt == namedValues_.end()) return nullptr;
+                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                auto *fp = builder_->CreateLoad(ptrTy, nvIt->second, "file.ptr");
+
+                if (methodName == "readLine") {
+                    auto *fn = module_->getFunction("liva_file_read_line");
+                    auto *raw = builder_->CreateCall(fn, {fp}, "file.readline.raw");
+                    // Build Optional<string>: null check → { i1, ptr }
+                    auto *isNull = builder_->CreateICmpEQ(raw,
+                        llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
+                        "file.readline.isnull");
+                    auto *hasVal = builder_->CreateNot(isNull, "file.readline.hasval");
+                    auto *optTy = getOptionalType(ptrTy);
+                    auto *curFunc = builder_->GetInsertBlock()->getParent();
+                    auto *optAlloca = createEntryBlockAlloca(curFunc, "file.readline.opt", optTy);
+                    auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+                    builder_->CreateStore(hasVal, hasValPtr);
+                    auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+                    builder_->CreateStore(raw, valPtr);
+                    return builder_->CreateLoad(optTy, optAlloca, "file.readline.opt");
+                }
+
+                if (methodName == "readAll") {
+                    auto *fn = module_->getFunction("liva_file_read_all");
+                    return builder_->CreateCall(fn, {fp}, "file.readall");
+                }
+
+                if (methodName == "write" && !node->getArgs().empty()) {
+                    auto *strVal = visit(node->getArgs()[0].get());
+                    if (!strVal) return nullptr;
+                    auto *fn = module_->getFunction("liva_file_write");
+                    builder_->CreateCall(fn, {fp, strVal});
+                    return nullptr;
+                }
+
+                if (methodName == "writeLine" && !node->getArgs().empty()) {
+                    auto *strVal = visit(node->getArgs()[0].get());
+                    if (!strVal) return nullptr;
+                    auto *fn = module_->getFunction("liva_file_write_line");
+                    builder_->CreateCall(fn, {fp, strVal});
+                    return nullptr;
+                }
+
+                if (methodName == "close") {
+                    auto *fn = module_->getFunction("liva_file_close");
+                    builder_->CreateCall(fn, {fp});
+                    return nullptr;
+                }
+            }
+        }
+
+        // String method calls: s.contains(), s.startsWith(), etc.
+        if (memberExpr->getObject()->getResolvedType() &&
+            memberExpr->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String) {
+            auto *obj = visit(memberExpr->getObject());
+            if (!obj) return nullptr;
+
+            if (methodName == "contains" && node->getArgs().size() >= 1) {
+                auto *arg = visit(node->getArgs()[0].get());
+                if (!arg) return nullptr;
+                auto *fn = module_->getFunction("liva_str_contains");
+                auto *result = builder_->CreateCall(fn, {obj, arg}, "str.contains");
+                return builder_->CreateTrunc(result, builder_->getInt1Ty(), "str.contains.bool");
+            }
+
+            if (methodName == "startsWith" && node->getArgs().size() >= 1) {
+                auto *arg = visit(node->getArgs()[0].get());
+                if (!arg) return nullptr;
+                auto *fn = module_->getFunction("liva_str_starts_with");
+                auto *result = builder_->CreateCall(fn, {obj, arg}, "str.startswith");
+                return builder_->CreateTrunc(result, builder_->getInt1Ty(), "str.startswith.bool");
+            }
+
+            if (methodName == "endsWith" && node->getArgs().size() >= 1) {
+                auto *arg = visit(node->getArgs()[0].get());
+                if (!arg) return nullptr;
+                auto *fn = module_->getFunction("liva_str_ends_with");
+                auto *result = builder_->CreateCall(fn, {obj, arg}, "str.endswith");
+                return builder_->CreateTrunc(result, builder_->getInt1Ty(), "str.endswith.bool");
+            }
+
+            if (methodName == "indexOf" && node->getArgs().size() >= 1) {
+                auto *arg = visit(node->getArgs()[0].get());
+                if (!arg) return nullptr;
+                auto *fn = module_->getFunction("liva_str_index_of");
+                return builder_->CreateCall(fn, {obj, arg}, "str.indexof");
+            }
+
+            if (methodName == "substring" && node->getArgs().size() >= 2) {
+                auto *start = visit(node->getArgs()[0].get());
+                auto *length = visit(node->getArgs()[1].get());
+                if (!start || !length) return nullptr;
+                // Auto-convert i32 to i64 if needed
+                if (start->getType()->isIntegerTy(32))
+                    start = builder_->CreateSExt(start, builder_->getInt64Ty());
+                if (length->getType()->isIntegerTy(32))
+                    length = builder_->CreateSExt(length, builder_->getInt64Ty());
+                auto *fn = module_->getFunction("liva_str_substring");
+                return builder_->CreateCall(fn, {obj, start, length}, "str.substring");
+            }
+
+            if (methodName == "trim") {
+                auto *fn = module_->getFunction("liva_str_trim");
+                return builder_->CreateCall(fn, {obj}, "str.trim");
+            }
+
+            if (methodName == "toUpper") {
+                auto *fn = module_->getFunction("liva_str_to_upper");
+                return builder_->CreateCall(fn, {obj}, "str.toupper");
+            }
+
+            if (methodName == "toLower") {
+                auto *fn = module_->getFunction("liva_str_to_lower");
+                return builder_->CreateCall(fn, {obj}, "str.tolower");
+            }
+
+            if (methodName == "replace" && node->getArgs().size() >= 2) {
+                auto *oldSub = visit(node->getArgs()[0].get());
+                auto *newSub = visit(node->getArgs()[1].get());
+                if (!oldSub || !newSub) return nullptr;
+                auto *fn = module_->getFunction("liva_str_replace");
+                return builder_->CreateCall(fn, {obj, oldSub, newSub}, "str.replace");
+            }
+
+            if (methodName == "split" && node->getArgs().size() >= 1) {
+                auto *delim = visit(node->getArgs()[0].get());
+                if (!delim) return nullptr;
+                auto *curFunc = builder_->GetInsertBlock()->getParent();
+                // count output parameter
+                auto *countAlloca = createEntryBlockAlloca(curFunc, "split.count", builder_->getInt64Ty());
+                builder_->CreateStore(builder_->getInt64(0), countAlloca);
+                auto *fn = module_->getFunction("liva_str_split");
+                auto *resultPtr = builder_->CreateCall(fn, {obj, delim, countAlloca}, "split.data");
+                auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "split.len");
+                // Build DynArray struct { ptr data, i64 length, i64 capacity }
+                auto *structTy = getDynArrayStructTy();
+                auto *arrAlloca = createEntryBlockAlloca(curFunc, "split.arr", structTy);
+                auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                builder_->CreateStore(resultPtr, dataField);
+                auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                builder_->CreateStore(count, lenField);
+                auto *capField = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+                builder_->CreateStore(count, capField);  // capacity = count
+                return builder_->CreateLoad(structTy, arrAlloca, "split.result");
+            }
+        }
+
         // Check for enum case constructor: Shape.Circle(3.14)
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
@@ -1525,6 +2330,508 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *popFn = module_->getFunction("liva_array_pop");
                     builder_->CreateCall(popFn, {lenField});
                     return nullptr;
+                }
+
+                if (methodName == "contains" && !node->getArgs().empty()) {
+                    auto *val = visit(node->getArgs()[0].get());
+                    if (!val) return nullptr;
+                    auto *curFunc = builder_->GetInsertBlock()->getParent();
+                    auto *elemAlloca = createEntryBlockAlloca(curFunc, "arr.contains.tmp",
+                                                              daIt->second.elementType);
+                    builder_->CreateStore(val, elemAlloca);
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                    auto *data = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), dataField, "arr.data");
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
+                    int8_t keyKind = daIt->second.elementType->isPointerTy() ? 1 : 0;
+                    auto *fn = module_->getFunction("liva_array_contains");
+                    auto *result = builder_->CreateCall(fn, {
+                        data, len, elemAlloca,
+                        builder_->getInt64(daIt->second.elemSize),
+                        builder_->getInt8(keyKind)
+                    }, "arr.contains");
+                    return builder_->CreateTrunc(result, builder_->getInt1Ty(), "arr.contains.bool");
+                }
+
+                if (methodName == "indexOf" && !node->getArgs().empty()) {
+                    auto *val = visit(node->getArgs()[0].get());
+                    if (!val) return nullptr;
+                    auto *curFunc = builder_->GetInsertBlock()->getParent();
+                    auto *elemAlloca = createEntryBlockAlloca(curFunc, "arr.indexof.tmp",
+                                                              daIt->second.elementType);
+                    builder_->CreateStore(val, elemAlloca);
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                    auto *data = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), dataField, "arr.data");
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
+                    int8_t keyKind = daIt->second.elementType->isPointerTy() ? 1 : 0;
+                    auto *fn = module_->getFunction("liva_array_index_of");
+                    return builder_->CreateCall(fn, {
+                        data, len, elemAlloca,
+                        builder_->getInt64(daIt->second.elemSize),
+                        builder_->getInt8(keyKind)
+                    }, "arr.indexof");
+                }
+
+                if (methodName == "reverse") {
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                    auto *data = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), dataField, "arr.data");
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
+                    auto *fn = module_->getFunction("liva_array_reverse");
+                    builder_->CreateCall(fn, {data, len, builder_->getInt64(daIt->second.elemSize)});
+                    return nullptr;
+                }
+
+                // forEach/map/filter: higher-order array methods with closure arg
+                if ((methodName == "forEach" || methodName == "map" || methodName == "filter") &&
+                    !node->getArgs().empty()) {
+                    // Save DynArray info BEFORE visiting closure (which invalidates map iterators)
+                    auto *elemType = daIt->second.elementType;
+                    uint64_t elemSize = daIt->second.elemSize;
+                    auto *savedArrAlloca = arrAlloca;
+
+                    auto *closureVal = visit(node->getArgs()[0].get());
+                    if (!closureVal) return nullptr;
+
+                    auto *curFunc = builder_->GetInsertBlock()->getParent();
+                    auto *closureObjTy = getClosureObjTy();
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                    arrAlloca = savedArrAlloca;
+
+                    // Store closure object to extract fields
+                    auto *closureAlloca = createEntryBlockAlloca(curFunc, "hof.closure", closureObjTy);
+                    builder_->CreateStore(closureVal, closureAlloca);
+                    auto *funcGEP = builder_->CreateStructGEP(closureObjTy, closureAlloca, 0);
+                    auto *funcPtr = builder_->CreateLoad(ptrTy, funcGEP, "hof.func");
+                    auto *envGEP = builder_->CreateStructGEP(closureObjTy, closureAlloca, 1);
+                    auto *envPtr = builder_->CreateLoad(ptrTy, envGEP, "hof.env");
+
+                    // Load source array data and length
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                    auto *data = builder_->CreateLoad(ptrTy, dataField, "hof.data");
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "hof.len");
+
+                    // Determine closure return type
+                    auto *closureExpr = static_cast<ClosureExpr *>(node->getArgs()[0].get());
+                    llvm::Type *closureRetTy = builder_->getVoidTy();
+                    if (methodName == "filter") {
+                        closureRetTy = builder_->getInt1Ty();
+                    } else if (methodName == "map" && closureExpr->getReturnType()) {
+                        closureRetTy = toLLVMType(closureExpr->getReturnType());
+                    } else if (methodName == "forEach") {
+                        closureRetTy = builder_->getVoidTy();
+                    }
+
+                    // Build closure function type: (ptr env, elemType) -> retTy
+                    auto *closureFuncTy = llvm::FunctionType::get(
+                        closureRetTy, {ptrTy, elemType}, false);
+
+                    // Allocate result array for map/filter
+                    llvm::AllocaInst *resultAlloca = nullptr;
+                    llvm::Value *resultData = nullptr;
+                    llvm::AllocaInst *resultLenAlloca = nullptr;
+                    llvm::Type *resultElemType = nullptr;
+                    uint64_t resultElemSize = 0;
+
+                    if (methodName == "map" || methodName == "filter") {
+                        resultElemType = (methodName == "map") ? closureRetTy : elemType;
+                        const llvm::DataLayout &dl = module_->getDataLayout();
+                        resultElemSize = dl.getTypeAllocSize(resultElemType);
+                        resultAlloca = createEntryBlockAlloca(curFunc, "hof.result", structTy);
+                        auto *newFn = module_->getFunction("liva_array_new");
+                        resultData = builder_->CreateCall(newFn,
+                            {builder_->getInt64(resultElemSize), len}, "hof.newdata");
+                        auto *rDataField = builder_->CreateStructGEP(structTy, resultAlloca, 0);
+                        builder_->CreateStore(resultData, rDataField);
+                        resultLenAlloca = createEntryBlockAlloca(curFunc, "hof.rlen", builder_->getInt64Ty());
+                        builder_->CreateStore(builder_->getInt64(0), resultLenAlloca);
+                        auto *rCapField = builder_->CreateStructGEP(structTy, resultAlloca, 2);
+                        builder_->CreateStore(len, rCapField);
+                    }
+
+                    // Loop: i = 0; i < len; i++
+                    auto *idxAlloca = createEntryBlockAlloca(curFunc, "hof.i", builder_->getInt64Ty());
+                    builder_->CreateStore(builder_->getInt64(0), idxAlloca);
+
+                    auto *condBB = llvm::BasicBlock::Create(*context_, "hof.cond", curFunc);
+                    auto *bodyBB = llvm::BasicBlock::Create(*context_, "hof.body", curFunc);
+                    auto *latchBB = llvm::BasicBlock::Create(*context_, "hof.latch", curFunc);
+                    auto *exitBB = llvm::BasicBlock::Create(*context_, "hof.exit", curFunc);
+
+                    loopStack_.push_back({exitBB, latchBB});
+                    builder_->CreateBr(condBB);
+
+                    // Cond
+                    builder_->SetInsertPoint(condBB);
+                    auto *idx = builder_->CreateLoad(builder_->getInt64Ty(), idxAlloca, "hof.idx");
+                    auto *cond = builder_->CreateICmpSLT(idx, len, "hof.cmp");
+                    builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+                    // Body
+                    builder_->SetInsertPoint(bodyBB);
+                    auto *idxBody = builder_->CreateLoad(builder_->getInt64Ty(), idxAlloca);
+                    auto *elemPtr = builder_->CreateGEP(elemType, data, idxBody, "hof.elem.ptr");
+                    auto *elem = builder_->CreateLoad(elemType, elemPtr, "hof.elem");
+
+                    // Call closure: funcPtr(envPtr, elem)
+                    if (methodName == "forEach") {
+                        builder_->CreateCall(closureFuncTy, funcPtr, {envPtr, elem});
+                        builder_->CreateBr(latchBB);
+                    } else if (methodName == "map") {
+                        auto *result = builder_->CreateCall(closureFuncTy, funcPtr,
+                            {envPtr, elem}, "hof.map.val");
+                        // Store result at resultData[i]
+                        auto *rIdx = builder_->CreateLoad(builder_->getInt64Ty(), resultLenAlloca);
+                        auto *rPtr = builder_->CreateGEP(resultElemType, resultData, rIdx, "hof.map.ptr");
+                        builder_->CreateStore(result, rPtr);
+                        // resultLen++
+                        auto *rNext = builder_->CreateAdd(rIdx, builder_->getInt64(1));
+                        builder_->CreateStore(rNext, resultLenAlloca);
+                        builder_->CreateBr(latchBB);
+                    } else if (methodName == "filter") {
+                        auto *keep = builder_->CreateCall(closureFuncTy, funcPtr,
+                            {envPtr, elem}, "hof.filter.keep");
+                        auto *keepBB = llvm::BasicBlock::Create(*context_, "hof.filter.yes", curFunc);
+                        auto *skipBB = llvm::BasicBlock::Create(*context_, "hof.filter.no", curFunc);
+                        builder_->CreateCondBr(keep, keepBB, skipBB);
+
+                        builder_->SetInsertPoint(keepBB);
+                        auto *rIdx = builder_->CreateLoad(builder_->getInt64Ty(), resultLenAlloca);
+                        auto *rPtr = builder_->CreateGEP(resultElemType, resultData, rIdx, "hof.filt.ptr");
+                        builder_->CreateStore(elem, rPtr);
+                        auto *rNext = builder_->CreateAdd(rIdx, builder_->getInt64(1));
+                        builder_->CreateStore(rNext, resultLenAlloca);
+                        builder_->CreateBr(skipBB);
+
+                        builder_->SetInsertPoint(skipBB);
+                        builder_->CreateBr(latchBB);
+                    }
+
+                    // Latch: i++
+                    builder_->SetInsertPoint(latchBB);
+                    auto *idxLatch = builder_->CreateLoad(builder_->getInt64Ty(), idxAlloca);
+                    auto *next = builder_->CreateAdd(idxLatch, builder_->getInt64(1), "hof.next");
+                    builder_->CreateStore(next, idxAlloca);
+                    builder_->CreateBr(condBB);
+
+                    // Exit
+                    builder_->SetInsertPoint(exitBB);
+                    loopStack_.pop_back();
+
+                    if (methodName == "forEach") {
+                        return nullptr;
+                    }
+
+                    // Return result DynArray for map/filter
+                    auto *rLen = builder_->CreateLoad(builder_->getInt64Ty(), resultLenAlloca, "hof.rlen.final");
+                    auto *rLenField = builder_->CreateStructGEP(structTy, resultAlloca, 1);
+                    builder_->CreateStore(rLen, rLenField);
+                    return builder_->CreateLoad(structTy, resultAlloca, "hof.result.val");
+                }
+
+                // reduce(init, |acc, x| -> T { ... })
+                if (methodName == "reduce" && node->getArgs().size() >= 2) {
+                    auto *elemType = daIt->second.elementType;
+                    auto *savedArrAlloca = arrAlloca;
+
+                    // Visit init value first
+                    auto *initVal = visit(node->getArgs()[0].get());
+                    if (!initVal) return nullptr;
+
+                    // Visit closure
+                    auto *closureVal = visit(node->getArgs()[1].get());
+                    if (!closureVal) return nullptr;
+
+                    auto *curFunc = builder_->GetInsertBlock()->getParent();
+                    auto *closureObjTy = getClosureObjTy();
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                    arrAlloca = savedArrAlloca;
+
+                    // Extract closure func_ptr and env_ptr
+                    auto *closureAlloca = createEntryBlockAlloca(curFunc, "red.closure", closureObjTy);
+                    builder_->CreateStore(closureVal, closureAlloca);
+                    auto *funcGEP = builder_->CreateStructGEP(closureObjTy, closureAlloca, 0);
+                    auto *funcPtr = builder_->CreateLoad(ptrTy, funcGEP, "red.func");
+                    auto *envGEP = builder_->CreateStructGEP(closureObjTy, closureAlloca, 1);
+                    auto *envPtr = builder_->CreateLoad(ptrTy, envGEP, "red.env");
+
+                    // Load array data and length
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+                    auto *data = builder_->CreateLoad(ptrTy, dataField, "red.data");
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "red.len");
+
+                    // Accumulator alloca
+                    auto *accType = initVal->getType();
+                    auto *accAlloca = createEntryBlockAlloca(curFunc, "red.acc", accType);
+                    builder_->CreateStore(initVal, accAlloca);
+
+                    // Closure type: (ptr env, accType, elemType) -> accType
+                    auto *closureFuncTy = llvm::FunctionType::get(
+                        accType, {ptrTy, accType, elemType}, false);
+
+                    // Loop: i = 0; i < len; i++
+                    auto *idxAlloca = createEntryBlockAlloca(curFunc, "red.i", builder_->getInt64Ty());
+                    builder_->CreateStore(builder_->getInt64(0), idxAlloca);
+
+                    auto *condBB = llvm::BasicBlock::Create(*context_, "red.cond", curFunc);
+                    auto *bodyBB = llvm::BasicBlock::Create(*context_, "red.body", curFunc);
+                    auto *latchBB = llvm::BasicBlock::Create(*context_, "red.latch", curFunc);
+                    auto *exitBB = llvm::BasicBlock::Create(*context_, "red.exit", curFunc);
+
+                    loopStack_.push_back({exitBB, latchBB});
+                    builder_->CreateBr(condBB);
+
+                    builder_->SetInsertPoint(condBB);
+                    auto *idx = builder_->CreateLoad(builder_->getInt64Ty(), idxAlloca, "red.idx");
+                    auto *cond = builder_->CreateICmpSLT(idx, len, "red.cmp");
+                    builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+                    builder_->SetInsertPoint(bodyBB);
+                    auto *idxBody = builder_->CreateLoad(builder_->getInt64Ty(), idxAlloca);
+                    auto *elemPtr = builder_->CreateGEP(elemType, data, idxBody, "red.elem.ptr");
+                    auto *elem = builder_->CreateLoad(elemType, elemPtr, "red.elem");
+                    auto *acc = builder_->CreateLoad(accType, accAlloca, "red.acc.val");
+
+                    // Call closure: funcPtr(envPtr, acc, elem)
+                    auto *result = builder_->CreateCall(closureFuncTy, funcPtr,
+                        {envPtr, acc, elem}, "red.result");
+                    builder_->CreateStore(result, accAlloca);
+                    builder_->CreateBr(latchBB);
+
+                    builder_->SetInsertPoint(latchBB);
+                    auto *idxLatch = builder_->CreateLoad(builder_->getInt64Ty(), idxAlloca);
+                    auto *next = builder_->CreateAdd(idxLatch, builder_->getInt64(1), "red.next");
+                    builder_->CreateStore(next, idxAlloca);
+                    builder_->CreateBr(condBB);
+
+                    builder_->SetInsertPoint(exitBB);
+                    loopStack_.pop_back();
+
+                    return builder_->CreateLoad(accType, accAlloca, "red.final");
+                }
+            }
+        }
+
+        // Map method: m.insert(k,v), m.get(k), m.contains(k), m.remove(k)
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            auto mapIt = varMapTypes_.find(ident->getName());
+            if (mapIt != varMapTypes_.end()) {
+                auto allocaIt = namedValues_.find(ident->getName());
+                if (allocaIt == namedValues_.end()) return nullptr;
+                auto *mapAlloca = allocaIt->second;
+                auto *structTy = getMapStructTy();
+                auto &info = mapIt->second;
+                auto *curFunc = builder_->GetInsertBlock()->getParent();
+
+                if (methodName == "insert" && node->getArgs().size() >= 2) {
+                    auto *keyVal = visit(node->getArgs()[0].get());
+                    auto *valVal = visit(node->getArgs()[1].get());
+                    if (!keyVal || !valVal) return nullptr;
+
+                    auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.key.tmp", info.keyType);
+                    builder_->CreateStore(keyVal, keyAlloca);
+                    auto *valAlloca = createEntryBlockAlloca(curFunc, "map.val.tmp", info.valType);
+                    builder_->CreateStore(valVal, valAlloca);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, mapAlloca, 0);
+                    auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
+                    auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
+
+                    auto *insertFn = module_->getFunction("liva_map_insert");
+                    builder_->CreateCall(insertFn, {
+                        entriesField, sizeField, capField,
+                        keyAlloca, valAlloca,
+                        builder_->getInt64(info.keySize),
+                        builder_->getInt64(info.valSize),
+                        builder_->getInt8(info.keyKind)
+                    });
+                    return nullptr;
+                }
+
+                if (methodName == "get" && !node->getArgs().empty()) {
+                    auto *keyVal = visit(node->getArgs()[0].get());
+                    if (!keyVal) return nullptr;
+
+                    auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.get.key", info.keyType);
+                    builder_->CreateStore(keyVal, keyAlloca);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, mapAlloca, 0);
+                    auto *entries = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), entriesField, "map.entries");
+                    auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField, "map.cap");
+
+                    auto *getFn = module_->getFunction("liva_map_get");
+                    auto *resultPtr = builder_->CreateCall(getFn, {
+                        entries, cap, keyAlloca,
+                        builder_->getInt64(info.keySize),
+                        builder_->getInt64(info.valSize),
+                        builder_->getInt8(info.keyKind)
+                    }, "map.get.ptr");
+
+                    // Build Optional<V>: null check → {i1, V}
+                    auto *isNull = builder_->CreateICmpEQ(resultPtr,
+                        llvm::ConstantPointerNull::get(
+                            llvm::cast<llvm::PointerType>(resultPtr->getType())),
+                        "map.get.isnull");
+                    auto *optTy = getOptionalType(info.valType);
+                    auto *optAlloca = createEntryBlockAlloca(curFunc, "map.get.opt", optTy);
+
+                    // nil path
+                    auto *nilBB = llvm::BasicBlock::Create(*context_, "map.get.nil", curFunc);
+                    auto *someBB = llvm::BasicBlock::Create(*context_, "map.get.some", curFunc);
+                    auto *mergeBB = llvm::BasicBlock::Create(*context_, "map.get.merge", curFunc);
+                    builder_->CreateCondBr(isNull, nilBB, someBB);
+
+                    builder_->SetInsertPoint(nilBB);
+                    auto *hasValNil = builder_->CreateStructGEP(optTy, optAlloca, 0);
+                    builder_->CreateStore(builder_->getInt1(false), hasValNil);
+                    builder_->CreateBr(mergeBB);
+
+                    builder_->SetInsertPoint(someBB);
+                    auto *hasValSome = builder_->CreateStructGEP(optTy, optAlloca, 0);
+                    builder_->CreateStore(builder_->getInt1(true), hasValSome);
+                    auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+                    auto *loadedVal = builder_->CreateLoad(info.valType, resultPtr, "map.get.val");
+                    builder_->CreateStore(loadedVal, valPtr);
+                    builder_->CreateBr(mergeBB);
+
+                    builder_->SetInsertPoint(mergeBB);
+                    return builder_->CreateLoad(optTy, optAlloca, "map.get.result");
+                }
+
+                if (methodName == "contains" && !node->getArgs().empty()) {
+                    auto *keyVal = visit(node->getArgs()[0].get());
+                    if (!keyVal) return nullptr;
+
+                    auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.contains.key", info.keyType);
+                    builder_->CreateStore(keyVal, keyAlloca);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, mapAlloca, 0);
+                    auto *entries = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), entriesField);
+                    auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
+
+                    auto *containsFn = module_->getFunction("liva_map_contains");
+                    auto *result = builder_->CreateCall(containsFn, {
+                        entries, cap, keyAlloca,
+                        builder_->getInt64(info.keySize),
+                        builder_->getInt64(info.valSize),
+                        builder_->getInt8(info.keyKind)
+                    }, "map.contains");
+                    return builder_->CreateTrunc(result, builder_->getInt1Ty(), "map.contains.bool");
+                }
+
+                if (methodName == "remove" && !node->getArgs().empty()) {
+                    auto *keyVal = visit(node->getArgs()[0].get());
+                    if (!keyVal) return nullptr;
+
+                    auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.remove.key", info.keyType);
+                    builder_->CreateStore(keyVal, keyAlloca);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, mapAlloca, 0);
+                    auto *entries = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), entriesField);
+                    auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
+                    auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
+
+                    auto *removeFn = module_->getFunction("liva_map_remove");
+                    auto *result = builder_->CreateCall(removeFn, {
+                        entries, sizeField, cap, keyAlloca,
+                        builder_->getInt64(info.keySize),
+                        builder_->getInt64(info.valSize),
+                        builder_->getInt8(info.keyKind)
+                    }, "map.remove");
+                    return builder_->CreateTrunc(result, builder_->getInt1Ty(), "map.remove.bool");
+                }
+            }
+        }
+
+        // Set method: s.insert(e), s.contains(e), s.remove(e)
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            auto setIt = varSetTypes_.find(ident->getName());
+            if (setIt != varSetTypes_.end()) {
+                auto allocaIt = namedValues_.find(ident->getName());
+                if (allocaIt == namedValues_.end()) return nullptr;
+                auto *setAlloca = allocaIt->second;
+                auto *structTy = getMapStructTy();
+                auto &info = setIt->second;
+                auto *curFunc = builder_->GetInsertBlock()->getParent();
+
+                if (methodName == "insert" && !node->getArgs().empty()) {
+                    auto *elemVal = visit(node->getArgs()[0].get());
+                    if (!elemVal) return nullptr;
+
+                    auto *elemAlloca = createEntryBlockAlloca(curFunc, "set.elem.tmp", info.elemType);
+                    builder_->CreateStore(elemVal, elemAlloca);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, setAlloca, 0);
+                    auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
+                    auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2);
+
+                    auto *insertFn = module_->getFunction("liva_set_insert");
+                    builder_->CreateCall(insertFn, {
+                        entriesField, sizeField, capField,
+                        elemAlloca,
+                        builder_->getInt64(info.elemSize),
+                        builder_->getInt8(info.keyKind)
+                    });
+                    return nullptr;
+                }
+
+                if (methodName == "contains" && !node->getArgs().empty()) {
+                    auto *elemVal = visit(node->getArgs()[0].get());
+                    if (!elemVal) return nullptr;
+
+                    auto *elemAlloca = createEntryBlockAlloca(curFunc, "set.contains.elem", info.elemType);
+                    builder_->CreateStore(elemVal, elemAlloca);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, setAlloca, 0);
+                    auto *entries = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), entriesField);
+                    auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
+
+                    auto *containsFn = module_->getFunction("liva_set_contains");
+                    auto *result = builder_->CreateCall(containsFn, {
+                        entries, cap, elemAlloca,
+                        builder_->getInt64(info.elemSize),
+                        builder_->getInt8(info.keyKind)
+                    }, "set.contains");
+                    return builder_->CreateTrunc(result, builder_->getInt1Ty(), "set.contains.bool");
+                }
+
+                if (methodName == "remove" && !node->getArgs().empty()) {
+                    auto *elemVal = visit(node->getArgs()[0].get());
+                    if (!elemVal) return nullptr;
+
+                    auto *elemAlloca = createEntryBlockAlloca(curFunc, "set.remove.elem", info.elemType);
+                    builder_->CreateStore(elemVal, elemAlloca);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, setAlloca, 0);
+                    auto *entries = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), entriesField);
+                    auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
+                    auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
+
+                    auto *removeFn = module_->getFunction("liva_set_remove");
+                    auto *result = builder_->CreateCall(removeFn, {
+                        entries, sizeField, cap, elemAlloca,
+                        builder_->getInt64(info.elemSize),
+                        builder_->getInt8(info.keyKind)
+                    }, "set.remove");
+                    return builder_->CreateTrunc(result, builder_->getInt1Ty(), "set.remove.bool");
                 }
             }
         }
@@ -1612,6 +2919,12 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             auto stIt = varStructTypes_.find(objName);
             if (stIt != varStructTypes_.end())
                 structTypeName = stIt->second;
+            // Also check enum types for enum method calls
+            if (structTypeName.empty()) {
+                auto enIt = varEnumTypes_.find(objName);
+                if (enIt != varEnumTypes_.end())
+                    structTypeName = enIt->second;
+            }
         }
 
         if (objAlloca && !structTypeName.empty()) {
@@ -1702,6 +3015,303 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return nullptr;
     }
 
+    // Handle parseInt/parseInt64/parseFloat built-ins → Optional<T>
+    if (funcName == "parseInt" && !node->getArgs().empty()) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        if (!strArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *resultAlloca = createEntryBlockAlloca(curFunc, "parse.tmp", builder_->getInt32Ty());
+        auto *fn = module_->getFunction("liva_str_parse_i32");
+        auto *ok = builder_->CreateCall(fn, {strArg, resultAlloca}, "parse.ok");
+        auto *hasVal = builder_->CreateTrunc(ok, builder_->getInt1Ty(), "parse.hasval");
+        auto *val = builder_->CreateLoad(builder_->getInt32Ty(), resultAlloca, "parse.val");
+        auto *optTy = getOptionalType(builder_->getInt32Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "parse.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(val, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "parse.result");
+    }
+
+    if (funcName == "parseInt64" && !node->getArgs().empty()) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        if (!strArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *resultAlloca = createEntryBlockAlloca(curFunc, "parse.tmp", builder_->getInt64Ty());
+        auto *fn = module_->getFunction("liva_str_parse_i64");
+        auto *ok = builder_->CreateCall(fn, {strArg, resultAlloca}, "parse.ok");
+        auto *hasVal = builder_->CreateTrunc(ok, builder_->getInt1Ty(), "parse.hasval");
+        auto *val = builder_->CreateLoad(builder_->getInt64Ty(), resultAlloca, "parse.val");
+        auto *optTy = getOptionalType(builder_->getInt64Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "parse.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(val, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "parse.result");
+    }
+
+    if (funcName == "parseFloat" && !node->getArgs().empty()) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        if (!strArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *resultAlloca = createEntryBlockAlloca(curFunc, "parse.tmp", builder_->getDoubleTy());
+        auto *fn = module_->getFunction("liva_str_parse_f64");
+        auto *ok = builder_->CreateCall(fn, {strArg, resultAlloca}, "parse.ok");
+        auto *hasVal = builder_->CreateTrunc(ok, builder_->getInt1Ty(), "parse.hasval");
+        auto *val = builder_->CreateLoad(builder_->getDoubleTy(), resultAlloca, "parse.val");
+        auto *optTy = getOptionalType(builder_->getDoubleTy());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "parse.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(val, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "parse.result");
+    }
+
+    // Handle readLine() built-in
+    if (funcName == "readLine") {
+        auto *fn = module_->getFunction("liva_read_line");
+        return builder_->CreateCall(fn, {}, "readline");
+    }
+
+    // Handle format() built-in
+    if (funcName == "format" && !node->getArgs().empty()) {
+        // First arg is format string literal
+        auto *fmtArg = visit(node->getArgs()[0].get());
+        if (!fmtArg) return nullptr;
+
+        // If only format string, return it directly
+        if (node->getArgs().size() == 1) return fmtArg;
+
+        // Parse format string from AST for {} placeholders
+        auto *fmtLit = node->getArgs()[0].get();
+        std::string fmtStr;
+        if (fmtLit->getKind() == ASTNode::NodeKind::StringLiteralExpr) {
+            fmtStr = static_cast<StringLiteralExpr *>(fmtLit)->getValue();
+        }
+
+        // Split format string by {} and interleave with toString'd args
+        std::vector<llvm::Value *> parts;
+        size_t argIdx = 1;
+        size_t pos = 0;
+        while (pos < fmtStr.size()) {
+            auto bracePos = fmtStr.find("{}", pos);
+            if (bracePos == std::string::npos) {
+                // Remaining literal text
+                auto *lit = builder_->CreateGlobalString(
+                    llvm::StringRef(fmtStr.c_str() + pos, fmtStr.size() - pos));
+                parts.push_back(lit);
+                break;
+            }
+            // Text before {}
+            if (bracePos > pos) {
+                auto *lit = builder_->CreateGlobalString(
+                    llvm::StringRef(fmtStr.c_str() + pos, bracePos - pos));
+                parts.push_back(lit);
+            }
+            // Convert arg to string
+            if (argIdx < node->getArgs().size()) {
+                auto *argVal = visit(node->getArgs()[argIdx].get());
+                if (argVal) {
+                    // emitToString inline
+                    if (argVal->getType()->isIntegerTy(32)) {
+                        argVal = builder_->CreateCall(
+                            module_->getFunction("liva_i32_to_str"), {argVal}, "fmt.i32");
+                    } else if (argVal->getType()->isIntegerTy(64)) {
+                        argVal = builder_->CreateCall(
+                            module_->getFunction("liva_i64_to_str"), {argVal}, "fmt.i64");
+                    } else if (argVal->getType()->isDoubleTy()) {
+                        argVal = builder_->CreateCall(
+                            module_->getFunction("liva_f64_to_str"), {argVal}, "fmt.f64");
+                    } else if (argVal->getType()->isIntegerTy(1)) {
+                        auto *ext = builder_->CreateZExt(argVal,
+                            llvm::Type::getInt8Ty(*context_));
+                        argVal = builder_->CreateCall(
+                            module_->getFunction("liva_bool_to_str"), {ext}, "fmt.bool");
+                    }
+                    // ptr (string) → use directly
+                    parts.push_back(argVal);
+                }
+                ++argIdx;
+            }
+            pos = bracePos + 2;
+        }
+
+        // Concatenate all parts with liva_str_concat
+        if (parts.empty()) return fmtArg;
+        llvm::Value *result = parts[0];
+        auto *concatFn = module_->getFunction("liva_str_concat");
+        for (size_t i = 1; i < parts.size(); ++i) {
+            result = builder_->CreateCall(concatFn, {result, parts[i]}, "fmt.concat");
+        }
+        return result;
+    }
+
+    // Handle math built-ins: abs, min, max, sqrt, pow, floor, ceil
+    if (funcName == "abs" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isDoubleTy()) {
+            auto *fn = llvm::Intrinsic::getDeclaration(
+                module_.get(), llvm::Intrinsic::fabs, {llvm::Type::getDoubleTy(*context_)});
+            return builder_->CreateCall(fn, {x}, "fabstmp");
+        }
+        // Integer abs: select (x < 0), -x, x
+        auto *zero = llvm::ConstantInt::get(x->getType(), 0);
+        auto *neg = builder_->CreateNeg(x, "negtmp");
+        auto *cmp = builder_->CreateICmpSLT(x, zero, "abstmp");
+        return builder_->CreateSelect(cmp, neg, x, "abs");
+    }
+
+    if (funcName == "min" && node->getArgs().size() >= 2) {
+        auto *a = visit(node->getArgs()[0].get());
+        auto *b = visit(node->getArgs()[1].get());
+        if (!a || !b) return nullptr;
+        if (a->getType()->isDoubleTy()) {
+            auto *fn = llvm::Intrinsic::getDeclaration(
+                module_.get(), llvm::Intrinsic::minnum, {llvm::Type::getDoubleTy(*context_)});
+            return builder_->CreateCall(fn, {a, b}, "mintmp");
+        }
+        auto *cmp = builder_->CreateICmpSLT(a, b, "mincmp");
+        return builder_->CreateSelect(cmp, a, b, "min");
+    }
+
+    if (funcName == "max" && node->getArgs().size() >= 2) {
+        auto *a = visit(node->getArgs()[0].get());
+        auto *b = visit(node->getArgs()[1].get());
+        if (!a || !b) return nullptr;
+        if (a->getType()->isDoubleTy()) {
+            auto *fn = llvm::Intrinsic::getDeclaration(
+                module_.get(), llvm::Intrinsic::maxnum, {llvm::Type::getDoubleTy(*context_)});
+            return builder_->CreateCall(fn, {a, b}, "maxtmp");
+        }
+        auto *cmp = builder_->CreateICmpSGT(a, b, "maxcmp");
+        return builder_->CreateSelect(cmp, a, b, "max");
+    }
+
+    if (funcName == "sqrt" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::sqrt, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "sqrttmp");
+    }
+
+    if (funcName == "pow" && node->getArgs().size() >= 2) {
+        auto *x = visit(node->getArgs()[0].get());
+        auto *y = visit(node->getArgs()[1].get());
+        if (!x || !y) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        if (y->getType()->isIntegerTy())
+            y = builder_->CreateSIToFP(y, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::pow, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x, y}, "powtmp");
+    }
+
+    if (funcName == "floor" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::floor, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "floortmp");
+    }
+
+    if (funcName == "ceil" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::ceil, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "ceiltmp");
+    }
+
+    if (funcName == "log" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::log, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "logtmp");
+    }
+
+    if (funcName == "log10" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::log10, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "log10tmp");
+    }
+
+    if (funcName == "sin" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::sin, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "sintmp");
+    }
+
+    if (funcName == "cos" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::cos, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "costmp");
+    }
+
+    if (funcName == "tan" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::tan, {llvm::Type::getDoubleTy(*context_)});
+        return builder_->CreateCall(fn, {x}, "tantmp");
+    }
+
+    if (funcName == "round" && !node->getArgs().empty()) {
+        auto *x = visit(node->getArgs()[0].get());
+        if (!x) return nullptr;
+        if (x->getType()->isIntegerTy())
+            x = builder_->CreateSIToFP(x, llvm::Type::getDoubleTy(*context_), "tofp");
+        auto *f64Ty = llvm::Type::getDoubleTy(*context_);
+        if (node->getArgs().size() >= 2) {
+            // round(x, digits): round(x * 10^d) / 10^d
+            auto *d = visit(node->getArgs()[1].get());
+            if (!d) return nullptr;
+            if (d->getType()->isIntegerTy())
+                d = builder_->CreateSIToFP(d, f64Ty, "tofp");
+            auto *ten = llvm::ConstantFP::get(f64Ty, 10.0);
+            auto *powFn = llvm::Intrinsic::getDeclaration(
+                module_.get(), llvm::Intrinsic::pow, {f64Ty});
+            auto *factor = builder_->CreateCall(powFn, {ten, d}, "factor");
+            auto *scaled = builder_->CreateFMul(x, factor, "scaled");
+            auto *roundFn = llvm::Intrinsic::getDeclaration(
+                module_.get(), llvm::Intrinsic::round, {f64Ty});
+            auto *rounded = builder_->CreateCall(roundFn, {scaled}, "rounded");
+            return builder_->CreateFDiv(rounded, factor, "roundtmp");
+        }
+        // round(x): round to nearest integer
+        auto *fn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::round, {f64Ty});
+        return builder_->CreateCall(fn, {x}, "roundtmp");
+    }
+
     // Handle print/println built-ins
     if (funcName == "print" || funcName == "println") {
         auto *printfFunc = module_->getFunction("printf");
@@ -1716,30 +3326,36 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             return nullptr;
         }
 
-        auto *arg = visit(node->getArgs()[0].get());
-        if (!arg)
-            return nullptr;
+        // Multi-arg: println(a, b, c) → print each with space separator, then newline
+        llvm::Value *lastCall = nullptr;
+        for (size_t i = 0; i < node->getArgs().size(); ++i) {
+            auto *arg = visit(node->getArgs()[i].get());
+            if (!arg) continue;
 
-        // Determine format string based on argument type
-        std::string fmt;
-        if (arg->getType()->isIntegerTy(32))
-            fmt = "%d";
-        else if (arg->getType()->isIntegerTy(64))
-            fmt = "%lld";
-        else if (arg->getType()->isFloatingPointTy())
-            fmt = "%f";
-        else if (arg->getType()->isPointerTy())
-            fmt = "%s";
-        else if (arg->getType()->isIntegerTy(1))
-            fmt = "%d";
-        else
-            fmt = "%d";
+            std::string fmt;
+            if (arg->getType()->isIntegerTy(32))
+                fmt = "%d";
+            else if (arg->getType()->isIntegerTy(64))
+                fmt = "%lld";
+            else if (arg->getType()->isFloatingPointTy())
+                fmt = "%f";
+            else if (arg->getType()->isPointerTy())
+                fmt = "%s";
+            else if (arg->getType()->isIntegerTy(1))
+                fmt = "%d";
+            else
+                fmt = "%d";
 
-        if (funcName == "println")
-            fmt += "\n";
+            // Add space between args, newline at end for println
+            if (i + 1 < node->getArgs().size())
+                fmt += " ";
+            else if (funcName == "println")
+                fmt += "\n";
 
-        auto *fmtStr = builder_->CreateGlobalString(fmt);
-        return builder_->CreateCall(printfFunc, {fmtStr, arg});
+            auto *fmtStr = builder_->CreateGlobalString(fmt);
+            lastCall = builder_->CreateCall(printfFunc, {fmtStr, arg});
+        }
+        return lastCall;
     }
 
     // Check for indirect call through function-typed variable (closure object)
@@ -1842,6 +3458,20 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!val)
             return nullptr;
         args.push_back(val);
+    }
+
+    // Fill in default arguments for missing params
+    if (args.size() < callee->arg_size()) {
+        auto fdIt = funcDecls_.find(funcName);
+        if (fdIt != funcDecls_.end()) {
+            const auto &params = fdIt->second->getParams();
+            for (size_t i = args.size(); i < params.size(); ++i) {
+                if (params[i].hasDefault()) {
+                    auto *defVal = visit(const_cast<Expr *>(params[i].defaultValue.get()));
+                    if (defVal) args.push_back(defVal);
+                }
+            }
+        }
     }
 
     if (callee->getReturnType()->isVoidTy())
@@ -2066,6 +3696,27 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
     if (node->isOptionalChain())
         return emitOptionalChainMember(node);
 
+    // Tuple element access: pair.0, pair.1
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        auto tupleIt = varTupleTypes_.find(ident->getName());
+        if (tupleIt != varTupleTypes_.end()) {
+            const auto &member = node->getMember();
+            bool isNumeric = !member.empty();
+            for (char c : member) {
+                if (c < '0' || c > '9') { isNumeric = false; break; }
+            }
+            if (isNumeric) {
+                unsigned idx = (unsigned)strtol(member.c_str(), nullptr, 10);
+                auto *baseAlloca = namedValues_[ident->getName()];
+                auto &ti = tupleIt->second;
+                auto *tupleTy = llvm::StructType::get(*context_, ti.elementTypes);
+                auto *gep = builder_->CreateStructGEP(tupleTy, baseAlloca, idx);
+                return builder_->CreateLoad(ti.elementTypes[idx], gep, "tuple.elem");
+            }
+        }
+    }
+
     // Check for string.length
     if (node->getObject()->getResolvedType() &&
         node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
@@ -2098,6 +3749,45 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
                     auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
                     auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField);
                     return builder_->CreateICmpEQ(len, builder_->getInt64(0), "arr.empty");
+                }
+            }
+        }
+    }
+
+    // Map/Set properties: m.size, m.isEmpty
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        auto mapIt = varMapTypes_.find(ident->getName());
+        if (mapIt != varMapTypes_.end()) {
+            auto allocaIt = namedValues_.find(ident->getName());
+            if (allocaIt != namedValues_.end()) {
+                auto *mapAlloca = allocaIt->second;
+                auto *structTy = getMapStructTy();
+                if (node->getMember() == "size") {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
+                    return builder_->CreateLoad(builder_->getInt64Ty(), sizeField, "map.size");
+                }
+                if (node->getMember() == "isEmpty") {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
+                    auto *sz = builder_->CreateLoad(builder_->getInt64Ty(), sizeField);
+                    return builder_->CreateICmpEQ(sz, builder_->getInt64(0), "map.empty");
+                }
+            }
+        }
+        auto setIt = varSetTypes_.find(ident->getName());
+        if (setIt != varSetTypes_.end()) {
+            auto allocaIt = namedValues_.find(ident->getName());
+            if (allocaIt != namedValues_.end()) {
+                auto *setAlloca = allocaIt->second;
+                auto *structTy = getMapStructTy();
+                if (node->getMember() == "size") {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
+                    return builder_->CreateLoad(builder_->getInt64Ty(), sizeField, "set.size");
+                }
+                if (node->getMember() == "isEmpty") {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
+                    auto *sz = builder_->CreateLoad(builder_->getInt64Ty(), sizeField);
+                    return builder_->CreateICmpEQ(sz, builder_->getInt64(0), "set.empty");
                 }
             }
         }
@@ -2422,10 +4112,15 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     auto savedEnumTypes2 = varEnumTypes_;
     auto savedArrayTypes2 = varArrayTypes_;
     auto savedDynArrayTypes2 = varDynArrayTypes_;
+    auto savedMapTypes2 = varMapTypes_;
+    auto savedSetTypes2 = varSetTypes_;
     auto savedOptionalTypes2 = varOptionalTypes_;
     auto savedFuncTypes2 = varFuncTypes_;
     auto savedProtocolTypes2 = varProtocolTypes_;
     auto savedResultTypes2 = varResultTypes_;
+    auto savedFileTypes2 = varFileTypes_;
+    auto savedFileOptTypes2 = varFileOptionalTypes_;
+    auto savedTupleTypes2 = varTupleTypes_;
     auto *savedFuncRI2 = currentFuncResultInfo_;
 
     // --- Capture analysis ---
@@ -2484,10 +4179,15 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varMapTypes_.clear();
+    varSetTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
     varResultTypes_.clear();
+    varFileTypes_.clear();
+    varFileOptionalTypes_.clear();
+    varTupleTypes_.clear();
     currentFuncResultInfo_ = nullptr;
 
     // Extract captured values from env
@@ -2546,10 +4246,15 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varEnumTypes_ = savedEnumTypes2;
     varArrayTypes_ = savedArrayTypes2;
     varDynArrayTypes_ = savedDynArrayTypes2;
+    varMapTypes_ = savedMapTypes2;
+    varSetTypes_ = savedSetTypes2;
     varOptionalTypes_ = savedOptionalTypes2;
     varFuncTypes_ = savedFuncTypes2;
     varProtocolTypes_ = savedProtocolTypes2;
     varResultTypes_ = savedResultTypes2;
+    varFileTypes_ = savedFileTypes2;
+    varFileOptionalTypes_ = savedFileOptTypes2;
+    varTupleTypes_ = savedTupleTypes2;
     currentFuncResultInfo_ = savedFuncRI2;
 
     // Build closure object: { func_ptr, env_ptr }
@@ -2614,6 +4319,8 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarEnumTypes = varEnumTypes_;
         auto oldVarArrayTypes = varArrayTypes_;
         auto oldVarDynArrayTypes = varDynArrayTypes_;
+        auto oldVarMapTypes = varMapTypes_;
+        auto oldVarSetTypes = varSetTypes_;
         auto oldVarOptionalTypes = varOptionalTypes_;
         auto oldVarFuncTypes = varFuncTypes_;
         auto oldVarProtocolTypes = varProtocolTypes_;
@@ -2624,10 +4331,13 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varEnumTypes_.clear();
         varArrayTypes_.clear();
         varDynArrayTypes_.clear();
+        varMapTypes_.clear();
+        varSetTypes_.clear();
         varOptionalTypes_.clear();
         varFuncTypes_.clear();
         varProtocolTypes_.clear();
         varResultTypes_.clear();
+        varFileTypes_.clear();
         currentFuncResultInfo_ = nullptr;
 
         // Create allocas for parameters
@@ -2638,7 +4348,13 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
             builder_->CreateStore(&arg, alloca);
             namedValues_[std::string(arg.getName())] = alloca;
             if (method->getParams()[i].isSelf) {
-                varStructTypes_["self"] = typeName;
+                // Register self as struct or enum type
+                auto etIt = enumTypes_.find(typeName);
+                if (etIt != enumTypes_.end()) {
+                    varEnumTypes_["self"] = typeName;
+                } else {
+                    varStructTypes_["self"] = typeName;
+                }
             }
             ++i;
         }
@@ -2660,6 +4376,8 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varEnumTypes_ = oldVarEnumTypes;
         varArrayTypes_ = oldVarArrayTypes;
         varDynArrayTypes_ = oldVarDynArrayTypes;
+        varMapTypes_ = oldVarMapTypes;
+        varSetTypes_ = oldVarSetTypes;
         varOptionalTypes_ = oldVarOptionalTypes;
         varFuncTypes_ = oldVarFuncTypes;
         varProtocolTypes_ = oldVarProtocolTypes;
@@ -2710,6 +4428,8 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto oldVarEnumTypes = varEnumTypes_;
                 auto oldVarArrayTypes = varArrayTypes_;
                 auto oldVarDynArrayTypes = varDynArrayTypes_;
+                auto oldVarMapTypes = varMapTypes_;
+                auto oldVarSetTypes = varSetTypes_;
                 auto oldVarOptionalTypes = varOptionalTypes_;
                 auto oldVarFuncTypes = varFuncTypes_;
                 auto oldVarProtocolTypes = varProtocolTypes_;
@@ -2720,10 +4440,13 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varEnumTypes_.clear();
                 varArrayTypes_.clear();
                 varDynArrayTypes_.clear();
+                varMapTypes_.clear();
+                varSetTypes_.clear();
                 varOptionalTypes_.clear();
                 varFuncTypes_.clear();
                 varProtocolTypes_.clear();
                 varResultTypes_.clear();
+                varFileTypes_.clear();
                 currentFuncResultInfo_ = nullptr;
 
                 i = 0;
@@ -2753,6 +4476,8 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varEnumTypes_ = oldVarEnumTypes;
                 varArrayTypes_ = oldVarArrayTypes;
                 varDynArrayTypes_ = oldVarDynArrayTypes;
+                varMapTypes_ = oldVarMapTypes;
+                varSetTypes_ = oldVarSetTypes;
                 varOptionalTypes_ = oldVarOptionalTypes;
                 varFuncTypes_ = oldVarFuncTypes;
                 varProtocolTypes_ = oldVarProtocolTypes;
@@ -3103,12 +4828,96 @@ llvm::Value *IRGen::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     return builder_->CreateLoad(arrayType, alloca, "arr.val");
 }
 
+llvm::Value *IRGen::visitTupleLiteralExpr(TupleLiteralExpr *node) {
+    auto *tupleTypeRepr = node->getResolvedType();
+    if (!tupleTypeRepr) return nullptr;
+    auto *tupleTy = toLLVMType(tupleTypeRepr);
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *alloca = createEntryBlockAlloca(func, "tuple.tmp", tupleTy);
+
+    for (size_t i = 0; i < node->getElements().size(); ++i) {
+        auto *val = visit(node->getElements()[i].get());
+        if (!val) continue;
+        auto *gep = builder_->CreateStructGEP(tupleTy, alloca, i);
+        builder_->CreateStore(val, gep);
+    }
+
+    return builder_->CreateLoad(tupleTy, alloca, "tuple.val");
+}
+
 llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
-    auto *indexVal = visit(const_cast<Expr *>(node->getIndex()));
-    if (!indexVal) return nullptr;
     if (node->getBase()->getKind() != ASTNode::NodeKind::IdentifierExpr)
         return nullptr;
     auto *ident = static_cast<const IdentifierExpr *>(node->getBase());
+
+    // === Range slicing: arr[1..3] or s[1..3] ===
+    if (node->getIndex()->getKind() == ASTNode::NodeKind::RangeExpr) {
+        auto *rangeExpr = static_cast<RangeExpr *>(const_cast<Expr *>(node->getIndex()));
+        auto *startVal = visit(const_cast<Expr *>(rangeExpr->getStart()));
+        auto *endVal = visit(const_cast<Expr *>(rangeExpr->getEnd()));
+        if (!startVal || !endVal) return nullptr;
+        if (startVal->getType()->isIntegerTy(32))
+            startVal = builder_->CreateSExt(startVal, builder_->getInt64Ty(), "slice.start");
+        if (endVal->getType()->isIntegerTy(32))
+            endVal = builder_->CreateSExt(endVal, builder_->getInt64Ty(), "slice.end");
+        auto *sliceLen = builder_->CreateSub(endVal, startVal, "slice.len");
+
+        // String slicing: s[1..3] -> liva_str_substring(s, start, end-start)
+        auto daIt = varDynArrayTypes_.find(ident->getName());
+        if (daIt == varDynArrayTypes_.end() && varArrayTypes_.find(ident->getName()) == varArrayTypes_.end()) {
+            auto allocaIt = namedValues_.find(ident->getName());
+            if (allocaIt == namedValues_.end()) return nullptr;
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            auto *strVal = builder_->CreateLoad(ptrTy, allocaIt->second, "str.ptr");
+            auto *subFn = module_->getOrInsertFunction(
+                "liva_str_substring",
+                llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false)).getCallee();
+            return builder_->CreateCall(
+                llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false),
+                subFn, {strVal, startVal, sliceLen}, "str.slice");
+        }
+
+        // DynArray slicing: arr[1..3] -> new DynArray with copied elements
+        if (daIt != varDynArrayTypes_.end()) {
+            auto allocaIt = namedValues_.find(ident->getName());
+            if (allocaIt == namedValues_.end()) return nullptr;
+            auto *arrAlloca = allocaIt->second;
+            auto *structTy = getDynArrayStructTy();
+            auto *elemType = daIt->second.elementType;
+            auto elemSize = builder_->getInt64(daIt->second.elemSize);
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+            auto *dataPtr = builder_->CreateLoad(ptrTy, dataField, "src.data");
+            // Allocate new array: liva_array_new(elem_size, sliceLen)
+            auto *newFn = module_->getOrInsertFunction(
+                "liva_array_new",
+                llvm::FunctionType::get(ptrTy, {builder_->getInt64Ty(), builder_->getInt64Ty()}, false)).getCallee();
+            auto *newData = builder_->CreateCall(
+                llvm::FunctionType::get(ptrTy, {builder_->getInt64Ty(), builder_->getInt64Ty()}, false),
+                newFn, {elemSize, sliceLen}, "slice.data");
+            // memcpy(newData, dataPtr + start * elemSize, sliceLen * elemSize)
+            auto *srcOffset = builder_->CreateMul(startVal, elemSize, "src.off");
+            auto *srcPtr = builder_->CreateGEP(builder_->getInt8Ty(), dataPtr, srcOffset, "src.ptr");
+            auto *copySize = builder_->CreateMul(sliceLen, elemSize, "copy.sz");
+            builder_->CreateMemCpy(newData, llvm::MaybeAlign(1), srcPtr, llvm::MaybeAlign(1), copySize);
+            // Build DynArray struct {ptr, i64, i64}
+            auto *func = builder_->GetInsertBlock()->getParent();
+            auto *resultAlloca = createEntryBlockAlloca(func, "slice.arr", structTy);
+            auto *f0 = builder_->CreateStructGEP(structTy, resultAlloca, 0);
+            builder_->CreateStore(newData, f0);
+            auto *f1 = builder_->CreateStructGEP(structTy, resultAlloca, 1);
+            builder_->CreateStore(sliceLen, f1);
+            auto *f2 = builder_->CreateStructGEP(structTy, resultAlloca, 2);
+            builder_->CreateStore(sliceLen, f2);
+            return builder_->CreateLoad(structTy, resultAlloca, "slice.result");
+        }
+
+        return nullptr;
+    }
+
+    // === Scalar indexing ===
+    auto *indexVal = visit(const_cast<Expr *>(node->getIndex()));
+    if (!indexVal) return nullptr;
 
     // Dynamic array index: arr[i]
     auto daIt = varDynArrayTypes_.find(ident->getName());
@@ -3129,19 +4938,46 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
     }
 
     auto arrIt = varArrayTypes_.find(ident->getName());
-    if (arrIt == varArrayTypes_.end()) return nullptr;
+    if (arrIt != varArrayTypes_.end()) {
+        auto allocaIt = namedValues_.find(ident->getName());
+        if (allocaIt == namedValues_.end()) return nullptr;
+        auto *alloca = allocaIt->second;
+        auto *elemType = arrIt->second.elementType;
+        auto *arrayType = alloca->getAllocatedType();
+        if (indexVal->getType()->isIntegerTy(32))
+            indexVal = builder_->CreateSExt(indexVal, builder_->getInt64Ty(), "idx.ext");
+        emitBoundsCheck(indexVal, builder_->getInt64(arrIt->second.size));
+        auto *gep = builder_->CreateInBoundsGEP(
+            arrayType, alloca, {builder_->getInt64(0), indexVal},
+            ident->getName() + ".elem");
+        return builder_->CreateLoad(elemType, gep, ident->getName() + ".val");
+    }
+
+    // String indexing: s[i] -> liva_str_substring(s, i, 1)
     auto allocaIt = namedValues_.find(ident->getName());
-    if (allocaIt == namedValues_.end()) return nullptr;
-    auto *alloca = allocaIt->second;
-    auto *elemType = arrIt->second.elementType;
-    auto *arrayType = alloca->getAllocatedType();
-    if (indexVal->getType()->isIntegerTy(32))
-        indexVal = builder_->CreateSExt(indexVal, builder_->getInt64Ty(), "idx.ext");
-    emitBoundsCheck(indexVal, builder_->getInt64(arrIt->second.size));
-    auto *gep = builder_->CreateInBoundsGEP(
-        arrayType, alloca, {builder_->getInt64(0), indexVal},
-        ident->getName() + ".elem");
-    return builder_->CreateLoad(elemType, gep, ident->getName() + ".val");
+    if (allocaIt != namedValues_.end()) {
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *strVal = builder_->CreateLoad(ptrTy, allocaIt->second, "str.ptr");
+        if (indexVal->getType()->isIntegerTy(32))
+            indexVal = builder_->CreateSExt(indexVal, builder_->getInt64Ty(), "idx.ext");
+        // Bounds check: liva_str_length(s)
+        auto *lenFn = module_->getOrInsertFunction(
+            "liva_str_length",
+            llvm::FunctionType::get(builder_->getInt64Ty(), {ptrTy}, false)).getCallee();
+        auto *strLen = builder_->CreateCall(
+            llvm::FunctionType::get(builder_->getInt64Ty(), {ptrTy}, false),
+            lenFn, {strVal}, "str.len");
+        emitBoundsCheck(indexVal, strLen);
+        // liva_str_substring(s, i, 1)
+        auto *subFn = module_->getOrInsertFunction(
+            "liva_str_substring",
+            llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false)).getCallee();
+        return builder_->CreateCall(
+            llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false),
+            subFn, {strVal, indexVal, builder_->getInt64(1)}, "str.char");
+    }
+
+    return nullptr;
 }
 
 std::string IRGen::mangleGenericFunc(const std::string &baseName,
@@ -3170,6 +5006,8 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarEnumTypes = varEnumTypes_;
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
+    auto savedVarMapTypes = varMapTypes_;
+    auto savedVarSetTypes = varSetTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
     auto savedVarFuncTypes = varFuncTypes_;
     auto savedVarProtocolTypes = varProtocolTypes_;
@@ -3209,10 +5047,14 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varMapTypes_.clear();
+    varSetTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
     varResultTypes_.clear();
+    varFileTypes_.clear();
+    varFileOptionalTypes_.clear();
     currentFuncResultInfo_ = nullptr;
 
     // Create parameter allocas
@@ -3245,6 +5087,8 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varEnumTypes_ = savedVarEnumTypes;
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
+    varMapTypes_ = savedVarMapTypes;
+    varSetTypes_ = savedVarSetTypes;
     varOptionalTypes_ = savedVarOptionalTypes;
     varFuncTypes_ = savedVarFuncTypes;
     varProtocolTypes_ = savedVarProtocolTypes;
@@ -3384,6 +5228,8 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto savedVarEnumTypes = varEnumTypes_;
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
+    auto savedVarMapTypes = varMapTypes_;
+    auto savedVarSetTypes = varSetTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
     auto savedVarFuncTypes = varFuncTypes_;
     auto savedVarProtocolTypes2 = varProtocolTypes_;
@@ -3427,10 +5273,14 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varMapTypes_.clear();
+    varSetTypes_.clear();
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
     varResultTypes_.clear();
+    varFileTypes_.clear();
+    varFileOptionalTypes_.clear();
     currentFuncResultInfo_ = nullptr;
 
     // Create parameter allocas
@@ -3466,6 +5316,8 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varEnumTypes_ = savedVarEnumTypes;
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
+    varMapTypes_ = savedVarMapTypes;
+    varSetTypes_ = savedVarSetTypes;
     varOptionalTypes_ = savedVarOptionalTypes;
     varFuncTypes_ = savedVarFuncTypes;
     varProtocolTypes_ = savedVarProtocolTypes2;
@@ -3515,6 +5367,41 @@ llvm::Value *IRGen::visitTryExpr(TryExpr *node) {
     return builder_->CreateLoad(currentFuncResultInfo_->okType, okPayloadPtr, "try.ok.val");
 }
 
+llvm::Value *IRGen::visitTernaryExpr(TernaryExpr *node) {
+    auto *condVal = visit(node->getCondition());
+    if (!condVal) return nullptr;
+    // Ensure condition is i1
+    if (!condVal->getType()->isIntegerTy(1))
+        condVal = builder_->CreateICmpNE(condVal, llvm::ConstantInt::get(condVal->getType(), 0), "tern.cond");
+
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *thenBB = llvm::BasicBlock::Create(*context_, "tern.then", func);
+    auto *elseBB = llvm::BasicBlock::Create(*context_, "tern.else", func);
+    auto *mergeBB = llvm::BasicBlock::Create(*context_, "tern.merge", func);
+    builder_->CreateCondBr(condVal, thenBB, elseBB);
+
+    // Then branch
+    builder_->SetInsertPoint(thenBB);
+    auto *thenVal = visit(node->getThenExpr());
+    if (!thenVal) return nullptr;
+    auto *thenEndBB = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB);
+
+    // Else branch
+    builder_->SetInsertPoint(elseBB);
+    auto *elseVal = visit(node->getElseExpr());
+    if (!elseVal) return nullptr;
+    auto *elseEndBB = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB);
+
+    // Merge with PHI
+    builder_->SetInsertPoint(mergeBB);
+    auto *phi = builder_->CreatePHI(thenVal->getType(), 2, "tern.val");
+    phi->addIncoming(thenVal, thenEndBB);
+    phi->addIncoming(elseVal, elseEndBB);
+    return phi;
+}
+
 llvm::Value *IRGen::visitRefExpr(RefExpr *node) {
     // ref x → return address of x (the alloca pointer)
     if (auto *ident = dynamic_cast<const IdentifierExpr *>(node->getExpr())) {
@@ -3531,6 +5418,12 @@ llvm::Value *IRGen::visitRefExpr(RefExpr *node) {
             return it->second;
         }
     }
+    return nullptr;
+}
+
+llvm::Value *IRGen::visitTypeAliasDecl(TypeAliasDecl *node) {
+    // Record alias for toLLVMType resolution
+    typeAliases_[node->getName()] = node->getTargetType();
     return nullptr;
 }
 

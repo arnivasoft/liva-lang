@@ -1,0 +1,6 @@
+func main() {
+    let s: string = "Hello"
+    let ch = s[0]
+    println(ch)
+    println(s[1], s[2], s[3])
+}

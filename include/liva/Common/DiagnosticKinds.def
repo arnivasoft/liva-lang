@@ -70,6 +70,9 @@ DIAG(err_no_conformance,             error,   "type '%0' does not conform to pro
 DIAG(err_try_on_non_result,          error,   "'try' can only be applied to Result type expressions")
 DIAG(err_module_not_found,           error,   "module '%0' not found")
 DIAG(err_circular_import,            error,   "circular import of module '%0'")
+DIAG(err_tuple_for_requires_map,     error,   "tuple pattern in for-in requires a Map iterable")
+DIAG(err_tuple_arity_mismatch,      error,   "tuple destructuring arity mismatch: expected %0 elements, got %1")
+DIAG(err_tuple_index_out_of_range,  error,   "tuple index %0 is out of range for tuple with %1 elements")
 
 // === Warnings ===
 DIAG(warn_unused_variable,           warning, "unused variable '%0'")

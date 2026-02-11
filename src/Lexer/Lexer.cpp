@@ -385,6 +385,37 @@ Token Lexer::lexString() {
     size_t startOffset = currentPos_;
     advance(); // skip opening "
 
+    // Check for triple-quoted multi-line string: """..."""
+    if (currentPos_ + 1 < source_.size() &&
+        source_[currentPos_] == '"' && source_[currentPos_ + 1] == '"') {
+        advance(); // skip second "
+        advance(); // skip third "
+        // Skip optional newline right after opening """
+        if (currentPos_ < source_.size() && source_[currentPos_] == '\n')
+            advance();
+        else if (currentPos_ + 1 < source_.size() &&
+                 source_[currentPos_] == '\r' && source_[currentPos_ + 1] == '\n') {
+            advance(); advance();
+        }
+        // Scan until closing """
+        while (currentPos_ + 2 < source_.size()) {
+            if (source_[currentPos_] == '"' &&
+                source_[currentPos_ + 1] == '"' &&
+                source_[currentPos_ + 2] == '"') {
+                advance(); advance(); advance(); // skip closing """
+                return makeToken(TokenKind::string_literal, startOffset);
+            }
+            if (source_[currentPos_] == '\\') {
+                advance(); // skip backslash
+                if (currentPos_ < source_.size()) advance(); // skip escaped char
+            } else {
+                advance();
+            }
+        }
+        diag_.report(startLoc, DiagID::err_unterminated_string);
+        return makeToken(TokenKind::string_literal, startOffset);
+    }
+
     while (currentPos_ < source_.size() && source_[currentPos_] != '"') {
         if (source_[currentPos_] == '\\') {
             // Check for string interpolation: \(

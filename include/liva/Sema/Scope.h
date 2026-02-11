@@ -24,6 +24,7 @@ struct Symbol {
         Field,
         TypeParam,
         ProtocolType,
+        TypeAlias,
     };
 
     std::string name;
@@ -37,6 +38,7 @@ struct Symbol {
     const StructDecl *structDecl = nullptr;
     const EnumDecl *enumDecl = nullptr;
     const ProtocolDecl *protocolDecl = nullptr;
+    const TypeRepr *aliasTarget = nullptr;
 };
 
 /// Lexical scope for name resolution

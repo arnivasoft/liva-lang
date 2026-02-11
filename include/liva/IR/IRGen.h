@@ -52,6 +52,7 @@ public:
     llvm::Value *visitReturnStmt(ReturnStmt *node);
     llvm::Value *visitIfStmt(IfStmt *node);
     llvm::Value *visitIfLetStmt(IfLetStmt *node);
+    llvm::Value *visitWhileLetStmt(WhileLetStmt *node);
     llvm::Value *visitWhileStmt(WhileStmt *node);
     llvm::Value *visitForStmt(ForStmt *node);
     llvm::Value *visitBreakStmt(BreakStmt *node);
@@ -77,6 +78,7 @@ public:
     llvm::Value *visitMatchExpr(MatchExpr *node);
     llvm::Value *visitRangeExpr(RangeExpr *node);
     llvm::Value *visitArrayLiteralExpr(ArrayLiteralExpr *node);
+    llvm::Value *visitTupleLiteralExpr(TupleLiteralExpr *node);
     llvm::Value *visitIndexExpr(IndexExpr *node);
     llvm::Value *visitNilLiteralExpr(NilLiteralExpr *node);
     llvm::Value *visitUnwrapExpr(UnwrapExpr *node);
@@ -84,7 +86,9 @@ public:
     llvm::Value *visitProtocolDecl(ProtocolDecl *node);
     llvm::Value *visitImportDecl(ImportDecl *node);
     llvm::Value *visitTryExpr(TryExpr *node);
+    llvm::Value *visitTernaryExpr(TernaryExpr *node);
     llvm::Value *visitRefExpr(RefExpr *node);
+    llvm::Value *visitTypeAliasDecl(TypeAliasDecl *node);
 
 private:
     /// Convert Liva type to LLVM type
@@ -146,6 +150,34 @@ private:
     };
     std::unordered_map<std::string, DynArrayInfo> varDynArrayTypes_;
 
+    /// Tuple variable tracking
+    struct TupleInfo {
+        std::vector<llvm::Type *> elementTypes;
+    };
+    std::unordered_map<std::string, TupleInfo> varTupleTypes_;
+
+    /// Map variable tracking
+    struct MapInfo {
+        llvm::Type *keyType;
+        llvm::Type *valType;
+        uint64_t keySize;
+        uint64_t valSize;
+        int8_t keyKind;  // 0=bytes, 1=string
+    };
+    std::unordered_map<std::string, MapInfo> varMapTypes_;
+
+    /// Set variable tracking
+    struct SetInfo {
+        llvm::Type *elemType;
+        uint64_t elemSize;
+        int8_t keyKind;
+    };
+    std::unordered_map<std::string, SetInfo> varSetTypes_;
+
+    /// Map/Set LLVM struct type: { ptr, i64, i64 }
+    llvm::StructType *mapStructTy_ = nullptr;
+    llvm::StructType *getMapStructTy();
+
     /// Dynamic array LLVM struct type: { ptr, i64, i64 }
     llvm::StructType *dynArrayStructTy_ = nullptr;
 
@@ -163,6 +195,12 @@ private:
 
     /// Generic function AST nodes: "identity" -> FuncDecl*
     std::unordered_map<std::string, const FuncDecl *> genericFuncDecls_;
+
+    /// All function AST nodes: "greet" -> FuncDecl* (for default args)
+    std::unordered_map<std::string, const FuncDecl *> funcDecls_;
+
+    /// Type alias resolution: aliasName -> targetTypeRepr*
+    std::unordered_map<std::string, const TypeRepr *> typeAliases_;
 
     /// Generic struct AST nodes: "Box" -> StructDecl*
     std::unordered_map<std::string, const StructDecl *> genericStructDecls_;
@@ -248,6 +286,12 @@ private:
 
     /// Track which variables are references and their inner LLVM type
     std::unordered_map<std::string, llvm::Type *> varRefTypes_;
+
+    /// Track File-typed variables (opaque ptr = FILE*)
+    std::set<std::string> varFileTypes_;
+
+    /// Track Optional<File> variables (for if-let unwrap → varFileTypes_)
+    std::set<std::string> varFileOptionalTypes_;
 
     /// Result type support
     struct ResultInfo { llvm::Type *okType; llvm::Type *errType; };

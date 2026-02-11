@@ -1,0 +1,43 @@
+func main() {
+    // abs
+    let a: i32 = -42
+    let b = abs(a)
+    println(b)
+
+    // min / max
+    let x: i32 = 10
+    let y: i32 = 20
+    println(min(x, y))
+    println(max(x, y))
+
+    // sqrt
+    let s: f64 = 16.0
+    println(sqrt(s))
+
+    // pow
+    let base: f64 = 2.0
+    let exp: f64 = 10.0
+    println(pow(base, exp))
+
+    // floor / ceil
+    let val: f64 = 3.7
+    println(floor(val))
+    println(ceil(val))
+
+    // log / log10
+    let e: f64 = 2.718281828
+    println(log(e))
+    println(log10(100.0))
+
+    // sin / cos / tan
+    let angle: f64 = 1.5708
+    println(sin(angle))
+    println(cos(0.0))
+    println(tan(0.7854))
+
+    // round
+    println(round(10.44))
+    let v: f64 = 126.46415
+    println(round(v, 2))
+    println(round(v, 0))
+}

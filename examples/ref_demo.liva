@@ -1,0 +1,20 @@
+func read_val(x: ref i32) -> i32 {
+    return x
+}
+
+func increment(x: ref mut i32) {
+    x = x + 1
+}
+
+func add_to(x: ref mut i32, y: i32) {
+    x = x + y
+}
+
+func main() {
+    var a: i32 = 10
+    var b: i32 = 20
+    increment(ref mut a)
+    println(a)
+    add_to(ref mut b, 5)
+    println(b)
+}

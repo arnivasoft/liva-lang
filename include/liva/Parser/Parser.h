@@ -28,6 +28,7 @@ public:
     std::unique_ptr<ImplDecl> parseImplDecl();
     std::unique_ptr<ProtocolDecl> parseProtocolDecl(bool isPublic = false);
     std::unique_ptr<ImportDecl> parseImportDecl();
+    std::unique_ptr<TypeAliasDecl> parseTypeAliasDecl(bool isPublic = false);
 
     // Statement parsing (ParseStmt.cpp)
     std::unique_ptr<ASTNode> parseStatement();
@@ -35,7 +36,7 @@ public:
     std::unique_ptr<ReturnStmt> parseReturnStmt();
     std::unique_ptr<ASTNode> parseIfStmt();
     std::unique_ptr<IfLetStmt> parseIfLetStmt(SourceLocation ifLoc);
-    std::unique_ptr<WhileStmt> parseWhileStmt();
+    std::unique_ptr<ASTNode> parseWhileStmt();
     std::unique_ptr<ForStmt> parseForStmt();
 
     // Expression parsing - Pratt parser (ParseExpr.cpp)

@@ -278,3 +278,29 @@ TEST_F(LexerTest, QuestionDotVsQuestionQuestion) {
     expectToken(tokens[3], TokenKind::question_dot);
     expectToken(tokens[4], TokenKind::identifier);
 }
+
+// ===== M29: Multi-line string literals =====
+
+TEST_F(LexerTest, MultiLineString) {
+    auto tokens = lex("let s = \"\"\"\nhello\nworld\n\"\"\"");
+    // let s = """
+    // hello
+    // world
+    // """
+    bool found = false;
+    for (auto &tok : tokens) {
+        if (tok.getKind() == TokenKind::string_literal &&
+            tok.getStringValue().find("hello") != std::string::npos) {
+            found = true;
+            EXPECT_NE(tok.getStringValue().find("world"), std::string::npos);
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(LexerTest, MultiLineStringEmpty) {
+    auto tokens = lex("\"\"\"\"\"\"");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::string_literal);
+    EXPECT_EQ(tokens[0].getStringValue(), "");
+}

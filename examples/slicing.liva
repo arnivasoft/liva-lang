@@ -1,0 +1,9 @@
+func main() {
+    let s: string = "Hello World"
+    let sub = s[0..5]
+    println(sub)
+
+    var arr: [i32] = [10, 20, 30, 40, 50]
+    let slice = arr[1..4]
+    println(slice.length)
+}
