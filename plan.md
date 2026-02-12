@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, Linux, macOS — LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest, Ninja
-- **Test:** 481/481 gecen test (lexer:41, parser:82, sema:310, type:12, ownership:9, projectconfig:27)
+- **Test:** 576/576 gecen test (lexer:41, parser:82, sema:321, type:12, ownership:9, projectconfig:74, lsp:37)
 
 ---
 
@@ -38,6 +38,7 @@ kaynak kod (.liva)
 - `liva_ast` - ASTNode, Expr, Stmt, Decl, Type, ASTVisitor, ASTPrinter (depends: liva_common)
 - `liva_parser` - Parser (ParseDecl, ParseStmt, ParseExpr, ParseType) (depends: liva_lexer, liva_ast)
 - `liva_sema` - Sema, TypeChecker, OwnershipChecker, LifetimeAnalysis, Scope, ModuleLoader (depends: liva_ast, liva_common)
+- `liva_lsp` - LSPServer, JSONValue, JSON parser (depends: liva_sema, liva_parser, liva_common)
 - `liva_driver` - ProjectConfig, TOML parser, path utilities (depends: liva_common)
 - `liva_irgen` - IRGen (6 dosya: IRGen, IRGenDecl, IRGenStmt, IRGenExpr, IRGenCall, IRGenMono) (depends: liva_ast, liva_sema, LLVM)
 - `liva_codegen` - CodeGen, TargetInfo (depends: liva_irgen, LLVM)
@@ -47,6 +48,7 @@ kaynak kod (.liva)
 - `livac build [--release|--debug] [-o <file>]` - liva.toml'dan proje derleme
 - `livac run [--release|--debug]` - Derle + calistir
 - `livac init [name]` - Yeni Liva projesi olustur
+- `livac lsp` - LSP sunucusu baslat (JSON-RPC/stdio)
 - `livac --dump-tokens <file>` - Token listesini goster
 - `livac --dump-ast <file>` - AST agacini goster
 - `livac --check-only <file>` - Sadece sema analizi
@@ -709,11 +711,12 @@ kaynak kod (.liva)
 |-------------|------|--------|
 | `tests/unit/LexerTest.cpp` | 41 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings, hata yollari, bitwise tokenlar, ellipsis, unicode escape |
 | `tests/unit/ParserTest.cpp` | 82 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const, multi-bound, guard clause, variadic, nested pattern, hata yollari |
-| `tests/unit/SemaTest.cpp` | 310 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const, multi-bound, stdlib builtins, drop trait, guard clause, operator overloading, custom iterators, variadic functions, nested pattern matching |
+| `tests/unit/SemaTest.cpp` | 321 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const, multi-bound, stdlib builtins, drop trait, guard clause, operator overloading, custom iterators, variadic functions, nested pattern matching, stdlib module wrappers |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
-| `tests/unit/ProjectConfigTest.cpp` | 27 | TOML parser (basic/edge/error), ProjectConfig loading, path utilities |
-| **Toplam** | **481** | |
+| `tests/unit/ProjectConfigTest.cpp` | 74 | TOML parser (basic/edge/error), ProjectConfig loading, path utilities, SemVer, VersionConstraint, dependencies, lock file, package validation |
+| `tests/unit/LSPTest.cpp` | 37 | JSON parser/serializer (14), LSP lifecycle (4), document sync + diagnostics (6), completion (4), hover (3), definition (4), document symbols (2) |
+| **Toplam** | **576** | |
 
 ---
 
@@ -790,6 +793,9 @@ clang output.ll -o output.exe
 27. ~~**Proje Manifest (P1)**~~ - TAMAMLANDI (liva.toml, livac build/run/init, TOML parser, coklu modul yollari)
 28. ~~**Cross-Platform Destegi (S7)**~~ - TAMAMLANDI (findClang, liva_init_args, libcurl HTTP, cmake cross-platform, build.sh)
 29. ~~**Derleme Pipeline (S8)**~~ - TAMAMLANDI (CodeGen API: optimize → emitObjectFile → link, platform-agnostic runtime lib arama)
+30. ~~**Stdlib Modul Sarmalayicilari (S9)**~~ - TAMAMLANDI (sanal built-in moduller: std::math, std::io, std::convert, std::os, std::random, std::regex, std::net)
+31. ~~**Paket Yonetimi (S10)**~~ - TAMAMLANDI (SemVer, VersionConstraint, liva.toml [dependencies], liva.lock)
+32. ~~**LSP Sunucusu (S11)**~~ - TAMAMLANDI (JSON-RPC/stdio, diagnostik, tamamlama, hover, go-to-definition, document symbols)
 
 ---
 
@@ -823,7 +829,7 @@ clang output.ll -o output.exe
 | # | Ozellik | Aciklama | Karmasiklik |
 |---|---------|----------|-------------|
 | T1 | **REPL** | Interaktif komut satiri degerlendirme (JIT ile) | Orta |
-| T2 | **LSP Sunucusu** | IDE destegi — otomatik tamamlama, hata gosterimi, go-to-definition | Yuksek |
+| T2 | **LSP Sunucusu** | IDE destegi — otomatik tamamlama, hata gosterimi, go-to-definition | Yuksek | [TAMAMLANDI] |
 
 ---
 
@@ -871,11 +877,54 @@ clang output.ll -o output.exe
 | S7 | **Cross-Platform Destegi** | findClang() + LIVA_CLANG_PATH env, liva_init_args(argc,argv) POSIX args, libcurl HTTP (Linux/macOS), cmake cross-platform LLVM kesfı, build.sh | TAMAMLANDI |
 | S8 | **Derleme Pipeline Iyilestirmesi** | .ll→system("clang") yerine CodeGen API: optimize() → emitObjectFile(.o) → link(), platform-agnostic runtime lib arama, extraFlags parametresi | TAMAMLANDI |
 
+### S9: Stdlib Modul Sarmalayicilari [TAMAMLANDI]
+- **Sanal (virtual) built-in moduller**: ModuleLoader constructor'da cache'e onceden doldurulmus moduller
+- `import std::math` — abs, min, max, sqrt, pow, floor, ceil, log, log10, sin, cos, tan, round (13)
+- `import std::io` — print, println, readLine, format + File struct (5)
+- `import std::convert` — parseInt, parseInt64, parseFloat, toString (4)
+- `import std::os` — env, exit, args, clock, clockMs, sleep (6)
+- `import std::random` — randInt, randFloat (2)
+- `import std::regex` — regexMatch, regexFind, regexFindAll, regexReplace (4)
+- `import std::net` — httpGet, httpPost (2)
+- `import std` — umbrella modul (tum alt moduller + len) (36)
+- tu=nullptr sanal moduller: IRGen `if (!mod->tu) return nullptr` guard ile no-op
+- Scope::declare emplace: ayni isimle tekrar declare sessizce atlanir (builtin cakismasi yok)
+- Geriye uyumlu: registerBuiltins() aynen kalir, import olmadan tum fonksiyonlar eriselebilir
+- 11 yeni sema testi (492/492 toplam)
+
+### S10: Yerel Paket Yonetimi [TAMAMLANDI]
+- **SemVer**: `parseSemVer("1.2.3")` — strtol ile major.minor.patch parse, 6 karsilastirma operatoru
+- **VersionConstraint**: Exact (`"1.0.0"`), Minimum (`">=2.0.0"`), Range (`">=1.0.0,<2.0.0"`)
+- **[dependencies]**: liva.toml'da `json = "1.0.0"` formatinda bagimlilik tanimlama
+- **Paket cozumleme**: `packages/<name>/liva.toml` okuma, versiyon dogrulama, src/ yolu searchPaths'e ekleme
+- **liva.lock**: `generateLockFile()` / `parseLockFile()` / `isLockFileCurrent()` ile tekrarlanabilir derlemeler
+- **validatePackageToml()**: Unit test dostu tek-paket dogrulama (filesystem gerektirmez)
+- **Driver entegrasyonu**: buildProject()'ta otomatik dependency resolution + lock dosyasi yazimi
+- **executeInit() guncelleme**: Yeni proje sablonuna `# [dependencies]` ornegi eklendi
+- Degisen dosyalar: ProjectConfig.h (+80), ProjectConfig.cpp (+280), Driver.cpp (+20), ProjectConfigTest.cpp (+310)
+- 47 yeni test (539/539 toplam)
+
+### S11: LSP Sunucusu [TAMAMLANDI]
+- **JSONValue sinifi**: Minimal JSON parser/serializer (recursive descent, exception-free, strtol/strtod)
+- **JSON-RPC transport**: Content-Length header, stdin/stdout binary mode (Windows _setmode)
+- **Yasam dongusu**: initialize (capabilities), initialized, shutdown, exit
+- **Document sync**: textDocument/didOpen, didChange (full sync), didClose
+- **Diagnostik yayini**: publishDiagnostics — Lexer→Parser→Sema pipeline ile gercek zamanli hata tespiti
+- **Tamamlama**: textDocument/completion — 32 anahtar kelime + 15 built-in fonksiyon + dosyadaki semboller
+- **Hover**: textDocument/hover — func/var/struct/enum/protocol/type alias bilgisi (markdown code block)
+- **Tanimima Git**: textDocument/definition — declaration konumuna atlama (0-indexed)
+- **Belge Sembolleri**: textDocument/documentSymbol — dosya anahat listesi (outline)
+- **Test API**: `handleMessage(json)` + `takeNotifications()` ile stdio'ya bagimli olmadan unit test
+- **Driver entegrasyonu**: `livac lsp` alt-komutu, Subcommand::Lsp enum degeri
+- Yeni dosyalar: LSPServer.h (~160), LSPServer.cpp (~850), LSPTest.cpp (~590)
+- Degisen dosyalar: Driver.h (+3), Driver.cpp (+15), CMakeLists.txt (+8), tests/CMakeLists.txt (+4)
+- 37 yeni test (576/576 toplam)
+
 ### Faz 4: Ekosistem
 
 | # | Gorev | Aciklama | Durum |
 |---|-------|----------|-------|
-| S9 | **Liva Stdlib Sarmalayicilari** | Import edilebilir standart moduller (String, Array, Map, IO, Math) | |
-| S10 | **Paket Yonetimi** | Dependency resolution, versiyon kontrolu, paket registry | |
-| S11 | **LSP Sunucusu** | IDE destegi (otomatik tamamlama, hata gosterimi, go-to-definition) | |
+| S9 | **Liva Stdlib Sarmalayicilari** | Import edilebilir standart moduller (std::math, std::io, std::convert, std::os, std::random, std::regex, std::net, std umbrella) | TAMAMLANDI |
+| S10 | **Paket Yonetimi** | SemVer, VersionConstraint, [dependencies] liva.toml, packages/ lokal paket cozumleme, liva.lock dosyasi | TAMAMLANDI |
+| S11 | **LSP Sunucusu** | IDE destegi (otomatik tamamlama, hata gosterimi, go-to-definition) | TAMAMLANDI |
 | S12 | **REPL** | Interaktif komut satiri degerlendirme (JIT ile) | |
