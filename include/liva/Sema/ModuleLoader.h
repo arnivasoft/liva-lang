@@ -21,6 +21,8 @@ public:
         std::vector<Symbol> exportedSymbols;
     };
 
+    ModuleLoader();
+
     /// Set base directory for file resolution
     void setBasePath(const std::string &basePath) { basePath_ = basePath; }
 
@@ -44,6 +46,12 @@ public:
     }
 
 private:
+    void registerBuiltinModules();
+    std::unique_ptr<Module> createBuiltinModule(
+        const std::string &name,
+        const std::vector<std::string> &funcNames,
+        const std::vector<std::string> &structNames = {});
+
     std::string resolveModuleName(const std::vector<std::string> &path);
     std::string resolveFilePath(const std::vector<std::string> &path);
     void collectExportedSymbols(TranslationUnit &tu, std::vector<Symbol> &out);

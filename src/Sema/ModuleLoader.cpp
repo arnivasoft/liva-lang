@@ -7,6 +7,73 @@
 
 namespace liva {
 
+ModuleLoader::ModuleLoader() {
+    registerBuiltinModules();
+}
+
+std::unique_ptr<ModuleLoader::Module> ModuleLoader::createBuiltinModule(
+    const std::string &name,
+    const std::vector<std::string> &funcNames,
+    const std::vector<std::string> &structNames) {
+    auto mod = std::make_unique<Module>();
+    mod->name = name;
+    // sm and tu remain nullptr — virtual module
+    for (const auto &fn : funcNames) {
+        Symbol sym;
+        sym.name = fn;
+        sym.kind = Symbol::Kind::Function;
+        sym.isPublic = true;
+        mod->exportedSymbols.push_back(sym);
+    }
+    for (const auto &sn : structNames) {
+        Symbol sym;
+        sym.name = sn;
+        sym.kind = Symbol::Kind::StructType;
+        sym.isPublic = true;
+        mod->exportedSymbols.push_back(sym);
+    }
+    return mod;
+}
+
+void ModuleLoader::registerBuiltinModules() {
+    cache_["std::math"] = createBuiltinModule("std::math",
+        {"abs", "min", "max", "sqrt", "pow", "floor", "ceil",
+         "log", "log10", "sin", "cos", "tan", "round"});
+
+    cache_["std::io"] = createBuiltinModule("std::io",
+        {"print", "println", "readLine", "format"}, {"File"});
+
+    cache_["std::convert"] = createBuiltinModule("std::convert",
+        {"parseInt", "parseInt64", "parseFloat", "toString"});
+
+    cache_["std::os"] = createBuiltinModule("std::os",
+        {"env", "exit", "args", "clock", "clockMs", "sleep"});
+
+    cache_["std::random"] = createBuiltinModule("std::random",
+        {"randInt", "randFloat"});
+
+    cache_["std::regex"] = createBuiltinModule("std::regex",
+        {"regexMatch", "regexFind", "regexFindAll", "regexReplace"});
+
+    cache_["std::net"] = createBuiltinModule("std::net",
+        {"httpGet", "httpPost"});
+
+    // std — umbrella module (union of all sub-modules + len)
+    auto umbrella = std::make_unique<Module>();
+    umbrella->name = "std";
+    for (const auto &sub : {"std::math", "std::io", "std::convert",
+                             "std::os", "std::random", "std::regex", "std::net"}) {
+        for (const auto &sym : cache_[sub]->exportedSymbols)
+            umbrella->exportedSymbols.push_back(sym);
+    }
+    Symbol lenSym;
+    lenSym.name = "len";
+    lenSym.kind = Symbol::Kind::Function;
+    lenSym.isPublic = true;
+    umbrella->exportedSymbols.push_back(lenSym);
+    cache_["std"] = std::move(umbrella);
+}
+
 void ModuleLoader::registerSource(const std::string &name, const std::string &source) {
     testSources_[name] = source;
 }

@@ -1251,6 +1251,130 @@ TEST_F(SemaTest, ModuleMultipleImports) {
     EXPECT_TRUE(result.passed);
 }
 
+// === S9: Stdlib Module Wrapper Tests ===
+
+TEST_F(SemaTest, StdMathImport) {
+    auto result = checkWithModules(R"--(
+        import std::math
+        func main() {
+            let x = sqrt(4.0)
+            let y = abs(-3)
+            let z = sin(1.0)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdIoImport) {
+    auto result = checkWithModules(R"--(
+        import std::io
+        func main() {
+            println("hello")
+            print("world")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdConvertImport) {
+    auto result = checkWithModules(R"--(
+        import std::convert
+        func main() {
+            let s = toString(42)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdOsImport) {
+    auto result = checkWithModules(R"--(
+        import std::os
+        func main() {
+            let t = clock()
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdRandomImport) {
+    auto result = checkWithModules(R"--(
+        import std::random
+        func main() {
+            let r = randInt(1, 10)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdRegexImport) {
+    auto result = checkWithModules(R"--(
+        import std::regex
+        func main() {
+            let m = regexMatch("abc", "a.*")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdNetImport) {
+    auto result = checkWithModules(R"--(
+        import std::net
+        func main() {
+            let r = httpGet("http://example.com")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdUmbrellaImport) {
+    auto result = checkWithModules(R"--(
+        import std
+        func main() {
+            let x = sqrt(4.0)
+            println("hello")
+            let s = toString(42)
+            let t = clock()
+            let r = randInt(1, 10)
+            let m = regexMatch("abc", "a.*")
+            let h = httpGet("http://example.com")
+            let n = len("hello")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdMultipleImports) {
+    auto result = checkWithModules(R"--(
+        import std::math
+        import std::io
+        func main() {
+            let x = sqrt(4.0)
+            println(x)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdInvalidSubmodule) {
+    auto result = checkWithModules(R"--(
+        import std::nonexistent
+        func main() {}
+    )--", {});
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_module_not_found));
+}
+
+TEST_F(SemaTest, StdImportBackwardCompat) {
+    auto result = checkWithModules(R"--(
+        import std::math
+        func main() {
+            let x = sqrt(4.0)
+            println(x)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
 // --- Trait Bound Tests ---
 
 TEST_F(SemaTest, TraitBoundFuncValid) {
