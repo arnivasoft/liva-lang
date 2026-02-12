@@ -290,6 +290,10 @@ void IRGen::createRuntimeDecls() {
     if (auto *f = llvm::dyn_cast<llvm::Function>(panicFn.getCallee()))
         f->addFnAttr(llvm::Attribute::NoReturn);
 
+    // liva_init_args(i32 argc, ptr argv) -> void
+    auto *initArgsTy = llvm::FunctionType::get(builder_->getVoidTy(), {i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_init_args", initArgsTy);
+
     // === Stdlib: Random ===
     auto *randIntTy = llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty}, false);
     module_->getOrInsertFunction("liva_rand_int", randIntTy);

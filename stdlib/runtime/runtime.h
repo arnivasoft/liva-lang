@@ -222,6 +222,9 @@ double liva_rand_float();
 
 // === Process/Env ===
 
+/// Initialize command line arguments (called from main)
+void liva_init_args(int argc, char **argv);
+
 /// Get environment variable (returns malloc'd copy or NULL)
 char *liva_env_get(const char *name);
 

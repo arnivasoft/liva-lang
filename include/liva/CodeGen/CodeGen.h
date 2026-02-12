@@ -3,6 +3,7 @@
 #include "liva/CodeGen/TargetInfo.h"
 #include "liva/Common/Diagnostics.h"
 #include <string>
+#include <vector>
 
 #ifdef LIVA_HAS_LLVM
 #include <llvm/IR/Module.h>
@@ -28,7 +29,8 @@ public:
 
     /// Link object files into executable
     bool link(const std::vector<std::string> &objectFiles,
-              const std::string &outputPath);
+              const std::string &outputPath,
+              const std::vector<std::string> &extraFlags = {});
 
 private:
     DiagnosticsEngine &diag_;

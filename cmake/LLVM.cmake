@@ -1,10 +1,24 @@
 # LLVM.cmake - Find and configure LLVM
 
-# Try common LLVM installation paths on Windows
+# Try common LLVM installation paths
 if(WIN32)
     list(APPEND CMAKE_PREFIX_PATH
         "C:/LLVM"
         "C:/Program Files/LLVM"
+        "$ENV{LLVM_DIR}"
+    )
+elseif(APPLE)
+    list(APPEND CMAKE_PREFIX_PATH
+        "/opt/homebrew/opt/llvm"
+        "/usr/local/opt/llvm"
+        "$ENV{LLVM_DIR}"
+    )
+else()
+    list(APPEND CMAKE_PREFIX_PATH
+        "/usr/lib/llvm-21"
+        "/usr/lib/llvm-18"
+        "/usr/lib/llvm-17"
+        "/usr/local"
         "$ENV{LLVM_DIR}"
     )
 endif()
@@ -23,7 +37,7 @@ if(LLVM_FOUND)
     separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
     add_definitions(${LLVM_DEFINITIONS_LIST})
 
-    # Fix DIA SDK path if LLVM was built with a different VS version
+    # Fix DIA SDK path if LLVM was built with a different VS version (Windows only)
     if(WIN32 AND TARGET LLVMDebugInfoPDB)
         get_target_property(_pdb_libs LLVMDebugInfoPDB INTERFACE_LINK_LIBRARIES)
         if(_pdb_libs)
@@ -54,13 +68,12 @@ if(LLVM_FOUND)
     endif()
 
     # Map LLVM components to libraries
-    # Use 'native' to automatically resolve the host target (e.g. X86 on Windows x64)
-    llvm_map_components_to_libnames(LIVA_LLVM_LIBS
+    # Use 'native' to automatically resolve the host target
+    set(_LIVA_LLVM_COMPONENTS
         Core
         Support
         IRReader
         nativecodegen
-        X86AsmParser
         Passes
         Coroutines
         MC
@@ -72,6 +85,14 @@ if(LLVM_FOUND)
         AsmPrinter
         ObjCARCOpts
     )
+    # Add platform-specific asm parsers
+    if(WIN32 OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86" OR NOT CMAKE_SYSTEM_PROCESSOR)
+        list(APPEND _LIVA_LLVM_COMPONENTS X86AsmParser)
+    endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+        list(APPEND _LIVA_LLVM_COMPONENTS AArch64AsmParser)
+    endif()
+    llvm_map_components_to_libnames(LIVA_LLVM_LIBS ${_LIVA_LLVM_COMPONENTS})
 
     set(LIVA_HAS_LLVM TRUE)
 else()

@@ -14,6 +14,8 @@
 #include <windows.h>
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
+#elif defined(LIVA_HAS_CURL)
+#include <curl/curl.h>
 #endif
 
 extern "C" {
@@ -769,15 +771,18 @@ void liva_exit(int32_t code) {
     exit(code);
 }
 
+// Global args storage (initialized from main via liva_init_args)
+static int g_argc = 0;
+static char **g_argv = nullptr;
+
+void liva_init_args(int argc, char **argv) {
+    g_argc = argc;
+    g_argv = argv;
+}
+
 char **liva_args(int64_t *count) {
-#ifdef _WIN32
-    int argc = __argc;
-    char **argv = __argv;
-#else
-    // Fallback: no args available on non-Windows without main() args
-    int argc = 0;
-    char **argv = nullptr;
-#endif
+    int argc = g_argc;
+    char **argv = g_argv;
     *count = (int64_t)argc;
     char **result = (char **)malloc((size_t)argc * sizeof(char *));
     for (int i = 0; i < argc; i++) {
@@ -983,9 +988,40 @@ static char *winhttp_request(const char *url, const char *method, const char *bo
 }
 #endif
 
+#if defined(LIVA_HAS_CURL) && !defined(_WIN32)
+// libcurl write callback
+static size_t curl_write_cb(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t total = size * nmemb;
+    std::string *buf = static_cast<std::string *>(userp);
+    buf->append(static_cast<char *>(contents), total);
+    return total;
+}
+
+static char *curl_request(const char *url, const char *method, const char *body) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return nullptr;
+    std::string response;
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    if (body && strcmp(method, "POST") == 0) {
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+    }
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    if (res != CURLE_OK) return nullptr;
+    char *result = (char *)malloc(response.size() + 1);
+    memcpy(result, response.c_str(), response.size() + 1);
+    return result;
+}
+#endif
+
 char *liva_http_get(const char *url) {
 #ifdef _WIN32
     return winhttp_request(url, "GET", nullptr);
+#elif defined(LIVA_HAS_CURL)
+    return curl_request(url, "GET", nullptr);
 #else
     (void)url;
     return nullptr;
@@ -995,6 +1031,8 @@ char *liva_http_get(const char *url) {
 char *liva_http_post(const char *url, const char *body) {
 #ifdef _WIN32
     return winhttp_request(url, "POST", body);
+#elif defined(LIVA_HAS_CURL)
+    return curl_request(url, "POST", body);
 #else
     (void)url;
     (void)body;

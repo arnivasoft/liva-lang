@@ -102,6 +102,13 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         returnType = builder_->getInt32Ty();
     }
 
+    // C ABI: main gets (int argc, char **argv) on all platforms
+    if (isMain && !node->isAsync()) {
+        paramTypes.clear();
+        paramTypes.push_back(builder_->getInt32Ty());
+        paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+    }
+
     // For async main, the coroutine is named "liva_async_main"
     std::string funcName = isAsyncMain ? "liva_async_main" : node->getName();
 
@@ -110,10 +117,15 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         funcType, llvm::Function::ExternalLinkage, funcName, *module_);
 
     // Set parameter names
-    size_t i = 0;
-    for (auto &arg : func->args()) {
-        arg.setName(node->getParams()[i].name);
-        ++i;
+    if (isMain && !node->isAsync()) {
+        func->getArg(0)->setName("argc");
+        func->getArg(1)->setName("argv");
+    } else {
+        size_t i = 0;
+        for (auto &arg : func->args()) {
+            arg.setName(node->getParams()[i].name);
+            ++i;
+        }
     }
 
     if (!node->hasBody())
@@ -281,12 +293,16 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     }
 
     // Create allocas for parameters
-    i = 0;
-    for (auto &arg : func->args()) {
-        auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
-        builder_->CreateStore(&arg, alloca);
-        namedValues_[std::string(arg.getName())] = alloca;
-        ++i;
+    if (isMain && !isAsyncMain) {
+        // C ABI main: call liva_init_args(argc, argv) for cross-platform args
+        auto *initArgsFn = getOrPanic("liva_init_args");
+        builder_->CreateCall(initArgsFn, {func->getArg(0), func->getArg(1)});
+    } else {
+        for (auto &arg : func->args()) {
+            auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
+            builder_->CreateStore(&arg, alloca);
+            namedValues_[std::string(arg.getName())] = alloca;
+        }
     }
 
     // Register variadic params as DynArray variables
@@ -419,13 +435,20 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     // === Async Main Wrapper ===
     if (isAsyncMain) {
-        // Generate: i32 @main() { call @liva_async_main(); scheduler_run; destroy; ret 0 }
+        // Generate: i32 @main(i32 %argc, ptr %argv) { init_args; call @liva_async_main(); ... }
         auto *i32Ty = builder_->getInt32Ty();
-        auto *mainFuncType = llvm::FunctionType::get(i32Ty, {}, false);
+        auto *mainFuncType = llvm::FunctionType::get(i32Ty,
+            {i32Ty, llvm::PointerType::getUnqual(*context_)}, false);
         auto *mainFunc = llvm::Function::Create(
             mainFuncType, llvm::Function::ExternalLinkage, "main", *module_);
+        mainFunc->getArg(0)->setName("argc");
+        mainFunc->getArg(1)->setName("argv");
         auto *mainEntry = llvm::BasicBlock::Create(*context_, "entry", mainFunc);
         builder_->SetInsertPoint(mainEntry);
+
+        // Initialize cross-platform args
+        auto *initArgsFn = getOrPanic("liva_init_args");
+        builder_->CreateCall(initArgsFn, {mainFunc->getArg(0), mainFunc->getArg(1)});
 
         // Call liva_async_main()
         auto *asyncTask = builder_->CreateCall(func, {}, "root.task");

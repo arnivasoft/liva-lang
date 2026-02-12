@@ -2,11 +2,13 @@
 #include "liva/AST/ASTPrinter.h"
 #include "liva/AST/Decl.h"
 #include "liva/CodeGen/CodeGen.h"
+#include "liva/CodeGen/TargetInfo.h"
 #include "liva/IR/IRGen.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
 #include "liva/Sema/ModuleLoader.h"
 #include "liva/Sema/Sema.h"
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -144,17 +146,21 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     if (!irgen.generate(*tu))
         return false;
 
-    // Write LLVM IR to temp file, then use clang to compile + link
-    std::string irPath = outputPath + ".ll";
-    if (!irgen.writeToFile(irPath)) {
-        std::cerr << "error: failed to write IR file\n";
+    // Use CodeGen API: optimize → emit object → link
+    auto *module = irgen.getModule();
+    CodeGen codegen(diag_);
+    codegen.optimize(*module, optLevel_);
+
+    std::string objPath = outputPath + ".o";
+    if (!codegen.emitObjectFile(*module, objPath)) {
+        std::cerr << "error: failed to emit object file\n";
         return false;
     }
 
     // Find pre-built runtime library relative to livac executable
     auto fileExists = [](const std::string &path) {
         std::ifstream f(path);
-        return f.good();
+        return f.is_open();
     };
     auto dirOfPath = [](const std::string &path) -> std::string {
         auto pos = path.find_last_of("/\\");
@@ -163,34 +169,38 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
     std::string exeDir = dirOfPath(executablePath_);
     std::string runtimeLib;
+    // Search for both .lib (Windows) and .a (Linux/macOS) variants
     std::string candidates[] = {
         exeDir + "/lib/liva_runtime.lib",
         exeDir + "/../lib/liva_runtime.lib",
+        exeDir + "/lib/libliva_runtime.a",
+        exeDir + "/../lib/libliva_runtime.a",
     };
     for (auto &c : candidates) {
         if (fileExists(c)) { runtimeLib = c; break; }
     }
     if (runtimeLib.empty()) {
-        std::cerr << "error: cannot find runtime library (lib/liva_runtime.lib)\n";
+        std::cerr << "error: cannot find runtime library\n";
         std::cerr << "  searched relative to: " << exeDir << "\n";
-        std::remove(irPath.c_str());
+        std::remove(objPath.c_str());
         return false;
     }
 
-    // Use clang from PATH to compile IR + link runtime → executable
-    std::string cmd = "\"clang -Wno-override-module";
-    cmd += " -O" + std::to_string(optLevel_);
+    // Link object file + runtime → executable
+    std::vector<std::string> objects = { objPath, runtimeLib };
+    std::vector<std::string> flags;
+#ifdef _WIN32
+    flags.push_back("-lwinhttp");
+#endif
     if (debugInfo_)
-        cmd += " -g";
-    cmd += " \"" + irPath + "\" \"" + runtimeLib + "\"";
-    cmd += " -lwinhttp";
-    cmd += " -o \"" + outputPath + "\"\"";
-    int result = std::system(cmd.c_str());
+        flags.push_back("-g");
 
-    // Clean up temp IR file
-    std::remove(irPath.c_str());
+    bool linkOk = codegen.link(objects, outputPath, flags);
 
-    if (result != 0) {
+    // Clean up temp object file
+    std::remove(objPath.c_str());
+
+    if (!linkOk) {
         std::cerr << "error: linking failed\n";
         return false;
     }

@@ -14,8 +14,44 @@
 #endif
 
 #include <cstdlib>
+#include <fstream>
 
 namespace liva {
+
+static std::string findClang() {
+    // 1. Environment variable override
+    if (const char *env = std::getenv("LIVA_CLANG_PATH"))
+        return env;
+    // 2. Platform-specific common paths
+#ifdef _WIN32
+    const char *paths[] = {
+        "C:\\LLVM\\bin\\clang.exe",
+        "C:\\Program Files\\LLVM\\bin\\clang.exe",
+        nullptr
+    };
+#elif defined(__APPLE__)
+    const char *paths[] = {
+        "/opt/homebrew/opt/llvm/bin/clang",
+        "/usr/local/opt/llvm/bin/clang",
+        "/usr/bin/clang",
+        nullptr
+    };
+#else
+    const char *paths[] = {
+        "/usr/bin/clang",
+        "/usr/local/bin/clang",
+        "/usr/lib/llvm-21/bin/clang",
+        "/usr/lib/llvm-18/bin/clang",
+        "/usr/lib/llvm-17/bin/clang",
+        nullptr
+    };
+#endif
+    for (auto *p = paths; *p; ++p) {
+        std::ifstream f(*p);
+        if (f.is_open()) return *p;
+    }
+    return "clang"; // fallback: rely on PATH
+}
 
 CodeGen::CodeGen(DiagnosticsEngine &diag, const TargetInfo &target)
     : diag_(diag), target_(target) {
@@ -127,36 +163,20 @@ void CodeGen::optimize(llvm::Module &module, int optLevel) {
 #endif // LIVA_HAS_LLVM
 
 bool CodeGen::link(const std::vector<std::string> &objectFiles,
-                   const std::string &outputPath) {
-    // Use clang as the linker driver (works on all platforms, handles C runtime linking)
-    std::string cmd;
-
-    // Try clang from LLVM installation first, then fall back to PATH
-    const char *clangPaths[] = {
-        "C:\\LLVM\\bin\\clang.exe",
-        "clang",
-        nullptr
-    };
-
-    std::string clang;
-    for (auto *path = clangPaths; *path; ++path) {
-        // Quick check: try to use the first available
-        clang = *path;
-        break;
-    }
-
-    cmd = "\"" + clang + "\" -o \"" + outputPath + "\"";
-    for (auto &obj : objectFiles) {
+                   const std::string &outputPath,
+                   const std::vector<std::string> &extraFlags) {
+    std::string clang = findClang();
+    std::string cmd = "\"" + clang + "\" -o \"" + outputPath + "\"";
+    for (auto &obj : objectFiles)
         cmd += " \"" + obj + "\"";
-    }
-
+    for (auto &flag : extraFlags)
+        cmd += " " + flag;
 #ifdef _WIN32
-    // Link against Windows C runtime
     cmd += " -lmsvcrt";
+    // Wrap entire command for cmd.exe /c quoting rules
+    cmd = "\"" + cmd + "\"";
 #endif
-
-    int result = std::system(cmd.c_str());
-    return result == 0;
+    return std::system(cmd.c_str()) == 0;
 }
 
 } // namespace liva

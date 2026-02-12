@@ -105,7 +105,19 @@ if(LIVA_HAS_LLVM)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(liva_runtime PRIVATE -Wno-deprecated-declarations)
     endif()
-    # Copy runtime lib next to livac: lib/liva_runtime.lib
+    # On Linux/macOS, link libcurl for HTTP support if available
+    if(NOT WIN32)
+        find_package(CURL)
+        if(CURL_FOUND)
+            target_link_libraries(liva_runtime PRIVATE CURL::libcurl)
+            target_compile_definitions(liva_runtime PRIVATE LIVA_HAS_CURL)
+        endif()
+    endif()
+    # Also link libstdc++ on Linux for std::regex and std::string
+    if(NOT WIN32 AND NOT APPLE)
+        target_link_libraries(liva_runtime PRIVATE stdc++)
+    endif()
+    # Copy runtime lib next to livac: lib/liva_runtime.lib or lib/libliva_runtime.a
     add_custom_command(TARGET liva_runtime POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/lib"
         COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:liva_runtime>" "${CMAKE_BINARY_DIR}/lib/"
