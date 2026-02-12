@@ -125,6 +125,36 @@ std::string Token::getStringValue() const {
             case '0':
                 result += '\0';
                 break;
+            case 'u': {
+                // Unicode escape: \u{XXXX} -> UTF-8
+                if (i + 1 < end && text_[i + 1] == '{') {
+                    i += 2; // skip 'u{'
+                    size_t hexStart = i;
+                    while (i < end && text_[i] != '}') ++i;
+                    std::string hexStr(text_.data() + hexStart, i - hexStart);
+                    char *endp = nullptr;
+                    unsigned long cp = strtoul(hexStr.c_str(), &endp, 16);
+                    // Encode codepoint as UTF-8
+                    if (cp <= 0x7F) {
+                        result += static_cast<char>(cp);
+                    } else if (cp <= 0x7FF) {
+                        result += static_cast<char>(0xC0 | (cp >> 6));
+                        result += static_cast<char>(0x80 | (cp & 0x3F));
+                    } else if (cp <= 0xFFFF) {
+                        result += static_cast<char>(0xE0 | (cp >> 12));
+                        result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                        result += static_cast<char>(0x80 | (cp & 0x3F));
+                    } else if (cp <= 0x10FFFF) {
+                        result += static_cast<char>(0xF0 | (cp >> 18));
+                        result += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+                        result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                        result += static_cast<char>(0x80 | (cp & 0x3F));
+                    }
+                } else {
+                    result += 'u';
+                }
+                break;
+            }
             default:
                 result += text_[i];
                 break;

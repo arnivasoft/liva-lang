@@ -399,6 +399,83 @@ TEST_F(LexerTest, MultiLineStringEmpty) {
     EXPECT_EQ(tokens[0].getStringValue(), "");
 }
 
+// === S6: Unicode Escape Sequences ===
+
+TEST_F(LexerTest, UnicodeEscapeBasicASCII) {
+    // \u{41} = 'A'
+    auto tokens = lex(R"--("\u{41}")--");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::string_literal);
+    EXPECT_EQ(tokens[0].getStringValue(), "A");
+}
+
+TEST_F(LexerTest, UnicodeEscapeTwoByte) {
+    // \u{00E9} = 'é' (U+00E9, 2-byte UTF-8: 0xC3 0xA9)
+    auto tokens = lex(R"--("\u{00E9}")--");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::string_literal);
+    std::string expected;
+    expected += static_cast<char>(0xC3);
+    expected += static_cast<char>(0xA9);
+    EXPECT_EQ(tokens[0].getStringValue(), expected);
+}
+
+TEST_F(LexerTest, UnicodeEscapeThreeByte) {
+    // \u{4E16} = '世' (U+4E16, 3-byte UTF-8: 0xE4 0xB8 0x96)
+    auto tokens = lex(R"--("\u{4E16}")--");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::string_literal);
+    std::string expected;
+    expected += static_cast<char>(0xE4);
+    expected += static_cast<char>(0xB8);
+    expected += static_cast<char>(0x96);
+    EXPECT_EQ(tokens[0].getStringValue(), expected);
+}
+
+TEST_F(LexerTest, UnicodeEscapeFourByte) {
+    // \u{1F600} = '😀' (U+1F600, 4-byte UTF-8)
+    auto tokens = lex(R"--("\u{1F600}")--");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::string_literal);
+    std::string expected;
+    expected += static_cast<char>(0xF0);
+    expected += static_cast<char>(0x9F);
+    expected += static_cast<char>(0x98);
+    expected += static_cast<char>(0x80);
+    EXPECT_EQ(tokens[0].getStringValue(), expected);
+}
+
+TEST_F(LexerTest, UnicodeEscapeMixed) {
+    // "A\u{00E9}B" = "AéB"
+    auto tokens = lex(R"--("A\u{00E9}B")--");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::string_literal);
+    std::string expected = "A";
+    expected += static_cast<char>(0xC3);
+    expected += static_cast<char>(0xA9);
+    expected += "B";
+    EXPECT_EQ(tokens[0].getStringValue(), expected);
+}
+
+TEST_F(LexerTest, UnicodeEscapeNullChar) {
+    // \u{0} = null byte
+    auto tokens = lex(R"--("\u{0}")--");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::string_literal);
+    std::string expected(1, '\0');
+    EXPECT_EQ(tokens[0].getStringValue(), expected);
+}
+
+TEST_F(LexerTest, UnicodeEscapeMissingBrace) {
+    // \u without { should produce error
+    auto tokens = lex(R"--("\uXYZ")--");
+    EXPECT_TRUE(diag_.hasErrors());
+    bool found = false;
+    for (auto &d : diag_.getDiagnostics())
+        if (d.id == DiagID::err_invalid_escape_sequence) found = true;
+    EXPECT_TRUE(found);
+}
+
 // === F7: Variadic / Ellipsis Token ===
 
 TEST_F(LexerTest, EllipsisToken) {

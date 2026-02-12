@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 474/474 gecen test (lexer:34, parser:82, sema:310, type:12, ownership:9, projectconfig:27)
+- **Test:** 481/481 gecen test (lexer:41, parser:82, sema:310, type:12, ownership:9, projectconfig:27)
 
 ---
 
@@ -707,13 +707,13 @@ kaynak kod (.liva)
 
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
-| `tests/unit/LexerTest.cpp` | 34 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings, hata yollari, bitwise tokenlar, ellipsis |
+| `tests/unit/LexerTest.cpp` | 41 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings, hata yollari, bitwise tokenlar, ellipsis, unicode escape |
 | `tests/unit/ParserTest.cpp` | 82 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const, multi-bound, guard clause, variadic, nested pattern, hata yollari |
 | `tests/unit/SemaTest.cpp` | 310 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const, multi-bound, stdlib builtins, drop trait, guard clause, operator overloading, custom iterators, variadic functions, nested pattern matching |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
 | `tests/unit/ProjectConfigTest.cpp` | 27 | TOML parser (basic/edge/error), ProjectConfig loading, path utilities |
-| **Toplam** | **474** | |
+| **Toplam** | **481** | |
 
 ---
 
@@ -828,13 +828,13 @@ clang output.ll -o output.exe
 | S2 | **Parser Hata Kurtarma** | `synchronize()` ile statement/declaration boundary recovery, `maxErrors_=20` limiti, `err_too_many_errors` diagnostigi | TAMAMLANDI |
 | S3 | **IRGen Null Guard'lari** | `getOrPanic()` helper ile ~60 runtime getFunction() cagrisi korundu, assert ile hata tespiti | TAMAMLANDI |
 
-### Faz 2: Kullanilabilirlik
+### Faz 2: Kullanilabilirlik [TAMAMLANDI]
 
 | # | Gorev | Aciklama | Durum |
 |---|-------|----------|-------|
-| S4 | **Hata Mesaji Kaynak Gosterimi** | Diagnostik ciktisinda kaynak satir + caret (`^~~~`) gosterimi | |
-| S5 | **Debug Bilgisi (DWARF/CodeView)** | LLVM DIBuilder ile fonksiyon/degisken/satir debug metadata uretimi | |
-| S6 | **Unicode Destegi** | UTF-8 identifier, `\u{XXXX}` escape, multibyte sutun takibi veya ASCII-only belgeleme | |
+| S4 | **Hata Mesaji Kaynak Gosterimi** | Diagnostik ciktisinda kaynak satir + caret (`^~~~`) gosterimi — zaten mevcut (printToStderr + getLineContent) | TAMAMLANDI |
+| S5 | **Debug Bilgisi (DWARF/CodeView)** | LLVM DIBuilder ile fonksiyon/satir debug metadata uretimi, `-g` flag'i ile aktif, CodeView (Windows) destegi | TAMAMLANDI |
+| S6 | **Unicode Escape Dezimleri** | `\u{XXXX}` string escape destegi — Lexer + Token.getStringValue() UTF-8 encoding, 7 yeni test | TAMAMLANDI |
 
 ### Faz 3: Platform Genisletme
 

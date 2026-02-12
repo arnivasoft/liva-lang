@@ -119,9 +119,32 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     if (!node->hasBody())
         return func;
 
+    // Attach debug info subprogram to the function
+    if (diBuilder_) {
+        auto *funcDbgType = createFunctionDebugType();
+        unsigned lineNo = node->getStartLoc().isValid() ? node->getStartLoc().line : 0;
+        auto *sp = diBuilder_->createFunction(
+            diFile_,                           // scope
+            func->getName(),                   // name
+            func->getName(),                   // linkage name
+            diFile_,                           // file
+            lineNo,                            // line number
+            funcDbgType,                       // subroutine type
+            lineNo,                            // scope line
+            llvm::DINode::FlagPrototyped,      // flags
+            llvm::DISubprogram::SPFlagDefinition  // SPFlags
+        );
+        func->setSubprogram(sp);
+    }
+
     // Create entry block
     auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
     builder_->SetInsertPoint(entryBB);
+
+    // Set initial debug location for function body
+    if (diBuilder_) {
+        emitDebugLocation(node->getStartLoc());
+    }
 
     // Save old named values and create new scope
     auto oldNamedValues = namedValues_;

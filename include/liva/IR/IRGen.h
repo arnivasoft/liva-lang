@@ -7,7 +7,9 @@
 
 #ifdef LIVA_HAS_LLVM
 #include "liva/Sema/ModuleLoader.h"
+#include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DataLayout.h>
+#include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -31,6 +33,9 @@ public:
 
     /// Set module loader for cross-module IR generation
     void setModuleLoader(ModuleLoader *loader) { moduleLoader_ = loader; }
+
+    /// Enable/disable debug info emission (DWARF/CodeView)
+    void setDebugInfo(bool enable) { emitDebugInfo_ = enable; }
 
     /// Generate IR for a translation unit
     bool generate(TranslationUnit &tu);
@@ -99,6 +104,17 @@ private:
         assert(fn && "Missing runtime function declaration — check createRuntimeDecls()");
         return fn;
     }
+
+    // === Debug info ===
+    std::unique_ptr<llvm::DIBuilder> diBuilder_;
+    llvm::DICompileUnit *diCU_ = nullptr;
+    llvm::DIFile *diFile_ = nullptr;
+    bool emitDebugInfo_ = false;
+
+    void initDebugInfo(const std::string &filename);
+    void finalizeDebugInfo();
+    llvm::DISubroutineType *createFunctionDebugType();
+    void emitDebugLocation(const SourceLocation &loc);
 
     /// Convert Liva type to LLVM type
     llvm::Type *toLLVMType(const TypeRepr *type);
@@ -396,6 +412,7 @@ public:
     IRGen(const std::string &, DiagnosticsEngine &diag) : diag_(diag) {}
 
     void setModuleLoader(ModuleLoader *) {}
+    void setDebugInfo(bool) {}
 
     bool generate(TranslationUnit &) {
         diag_.report(SourceLocation{}, DiagID::err_main_not_found);

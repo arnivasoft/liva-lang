@@ -435,6 +435,23 @@ Token Lexer::lexString() {
             advance(); // skip backslash
             if (currentPos_ < source_.size()) {
                 char escaped = source_[currentPos_];
+                if (escaped == 'u') {
+                    // Unicode escape: \u{XXXX}
+                    advance(); // skip 'u'
+                    if (currentPos_ < source_.size() && source_[currentPos_] == '{') {
+                        advance(); // skip '{'
+                        while (currentPos_ < source_.size() && source_[currentPos_] != '}') {
+                            advance();
+                        }
+                        if (currentPos_ < source_.size()) {
+                            advance(); // skip '}'
+                        }
+                    } else {
+                        diag_.report(currentLocation(), DiagID::err_invalid_escape_sequence,
+                                     std::string("u (expected \\u{XXXX})"));
+                    }
+                    continue;
+                }
                 if (escaped != 'n' && escaped != 't' && escaped != 'r' && escaped != '\\' &&
                     escaped != '"' && escaped != '\'' && escaped != '0') {
                     diag_.report(currentLocation(), DiagID::err_invalid_escape_sequence,

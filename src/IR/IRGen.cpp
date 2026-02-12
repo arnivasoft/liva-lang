@@ -2,6 +2,7 @@
 
 #ifdef LIVA_HAS_LLVM
 
+#include <llvm/BinaryFormat/Dwarf.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
@@ -19,7 +20,48 @@ IRGen::IRGen(const std::string &moduleName, DiagnosticsEngine &diag)
     module_->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
 }
 
+void IRGen::initDebugInfo(const std::string &filename) {
+    if (!emitDebugInfo_) return;
+    diBuilder_ = std::make_unique<llvm::DIBuilder>(*module_);
+    diFile_ = diBuilder_->createFile(filename, ".");
+    diCU_ = diBuilder_->createCompileUnit(
+        llvm::dwarf::DW_LANG_C,  // closest available to Liva
+        diFile_,
+        "Liva Compiler",  // producer
+        false,  // isOptimized
+        "",     // flags
+        0       // runtime version
+    );
+    module_->addModuleFlag(llvm::Module::Warning, "Debug Info Version",
+                           llvm::DEBUG_METADATA_VERSION);
+    // On Windows, emit CodeView debug info
+    module_->addModuleFlag(llvm::Module::Warning, "CodeView", 1);
+}
+
+void IRGen::finalizeDebugInfo() {
+    if (diBuilder_) {
+        diBuilder_->finalize();
+    }
+}
+
+llvm::DISubroutineType *IRGen::createFunctionDebugType() {
+    // Minimal: unspecified return type (void-like)
+    llvm::SmallVector<llvm::Metadata *, 1> types;
+    types.push_back(nullptr);  // void return type
+    return diBuilder_->createSubroutineType(diBuilder_->getOrCreateTypeArray(types));
+}
+
+void IRGen::emitDebugLocation(const SourceLocation &loc) {
+    if (!diBuilder_ || !loc.isValid()) return;
+    auto curDL = builder_->getCurrentDebugLocation();
+    llvm::DIScope *scope = curDL ? curDL->getScope()
+                                 : static_cast<llvm::DIScope *>(diCU_);
+    builder_->SetCurrentDebugLocation(
+        llvm::DILocation::get(*context_, loc.line, loc.column, scope));
+}
+
 bool IRGen::generate(TranslationUnit &tu) {
+    initDebugInfo(module_->getModuleIdentifier());
     createRuntimeDecls();
 
     for (auto &decl : tu.getDeclarations()) {
@@ -54,6 +96,8 @@ bool IRGen::generate(TranslationUnit &tu) {
         if (diag_.hasErrors())
             return false;
     }
+
+    finalizeDebugInfo();
 
     // Verify the module
     std::string errStr;
