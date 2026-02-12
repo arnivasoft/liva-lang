@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, Linux, macOS — LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest, Ninja
-- **Test:** 576/576 gecen test (lexer:41, parser:82, sema:321, type:12, ownership:9, projectconfig:74, lsp:37)
+- **Test:** 613/613 gecen test (lexer:41, parser:82, sema:321, type:12, ownership:9, projectconfig:74, lsp:37, repl:37)
 
 ---
 
@@ -39,6 +39,7 @@ kaynak kod (.liva)
 - `liva_parser` - Parser (ParseDecl, ParseStmt, ParseExpr, ParseType) (depends: liva_lexer, liva_ast)
 - `liva_sema` - Sema, TypeChecker, OwnershipChecker, LifetimeAnalysis, Scope, ModuleLoader (depends: liva_ast, liva_common)
 - `liva_lsp` - LSPServer, JSONValue, JSON parser (depends: liva_sema, liva_parser, liva_common)
+- `liva_repl` - REPLSession, REPLResult (depends: liva_sema, liva_parser, liva_common)
 - `liva_driver` - ProjectConfig, TOML parser, path utilities (depends: liva_common)
 - `liva_irgen` - IRGen (6 dosya: IRGen, IRGenDecl, IRGenStmt, IRGenExpr, IRGenCall, IRGenMono) (depends: liva_ast, liva_sema, LLVM)
 - `liva_codegen` - CodeGen, TargetInfo (depends: liva_irgen, LLVM)
@@ -49,6 +50,7 @@ kaynak kod (.liva)
 - `livac run [--release|--debug]` - Derle + calistir
 - `livac init [name]` - Yeni Liva projesi olustur
 - `livac lsp` - LSP sunucusu baslat (JSON-RPC/stdio)
+- `livac repl` - Interaktif REPL baslat
 - `livac --dump-tokens <file>` - Token listesini goster
 - `livac --dump-ast <file>` - AST agacini goster
 - `livac --check-only <file>` - Sadece sema analizi
@@ -716,7 +718,8 @@ kaynak kod (.liva)
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
 | `tests/unit/ProjectConfigTest.cpp` | 74 | TOML parser (basic/edge/error), ProjectConfig loading, path utilities, SemVer, VersionConstraint, dependencies, lock file, package validation |
 | `tests/unit/LSPTest.cpp` | 37 | JSON parser/serializer (14), LSP lifecycle (4), document sync + diagnostics (6), completion (4), hover (3), definition (4), document symbols (2) |
-| **Toplam** | **576** | |
+| `tests/unit/REPLTest.cpp` | 37 | Giris siniflandirma (6), komutlar (8), bildirim biriktirme (6), cok satirli giris (5), ifade sarmalama (6), hata yonetimi (2), prompt (3), ek (1) |
+| **Toplam** | **613** | |
 
 ---
 
@@ -796,6 +799,7 @@ clang output.ll -o output.exe
 30. ~~**Stdlib Modul Sarmalayicilari (S9)**~~ - TAMAMLANDI (sanal built-in moduller: std::math, std::io, std::convert, std::os, std::random, std::regex, std::net)
 31. ~~**Paket Yonetimi (S10)**~~ - TAMAMLANDI (SemVer, VersionConstraint, liva.toml [dependencies], liva.lock)
 32. ~~**LSP Sunucusu (S11)**~~ - TAMAMLANDI (JSON-RPC/stdio, diagnostik, tamamlama, hover, go-to-definition, document symbols)
+33. ~~**REPL (S12)**~~ - TAMAMLANDI (interaktif oturum, bildirim biriktirme, cok satirli giris, compile+execute / sema-only)
 
 ---
 
@@ -828,7 +832,7 @@ clang output.ll -o output.exe
 
 | # | Ozellik | Aciklama | Karmasiklik |
 |---|---------|----------|-------------|
-| T1 | **REPL** | Interaktif komut satiri degerlendirme (JIT ile) | Orta |
+| T1 | **REPL** | Interaktif komut satiri degerlendirme (compile+execute) | Orta | [TAMAMLANDI] |
 | T2 | **LSP Sunucusu** | IDE destegi — otomatik tamamlama, hata gosterimi, go-to-definition | Yuksek | [TAMAMLANDI] |
 
 ---
@@ -920,6 +924,25 @@ clang output.ll -o output.exe
 - Degisen dosyalar: Driver.h (+3), Driver.cpp (+15), CMakeLists.txt (+8), tests/CMakeLists.txt (+4)
 - 37 yeni test (576/576 toplam)
 
+### S12: Interaktif REPL [TAMAMLANDI]
+- **REPLSession sinifi**: `processLine(line)` API ile tam REPL mantigi, LLVM bagimliligi yok
+- **REPLResult**: Kind enum (Empty, Incomplete, Quit, Help, Reset, ShowDecls, CommandError, Declaration, Expression, Error)
+- **Bildirim biriktirme**: func, struct, enum, protocol, impl, type, import, pub, let, var, const → oturumda birikir
+- **Ifade sarmalama**: `1 + 2` → `println(1 + 2)` otomatik sarmalama (println/print ise sarmalanmaz)
+- **Cok satirli giris**: Acik `{`, `(`, `[` → Incomplete, kapanana kadar satir biriktirme
+  - String literal icindeki delimiter'lar atlanir, tek satirli yorumlar atlanir
+- **Komutlar**: `:help`/`:h`, `:quit`/`:q`, `:reset`/`:r`, `:declarations`/`:decls`
+- **Kaynak dogrulama**: validateSource() — tam parse+sema pipeline, validateDeclaration() — mevcut bildirimler + yeni
+- **Kod uretimi**: generateFullSource() — bildirimler main() disinda, ifadeler main() icinde
+- **Hata kurtarma**: Parse/sema hatasi sonrasi oturum devam eder, bildirim eklenmez
+- **LLVM modu**: `#ifdef LIVA_HAS_LLVM` — CompilerInstance.setSource() + compile() + std::system(exe) + temizlik
+- **Non-LLVM modu**: Sadece parse+sema dogrulama — "Semantic analysis passed." ciktisi
+- **Driver entegrasyonu**: `livac repl` alt-komutu, Subcommand::Repl enum degeri, executeRepl() interaktif dongu
+- **EOF destegi**: Ctrl+D/Ctrl+Z ile temiz cikis
+- Yeni dosyalar: REPL.h (~70), REPL.cpp (~310), REPLTest.cpp (~240)
+- Degisen dosyalar: Driver.h (+3), Driver.cpp (+80), CMakeLists.txt (+8), tests/CMakeLists.txt (+4)
+- 37 yeni test (613/613 toplam)
+
 ### Faz 4: Ekosistem
 
 | # | Gorev | Aciklama | Durum |
@@ -927,4 +950,4 @@ clang output.ll -o output.exe
 | S9 | **Liva Stdlib Sarmalayicilari** | Import edilebilir standart moduller (std::math, std::io, std::convert, std::os, std::random, std::regex, std::net, std umbrella) | TAMAMLANDI |
 | S10 | **Paket Yonetimi** | SemVer, VersionConstraint, [dependencies] liva.toml, packages/ lokal paket cozumleme, liva.lock dosyasi | TAMAMLANDI |
 | S11 | **LSP Sunucusu** | IDE destegi (otomatik tamamlama, hata gosterimi, go-to-definition) | TAMAMLANDI |
-| S12 | **REPL** | Interaktif komut satiri degerlendirme (JIT ile) | |
+| S12 | **REPL** | Interaktif komut satiri degerlendirme (compile+execute / sema-only) | TAMAMLANDI |
