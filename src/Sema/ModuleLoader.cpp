@@ -22,14 +22,31 @@ std::string ModuleLoader::resolveModuleName(const std::vector<std::string> &path
 }
 
 std::string ModuleLoader::resolveFilePath(const std::vector<std::string> &path) {
-    std::string filePath = basePath_;
+    // Build relative filename from import path
+    std::string relative;
     for (size_t i = 0; i < path.size(); ++i) {
         if (i > 0)
-            filePath += "/";
-        filePath += path[i];
+            relative += "/";
+        relative += path[i];
     }
-    filePath += ".liva";
-    return filePath;
+    relative += ".liva";
+
+    // 1. Try basePath (existing behavior)
+    std::string candidate = basePath_ + relative;
+    { std::ifstream f(candidate); if (f.is_open()) return candidate; }
+
+    // 2. Try additional search paths
+    for (const auto &sp : searchPaths_) {
+        candidate = sp;
+        if (!candidate.empty() && candidate.back() != '/' && candidate.back() != '\\')
+            candidate += "/";
+        candidate += relative;
+        std::ifstream f(candidate);
+        if (f.is_open()) return candidate;
+    }
+
+    // Fallback to basePath (will produce appropriate error)
+    return basePath_ + relative;
 }
 
 void ModuleLoader::collectExportedSymbols(TranslationUnit &tu, std::vector<Symbol> &out) {

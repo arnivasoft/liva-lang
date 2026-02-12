@@ -1,12 +1,16 @@
 #pragma once
 
+#include "liva/Driver/ProjectConfig.h"
 #include <string>
 #include <vector>
 
 namespace liva {
 
+enum class Subcommand { None, Build, Run, Init };
+
 /// Command-line options
 struct DriverOptions {
+    Subcommand subcommand = Subcommand::None;
     std::string inputFile;
     std::string outputFile;
     bool dumpTokens = false;
@@ -18,6 +22,9 @@ struct DriverOptions {
     bool debugInfo = false;
     bool showHelp = false;
     bool showVersion = false;
+    std::string initName;
+    bool hasOptLevelOverride = false;
+    bool hasDebugOverride = false;
 };
 
 /// Parses command-line arguments and drives compilation
@@ -38,6 +45,13 @@ public:
     const DriverOptions &getOptions() const { return options_; }
 
 private:
+    int executeBuild();
+    int executeRun();
+    int executeInit();
+    int executeLegacy();
+
+    int buildProject(bool runAfter);
+
     DriverOptions options_;
     std::string executablePath_;
 };

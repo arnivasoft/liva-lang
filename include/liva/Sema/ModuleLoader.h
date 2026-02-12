@@ -24,6 +24,11 @@ public:
     /// Set base directory for file resolution
     void setBasePath(const std::string &basePath) { basePath_ = basePath; }
 
+    /// Add additional search path for module resolution
+    void addSearchPath(const std::string &path) {
+        searchPaths_.push_back(path);
+    }
+
     /// Register in-memory module source (for unit tests)
     void registerSource(const std::string &name, const std::string &source);
 
@@ -44,6 +49,7 @@ private:
     void collectExportedSymbols(TranslationUnit &tu, std::vector<Symbol> &out);
 
     std::string basePath_;
+    std::vector<std::string> searchPaths_;
     std::unordered_map<std::string, std::string> testSources_;
     std::unordered_map<std::string, std::unique_ptr<Module>> cache_;
     std::set<std::string> loading_;

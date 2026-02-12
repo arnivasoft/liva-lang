@@ -25,3 +25,8 @@ liva_add_test(ownership_test
     unit/OwnershipTest.cpp
 )
 target_link_libraries(ownership_test PRIVATE liva_sema liva_parser)
+
+liva_add_test(projectconfig_test
+    unit/ProjectConfigTest.cpp
+)
+target_link_libraries(projectconfig_test PRIVATE liva_driver)

@@ -81,6 +81,8 @@ bool CompilerInstance::checkOnly() {
     auto pos = fname.find_last_of("/\\");
     if (pos != std::string::npos)
         loader.setBasePath(fname.substr(0, pos + 1));
+    for (const auto &sp : searchPaths_)
+        loader.addSearchPath(sp);
 
     Sema sema(diag_, &loader);
     return sema.analyze(*tu);
@@ -96,6 +98,8 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
     auto pos = fname.find_last_of("/\\");
     if (pos != std::string::npos)
         loader.setBasePath(fname.substr(0, pos + 1));
+    for (const auto &sp : searchPaths_)
+        loader.addSearchPath(sp);
 
     Sema sema(diag_, &loader);
     if (!sema.analyze(*tu))
@@ -125,6 +129,8 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     auto pos = fname.find_last_of("/\\");
     if (pos != std::string::npos)
         loader.setBasePath(fname.substr(0, pos + 1));
+    for (const auto &sp : searchPaths_)
+        loader.addSearchPath(sp);
 
     Sema sema(diag_, &loader);
     if (!sema.analyze(*tu))

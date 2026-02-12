@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 447/447 gecen test (lexer:34, parser:82, sema:310, type:12, ownership:9)
+- **Test:** 474/474 gecen test (lexer:34, parser:82, sema:310, type:12, ownership:9, projectconfig:27)
 
 ---
 
@@ -38,15 +38,24 @@ kaynak kod (.liva)
 - `liva_ast` - ASTNode, Expr, Stmt, Decl, Type, ASTVisitor, ASTPrinter (depends: liva_common)
 - `liva_parser` - Parser (ParseDecl, ParseStmt, ParseExpr, ParseType) (depends: liva_lexer, liva_ast)
 - `liva_sema` - Sema, TypeChecker, OwnershipChecker, LifetimeAnalysis, Scope, ModuleLoader (depends: liva_ast, liva_common)
+- `liva_driver` - ProjectConfig, TOML parser, path utilities (depends: liva_common)
 - `liva_irgen` - IRGen (6 dosya: IRGen, IRGenDecl, IRGenStmt, IRGenExpr, IRGenCall, IRGenMono) (depends: liva_ast, liva_sema, LLVM)
 - `liva_codegen` - CodeGen, TargetInfo (depends: liva_irgen, LLVM)
 
 ### livac Komut Satiri
+- `livac [options] <file>` - Tek dosya derleme (legacy mod)
+- `livac build [--release|--debug] [-o <file>]` - liva.toml'dan proje derleme
+- `livac run [--release|--debug]` - Derle + calistir
+- `livac init [name]` - Yeni Liva projesi olustur
 - `livac --dump-tokens <file>` - Token listesini goster
 - `livac --dump-ast <file>` - AST agacini goster
 - `livac --check-only <file>` - Sadece sema analizi
 - `livac --emit-ir <file>` - LLVM IR ciktisi
 - `livac -o <output> <file>` - Derle
+- `livac -O0/-O1/-O2/-O3 <file>` - Optimizasyon seviyesi
+- `livac -g <file>` - Debug bilgisi uret
+- `livac --debug <file>` - Debug build (O0 + debug info)
+- `livac --release <file>` - Release build (O2, debug info kapali)
 
 ---
 
@@ -608,6 +617,21 @@ kaynak kod (.liva)
 - Arbitrary depth nesting desteklenir (A(B(C(x))) gibi)
 - Payload ve simple (non-payload) enum'lar ic ice kullanilabilir
 
+### P1: Proje Manifest + Paket Yoneticisi Altyapisi [TAMAMLANDI] - 27 test
+- **liva.toml** proje konfigurasyonu — minimal TOML parser ile okuma
+- TOML destegi: string, integer, boolean, string array, section, yorum, escape
+- `livac build` — liva.toml oku, projeyi derle (cikti: `<name>.exe`)
+- `livac run` — derle + calistir
+- `livac init [name]` — yeni proje iskeleti olustur (liva.toml, src/main.liva, .gitignore)
+- Coklu modul arama yollari: `[paths].modules` → ModuleLoader searchPaths_
+- CLI override: `--release`/`--debug` flag'leri liva.toml degerlerini ust yazar
+- `findProjectFile()` — CWD'den yukari dogru liva.toml arar
+- Path utilities: joinPath, getDirectoryOf, getCurrentDirectory, createDirectories, fileExists
+- `liva_driver` static kutuphane (bagimsiz test edilebilir)
+- Mevcut `livac <dosya>` davranisi degismez (backward compatible)
+- Yeni dosyalar: ProjectConfig.h, ProjectConfig.cpp, ProjectConfigTest.cpp
+- Degisen dosyalar: Driver.h/cpp, CompilerInstance.h/cpp, ModuleLoader.h/cpp, CMakeLists.txt x2
+
 ---
 
 ## Diagnostik Envanterleri (69 tanimli)
@@ -688,7 +712,8 @@ kaynak kod (.liva)
 | `tests/unit/SemaTest.cpp` | 310 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const, multi-bound, stdlib builtins, drop trait, guard clause, operator overloading, custom iterators, variadic functions, nested pattern matching |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
-| **Toplam** | **447** | |
+| `tests/unit/ProjectConfigTest.cpp` | 27 | TOML parser (basic/edge/error), ProjectConfig loading, path utilities |
+| **Toplam** | **474** | |
 
 ---
 
@@ -757,6 +782,7 @@ clang output.ll -o output.exe
 24. ~~**Custom Iterator (F6)**~~ - TAMAMLANDI (Iter protocol, next(mut self) -> T? ile for-in)
 25. ~~**Variadic Fonksiyonlar (F7)**~~ - TAMAMLANDI (T... sozdizimi, DynArray packing)
 26. ~~**Nested Pattern Matching (F8)**~~ - TAMAMLANDI (recursive pattern esleme, emitNestedPatternMatch)
+27. ~~**Proje Manifest (P1)**~~ - TAMAMLANDI (liva.toml, livac build/run/init, TOML parser, coklu modul yollari)
 
 ---
 
@@ -781,6 +807,7 @@ clang output.ll -o output.exe
 |---|---------|----------|-------------|
 | I1 | **Ayri Derleme** | Modul basina ayri LLVM Module / object file + linking | Yuksek |
 | I2 | **Zengin Stdlib** | Daha kapsamli standart kutuphane (date/time, regex, networking) | Yuksek | [TAMAMLANDI] |
+| P1 | **Proje Manifest** | liva.toml konfigurasyonu, livac build/run/init alt-komutlari, coklu modul arama yollari | Orta | [TAMAMLANDI] |
 
 ### Araclar
 

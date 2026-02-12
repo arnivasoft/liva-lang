@@ -4,6 +4,7 @@
 #include "liva/Common/SourceLocation.h"
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace liva {
 
@@ -22,6 +23,11 @@ public:
 
     /// Set debug info generation
     void setDebugInfo(bool enable) { debugInfo_ = enable; }
+
+    /// Set additional module search paths
+    void setSearchPaths(const std::vector<std::string> &paths) {
+        searchPaths_ = paths;
+    }
 
     /// Set source from file
     bool loadFile(const std::string &filename);
@@ -56,6 +62,7 @@ private:
     std::string executablePath_;
     int optLevel_ = 0;
     bool debugInfo_ = false;
+    std::vector<std::string> searchPaths_;
 };
 
 } // namespace liva
