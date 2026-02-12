@@ -37,6 +37,88 @@ struct TOMLParseResult {
 
 TOMLParseResult parseTOML(const std::string &content);
 
+// --- SemVer ---
+struct SemVer {
+    int major = 0, minor = 0, patch = 0;
+    bool operator==(const SemVer &o) const;
+    bool operator<(const SemVer &o) const;
+    bool operator!=(const SemVer &o) const;
+    bool operator<=(const SemVer &o) const;
+    bool operator>(const SemVer &o) const;
+    bool operator>=(const SemVer &o) const;
+    std::string toString() const;
+};
+
+struct SemVerParseResult {
+    bool success = false;
+    SemVer version;
+    std::string errorMsg;
+};
+
+SemVerParseResult parseSemVer(const std::string &str);
+
+// --- Version Constraints ---
+struct VersionConstraint {
+    enum Kind { Exact, Minimum, Range };
+    Kind kind = Exact;
+    SemVer min; // Exact: exact version, Minimum/Range: minimum
+    SemVer max; // Range only
+    bool satisfiedBy(const SemVer &v) const;
+    std::string toString() const;
+};
+
+struct ConstraintParseResult {
+    bool success = false;
+    VersionConstraint constraint;
+    std::string errorMsg;
+};
+
+ConstraintParseResult parseVersionConstraint(const std::string &str);
+
+// --- Package Dependencies ---
+struct PackageDep {
+    std::string name;
+    VersionConstraint constraint;
+};
+
+std::vector<PackageDep> parseDependencies(const TOMLDocument &doc);
+
+// --- Resolved Packages ---
+struct ResolvedPackage {
+    std::string name;
+    SemVer version;
+    std::string path;    // package directory
+    std::string srcPath; // package src/ directory
+};
+
+struct LockFileEntry {
+    std::string name;
+    std::string version;
+};
+
+struct PackageResolutionResult {
+    bool success = false;
+    std::vector<ResolvedPackage> packages;
+    std::string errorMsg;
+};
+
+PackageResolutionResult resolvePackages(const std::vector<PackageDep> &deps,
+                                        const std::string &packagesDir);
+
+std::string generateLockFile(const std::vector<ResolvedPackage> &packages);
+std::vector<LockFileEntry> parseLockFile(const std::string &content);
+bool isLockFileCurrent(const std::vector<PackageDep> &deps,
+                       const std::vector<LockFileEntry> &lockEntries);
+
+struct SinglePackageResult {
+    bool success = false;
+    SemVer version;
+    std::string errorMsg;
+};
+
+SinglePackageResult validatePackageToml(const PackageDep &dep,
+                                        const std::string &tomlContent);
+
 // --- Project Config ---
 struct ProjectConfig {
     std::string name = "untitled";
@@ -46,6 +128,7 @@ struct ProjectConfig {
     bool debugInfo = false;
     std::vector<std::string> modulePaths;
     std::string projectRoot;
+    std::vector<PackageDep> dependencies;
 };
 
 ProjectConfig loadProjectConfig(const TOMLDocument &doc);

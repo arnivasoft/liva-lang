@@ -251,6 +251,24 @@ int Driver::buildProject(bool runAfter) {
     for (const auto &mp : cfg.modulePaths)
         searchPaths.push_back(joinPath(cfg.projectRoot, mp));
 
+    // Resolve dependencies
+    if (!cfg.dependencies.empty()) {
+        std::string packagesDir = joinPath(cfg.projectRoot, "packages");
+        auto resolution = resolvePackages(cfg.dependencies, packagesDir);
+        if (!resolution.success) {
+            std::cerr << "error: " << resolution.errorMsg << "\n";
+            return 1;
+        }
+        for (const auto &pkg : resolution.packages)
+            searchPaths.push_back(pkg.srcPath);
+        // Write lock file
+        std::string lockPath = joinPath(cfg.projectRoot, "liva.lock");
+        std::string lockContent = generateLockFile(resolution.packages);
+        std::ofstream lockFile(lockPath);
+        if (lockFile.is_open())
+            lockFile << lockContent;
+    }
+
     // Determine output
     std::string output = options_.outputFile;
     if (output.empty()) {
@@ -343,7 +361,10 @@ int Driver::executeInit() {
           << "\n"
           << "[build]\n"
           << "opt-level = 0\n"
-          << "debug-info = false\n";
+          << "debug-info = false\n"
+          << "\n"
+          << "# [dependencies]\n"
+          << "# mylib = \"1.0.0\"\n";
     }
 
     // Write src/main.liva
