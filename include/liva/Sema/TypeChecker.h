@@ -107,6 +107,9 @@ private:
     /// Resolve a type through aliases (returns target if alias, else original)
     const TypeRepr *resolveAlias(const TypeRepr *type) const;
 
+    /// Check if a code path always returns a value
+    bool alwaysReturns(const ASTNode *node) const;
+
     /// Extract leaf bindings from a pattern string (supports nested patterns)
     void extractPatternBindings(const std::string &pattern);
 
@@ -134,6 +137,11 @@ private:
     };
     std::optional<ConstValue> evaluateConstExpr(const Expr *expr);
     std::unordered_map<std::string, ConstValue> constValues_;
+
+    /// Unused variable tracking (per function)
+    std::set<std::string> usedSymbols_;
+    std::vector<std::pair<std::string, SourceLocation>> currentFuncVars_;
+    std::set<std::string> forLoopVars_;
 };
 
 } // namespace liva

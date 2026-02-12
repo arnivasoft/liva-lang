@@ -157,6 +157,14 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     bool prevIsAsync = currentIsAsync_;
     currentIsAsync_ = node->isAsync();
 
+    // Save unused-variable tracking state (for nested functions/closures)
+    auto prevUsedSymbols = std::move(usedSymbols_);
+    auto prevFuncVars = std::move(currentFuncVars_);
+    auto prevForLoopVars = std::move(forLoopVars_);
+    usedSymbols_.clear();
+    currentFuncVars_.clear();
+    forLoopVars_.clear();
+
     // Register type parameters in scope
     for (const auto &tp : node->getTypeParams()) {
         Symbol sym;
@@ -220,6 +228,28 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     if (node->getBody()) {
         visitBlockStmt(const_cast<BlockStmt *>(node->getBody()));
     }
+
+    // Check that non-void functions always return a value
+    if (node->getReturnType() && !node->getReturnType()->isVoid() &&
+        !node->getReturnType()->isInferred() && node->getBody()) {
+        if (!alwaysReturns(node->getBody())) {
+            diag_.report(node->getStartLoc(), DiagID::err_no_return,
+                         node->getName(), typeToString(node->getReturnType()));
+        }
+    }
+
+    // warn_unused_variable: check all vars declared in this function
+    for (auto &[varName, varLoc] : currentFuncVars_) {
+        if (usedSymbols_.count(varName) == 0 &&
+            forLoopVars_.count(varName) == 0) {
+            diag_.report(varLoc, DiagID::warn_unused_variable, varName);
+        }
+    }
+
+    // Restore previous unused-variable tracking state
+    usedSymbols_ = std::move(prevUsedSymbols);
+    currentFuncVars_ = std::move(prevFuncVars);
+    forLoopVars_ = std::move(prevForLoopVars);
 
     currentReturnType_ = nullptr;
     currentIsAsync_ = prevIsAsync;
@@ -320,8 +350,59 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
         sym.type = node->getInit()->getResolvedType();
     }
 
+    // Check type mismatch between annotation and init
+    if (node->hasTypeAnnotation() && node->hasInit() &&
+        node->getType() && node->getInit()->getResolvedType() &&
+        !node->getType()->isInferred() &&
+        !node->getInit()->getResolvedType()->isInferred()) {
+        auto *annType = node->getType();
+        auto *initType = node->getInit()->getResolvedType();
+        if (!typesCompatible(annType, initType)) {
+            bool compat = false;
+            // Allow T → T? (optional wrapping)
+            if (annType->getKind() == TypeRepr::Kind::Optional) {
+                auto *optType = static_cast<const OptionalTypeRepr *>(annType);
+                compat = typesCompatible(optType->getInner(), initType);
+            }
+            // Allow concrete → ref Protocol (trait object)
+            if (annType->getKind() == TypeRepr::Kind::Reference) {
+                compat = true;
+            }
+            if (!compat) {
+                diag_.report(node->getStartLoc(), DiagID::err_type_mismatch,
+                             typeToString(annType), typeToString(initType));
+            }
+        }
+    }
+
+    // Check void variable
+    if (sym.type && sym.type->isVoid()) {
+        diag_.report(node->getStartLoc(), DiagID::err_void_variable);
+    }
+
+    // warn_shadowed_variable: check if outer scope has same name
+    if (!node->getName().empty()) {
+        auto *outerSym = scopes_.lookup(node->getName());
+        if (outerSym && !scopes_.lookupLocal(node->getName())) {
+            // Skip if outer symbol is a function, type, or protocol
+            if (outerSym->kind != Symbol::Kind::Function &&
+                outerSym->kind != Symbol::Kind::StructType &&
+                outerSym->kind != Symbol::Kind::EnumType &&
+                outerSym->kind != Symbol::Kind::ProtocolType &&
+                outerSym->kind != Symbol::Kind::TypeAlias) {
+                diag_.report(node->getStartLoc(), DiagID::warn_shadowed_variable,
+                             node->getName());
+            }
+        }
+    }
+
     if (!scopes_.declare(sym.name, sym)) {
         diag_.report(node->getStartLoc(), DiagID::err_redefinition, node->getName());
+    }
+
+    // Track variable for unused variable warnings
+    if (!node->getName().empty() && node->getName()[0] != '_') {
+        currentFuncVars_.push_back({node->getName(), node->getStartLoc()});
     }
 
     // Track File-typed variables for method resolution
@@ -495,11 +576,41 @@ void TypeChecker::visitExprStmt(ExprStmt *node) { visit(node->getExpr()); }
 void TypeChecker::visitReturnStmt(ReturnStmt *node) {
     if (node->hasValue()) {
         visit(node->getValue());
+        // Check return type mismatch
+        if (currentReturnType_ && node->getValue()->getResolvedType() &&
+            !currentReturnType_->isInferred() &&
+            !node->getValue()->getResolvedType()->isInferred()) {
+            if (!typesCompatible(currentReturnType_, node->getValue()->getResolvedType())) {
+                bool compat = false;
+                // Allow T → T? (optional wrapping in return)
+                if (currentReturnType_->getKind() == TypeRepr::Kind::Optional) {
+                    auto *optType = static_cast<const OptionalTypeRepr *>(currentReturnType_);
+                    compat = typesCompatible(optType->getInner(),
+                                             node->getValue()->getResolvedType());
+                }
+                // Allow concrete → ref Protocol
+                if (currentReturnType_->getKind() == TypeRepr::Kind::Reference) {
+                    compat = true;
+                }
+                if (!compat) {
+                    diag_.report(node->getStartLoc(), DiagID::err_return_type_mismatch,
+                                 typeToString(currentReturnType_),
+                                 typeToString(node->getValue()->getResolvedType()));
+                }
+            }
+        }
     }
 }
 
 void TypeChecker::visitIfStmt(IfStmt *node) {
     visit(const_cast<Expr *>(node->getCondition()));
+
+    // Check condition is bool
+    auto *condType = node->getCondition()->getResolvedType();
+    if (condType && !condType->isInferred() && !condType->isBool()) {
+        diag_.report(node->getCondition()->getStartLoc(), DiagID::err_condition_not_bool,
+                     typeToString(condType));
+    }
 
     visit(node->getThenBody());
 
@@ -558,6 +669,14 @@ void TypeChecker::visitIfLetStmt(IfLetStmt *node) {
 
 void TypeChecker::visitWhileStmt(WhileStmt *node) {
     visit(const_cast<Expr *>(node->getCondition()));
+
+    // Check condition is bool
+    auto *condType = node->getCondition()->getResolvedType();
+    if (condType && !condType->isInferred() && !condType->isBool()) {
+        diag_.report(node->getCondition()->getStartLoc(), DiagID::err_condition_not_bool,
+                     typeToString(condType));
+    }
+
     ++loopDepth_;
     visit(const_cast<ASTNode *>(node->getBody()));
     --loopDepth_;
@@ -594,6 +713,12 @@ void TypeChecker::visitForStmt(ForStmt *node) {
     visit(const_cast<Expr *>(node->getIterable()));
 
     scopes_.pushScope();
+
+    // Mark for-in loop variables as exempt from unused warnings
+    forLoopVars_.insert(node->getVarName());
+    if (node->hasTuplePattern()) {
+        forLoopVars_.insert(node->getVarName2());
+    }
 
     // Determine element type from iterable
     const TypeRepr *iterableType = nullptr;
@@ -702,8 +827,34 @@ void TypeChecker::visitForStmt(ForStmt *node) {
 
 void TypeChecker::visitBlockStmt(BlockStmt *node) {
     scopes_.pushScope();
-    for (auto &stmt : node->getStatements()) {
+    bool seenTerminator = false;
+    std::string terminatorName;
+    for (size_t i = 0; i < node->getStatements().size(); ++i) {
+        auto &stmt = node->getStatements()[i];
+        if (seenTerminator) {
+            // Emit warning only on the first unreachable statement
+            diag_.report(stmt->getStartLoc(), DiagID::warn_unreachable_code,
+                         terminatorName);
+            // Still visit remaining statements for other diagnostics, but no more
+            // unreachable warnings
+            for (size_t j = i; j < node->getStatements().size(); ++j) {
+                visit(node->getStatements()[j].get());
+            }
+            break;
+        }
         visit(stmt.get());
+        // Check if this statement is a terminator
+        auto kind = stmt->getKind();
+        if (kind == ASTNode::NodeKind::ReturnStmt) {
+            seenTerminator = true;
+            terminatorName = "return";
+        } else if (kind == ASTNode::NodeKind::BreakStmt) {
+            seenTerminator = true;
+            terminatorName = "break";
+        } else if (kind == ASTNode::NodeKind::ContinueStmt) {
+            seenTerminator = true;
+            terminatorName = "continue";
+        }
     }
     scopes_.popScope();
 }
@@ -741,6 +892,9 @@ void TypeChecker::visitNilLiteralExpr(NilLiteralExpr *) {
 }
 
 void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
+    // Track usage for unused variable warnings
+    usedSymbols_.insert(node->getName());
+
     auto *sym = scopes_.lookup(node->getName());
     if (!sym) {
         // Result is a built-in type constructor, not a declared identifier
@@ -931,6 +1085,34 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Check argument count for user-defined functions
+    if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *identChk = static_cast<IdentifierExpr *>(node->getCallee());
+        auto *symChk = scopes_.lookup(identChk->getName());
+        if (symChk && symChk->funcDecl) {
+            const auto &params = symChk->funcDecl->getParams();
+            size_t actualArgs = node->getArgs().size();
+            // Count required params (no default value, not variadic, not self)
+            size_t requiredParams = 0;
+            size_t maxParams = 0;
+            bool hasVariadic = false;
+            for (const auto &p : params) {
+                if (p.isSelf) continue;
+                maxParams++;
+                if (p.isVariadic) { hasVariadic = true; continue; }
+                if (!p.hasDefault()) requiredParams++;
+            }
+            if (!hasVariadic && (actualArgs < requiredParams || actualArgs > maxParams)) {
+                diag_.report(node->getStartLoc(), DiagID::err_wrong_arg_count,
+                             identChk->getName(),
+                             std::to_string(requiredParams == maxParams
+                                            ? requiredParams
+                                            : requiredParams),
+                             std::to_string(actualArgs));
             }
         }
     }
@@ -1438,6 +1620,12 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
     auto *act = resolveAlias(actual);
     if (exp->getKind() != act->getKind())
         return false;
+    // Deep compare for Named types (struct/enum names must match)
+    if (exp->getKind() == TypeRepr::Kind::Named) {
+        auto *expNamed = static_cast<const NamedTypeRepr *>(exp);
+        auto *actNamed = static_cast<const NamedTypeRepr *>(act);
+        if (expNamed->getName() != actNamed->getName()) return false;
+    }
     // Deep compare for tuples
     if (exp->getKind() == TypeRepr::Kind::Tuple) {
         auto *expTuple = static_cast<const TupleTypeRepr *>(exp);
@@ -1466,6 +1654,54 @@ const TypeRepr *TypeChecker::resolveAlias(const TypeRepr *type) const {
     if (it != typeAliases_.end())
         return it->second;
     return type;
+}
+
+bool TypeChecker::alwaysReturns(const ASTNode *node) const {
+    if (!node) return false;
+    switch (node->getKind()) {
+    case ASTNode::NodeKind::ReturnStmt:
+        return true;
+    case ASTNode::NodeKind::BlockStmt: {
+        auto *block = static_cast<const BlockStmt *>(node);
+        if (block->getStatements().empty()) return false;
+        // Check if any statement in the block always returns
+        for (auto &stmt : block->getStatements()) {
+            if (alwaysReturns(stmt.get())) return true;
+        }
+        return false;
+    }
+    case ASTNode::NodeKind::IfStmt: {
+        auto *ifStmt = static_cast<const IfStmt *>(node);
+        if (!ifStmt->hasElse()) return false;
+        return alwaysReturns(ifStmt->getThenBody()) &&
+               alwaysReturns(ifStmt->getElseBody());
+    }
+    case ASTNode::NodeKind::IfLetStmt: {
+        auto *ifLet = static_cast<const IfLetStmt *>(node);
+        if (!ifLet->hasElse()) return false;
+        return alwaysReturns(ifLet->getThenBody()) &&
+               alwaysReturns(ifLet->getElseBody());
+    }
+    case ASTNode::NodeKind::ExprStmt: {
+        // Check if the expression is a MatchExpr with wildcard (exhaustive)
+        auto *exprStmt = static_cast<const ExprStmt *>(node);
+        if (exprStmt->getExpr()->getKind() == ASTNode::NodeKind::MatchExpr) {
+            auto *match = static_cast<const MatchExpr *>(exprStmt->getExpr());
+            bool hasWildcard = false;
+            for (auto &arm : match->getArms()) {
+                if (arm.pattern == "_") hasWildcard = true;
+            }
+            if (hasWildcard) {
+                // Match with wildcard is exhaustive — simplified analysis
+                // Full analysis of match arm bodies requires deeper inspection
+                return false;
+            }
+        }
+        return false;
+    }
+    default:
+        return false;
+    }
 }
 
 const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {

@@ -1177,29 +1177,18 @@ func main() {
 // ============================================================
 
 TEST_F(IntegrationTest, ErrorTypeMismatchAssignment) {
-    // Assigning a string literal to an i32-typed variable.
-    // The DiagnosticKinds.def defines err_type_mismatch but the TypeChecker
-    // does not currently emit it for variable init type mismatches.
-    // This test verifies the pipeline does not crash and documents the
-    // current behavior. If type checking is strengthened later, this test
-    // should be updated to EXPECT_FALSE(result.errors.empty()).
     std::string source = R"(
 func main() {
     let x: i32 = "hello"
 }
 )";
     auto result = runPipeline("error_type_mismatch_assign.liva", source);
-    // Pipeline should not crash
-    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed (no syntax error)";
-    // Note: Currently the type checker does not emit err_type_mismatch for
-    // variable init mismatches. When this is implemented, change to:
-    // EXPECT_FALSE(result.errors.empty()) << "Expected type mismatch error";
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail with type mismatch";
+    EXPECT_FALSE(result.errors.empty()) << "Expected type mismatch error";
 }
 
 TEST_F(IntegrationTest, ErrorWrongArgCount) {
-    // Calling a function with too many arguments.
-    // The DiagnosticKinds.def defines err_wrong_arg_count but the TypeChecker
-    // does not currently emit it. This test verifies the pipeline does not crash.
     std::string source = R"(
 func add(a: i32, b: i32) -> i32 {
     return a + b
@@ -1211,15 +1200,12 @@ func main() {
 }
 )";
     auto result = runPipeline("error_wrong_arg_count.liva", source);
-    // Pipeline should not crash
     EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
-    // Note: Currently the type checker does not emit err_wrong_arg_count.
-    // When argument count checking is implemented, change to:
-    // EXPECT_FALSE(result.errors.empty()) << "Expected wrong arg count error";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail with wrong arg count";
+    EXPECT_FALSE(result.errors.empty()) << "Expected wrong arg count error";
 }
 
 TEST_F(IntegrationTest, ErrorWrongArgCountTooFew) {
-    // Calling a function with too few arguments.
     std::string source = R"(
 func add(a: i32, b: i32) -> i32 {
     return a + b
@@ -1231,14 +1217,12 @@ func main() {
 }
 )";
     auto result = runPipeline("error_wrong_arg_count_few.liva", source);
-    // Pipeline should not crash
     EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail with wrong arg count";
+    EXPECT_FALSE(result.errors.empty()) << "Expected wrong arg count error";
 }
 
 TEST_F(IntegrationTest, ErrorReturnTypeMismatch) {
-    // Function declared to return i32 but returns a string.
-    // The DiagnosticKinds.def defines err_return_type_mismatch but the
-    // TypeChecker's visitReturnStmt does not check the return type.
     std::string source = R"(
 func getNumber() -> i32 {
     return "not a number"
@@ -1249,17 +1233,12 @@ func main() {
 }
 )";
     auto result = runPipeline("error_return_type_mismatch.liva", source);
-    // Pipeline should not crash
     EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
-    // Note: Currently the type checker does not emit err_return_type_mismatch.
-    // When return type checking is implemented, change to:
-    // EXPECT_FALSE(result.errors.empty()) << "Expected return type mismatch error";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail with return type mismatch";
+    EXPECT_FALSE(result.errors.empty()) << "Expected return type mismatch error";
 }
 
 TEST_F(IntegrationTest, ErrorConditionNotBool) {
-    // Using a non-bool expression as an if condition.
-    // The DiagnosticKinds.def defines err_condition_not_bool but the
-    // TypeChecker's visitIfStmt does not check the condition type.
     std::string source = R"(
 func main() {
     if 42 {
@@ -1268,11 +1247,9 @@ func main() {
 }
 )";
     auto result = runPipeline("error_condition_not_bool.liva", source);
-    // Pipeline should not crash
     EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
-    // Note: Currently the type checker does not emit err_condition_not_bool.
-    // When condition type checking is implemented, change to:
-    // EXPECT_FALSE(result.errors.empty()) << "Expected condition not bool error";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail with condition not bool";
+    EXPECT_FALSE(result.errors.empty()) << "Expected condition not bool error";
 }
 
 TEST_F(IntegrationTest, ErrorVoidVariable) {

@@ -537,6 +537,12 @@ JSONValue LSPServer::dispatch(const JSONValue &msg) {
             return handleFormatting(id, params);
         if (method == "textDocument/codeAction")
             return handleCodeAction(id, params);
+        if (method == "textDocument/foldingRange")
+            return handleFoldingRange(id, params);
+        if (method == "textDocument/selectionRange")
+            return handleSelectionRange(id, params);
+        if (method == "textDocument/documentHighlight")
+            return handleDocumentHighlight(id, params);
         // Unknown request → method not found
         return makeError(id, -32601, "method not found: " + method);
     }
@@ -666,6 +672,15 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
 
     // Code actions
     capabilities.set("codeActionProvider", JSONValue(true));
+
+    // Folding range
+    capabilities.set("foldingRangeProvider", JSONValue(true));
+
+    // Selection range
+    capabilities.set("selectionRangeProvider", JSONValue(true));
+
+    // Document highlight
+    capabilities.set("documentHighlightProvider", JSONValue(true));
 
     auto serverInfo = JSONValue::object();
     serverInfo.set("name", JSONValue("liva-lsp"));
@@ -1215,7 +1230,6 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
     int activeParam = 0;
     int parenDepth = 0;
     std::string funcName;
-    size_t funcNameEnd = 0;
 
     for (size_t i = cursorPos; i > 0; --i) {
         char c = content[i - 1];
@@ -1227,7 +1241,6 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
                 // Skip whitespace
                 while (nameEnd > 0 && (content[nameEnd - 1] == ' ' || content[nameEnd - 1] == '\t'))
                     --nameEnd;
-                funcNameEnd = nameEnd;
                 size_t nameStart = nameEnd;
                 while (nameStart > 0 && (std::isalnum(static_cast<unsigned char>(content[nameStart - 1])) ||
                                           content[nameStart - 1] == '_'))
@@ -1621,6 +1634,410 @@ JSONValue LSPServer::handleCodeAction(const JSONValue &id,
                                       const JSONValue & /*params*/) {
     // Infrastructure: return empty array (no quick fixes implemented yet)
     return makeResponse(id, JSONValue::array());
+}
+
+// ============================================================
+// Folding Range
+// ============================================================
+
+JSONValue LSPServer::handleFoldingRange(const JSONValue &id,
+                                        const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end()) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    const std::string &content = it->second.content;
+    auto result = JSONValue::array();
+
+    // Track brace-delimited regions for folding
+    // Use a stack of opening brace positions
+    struct BracePos { uint32_t line; uint32_t col; };
+    std::vector<BracePos> stack;
+
+    uint32_t lineNum = 0;
+    uint32_t colNum = 0;
+    for (size_t i = 0; i < content.size(); ++i) {
+        char c = content[i];
+        if (c == '\n') {
+            ++lineNum;
+            colNum = 0;
+            continue;
+        }
+        if (c == '{') {
+            stack.push_back({lineNum, colNum});
+        } else if (c == '}') {
+            if (!stack.empty()) {
+                BracePos open = stack.back();
+                stack.pop_back();
+                // Only create a folding range if it spans multiple lines
+                if (lineNum > open.line) {
+                    auto range = JSONValue::object();
+                    range.set("startLine", JSONValue(static_cast<int64_t>(open.line)));
+                    range.set("startCharacter", JSONValue(static_cast<int64_t>(open.col)));
+                    range.set("endLine", JSONValue(static_cast<int64_t>(lineNum)));
+                    range.set("endCharacter", JSONValue(static_cast<int64_t>(colNum)));
+                    range.set("kind", JSONValue("region"));
+                    result.push(std::move(range));
+                }
+            }
+        }
+        ++colNum;
+    }
+
+    // Also detect consecutive single-line comment blocks for folding
+    // Split into lines
+    std::vector<std::string> lines;
+    std::string currentLine;
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (content[i] == '\n') {
+            lines.push_back(currentLine);
+            currentLine.clear();
+        } else if (content[i] != '\r') {
+            currentLine += content[i];
+        }
+    }
+    if (!currentLine.empty()) {
+        lines.push_back(currentLine);
+    }
+
+    // Find consecutive comment lines (starting with //)
+    size_t commentStart = 0;
+    bool inComment = false;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        // Trim leading whitespace
+        size_t firstNonWs = 0;
+        while (firstNonWs < lines[i].size() &&
+               (lines[i][firstNonWs] == ' ' || lines[i][firstNonWs] == '\t'))
+            ++firstNonWs;
+        bool isComment = (firstNonWs + 1 < lines[i].size() &&
+                          lines[i][firstNonWs] == '/' &&
+                          lines[i][firstNonWs + 1] == '/');
+        if (isComment) {
+            if (!inComment) {
+                commentStart = i;
+                inComment = true;
+            }
+        } else {
+            if (inComment && i - commentStart >= 2) {
+                auto range = JSONValue::object();
+                range.set("startLine", JSONValue(static_cast<int64_t>(commentStart)));
+                range.set("endLine", JSONValue(static_cast<int64_t>(i - 1)));
+                range.set("kind", JSONValue("comment"));
+                result.push(std::move(range));
+            }
+            inComment = false;
+        }
+    }
+    // Handle comment block at end of file
+    if (inComment && lines.size() - commentStart >= 2) {
+        auto range = JSONValue::object();
+        range.set("startLine", JSONValue(static_cast<int64_t>(commentStart)));
+        range.set("endLine", JSONValue(static_cast<int64_t>(lines.size() - 1)));
+        range.set("kind", JSONValue("comment"));
+        result.push(std::move(range));
+    }
+
+    return makeResponse(id, std::move(result));
+}
+
+// ============================================================
+// Selection Range
+// ============================================================
+
+JSONValue LSPServer::handleSelectionRange(const JSONValue &id,
+                                          const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end()) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    const std::string &content = it->second.content;
+    const auto &positions = params["positions"].getArray();
+
+    // Split content into lines for line length info
+    std::vector<std::string> lines;
+    std::string currentLine;
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (content[i] == '\n') {
+            lines.push_back(currentLine);
+            currentLine.clear();
+        } else if (content[i] != '\r') {
+            currentLine += content[i];
+        }
+    }
+    if (!currentLine.empty() || (!content.empty() && content.back() == '\n')) {
+        lines.push_back(currentLine);
+    }
+
+    // Pre-compute brace nesting structure: for each '{' record matching '}'
+    struct BracePair { uint32_t openLine; uint32_t openCol;
+                       uint32_t closeLine; uint32_t closeCol; };
+    std::vector<BracePair> bracePairs;
+
+    struct OpenBrace { uint32_t line; uint32_t col; };
+    std::vector<OpenBrace> braceStack;
+    uint32_t lineNum = 0;
+    uint32_t colNum = 0;
+    for (size_t i = 0; i < content.size(); ++i) {
+        char c = content[i];
+        if (c == '\n') { ++lineNum; colNum = 0; continue; }
+        if (c == '{') {
+            braceStack.push_back({lineNum, colNum});
+        } else if (c == '}') {
+            if (!braceStack.empty()) {
+                OpenBrace ob = braceStack.back();
+                braceStack.pop_back();
+                bracePairs.push_back({ob.line, ob.col, lineNum, colNum});
+            }
+        }
+        ++colNum;
+    }
+
+    auto result = JSONValue::array();
+
+    for (const auto &pos : positions) {
+        uint32_t posLine = static_cast<uint32_t>(pos["line"].getInteger());
+        uint32_t posChar = static_cast<uint32_t>(pos["character"].getInteger());
+
+        // Build selection ranges from innermost to outermost:
+        // 1. Word at cursor
+        // 2. Current line
+        // 3. Enclosing brace block(s) (innermost first)
+        // 4. Entire document
+
+        // Helper to make a range object
+        auto makeRange = [](uint32_t sl, uint32_t sc, uint32_t el, uint32_t ec) {
+            auto start = JSONValue::object();
+            start.set("line", JSONValue(static_cast<int64_t>(sl)));
+            start.set("character", JSONValue(static_cast<int64_t>(sc)));
+            auto end = JSONValue::object();
+            end.set("line", JSONValue(static_cast<int64_t>(el)));
+            end.set("character", JSONValue(static_cast<int64_t>(ec)));
+            auto range = JSONValue::object();
+            range.set("start", std::move(start));
+            range.set("end", std::move(end));
+            return range;
+        };
+
+        // Collect brace blocks that contain the position (sorted innermost first)
+        struct BlockSpan {
+            uint32_t openLine, openCol, closeLine, closeCol;
+            uint32_t span; // number of lines
+        };
+        std::vector<BlockSpan> enclosingBlocks;
+        for (const auto &bp : bracePairs) {
+            bool after_open = (posLine > bp.openLine) ||
+                              (posLine == bp.openLine && posChar >= bp.openCol);
+            bool before_close = (posLine < bp.closeLine) ||
+                                (posLine == bp.closeLine && posChar <= bp.closeCol);
+            if (after_open && before_close) {
+                uint32_t span = bp.closeLine - bp.openLine;
+                enclosingBlocks.push_back({bp.openLine, bp.openCol,
+                                           bp.closeLine, bp.closeCol, span});
+            }
+        }
+        // Sort by span ascending (innermost first)
+        std::sort(enclosingBlocks.begin(), enclosingBlocks.end(),
+                  [](const BlockSpan &a, const BlockSpan &b) {
+                      return a.span < b.span;
+                  });
+
+        // Now build the chain: word -> line -> blocks -> document
+        // Start from outermost and nest inward
+
+        // Outermost: entire document
+        uint32_t lastLine = lines.empty() ? 0 : static_cast<uint32_t>(lines.size() - 1);
+        uint32_t lastCol = lines.empty() ? 0 : static_cast<uint32_t>(lines.back().size());
+
+        auto docRange = makeRange(0, 0, lastLine, lastCol);
+        auto outermost = JSONValue::object();
+        outermost.set("range", std::move(docRange));
+        // no parent for outermost
+
+        // Build chain from outermost to innermost
+        JSONValue currentSel = std::move(outermost);
+
+        // Add enclosing brace blocks from outermost to innermost
+        for (int i = static_cast<int>(enclosingBlocks.size()) - 1; i >= 0; --i) {
+            const auto &blk = enclosingBlocks[static_cast<size_t>(i)];
+            auto blockRange = makeRange(blk.openLine, blk.openCol,
+                                        blk.closeLine, blk.closeCol + 1);
+            auto sel = JSONValue::object();
+            sel.set("range", std::move(blockRange));
+            sel.set("parent", std::move(currentSel));
+            currentSel = std::move(sel);
+        }
+
+        // Add current line
+        if (posLine < lines.size()) {
+            uint32_t lineLen = static_cast<uint32_t>(lines[posLine].size());
+            auto lineRange = makeRange(posLine, 0, posLine, lineLen);
+            auto sel = JSONValue::object();
+            sel.set("range", std::move(lineRange));
+            sel.set("parent", std::move(currentSel));
+            currentSel = std::move(sel);
+        }
+
+        // Add word at cursor
+        if (posLine < lines.size()) {
+            const std::string &line = lines[posLine];
+            uint32_t wordStart = posChar;
+            uint32_t wordEnd = posChar;
+            // Expand word boundaries
+            while (wordStart > 0 &&
+                   (std::isalnum(static_cast<unsigned char>(line[wordStart - 1])) ||
+                    line[wordStart - 1] == '_'))
+                --wordStart;
+            while (wordEnd < line.size() &&
+                   (std::isalnum(static_cast<unsigned char>(line[wordEnd])) ||
+                    line[wordEnd] == '_'))
+                ++wordEnd;
+            if (wordEnd > wordStart) {
+                auto wordRange = makeRange(posLine, wordStart, posLine, wordEnd);
+                auto sel = JSONValue::object();
+                sel.set("range", std::move(wordRange));
+                sel.set("parent", std::move(currentSel));
+                currentSel = std::move(sel);
+            }
+        }
+
+        result.push(std::move(currentSel));
+    }
+
+    return makeResponse(id, std::move(result));
+}
+
+// ============================================================
+// Document Highlight
+// ============================================================
+
+JSONValue LSPServer::handleDocumentHighlight(const JSONValue &id,
+                                             const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    uint32_t line = static_cast<uint32_t>(params["position"]["line"].getInteger()) + 1;
+    uint32_t col = static_cast<uint32_t>(params["position"]["character"].getInteger()) + 1;
+
+    auto it = documents_.find(uri);
+    if (it == documents_.end() || !it->second.tu) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    // Find the name at cursor (use AST first, then fall back to word extraction)
+    std::string name = getDeclNameAtPosition(it->second.tu.get(), line, col);
+
+    // If AST lookup didn't find anything, extract word from source
+    if (name.empty()) {
+        const std::string &content = it->second.content;
+        // Convert to 0-indexed
+        uint32_t targetLine = line - 1;
+        uint32_t targetCol = col - 1;
+        // Find the line
+        uint32_t currentLine = 0;
+        size_t lineStart = 0;
+        bool lineFound = false;
+        for (size_t i = 0; i < content.size(); ++i) {
+            if (currentLine == targetLine) {
+                lineStart = i;
+                lineFound = true;
+                break;
+            }
+            if (content[i] == '\n') ++currentLine;
+        }
+        // If the target line doesn't exist in the document, return empty
+        if (!lineFound) {
+            return makeResponse(id, JSONValue::array());
+        }
+        size_t pos = lineStart + targetCol;
+        if (pos < content.size()) {
+            // Extract word at position
+            size_t wordStart = pos;
+            size_t wordEnd = pos;
+            while (wordStart > 0 &&
+                   (std::isalnum(static_cast<unsigned char>(content[wordStart - 1])) ||
+                    content[wordStart - 1] == '_'))
+                --wordStart;
+            while (wordEnd < content.size() &&
+                   (std::isalnum(static_cast<unsigned char>(content[wordEnd])) ||
+                    content[wordEnd] == '_'))
+                ++wordEnd;
+            if (wordEnd > wordStart) {
+                name = content.substr(wordStart, wordEnd - wordStart);
+            }
+        }
+    }
+
+    if (name.empty()) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    auto locations = findNameOccurrences(it->second.content, name);
+    auto result = JSONValue::array();
+
+    // Determine if the symbol is a declaration for the first occurrence
+    // DocumentHighlightKind: 1=Text, 2=Read, 3=Write
+    for (const auto &loc : locations) {
+        auto start = JSONValue::object();
+        start.set("line", JSONValue(static_cast<int64_t>(loc.line)));
+        start.set("character", JSONValue(static_cast<int64_t>(loc.col)));
+        auto end = JSONValue::object();
+        end.set("line", JSONValue(static_cast<int64_t>(loc.line)));
+        end.set("character", JSONValue(static_cast<int64_t>(loc.endCol)));
+        auto range = JSONValue::object();
+        range.set("start", std::move(start));
+        range.set("end", std::move(end));
+
+        auto highlight = JSONValue::object();
+        highlight.set("range", std::move(range));
+        // Kind: check if this occurrence is the declaration site
+        // Simple heuristic: check if preceded by func/let/var/struct/enum keywords
+        // For now, mark first occurrence as Write (3), rest as Read (2)
+        // A better approach: check the line content
+        int64_t kind = 1; // Text (default)
+        const std::string &content = it->second.content;
+        // Find the start of the name in the content
+        uint32_t nameLine = loc.line;
+        uint32_t nameCol = loc.col;
+        // Check preceding text on the line for declaration keywords
+        uint32_t currentLineNum = 0;
+        size_t lineStartPos = 0;
+        for (size_t i = 0; i < content.size(); ++i) {
+            if (currentLineNum == nameLine) { lineStartPos = i; break; }
+            if (content[i] == '\n') ++currentLineNum;
+        }
+        std::string linePrefix = content.substr(lineStartPos, nameCol);
+        // Trim whitespace
+        size_t trimEnd = linePrefix.size();
+        while (trimEnd > 0 && (linePrefix[trimEnd - 1] == ' ' || linePrefix[trimEnd - 1] == '\t'))
+            --trimEnd;
+        linePrefix = linePrefix.substr(0, trimEnd);
+        // Check if line prefix ends with a declaration keyword
+        bool isDecl = (linePrefix == "func" || linePrefix == "let" || linePrefix == "var" ||
+            linePrefix == "struct" || linePrefix == "enum" || linePrefix == "protocol" ||
+            linePrefix == "type");
+        if (!isDecl) {
+            // Check if prefix ends with a declaration keyword preceded by space
+            if ((linePrefix.size() >= 5 && linePrefix.substr(linePrefix.size() - 5) == " func") ||
+                (linePrefix.size() >= 4 && linePrefix.substr(linePrefix.size() - 4) == " let") ||
+                (linePrefix.size() >= 4 && linePrefix.substr(linePrefix.size() - 4) == " var") ||
+                (linePrefix.size() >= 7 && linePrefix.substr(linePrefix.size() - 7) == " struct") ||
+                (linePrefix.size() >= 5 && linePrefix.substr(linePrefix.size() - 5) == " enum") ||
+                (linePrefix.size() >= 9 && linePrefix.substr(linePrefix.size() - 9) == " protocol") ||
+                (linePrefix.size() >= 5 && linePrefix.substr(linePrefix.size() - 5) == " type"))
+                isDecl = true;
+        }
+        if (isDecl) {
+            kind = 3; // Write (declaration)
+        } else {
+            kind = 2; // Read (usage)
+        }
+        highlight.set("kind", JSONValue(kind));
+        result.push(std::move(highlight));
+    }
+
+    return makeResponse(id, std::move(result));
 }
 
 // ============================================================

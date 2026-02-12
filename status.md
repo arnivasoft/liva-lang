@@ -1,7 +1,7 @@
 # Liva Programlama Dili — Production Hazırlık Raporu
 
 **Tarih:** 2026-02-12
-**Test Durumu:** 795/795 geçiyor (%100)
+**Test Durumu:** 845/845 geçiyor (%100)
 **Tamamlanan Milestone:** 50+
 
 ---
@@ -10,7 +10,7 @@
 
 | Metrik | Değer |
 |--------|-------|
-| **Toplam Test** | **795/795 geçiyor** (%100) |
+| **Toplam Test** | **845/845 geçiyor** (%100) |
 | **Kaynak Kodu** | ~19,600 satır (src + include) |
 | **Test Kodu** | ~11,000 satır |
 | **Runtime Kütüphanesi** | ~1,143 satır |
@@ -43,7 +43,7 @@
 
 | Test Paketi | Test Sayısı | Kapsam Değerlendirmesi |
 |------------|-------------|----------------------|
-| SemaTest | 321 | **Mükemmel** — Tüm dil özellikleri |
+| SemaTest | 345 | **Mükemmel** — Tüm dil özellikleri + tip kontrolleri + err_no_return |
 | ParserTest | 82 | **Çok İyi** — Bildirimler, ifadeler, generics, closures |
 | OwnershipTest | 74 | **Çok İyi** — Move, borrow, lifetime, struct, closure |
 | IntegrationTest | 59 | **İyi** — Closures, generics, pattern matching, protocols |

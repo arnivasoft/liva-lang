@@ -311,6 +311,33 @@ protected:
                "\"},\"options\":{\"tabSize\":4,\"insertSpaces\":true}}}";
     }
 
+    // Build a textDocument/foldingRange request
+    std::string foldingRangeRequest(const std::string &uri, int id = 100) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/foldingRange\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri + "\"}}}";
+    }
+
+    // Build a textDocument/selectionRange request
+    std::string selectionRangeRequest(const std::string &uri,
+                                      const std::string &positionsJson,
+                                      int id = 110) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/selectionRange\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+               "\"},\"positions\":" + positionsJson + "}}";
+    }
+
+    // Build a textDocument/documentHighlight request
+    std::string documentHighlightRequest(const std::string &uri, int line,
+                                         int col, int id = 120) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/documentHighlight\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+               "\"},\"position\":{\"line\":" + std::to_string(line) +
+               ",\"character\":" + std::to_string(col) + "}}}";
+    }
+
     // Build a textDocument/codeAction request
     std::string codeActionRequest(const std::string &uri, int startLine,
                                   int startCol, int endLine, int endCol,
@@ -956,4 +983,189 @@ TEST_F(LSPTest, CodeActionCapability) {
     auto resp = parseResponse(server.handleMessage(initRequest()));
     const auto &caps = resp["result"]["capabilities"];
     EXPECT_TRUE(caps["codeActionProvider"].getBool());
+}
+
+// ============================================================
+// Folding Range Tests
+// ============================================================
+
+TEST_F(LSPTest, FoldingRangeBasic) {
+    // A function spanning lines 0-2 should produce a folding range
+    initAndOpen("file:///test.liva", "func main() {\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(foldingRangeRequest("file:///test.liva")));
+    const auto &ranges = resp["result"].getArray();
+    ASSERT_GE(ranges.size(), 1u);
+    // The brace block should span from line 0 to line 2
+    EXPECT_EQ(ranges[0]["startLine"].getInteger(), 0);
+    EXPECT_EQ(ranges[0]["endLine"].getInteger(), 2);
+    EXPECT_EQ(ranges[0]["kind"].getString(), "region");
+}
+
+TEST_F(LSPTest, FoldingRangeNested) {
+    // Nested braces should produce multiple folding ranges
+    initAndOpen("file:///test.liva",
+                "func foo() {\n    if true {\n        return\n    }\n}");
+    auto resp = parseResponse(
+        server.handleMessage(foldingRangeRequest("file:///test.liva")));
+    const auto &ranges = resp["result"].getArray();
+    // Should have at least 2 folding ranges: outer func and inner if
+    ASSERT_GE(ranges.size(), 2u);
+    // Verify we have both an outer range (0-4) and inner range (1-3)
+    bool hasOuter = false, hasInner = false;
+    for (const auto &r : ranges) {
+        int64_t startLine = r["startLine"].getInteger();
+        int64_t endLine = r["endLine"].getInteger();
+        if (startLine == 0 && endLine == 4) hasOuter = true;
+        if (startLine == 1 && endLine == 3) hasInner = true;
+    }
+    EXPECT_TRUE(hasOuter);
+    EXPECT_TRUE(hasInner);
+}
+
+TEST_F(LSPTest, FoldingRangeComments) {
+    // Consecutive comment lines should produce a comment folding range
+    initAndOpen("file:///test.liva",
+                "// line one\n// line two\n// line three\nfunc main() {}");
+    auto resp = parseResponse(
+        server.handleMessage(foldingRangeRequest("file:///test.liva")));
+    const auto &ranges = resp["result"].getArray();
+    // Should have a comment fold for lines 0-2
+    bool hasComment = false;
+    for (const auto &r : ranges) {
+        if (r["kind"].getString() == "comment") {
+            EXPECT_EQ(r["startLine"].getInteger(), 0);
+            EXPECT_EQ(r["endLine"].getInteger(), 2);
+            hasComment = true;
+        }
+    }
+    EXPECT_TRUE(hasComment);
+}
+
+TEST_F(LSPTest, FoldingRangeEmpty) {
+    // Single-line document has no folding ranges
+    initAndOpen("file:///test.liva", "let x = 1");
+    auto resp = parseResponse(
+        server.handleMessage(foldingRangeRequest("file:///test.liva")));
+    const auto &ranges = resp["result"].getArray();
+    EXPECT_TRUE(ranges.empty());
+}
+
+TEST_F(LSPTest, FoldingRangeCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["foldingRangeProvider"].getBool());
+}
+
+// ============================================================
+// Selection Range Tests
+// ============================================================
+
+TEST_F(LSPTest, SelectionRangeBasic) {
+    // Request selection range at a word inside a function body
+    initAndOpen("file:///test.liva", "func main() {\n    return\n}");
+    // Position at "return" (line 1, col 4)
+    auto resp = parseResponse(
+        server.handleMessage(selectionRangeRequest(
+            "file:///test.liva",
+            "[{\"line\":1,\"character\":4}]")));
+    const auto &ranges = resp["result"].getArray();
+    ASSERT_EQ(ranges.size(), 1u);
+
+    // Innermost range should be the word "return"
+    const auto &innermost = ranges[0];
+    EXPECT_TRUE(innermost["range"].isObject());
+    int64_t startCol = innermost["range"]["start"]["character"].getInteger();
+    int64_t endCol = innermost["range"]["end"]["character"].getInteger();
+    EXPECT_EQ(startCol, 4);
+    EXPECT_EQ(endCol, 10); // "return" is 6 chars
+
+    // Should have a parent chain
+    EXPECT_TRUE(innermost.hasKey("parent"));
+}
+
+TEST_F(LSPTest, SelectionRangeParentChain) {
+    // Verify the parent chain goes from word -> line -> block -> document
+    initAndOpen("file:///test.liva", "func main() {\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(selectionRangeRequest(
+            "file:///test.liva",
+            "[{\"line\":1,\"character\":4}]")));
+    const auto &ranges = resp["result"].getArray();
+    ASSERT_EQ(ranges.size(), 1u);
+
+    // Walk the parent chain and count levels
+    int depth = 0;
+    const JSONValue *current = &ranges[0];
+    while (!current->isNull() && current->isObject()) {
+        EXPECT_TRUE((*current)["range"].isObject());
+        ++depth;
+        if (current->hasKey("parent") && !(*current)["parent"].isNull()) {
+            current = &(*current)["parent"];
+        } else {
+            break;
+        }
+    }
+    // word -> line -> block -> document = at least 4 levels
+    EXPECT_GE(depth, 3);
+}
+
+TEST_F(LSPTest, SelectionRangeCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["selectionRangeProvider"].getBool());
+}
+
+// ============================================================
+// Document Highlight Tests
+// ============================================================
+
+TEST_F(LSPTest, DocumentHighlightFunction) {
+    // Highlight occurrences of "greet" — declaration and usage
+    initAndOpen("file:///test.liva", "func greet() {}\nfunc main() {\n    greet()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(documentHighlightRequest("file:///test.liva", 0, 5)));
+    const auto &highlights = resp["result"].getArray();
+    // Should find at least 2 occurrences: declaration and call
+    ASSERT_GE(highlights.size(), 2u);
+    for (const auto &h : highlights) {
+        EXPECT_TRUE(h["range"].isObject());
+        // kind should be 2 (Read) or 3 (Write/declaration)
+        int64_t kind = h["kind"].getInteger();
+        EXPECT_TRUE(kind == 2 || kind == 3);
+    }
+    // First occurrence (declaration) should be Write (3)
+    bool hasWrite = false;
+    bool hasRead = false;
+    for (const auto &h : highlights) {
+        if (h["kind"].getInteger() == 3) hasWrite = true;
+        if (h["kind"].getInteger() == 2) hasRead = true;
+    }
+    EXPECT_TRUE(hasWrite);
+    EXPECT_TRUE(hasRead);
+}
+
+TEST_F(LSPTest, DocumentHighlightVariable) {
+    initAndOpen("file:///test.liva", "let x: i32 = 42");
+    auto resp = parseResponse(
+        server.handleMessage(documentHighlightRequest("file:///test.liva", 0, 4)));
+    const auto &highlights = resp["result"].getArray();
+    ASSERT_GE(highlights.size(), 1u);
+    // The declaration should have kind 3 (Write)
+    EXPECT_EQ(highlights[0]["kind"].getInteger(), 3);
+}
+
+TEST_F(LSPTest, DocumentHighlightNoSymbol) {
+    initAndOpen("file:///test.liva", "func main() {}");
+    // Position way off in empty space
+    auto resp = parseResponse(
+        server.handleMessage(documentHighlightRequest("file:///test.liva", 100, 0)));
+    const auto &highlights = resp["result"].getArray();
+    EXPECT_TRUE(highlights.empty());
+}
+
+TEST_F(LSPTest, DocumentHighlightCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["documentHighlightProvider"].getBool());
 }

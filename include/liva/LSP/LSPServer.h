@@ -152,6 +152,9 @@ private:
     JSONValue handleSemanticTokens(const JSONValue &id, const JSONValue &params);
     JSONValue handleFormatting(const JSONValue &id, const JSONValue &params);
     JSONValue handleCodeAction(const JSONValue &id, const JSONValue &params);
+    JSONValue handleFoldingRange(const JSONValue &id, const JSONValue &params);
+    JSONValue handleSelectionRange(const JSONValue &id, const JSONValue &params);
+    JSONValue handleDocumentHighlight(const JSONValue &id, const JSONValue &params);
 
     // Analysis helpers
     void analyzeDocument(DocumentState &doc);
