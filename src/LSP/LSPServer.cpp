@@ -1256,10 +1256,14 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
     }
 
     if (funcName.empty()) {
-        return makeResponse(id, JSONValue());
+        auto emptyResult = JSONValue::object();
+        emptyResult.set("signatures", JSONValue::array());
+        emptyResult.set("activeSignature", JSONValue(static_cast<int64_t>(0)));
+        emptyResult.set("activeParameter", JSONValue(static_cast<int64_t>(0)));
+        return makeResponse(id, std::move(emptyResult));
     }
 
-    // Find the function declaration
+    // Find the function declaration from user code
     const Decl *decl = findDeclByName(it->second.tu.get(), funcName);
     const FuncDecl *fd = decl ? dynamic_cast<const FuncDecl *>(decl) : nullptr;
 
@@ -1278,37 +1282,152 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
         }
     }
 
-    if (!fd) {
-        return makeResponse(id, JSONValue());
-    }
-
-    // Build signature string
-    std::string sigLabel = "func " + fd->getName() + "(";
+    std::string sigLabel;
     auto sigParams = JSONValue::array();
-    bool first = true;
-    for (const auto &p : fd->getParams()) {
-        if (p.isSelf) continue;
-        if (!first) sigLabel += ", ";
-        first = false;
 
-        size_t paramStart = sigLabel.size();
-        sigLabel += p.name;
-        if (p.type) {
-            sigLabel += ": " + p.type->toString();
+    if (fd) {
+        // Build signature from AST declaration
+        sigLabel = "func " + fd->getName() + "(";
+        bool first = true;
+        for (const auto &p : fd->getParams()) {
+            if (p.isSelf) continue;
+            if (!first) sigLabel += ", ";
+            first = false;
+
+            std::string paramStr = p.name;
+            if (p.type) {
+                paramStr += ": " + p.type->toString();
+            }
+
+            auto paramInfo = JSONValue::object();
+            paramInfo.set("label", JSONValue(paramStr));
+            sigParams.push(std::move(paramInfo));
+
+            sigLabel += paramStr;
         }
-        size_t paramEnd = sigLabel.size();
+        sigLabel += ")";
+        if (fd->getReturnType() && !fd->getReturnType()->isVoid()) {
+            sigLabel += " -> " + fd->getReturnType()->toString();
+        }
+    } else {
+        // Check built-in functions
+        struct BuiltinSig {
+            const char *name;
+            const char *label;
+            std::vector<const char *> params;
+        };
+        static const BuiltinSig builtins[] = {
+            {"println", "func println(value: any)", {"value: any"}},
+            {"print", "func print(value: any)", {"value: any"}},
+            {"len", "func len(collection: any) -> i64", {"collection: any"}},
+            {"toString", "func toString(value: any) -> string", {"value: any"}},
+            {"parseInt", "func parseInt(s: string) -> i32?", {"s: string"}},
+            {"abs", "func abs(x: numeric) -> numeric", {"x: numeric"}},
+            {"min", "func min(a: numeric, b: numeric) -> numeric", {"a: numeric", "b: numeric"}},
+            {"max", "func max(a: numeric, b: numeric) -> numeric", {"a: numeric", "b: numeric"}},
+            {"sqrt", "func sqrt(x: f64) -> f64", {"x: f64"}},
+            {"pow", "func pow(base: f64, exp: f64) -> f64", {"base: f64", "exp: f64"}},
+            {"format", "func format(fmt: string, args: any...) -> string", {"fmt: string", "args: any..."}},
+            {"readLine", "func readLine() -> string", {}},
+            {"parseFloat", "func parseFloat(s: string) -> f64?", {"s: string"}},
+            {"randInt", "func randInt(min: i64, max: i64) -> i64", {"min: i64", "max: i64"}},
+            {"randFloat", "func randFloat() -> f64", {}},
+        };
 
-        auto paramLabel = JSONValue::array();
-        paramLabel.push(JSONValue(static_cast<int64_t>(paramStart)));
-        paramLabel.push(JSONValue(static_cast<int64_t>(paramEnd)));
+        bool found = false;
+        for (const auto &bi : builtins) {
+            if (funcName == bi.name) {
+                sigLabel = bi.label;
+                for (const char *p : bi.params) {
+                    auto paramInfo = JSONValue::object();
+                    paramInfo.set("label", JSONValue(p));
+                    sigParams.push(std::move(paramInfo));
+                }
+                found = true;
+                break;
+            }
+        }
 
-        auto paramInfo = JSONValue::object();
-        paramInfo.set("label", std::move(paramLabel));
-        sigParams.push(std::move(paramInfo));
-    }
-    sigLabel += ")";
-    if (fd->getReturnType() && !fd->getReturnType()->isVoid()) {
-        sigLabel += " -> " + fd->getReturnType()->toString();
+        if (!found) {
+            // Also scan document text for func declarations that the parser
+            // may not have captured (e.g., in incomplete/errored code)
+            // Look for pattern: func <funcName>(...) [-> RetType]
+            std::string pattern = "func " + funcName + "(";
+            size_t pos = content.find(pattern);
+            if (pos != std::string::npos) {
+                // Extract from "func name(" to the matching ")"
+                size_t parenStart = pos + pattern.size();
+                int depth = 1;
+                size_t parenEnd = parenStart;
+                while (parenEnd < content.size() && depth > 0) {
+                    if (content[parenEnd] == '(') ++depth;
+                    else if (content[parenEnd] == ')') --depth;
+                    if (depth > 0) ++parenEnd;
+                }
+                // Extract params string
+                std::string paramsStr = content.substr(parenStart, parenEnd - parenStart);
+
+                // Check for return type
+                std::string retType;
+                size_t afterParen = parenEnd + 1;
+                // Skip whitespace
+                while (afterParen < content.size() && content[afterParen] == ' ')
+                    ++afterParen;
+                if (afterParen + 1 < content.size() &&
+                    content[afterParen] == '-' && content[afterParen + 1] == '>') {
+                    afterParen += 2;
+                    while (afterParen < content.size() && content[afterParen] == ' ')
+                        ++afterParen;
+                    size_t retStart = afterParen;
+                    while (afterParen < content.size() && content[afterParen] != '\n' &&
+                           content[afterParen] != '{' && content[afterParen] != ' ')
+                        ++afterParen;
+                    retType = content.substr(retStart, afterParen - retStart);
+                }
+
+                sigLabel = "func " + funcName + "(" + paramsStr + ")";
+                if (!retType.empty()) {
+                    sigLabel += " -> " + retType;
+                }
+
+                // Parse individual parameters
+                if (!paramsStr.empty()) {
+                    size_t pStart = 0;
+                    int pDepth = 0;
+                    for (size_t i = 0; i <= paramsStr.size(); ++i) {
+                        if (i == paramsStr.size() ||
+                            (paramsStr[i] == ',' && pDepth == 0)) {
+                            std::string param = paramsStr.substr(pStart, i - pStart);
+                            // Trim whitespace
+                            size_t tStart = 0;
+                            while (tStart < param.size() && param[tStart] == ' ') ++tStart;
+                            size_t tEnd = param.size();
+                            while (tEnd > tStart && param[tEnd - 1] == ' ') --tEnd;
+                            param = param.substr(tStart, tEnd - tStart);
+                            if (!param.empty()) {
+                                auto paramInfo = JSONValue::object();
+                                paramInfo.set("label", JSONValue(param));
+                                sigParams.push(std::move(paramInfo));
+                            }
+                            pStart = i + 1;
+                        }
+                        if (i < paramsStr.size()) {
+                            if (paramsStr[i] == '(') ++pDepth;
+                            else if (paramsStr[i] == ')') --pDepth;
+                        }
+                    }
+                }
+                found = true;
+            }
+
+            if (!found) {
+                auto emptyResult = JSONValue::object();
+                emptyResult.set("signatures", JSONValue::array());
+                emptyResult.set("activeSignature", JSONValue(static_cast<int64_t>(0)));
+                emptyResult.set("activeParameter", JSONValue(static_cast<int64_t>(0)));
+                return makeResponse(id, std::move(emptyResult));
+            }
+        }
     }
 
     auto sigInfo = JSONValue::object();

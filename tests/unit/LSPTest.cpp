@@ -731,6 +731,37 @@ TEST_F(LSPTest, ReferencesNoSymbol) {
     EXPECT_TRUE(refs.empty());
 }
 
+TEST_F(LSPTest, ReferencesPositionsAreCorrect) {
+    // "func foo() {}\nfunc main() {\n    foo()\n}"
+    // "foo" at line 0 col 5..8 and line 2 col 4..7
+    initAndOpen("file:///test.liva", "func foo() {}\nfunc main() {\n    foo()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(referencesRequest("file:///test.liva", 0, 5)));
+    const auto &refs = resp["result"].getArray();
+    ASSERT_GE(refs.size(), 2u);
+    // First reference at line 0, col 5
+    EXPECT_EQ(refs[0]["range"]["start"]["line"].getInteger(), 0);
+    EXPECT_EQ(refs[0]["range"]["start"]["character"].getInteger(), 5);
+    EXPECT_EQ(refs[0]["range"]["end"]["character"].getInteger(), 8);
+    // Second reference at line 2, col 4
+    EXPECT_EQ(refs[1]["range"]["start"]["line"].getInteger(), 2);
+    EXPECT_EQ(refs[1]["range"]["start"]["character"].getInteger(), 4);
+    EXPECT_EQ(refs[1]["range"]["end"]["character"].getInteger(), 7);
+}
+
+TEST_F(LSPTest, ReferencesOfStruct) {
+    // Struct name should be found in declaration
+    initAndOpen("file:///test.liva", "struct Point {\n    var x: i32\n}");
+    auto resp = parseResponse(
+        server.handleMessage(referencesRequest("file:///test.liva", 0, 7)));
+    const auto &refs = resp["result"].getArray();
+    ASSERT_GE(refs.size(), 1u);
+    EXPECT_EQ(refs[0]["uri"].getString(), "file:///test.liva");
+    // "Point" starts at col 7
+    EXPECT_EQ(refs[0]["range"]["start"]["character"].getInteger(), 7);
+    EXPECT_EQ(refs[0]["range"]["end"]["character"].getInteger(), 12);
+}
+
 // ============================================================
 // Rename Tests
 // ============================================================
@@ -766,6 +797,41 @@ TEST_F(LSPTest, RenameNoSymbol) {
         server.handleMessage(renameRequest("file:///test.liva", 100, 0, "newName")));
     // Should return error
     EXPECT_TRUE(resp["error"].isObject());
+}
+
+TEST_F(LSPTest, RenameEditsHaveCorrectPositions) {
+    // "func foo() {}\nfunc main() {\n    foo()\n}"
+    // "foo" at line 0 col 5..8, and line 2 col 4..7
+    initAndOpen("file:///test.liva", "func foo() {}\nfunc main() {\n    foo()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(renameRequest("file:///test.liva", 0, 5, "bar")));
+    EXPECT_TRUE(resp["result"].isObject());
+    const auto &edits = resp["result"]["changes"]["file:///test.liva"].getArray();
+    ASSERT_GE(edits.size(), 2u);
+    // First edit should be at line 0, character 5
+    EXPECT_EQ(edits[0]["range"]["start"]["line"].getInteger(), 0);
+    EXPECT_EQ(edits[0]["range"]["start"]["character"].getInteger(), 5);
+    EXPECT_EQ(edits[0]["range"]["end"]["character"].getInteger(), 8);
+    EXPECT_EQ(edits[0]["newText"].getString(), "bar");
+    // Second edit should be at line 2, character 4
+    EXPECT_EQ(edits[1]["range"]["start"]["line"].getInteger(), 2);
+    EXPECT_EQ(edits[1]["range"]["start"]["character"].getInteger(), 4);
+    EXPECT_EQ(edits[1]["range"]["end"]["character"].getInteger(), 7);
+    EXPECT_EQ(edits[1]["newText"].getString(), "bar");
+}
+
+TEST_F(LSPTest, RenameStruct) {
+    // Rename a struct name
+    initAndOpen("file:///test.liva", "struct Point {\n    var x: i32\n}");
+    auto resp = parseResponse(
+        server.handleMessage(renameRequest("file:///test.liva", 0, 7, "Vec2")));
+    EXPECT_TRUE(resp["result"].isObject());
+    const auto &edits = resp["result"]["changes"]["file:///test.liva"].getArray();
+    ASSERT_GE(edits.size(), 1u);
+    EXPECT_EQ(edits[0]["newText"].getString(), "Vec2");
+    // "Point" starts at col 7 and ends at col 12
+    EXPECT_EQ(edits[0]["range"]["start"]["character"].getInteger(), 7);
+    EXPECT_EQ(edits[0]["range"]["end"]["character"].getInteger(), 12);
 }
 
 // ============================================================
@@ -809,7 +875,69 @@ TEST_F(LSPTest, SignatureHelpNoFunc) {
     initAndOpen("file:///test.liva", "func main() {}");
     auto resp = parseResponse(
         server.handleMessage(signatureHelpRequest("file:///test.liva", 0, 0)));
-    EXPECT_TRUE(resp["result"].isNull());
+    // When no function call context is found, should return empty signatures
+    const auto &sigs = resp["result"]["signatures"].getArray();
+    EXPECT_TRUE(sigs.empty());
+    EXPECT_EQ(resp["result"]["activeSignature"].getInteger(), 0);
+    EXPECT_EQ(resp["result"]["activeParameter"].getInteger(), 0);
+}
+
+TEST_F(LSPTest, SignatureHelpBuiltinFunction) {
+    // Test signature help for built-in println function
+    initAndOpen("file:///test.liva", "func main() {\n    println(\n}");
+    // Cursor after 'println(' on line 1, col 12
+    auto resp = parseResponse(
+        server.handleMessage(signatureHelpRequest("file:///test.liva", 1, 12)));
+    EXPECT_FALSE(resp["result"].isNull());
+    const auto &sigs = resp["result"]["signatures"].getArray();
+    ASSERT_GE(sigs.size(), 1u);
+    std::string label = sigs[0]["label"].getString();
+    EXPECT_NE(label.find("println"), std::string::npos);
+    EXPECT_NE(label.find("value"), std::string::npos);
+    // Should have 1 parameter
+    const auto &params = sigs[0]["parameters"].getArray();
+    EXPECT_EQ(params.size(), 1u);
+    EXPECT_EQ(params[0]["label"].getString(), "value: any");
+    EXPECT_EQ(resp["result"]["activeParameter"].getInteger(), 0);
+}
+
+TEST_F(LSPTest, SignatureHelpBuiltinWithActiveParam) {
+    // Test signature help for built-in pow function after comma
+    initAndOpen("file:///test.liva", "func main() {\n    pow(2.0, \n}");
+    // Cursor after 'pow(2.0, ' on line 1, col 13
+    auto resp = parseResponse(
+        server.handleMessage(signatureHelpRequest("file:///test.liva", 1, 13)));
+    EXPECT_FALSE(resp["result"].isNull());
+    const auto &sigs = resp["result"]["signatures"].getArray();
+    ASSERT_GE(sigs.size(), 1u);
+    std::string label = sigs[0]["label"].getString();
+    EXPECT_NE(label.find("pow"), std::string::npos);
+    EXPECT_NE(label.find("base"), std::string::npos);
+    EXPECT_NE(label.find("exp"), std::string::npos);
+    // Should have 2 parameters
+    const auto &params = sigs[0]["parameters"].getArray();
+    EXPECT_EQ(params.size(), 2u);
+    EXPECT_EQ(params[0]["label"].getString(), "base: f64");
+    EXPECT_EQ(params[1]["label"].getString(), "exp: f64");
+    // Active parameter should be 1 (after the comma)
+    EXPECT_EQ(resp["result"]["activeParameter"].getInteger(), 1);
+}
+
+TEST_F(LSPTest, SignatureHelpCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["signatureHelpProvider"].isObject());
+    const auto &triggerChars =
+        caps["signatureHelpProvider"]["triggerCharacters"].getArray();
+    ASSERT_GE(triggerChars.size(), 2u);
+    // Should include '(' and ','
+    bool hasOpenParen = false, hasComma = false;
+    for (const auto &tc : triggerChars) {
+        if (tc.getString() == "(") hasOpenParen = true;
+        if (tc.getString() == ",") hasComma = true;
+    }
+    EXPECT_TRUE(hasOpenParen);
+    EXPECT_TRUE(hasComma);
 }
 
 // ============================================================

@@ -153,6 +153,8 @@ void TypeChecker::check(TranslationUnit &tu) {
 void TypeChecker::visitFuncDecl(FuncDecl *node) {
     scopes_.pushScope();
 
+    // Note: err_async_main intentionally not emitted — Liva supports async main
+
     // Save/restore async state
     bool prevIsAsync = currentIsAsync_;
     currentIsAsync_ = node->isAsync();
@@ -1860,6 +1862,12 @@ void TypeChecker::visitUnwrapExpr(UnwrapExpr *node) {
 
 void TypeChecker::visitTryExpr(TryExpr *node) {
     visit(const_cast<Expr *>(node->getOperand()));
+    // Check: try can only be applied to Result type expressions
+    auto *operandType = node->getOperand()->getResolvedType();
+    if (operandType && !operandType->isInferred() &&
+        operandType->getKind() != TypeRepr::Kind::Result) {
+        diag_.report(node->getStartLoc(), DiagID::err_try_on_non_result);
+    }
 }
 
 void TypeChecker::visitTernaryExpr(TernaryExpr *node) {

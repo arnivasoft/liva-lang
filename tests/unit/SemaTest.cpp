@@ -4953,3 +4953,39 @@ TEST_F(SemaTest, NoWarnShadowTypeName) {
     EXPECT_TRUE(result.passed);
     EXPECT_FALSE(hasDiag(result, DiagID::warn_shadowed_variable));
 }
+
+// ============================================================
+// err_try_on_non_result tests
+// ============================================================
+
+TEST_F(SemaTest, ErrorTryOnNonResultInt) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = 42
+            let y = try x
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_try_on_non_result));
+}
+
+TEST_F(SemaTest, ErrorTryOnNonResultString) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = "hello"
+            let y = try s
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_try_on_non_result));
+}
+
+TEST_F(SemaTest, NoErrorTryOnResult) {
+    auto result = check(R"--(
+        func main() {
+            let r: Result<i32, string> = Result.ok(42)
+            let val = try r
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
