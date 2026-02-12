@@ -30,3 +30,8 @@ liva_add_test(projectconfig_test
     unit/ProjectConfigTest.cpp
 )
 target_link_libraries(projectconfig_test PRIVATE liva_driver)
+
+liva_add_test(lsp_test
+    unit/LSPTest.cpp
+)
+target_link_libraries(lsp_test PRIVATE liva_lsp liva_sema liva_parser)

@@ -124,6 +124,13 @@ if(LIVA_HAS_LLVM)
     )
 endif()
 
+# liva_lsp
+add_library(liva_lsp STATIC
+    src/LSP/LSPServer.cpp
+)
+target_link_libraries(liva_lsp PUBLIC liva_sema liva_parser liva_common)
+liva_set_compiler_flags(liva_lsp)
+
 # liva_driver (TOML parser, path utils)
 add_library(liva_driver STATIC
     src/Driver/ProjectConfig.cpp
@@ -139,6 +146,7 @@ add_executable(livac
 )
 target_link_libraries(livac PRIVATE
     liva_driver
+    liva_lsp
     liva_parser
     liva_sema
 )

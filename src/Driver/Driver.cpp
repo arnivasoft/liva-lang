@@ -1,6 +1,7 @@
 #include "liva/Driver/Driver.h"
 #include "liva/Common/Version.h"
 #include "liva/Driver/CompilerInstance.h"
+#include "liva/LSP/LSPServer.h"
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -30,6 +31,10 @@ bool Driver::parseArgs(int argc, const char **argv) {
                 options_.initName = argv[2];
                 startIdx = 3;
             }
+            return true;
+        } else if (std::strcmp(argv[1], "lsp") == 0) {
+            options_.subcommand = Subcommand::Lsp;
+            startIdx = 2;
             return true;
         }
     }
@@ -147,6 +152,7 @@ int Driver::execute() {
     case Subcommand::Build: return executeBuild();
     case Subcommand::Run:   return executeRun();
     case Subcommand::Init:  return executeInit();
+    case Subcommand::Lsp:   return executeLsp();
     case Subcommand::None:  return executeLegacy();
     }
 
@@ -311,6 +317,11 @@ int Driver::buildProject(bool runAfter) {
     return 0;
 }
 
+int Driver::executeLsp() {
+    LSPServer server;
+    return server.run();
+}
+
 int Driver::executeBuild() {
     return buildProject(false);
 }
@@ -405,11 +416,13 @@ void Driver::printHelp() {
               << "       livac build [--release|--debug] [-o <file>]\n"
               << "       livac run [--release|--debug]\n"
               << "       livac init [name]\n"
+              << "       livac lsp\n"
               << "\n"
               << "Subcommands:\n"
               << "  build               Build project using liva.toml\n"
               << "  run                 Build and run project\n"
               << "  init [name]         Create a new Liva project\n"
+              << "  lsp                 Start Language Server Protocol server\n"
               << "\n"
               << "Options:\n"
               << "  -h, --help          Show this help message\n"
