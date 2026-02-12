@@ -388,6 +388,21 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
             }
             // Record successful conformance
             protocolConformances_[node->getProtocolName()].push_back(node->getTypeName());
+
+            // Drop protocol validation
+            if (node->getProtocolName() == "Drop") {
+                bool validDrop = false;
+                for (auto &method : node->getMethods()) {
+                    if (method->getName() == "drop" && method->isMethod() &&
+                        method->getParams().size() == 1 &&
+                        (!method->getReturnType() || method->getReturnType()->isVoid())) {
+                        validDrop = true;
+                    }
+                }
+                if (!validDrop && !node->getMethods().empty()) {
+                    diag_.report(node->getStartLoc(), DiagID::err_drop_method_signature);
+                }
+            }
         }
     }
 

@@ -143,8 +143,37 @@ bool CompilerInstance::compile(const std::string &outputPath) {
         return false;
     }
 
-    // Use clang to compile IR → executable (handles runtime linking automatically)
-    std::string cmd = "C:\\LLVM\\bin\\clang.exe -Wno-override-module \"" + irPath + "\" -o \"" + outputPath + "\"";
+    // Find pre-built runtime library relative to livac executable
+    auto fileExists = [](const std::string &path) {
+        std::ifstream f(path);
+        return f.good();
+    };
+    auto dirOfPath = [](const std::string &path) -> std::string {
+        auto pos = path.find_last_of("/\\");
+        return (pos != std::string::npos) ? path.substr(0, pos) : ".";
+    };
+
+    std::string exeDir = dirOfPath(executablePath_);
+    std::string runtimeLib;
+    std::string candidates[] = {
+        exeDir + "/lib/liva_runtime.lib",
+        exeDir + "/../lib/liva_runtime.lib",
+    };
+    for (auto &c : candidates) {
+        if (fileExists(c)) { runtimeLib = c; break; }
+    }
+    if (runtimeLib.empty()) {
+        std::cerr << "error: cannot find runtime library (lib/liva_runtime.lib)\n";
+        std::cerr << "  searched relative to: " << exeDir << "\n";
+        std::remove(irPath.c_str());
+        return false;
+    }
+
+    // Use clang from PATH to compile IR + link runtime → executable
+    std::string cmd = "\"clang -Wno-override-module";
+    cmd += " \"" + irPath + "\" \"" + runtimeLib + "\"";
+    cmd += " -lwinhttp";
+    cmd += " -o \"" + outputPath + "\"\"";
     int result = std::system(cmd.c_str());
 
     // Clean up temp IR file

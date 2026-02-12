@@ -13,6 +13,12 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(googletest)
 
+# Suppress warnings from GoogleTest's own compilation
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(gtest PRIVATE -Wno-undef)
+    target_compile_options(gtest_main PRIVATE -Wno-undef)
+endif()
+
 enable_testing()
 
 # Use CMake's built-in GoogleTest module for gtest_discover_tests
@@ -28,6 +34,11 @@ function(liva_add_test test_name test_source)
     target_include_directories(${test_name} PRIVATE
         ${PROJECT_SOURCE_DIR}/include
     )
+    # Suppress warnings from GoogleTest headers
+    get_target_property(_gtest_inc gtest INTERFACE_INCLUDE_DIRECTORIES)
+    if(_gtest_inc)
+        target_include_directories(${test_name} SYSTEM PRIVATE ${_gtest_inc})
+    endif()
     liva_set_compiler_flags(${test_name})
     # Tests need exceptions for GoogleTest
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

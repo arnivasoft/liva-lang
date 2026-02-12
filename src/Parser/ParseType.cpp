@@ -156,6 +156,16 @@ ParamDecl Parser::parseParamDecl() {
             advance();
             return param;
         }
+    } else if (check(TokenKind::kw_mut)) {
+        advance(); // consume 'mut'
+        if (check(TokenKind::kw_self)) {
+            param.isSelf = true;
+            param.isMutRef = true;
+            param.name = "self";
+            advance();
+            return param;
+        }
+        // 'mut' not followed by 'self' — fall through to regular param
     } else if (check(TokenKind::kw_self)) {
         param.isSelf = true;
         param.name = "self";

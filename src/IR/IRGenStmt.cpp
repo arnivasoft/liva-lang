@@ -53,6 +53,20 @@ void IRGen::emitScopeCleanup() {
         auto *entriesPtr = builder_->CreateLoad(ptrTy, entriesGEP, name + ".ptr.drop");
         builder_->CreateCall(module_->getFunction("liva_set_free"), {entriesPtr});
     }
+
+    // Call drop() for struct variables implementing Drop protocol
+    for (auto &[name, structTypeName] : varStructTypes_) {
+        if (movedVars_.count(name)) continue;
+        if (!dropImplementors_.count(structTypeName)) continue;
+        auto it = namedValues_.find(name);
+        if (it == namedValues_.end()) continue;
+
+        std::string dropFnName = structTypeName + "_drop";
+        auto *dropFn = module_->getFunction(dropFnName);
+        if (!dropFn) continue;
+
+        builder_->CreateCall(dropFn, {it->second});
+    }
 }
 
 llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {

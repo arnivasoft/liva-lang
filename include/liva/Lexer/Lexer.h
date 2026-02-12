@@ -47,7 +47,6 @@ private:
 
     SourceLocation currentLocation() const;
 
-    const SourceManager &sourceManager_;
     DiagnosticsEngine &diag_;
     std::string_view source_;
 

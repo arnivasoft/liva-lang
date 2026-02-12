@@ -38,6 +38,7 @@ public:
 
 private:
     DriverOptions options_;
+    std::string executablePath_;
 };
 
 } // namespace liva

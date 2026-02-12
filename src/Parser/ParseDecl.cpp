@@ -46,9 +46,9 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     auto nameTok = expect(TokenKind::identifier);
     std::string name(nameTok.getText());
 
-    // Parse optional generic type parameters: <T, U> or <T: Protocol>
+    // Parse optional generic type parameters: <T, U> or <T: Protocol> or <T: A + B>
     std::vector<std::string> typeParams;
-    std::unordered_map<std::string, std::string> typeParamBounds;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
@@ -56,8 +56,10 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
                 std::string paramName(paramTok.getText());
                 typeParams.push_back(paramName);
                 if (match(TokenKind::colon)) {
-                    auto boundTok = expect(TokenKind::identifier);
-                    typeParamBounds[paramName] = std::string(boundTok.getText());
+                    do {
+                        auto boundTok = expect(TokenKind::identifier);
+                        typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                    } while (match(TokenKind::plus));
                 }
             } while (match(TokenKind::comma));
         }
@@ -87,8 +89,10 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
         do {
             auto paramTok = expect(TokenKind::identifier);
             expect(TokenKind::colon);
-            auto boundTok = expect(TokenKind::identifier);
-            typeParamBounds[std::string(paramTok.getText())] = std::string(boundTok.getText());
+            do {
+                auto boundTok = expect(TokenKind::identifier);
+                typeParamBounds[std::string(paramTok.getText())].push_back(std::string(boundTok.getText()));
+            } while (match(TokenKind::plus));
         } while (match(TokenKind::comma));
     }
 
@@ -158,9 +162,9 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
     auto nameTok = expect(TokenKind::identifier);
     std::string name(nameTok.getText());
 
-    // Parse optional generic type parameters: <T, U> or <T: Protocol>
+    // Parse optional generic type parameters: <T, U> or <T: Protocol> or <T: A + B>
     std::vector<std::string> typeParams;
-    std::unordered_map<std::string, std::string> typeParamBounds;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
@@ -168,8 +172,10 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
                 std::string paramName(paramTok.getText());
                 typeParams.push_back(paramName);
                 if (match(TokenKind::colon)) {
-                    auto boundTok = expect(TokenKind::identifier);
-                    typeParamBounds[paramName] = std::string(boundTok.getText());
+                    do {
+                        auto boundTok = expect(TokenKind::identifier);
+                        typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                    } while (match(TokenKind::plus));
                 }
             } while (match(TokenKind::comma));
         }
@@ -181,8 +187,10 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
         do {
             auto paramTok = expect(TokenKind::identifier);
             expect(TokenKind::colon);
-            auto boundTok = expect(TokenKind::identifier);
-            typeParamBounds[std::string(paramTok.getText())] = std::string(boundTok.getText());
+            do {
+                auto boundTok = expect(TokenKind::identifier);
+                typeParamBounds[std::string(paramTok.getText())].push_back(std::string(boundTok.getText()));
+            } while (match(TokenKind::plus));
         } while (match(TokenKind::comma));
     }
 
@@ -264,9 +272,9 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
 
     auto typeName = expect(TokenKind::identifier);
 
-    // Parse optional generic type parameters: <T, U> or <T: Protocol>
+    // Parse optional generic type parameters: <T, U> or <T: Protocol> or <T: A + B>
     std::vector<std::string> typeParams;
-    std::unordered_map<std::string, std::string> typeParamBounds;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
@@ -274,8 +282,10 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
                 std::string paramName(paramTok.getText());
                 typeParams.push_back(paramName);
                 if (match(TokenKind::colon)) {
-                    auto boundTok = expect(TokenKind::identifier);
-                    typeParamBounds[paramName] = std::string(boundTok.getText());
+                    do {
+                        auto boundTok = expect(TokenKind::identifier);
+                        typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                    } while (match(TokenKind::plus));
                 }
             } while (match(TokenKind::comma));
         }
@@ -294,8 +304,10 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
         do {
             auto paramTok = expect(TokenKind::identifier);
             expect(TokenKind::colon);
-            auto boundTok = expect(TokenKind::identifier);
-            typeParamBounds[std::string(paramTok.getText())] = std::string(boundTok.getText());
+            do {
+                auto boundTok = expect(TokenKind::identifier);
+                typeParamBounds[std::string(paramTok.getText())].push_back(std::string(boundTok.getText()));
+            } while (match(TokenKind::plus));
         } while (match(TokenKind::comma));
     }
 

@@ -75,6 +75,9 @@ DIAG(err_tuple_arity_mismatch,      error,   "tuple destructuring arity mismatch
 DIAG(err_tuple_index_out_of_range,  error,   "tuple index %0 is out of range for tuple with %1 elements")
 DIAG(err_missing_associated_type,   error,   "implementation of '%0' is missing associated type '%1' required by '%2'")
 
+// === Sema - Drop ===
+DIAG(err_drop_method_signature,      error,   "Drop protocol requires method 'drop(mut self)' with void return type")
+
 // === Sema - Async/Await ===
 DIAG(err_await_outside_async, error, "'await' can only be used inside an async function")
 DIAG(err_async_main,          error, "'main' function cannot be declared async")

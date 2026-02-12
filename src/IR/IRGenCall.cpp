@@ -1033,6 +1033,192 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(optTy, optAlloca, "parse.result");
     }
 
+    // === Stdlib: Random ===
+    if (funcName == "randInt" && node->getArgs().size() >= 2) {
+        auto *minArg = visit(node->getArgs()[0].get());
+        auto *maxArg = visit(node->getArgs()[1].get());
+        if (!minArg || !maxArg) return nullptr;
+        if (minArg->getType()->isIntegerTy(64))
+            minArg = builder_->CreateTrunc(minArg, builder_->getInt32Ty());
+        if (maxArg->getType()->isIntegerTy(64))
+            maxArg = builder_->CreateTrunc(maxArg, builder_->getInt32Ty());
+        auto *fn = module_->getFunction("liva_rand_int");
+        return builder_->CreateCall(fn, {minArg, maxArg}, "randint");
+    }
+
+    if (funcName == "randFloat") {
+        auto *fn = module_->getFunction("liva_rand_float");
+        return builder_->CreateCall(fn, {}, "randfloat");
+    }
+
+    // === Stdlib: Process/Env ===
+    if (funcName == "env" && !node->getArgs().empty()) {
+        auto *nameArg = visit(node->getArgs()[0].get());
+        if (!nameArg) return nullptr;
+        auto *fn = module_->getFunction("liva_env_get");
+        auto *result = builder_->CreateCall(fn, {nameArg}, "env.raw");
+        // Wrap in Optional<string>: null → nil, non-null → some
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "env.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "env.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "env.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "env.result");
+    }
+
+    if (funcName == "exit" && !node->getArgs().empty()) {
+        auto *codeArg = visit(node->getArgs()[0].get());
+        if (!codeArg) return nullptr;
+        if (codeArg->getType()->isIntegerTy(64))
+            codeArg = builder_->CreateTrunc(codeArg, builder_->getInt32Ty());
+        auto *fn = module_->getFunction("liva_exit");
+        builder_->CreateCall(fn, {codeArg});
+        builder_->CreateUnreachable();
+        return nullptr;
+    }
+
+    if (funcName == "args") {
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "args.count", builder_->getInt64Ty());
+        auto *fn = module_->getFunction("liva_args");
+        auto *resultPtr = builder_->CreateCall(fn, {countAlloca}, "args.data");
+        auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "args.len");
+        auto *structTy = getDynArrayStructTy();
+        auto *arrAlloca = createEntryBlockAlloca(curFunc, "args.arr", structTy);
+        auto *dataPtr = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+        builder_->CreateStore(resultPtr, dataPtr);
+        auto *lenPtr = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+        builder_->CreateStore(count, lenPtr);
+        auto *capPtr = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+        builder_->CreateStore(count, capPtr);
+        return builder_->CreateLoad(structTy, arrAlloca, "args.result");
+    }
+
+    // === Stdlib: Date/Time ===
+    if (funcName == "clock") {
+        auto *fn = module_->getFunction("liva_clock");
+        return builder_->CreateCall(fn, {}, "clock");
+    }
+
+    if (funcName == "clockMs") {
+        auto *fn = module_->getFunction("liva_clock_ms");
+        return builder_->CreateCall(fn, {}, "clockms");
+    }
+
+    if (funcName == "sleep" && !node->getArgs().empty()) {
+        auto *msArg = visit(node->getArgs()[0].get());
+        if (!msArg) return nullptr;
+        if (msArg->getType()->isIntegerTy(32))
+            msArg = builder_->CreateSExt(msArg, builder_->getInt64Ty());
+        auto *fn = module_->getFunction("liva_sleep");
+        builder_->CreateCall(fn, {msArg});
+        return nullptr;
+    }
+
+    // === Stdlib: Regex ===
+    if (funcName == "regexMatch" && node->getArgs().size() >= 2) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        auto *patArg = visit(node->getArgs()[1].get());
+        if (!strArg || !patArg) return nullptr;
+        auto *fn = module_->getFunction("liva_regex_match");
+        auto *result = builder_->CreateCall(fn, {strArg, patArg}, "regex.match");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "regex.bool");
+    }
+
+    if (funcName == "regexFind" && node->getArgs().size() >= 2) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        auto *patArg = visit(node->getArgs()[1].get());
+        if (!strArg || !patArg) return nullptr;
+        auto *fn = module_->getFunction("liva_regex_find");
+        auto *result = builder_->CreateCall(fn, {strArg, patArg}, "regex.find.raw");
+        // Wrap in Optional<string>
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "regex.find.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "regex.find.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "regex.find.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "regex.find.result");
+    }
+
+    if (funcName == "regexFindAll" && node->getArgs().size() >= 2) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        auto *patArg = visit(node->getArgs()[1].get());
+        if (!strArg || !patArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "regex.findall.count", builder_->getInt64Ty());
+        auto *fn = module_->getFunction("liva_regex_find_all");
+        auto *resultPtr = builder_->CreateCall(fn, {strArg, patArg, countAlloca}, "regex.findall.data");
+        auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "regex.findall.len");
+        auto *structTy = getDynArrayStructTy();
+        auto *arrAlloca = createEntryBlockAlloca(curFunc, "regex.findall.arr", structTy);
+        auto *dataPtr = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+        builder_->CreateStore(resultPtr, dataPtr);
+        auto *lenPtr = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+        builder_->CreateStore(count, lenPtr);
+        auto *capPtr = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+        builder_->CreateStore(count, capPtr);
+        return builder_->CreateLoad(structTy, arrAlloca, "regex.findall.result");
+    }
+
+    if (funcName == "regexReplace" && node->getArgs().size() >= 3) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        auto *patArg = visit(node->getArgs()[1].get());
+        auto *replArg = visit(node->getArgs()[2].get());
+        if (!strArg || !patArg || !replArg) return nullptr;
+        auto *fn = module_->getFunction("liva_regex_replace");
+        return builder_->CreateCall(fn, {strArg, patArg, replArg}, "regex.replace");
+    }
+
+    // === Stdlib: Networking ===
+    if (funcName == "httpGet" && !node->getArgs().empty()) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        if (!urlArg) return nullptr;
+        auto *fn = module_->getFunction("liva_http_get");
+        auto *result = builder_->CreateCall(fn, {urlArg}, "http.get.raw");
+        // Wrap in Optional<string>
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "http.get.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "http.get.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "http.get.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "http.get.result");
+    }
+
+    if (funcName == "httpPost" && node->getArgs().size() >= 2) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        auto *bodyArg = visit(node->getArgs()[1].get());
+        if (!urlArg || !bodyArg) return nullptr;
+        auto *fn = module_->getFunction("liva_http_post");
+        auto *result = builder_->CreateCall(fn, {urlArg, bodyArg}, "http.post.raw");
+        // Wrap in Optional<string>
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "http.post.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "http.post.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "http.post.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "http.post.result");
+    }
+
     // Handle readLine() built-in
     if (funcName == "readLine") {
         auto *fn = module_->getFunction("liva_read_line");

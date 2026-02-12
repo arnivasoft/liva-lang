@@ -66,10 +66,10 @@ public:
     const std::vector<std::string> &getTypeParams() const { return typeParams_; }
     bool isGeneric() const { return !typeParams_.empty(); }
 
-    void setTypeParamBounds(std::unordered_map<std::string, std::string> bounds) {
+    void setTypeParamBounds(std::unordered_map<std::string, std::vector<std::string>> bounds) {
         typeParamBounds_ = std::move(bounds);
     }
-    const std::unordered_map<std::string, std::string> &getTypeParamBounds() const {
+    const std::unordered_map<std::string, std::vector<std::string>> &getTypeParamBounds() const {
         return typeParamBounds_;
     }
 
@@ -85,7 +85,7 @@ private:
     bool isPublic_;
     bool isAsync_ = false;
     std::vector<std::string> typeParams_;
-    std::unordered_map<std::string, std::string> typeParamBounds_;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
 };
 
 /// Variable declaration: let x: i32 = 42, var y = 10
@@ -169,10 +169,10 @@ public:
     const std::vector<std::string> &getTypeParams() const { return typeParams_; }
     bool isGeneric() const { return !typeParams_.empty(); }
 
-    void setTypeParamBounds(std::unordered_map<std::string, std::string> bounds) {
+    void setTypeParamBounds(std::unordered_map<std::string, std::vector<std::string>> bounds) {
         typeParamBounds_ = std::move(bounds);
     }
-    const std::unordered_map<std::string, std::string> &getTypeParamBounds() const {
+    const std::unordered_map<std::string, std::vector<std::string>> &getTypeParamBounds() const {
         return typeParamBounds_;
     }
 
@@ -185,7 +185,7 @@ private:
     std::vector<std::unique_ptr<FieldDecl>> fields_;
     bool isPublic_;
     std::vector<std::string> typeParams_;
-    std::unordered_map<std::string, std::string> typeParamBounds_;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
 };
 
 /// Enum case declaration
@@ -250,10 +250,10 @@ public:
     const std::vector<std::string> &getTypeParams() const { return typeParams_; }
     bool isGeneric() const { return !typeParams_.empty(); }
 
-    void setTypeParamBounds(std::unordered_map<std::string, std::string> bounds) {
+    void setTypeParamBounds(std::unordered_map<std::string, std::vector<std::string>> bounds) {
         typeParamBounds_ = std::move(bounds);
     }
-    const std::unordered_map<std::string, std::string> &getTypeParamBounds() const {
+    const std::unordered_map<std::string, std::vector<std::string>> &getTypeParamBounds() const {
         return typeParamBounds_;
     }
 
@@ -273,7 +273,7 @@ private:
     std::string protocolName_;
     std::vector<std::unique_ptr<FuncDecl>> methods_;
     std::vector<std::string> typeParams_;
-    std::unordered_map<std::string, std::string> typeParamBounds_;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
     std::unordered_map<std::string, std::string> associatedTypes_;
 };
 

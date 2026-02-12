@@ -285,6 +285,9 @@ private:
     llvm::StructType *getOptionalType(llvm::Type *innerType);
     std::unordered_map<llvm::Type *, llvm::StructType *> optionalTypes_;
 
+    /// Types that implement the Drop protocol
+    std::set<std::string> dropImplementors_;
+
     /// Async function tracking
     std::set<std::string> asyncFuncNames_;
     bool currentIsAsync_ = false;

@@ -1008,6 +1008,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
     // Record protocol conformance for vtable creation
     if (node->hasProtocol()) {
         protocolConformances_[node->getProtocolName()].push_back(typeName);
+        if (node->getProtocolName() == "Drop") {
+            dropImplementors_.insert(typeName);
+        }
     }
 
     for (auto &method : node->getMethods()) {

@@ -3419,3 +3419,150 @@ TEST_F(SemaTest, HttpPostType) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Drop Protocol ===
+
+TEST_F(SemaTest, DropProtocolDeclaration) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        func main() {}
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DropProtocolConformanceValid) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct FileHandle { var fd: i32 }
+        impl FileHandle: Drop {
+            func drop(mut self) {
+                let x: i32 = self.fd
+            }
+        }
+        func main() {
+            var fh = FileHandle { fd: 42 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DropProtocolConformanceMissingMethod) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Res { var id: i32 }
+        impl Res: Drop {}
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_missing_protocol_method));
+}
+
+TEST_F(SemaTest, DropProtocolWithScopeUsage) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Conn { var active: bool }
+        impl Conn: Drop {
+            func drop(mut self) {
+                let a: bool = self.active
+            }
+        }
+        func main() {
+            var c = Conn { active: true }
+            let val: bool = c.active
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DropProtocolMultipleTypes) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct A { var x: i32 }
+        struct B { var y: i32 }
+        impl A: Drop {
+            func drop(mut self) {
+                let v: i32 = self.x
+            }
+        }
+        impl B: Drop {
+            func drop(mut self) {
+                let v: i32 = self.y
+            }
+        }
+        func main() {
+            var a = A { x: 1 }
+            var b = B { y: 2 }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DropProtocolWithOtherMethods) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Svc { var id: i32 }
+        impl Svc {
+            func getId(self) -> i32 {
+                return self.id
+            }
+        }
+        impl Svc: Drop {
+            func drop(mut self) {
+                let v: i32 = self.id
+            }
+        }
+        func main() {
+            var s = Svc { id: 10 }
+            let i: i32 = s.getId()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DropProtocolUndefined) {
+    auto result = check(R"--(
+        struct Foo { var x: i32 }
+        impl Foo: Drop {
+            func drop(mut self) {
+                let v: i32 = self.x
+            }
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_protocol));
+}
+
+TEST_F(SemaTest, DropProtocolWithMoveSemantics) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Handle { var fd: i32 }
+        impl Handle: Drop {
+            func drop(mut self) {
+                let v: i32 = self.fd
+            }
+        }
+        func consume(h: Handle) {
+            let v: i32 = h.fd
+        }
+        func main() {
+            var h = Handle { fd: 5 }
+            consume(h)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

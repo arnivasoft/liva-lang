@@ -649,7 +649,8 @@ TEST_F(ParserTest, GenericFuncWithBound) {
     ASSERT_EQ(func->getTypeParams().size(), 1);
     EXPECT_EQ(func->getTypeParams()[0], "T");
     ASSERT_EQ(func->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "Printable");
 }
 
 TEST_F(ParserTest, GenericFuncMultiParamsMixedBounds) {
@@ -661,7 +662,8 @@ TEST_F(ParserTest, GenericFuncMultiParamsMixedBounds) {
     EXPECT_EQ(func->getTypeParams()[0], "T");
     EXPECT_EQ(func->getTypeParams()[1], "U");
     ASSERT_EQ(func->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "Printable");
     EXPECT_EQ(func->getTypeParamBounds().count("U"), 0);
 }
 
@@ -676,7 +678,8 @@ TEST_F(ParserTest, GenericStructWithBound) {
     ASSERT_NE(s, nullptr);
     EXPECT_TRUE(s->isGeneric());
     ASSERT_EQ(s->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(s->getTypeParamBounds().at("T"), "Printable");
+    ASSERT_EQ(s->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(s->getTypeParamBounds().at("T")[0], "Printable");
 }
 
 TEST_F(ParserTest, GenericImplWithBound) {
@@ -690,7 +693,8 @@ TEST_F(ParserTest, GenericImplWithBound) {
     ASSERT_NE(impl, nullptr);
     EXPECT_TRUE(impl->isGeneric());
     ASSERT_EQ(impl->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(impl->getTypeParamBounds().at("T"), "Printable");
+    ASSERT_EQ(impl->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(impl->getTypeParamBounds().at("T")[0], "Printable");
 }
 
 TEST_F(ParserTest, GenericFuncNoBoundsStillWorks) {
@@ -709,7 +713,8 @@ TEST_F(ParserTest, WhereClauseFunc) {
     ASSERT_NE(func, nullptr);
     EXPECT_TRUE(func->isGeneric());
     ASSERT_EQ(func->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "Printable");
 }
 
 TEST_F(ParserTest, WhereClauseMultipleBounds) {
@@ -718,8 +723,10 @@ TEST_F(ParserTest, WhereClauseMultipleBounds) {
     auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
     ASSERT_NE(func, nullptr);
     ASSERT_EQ(func->getTypeParamBounds().size(), 2);
-    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Printable");
-    EXPECT_EQ(func->getTypeParamBounds().at("U"), "Hashable");
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "Printable");
+    ASSERT_EQ(func->getTypeParamBounds().at("U").size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("U")[0], "Hashable");
 }
 
 TEST_F(ParserTest, WhereClauseStruct) {
@@ -733,7 +740,8 @@ TEST_F(ParserTest, WhereClauseStruct) {
     ASSERT_NE(s, nullptr);
     EXPECT_TRUE(s->isGeneric());
     ASSERT_EQ(s->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(s->getTypeParamBounds().at("T"), "Printable");
+    ASSERT_EQ(s->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(s->getTypeParamBounds().at("T")[0], "Printable");
 }
 
 TEST_F(ParserTest, WhereClauseImpl) {
@@ -746,7 +754,8 @@ TEST_F(ParserTest, WhereClauseImpl) {
     auto *impl = dynamic_cast<ImplDecl *>(result.tu->getDeclarations()[0].get());
     ASSERT_NE(impl, nullptr);
     ASSERT_EQ(impl->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(impl->getTypeParamBounds().at("T"), "Printable");
+    ASSERT_EQ(impl->getTypeParamBounds().at("T").size(), 1);
+    EXPECT_EQ(impl->getTypeParamBounds().at("T")[0], "Printable");
 }
 
 TEST_F(ParserTest, WhereClauseCombinedWithInline) {
@@ -754,9 +763,11 @@ TEST_F(ParserTest, WhereClauseCombinedWithInline) {
     ASSERT_FALSE(result.hasErrors);
     auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
     ASSERT_NE(func, nullptr);
-    // Where clause overrides inline bound (last writer wins)
+    // Both inline and where clause bounds are collected
     ASSERT_EQ(func->getTypeParamBounds().size(), 1);
-    EXPECT_EQ(func->getTypeParamBounds().at("T"), "Serializable");
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 2);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "Printable");
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[1], "Serializable");
 }
 
 TEST_F(ParserTest, OptionalChainingField) {
@@ -1036,4 +1047,42 @@ TEST_F(ParserTest, ConstDeclInferred) {
     EXPECT_TRUE(var->isConst());
     EXPECT_FALSE(var->isMutable());
     EXPECT_TRUE(var->hasInit());
+}
+
+TEST_F(ParserTest, MultiBoundInline) {
+    auto result = parse("func show<T: Printable + Hashable>(x: T) {}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isGeneric());
+    ASSERT_EQ(func->getTypeParamBounds().size(), 1);
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 2);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "Printable");
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[1], "Hashable");
+}
+
+TEST_F(ParserTest, MultiBoundWhere) {
+    auto result = parse("func show<T>(x: T) where T: Printable + Hashable {}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isGeneric());
+    ASSERT_EQ(func->getTypeParamBounds().size(), 1);
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 2);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "Printable");
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[1], "Hashable");
+}
+
+TEST_F(ParserTest, MultiBoundMixed) {
+    auto result = parse("func f<T: A + B, U: C>(x: T, y: U) {}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getTypeParams().size(), 2);
+    ASSERT_EQ(func->getTypeParamBounds().size(), 2);
+    ASSERT_EQ(func->getTypeParamBounds().at("T").size(), 2);
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[0], "A");
+    EXPECT_EQ(func->getTypeParamBounds().at("T")[1], "B");
+    ASSERT_EQ(func->getTypeParamBounds().at("U").size(), 1);
+    EXPECT_EQ(func->getTypeParamBounds().at("U")[0], "C");
 }

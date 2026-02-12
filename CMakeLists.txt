@@ -97,6 +97,21 @@ if(LIVA_HAS_LLVM)
     target_compile_definitions(liva_codegen PUBLIC LIVA_HAS_LLVM=1)
 endif()
 
+# === Runtime Library (linked into compiled Liva programs) ===
+if(LIVA_HAS_LLVM)
+    add_library(liva_runtime STATIC stdlib/runtime/runtime.cpp)
+    target_include_directories(liva_runtime PRIVATE stdlib/runtime)
+    target_compile_definitions(liva_runtime PRIVATE _CRT_SECURE_NO_WARNINGS)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(liva_runtime PRIVATE -Wno-deprecated-declarations)
+    endif()
+    # Copy runtime lib next to livac: lib/liva_runtime.lib
+    add_custom_command(TARGET liva_runtime POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/lib"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:liva_runtime>" "${CMAKE_BINARY_DIR}/lib/"
+    )
+endif()
+
 # === Main Executable ===
 add_executable(livac
     src/Driver/main.cpp
@@ -110,6 +125,7 @@ target_link_libraries(livac PRIVATE
 if(LIVA_HAS_LLVM)
     target_link_libraries(livac PRIVATE liva_codegen liva_irgen)
     target_compile_definitions(livac PRIVATE LIVA_HAS_LLVM=1)
+    add_dependencies(livac liva_runtime)
 endif()
 liva_set_compiler_flags(livac)
 

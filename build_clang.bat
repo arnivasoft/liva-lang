@@ -1,8 +1,7 @@
 @echo off
 echo === Building Liva with Clang (MSVC ABI) ===
-cmake -G "MinGW Makefiles" ^
+cmake -G Ninja ^
   -DCMAKE_TOOLCHAIN_FILE="F:/Cpp_Projects/liva-lang/cmake/ClangMSVC.cmake" ^
-  -DCMAKE_MAKE_PROGRAM="C:/llvm-mingw/bin/mingw32-make.exe" ^
   -DCMAKE_BUILD_TYPE=Release ^
   -B "F:\Cpp_Projects\liva-lang\build-clang" ^
   -S "F:\Cpp_Projects\liva-lang" 2>&1

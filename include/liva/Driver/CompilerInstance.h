@@ -14,6 +14,9 @@ class CompilerInstance {
 public:
     CompilerInstance();
 
+    /// Set the path of the livac executable (for finding stdlib)
+    void setExecutablePath(const std::string &path) { executablePath_ = path; }
+
     /// Set source from file
     bool loadFile(const std::string &filename);
 
@@ -44,6 +47,7 @@ private:
 
     std::unique_ptr<SourceManager> sourceManager_;
     DiagnosticsEngine diag_;
+    std::string executablePath_;
 };
 
 } // namespace liva

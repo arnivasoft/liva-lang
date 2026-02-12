@@ -4,7 +4,7 @@
 namespace liva {
 
 Lexer::Lexer(const SourceManager &sm, DiagnosticsEngine &diag)
-    : sourceManager_(sm), diag_(diag), source_(sm.getSource()) {}
+    : diag_(diag), source_(sm.getSource()) {}
 
 void Lexer::advance() {
     if (currentPos_ < source_.size()) {

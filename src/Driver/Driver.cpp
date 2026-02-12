@@ -7,6 +7,8 @@
 namespace liva {
 
 bool Driver::parseArgs(int argc, const char **argv) {
+    if (argc > 0)
+        executablePath_ = argv[0];
     for (int i = 1; i < argc; ++i) {
         const char *arg = argv[i];
 
@@ -101,6 +103,7 @@ int Driver::execute() {
     }
 
     CompilerInstance compiler;
+    compiler.setExecutablePath(executablePath_);
     if (!compiler.loadFile(options_.inputFile))
         return 1;
 
