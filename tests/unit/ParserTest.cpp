@@ -1086,3 +1086,40 @@ TEST_F(ParserTest, MultiBoundMixed) {
     ASSERT_EQ(func->getTypeParamBounds().at("U").size(), 1);
     EXPECT_EQ(func->getTypeParamBounds().at("U")[0], "C");
 }
+
+// === F3: Guard Clause (where) in Match Arms ===
+
+TEST_F(ParserTest, MatchExprWithGuardClause) {
+    auto result = parse(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red where true => println(0)
+                Color.Red => println(1)
+                _ => println(2)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(fn, nullptr);
+    // Find the match expression in the function body
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 3);
+    // First arm has a guard
+    EXPECT_NE(matchExpr->getArms()[0].guard, nullptr);
+    // Second arm has no guard
+    EXPECT_EQ(matchExpr->getArms()[1].guard, nullptr);
+    // Third arm (wildcard) has no guard
+    EXPECT_EQ(matchExpr->getArms()[2].guard, nullptr);
+}

@@ -3566,3 +3566,382 @@ TEST_F(SemaTest, DropProtocolWithMoveSemantics) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === F3: Guard Clause (where) Tests ===
+
+TEST_F(SemaTest, GuardClauseBasic) {
+    auto result = check(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red where true => println(0)
+                Color.Red => println(1)
+                Color.Green => println(2)
+                Color.Blue => println(3)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GuardClauseWithBinding) {
+    auto result = check(R"--(
+        enum Shape {
+            case Circle(f64)
+            case Rect(f64, f64)
+        }
+        func main() {
+            let s = Shape.Circle(5.0)
+            match s {
+                Shape.Circle(r) where r > 0.0 => println(1)
+                Shape.Circle(r) => println(0)
+                Shape.Rect(w, h) => println(2)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GuardClauseMultipleArms) {
+    auto result = check(R"--(
+        enum Shape {
+            case Circle(f64)
+            case Rect(f64, f64)
+        }
+        func main() {
+            let s = Shape.Circle(5.0)
+            match s {
+                Shape.Circle(r) where r > 10.0 => println(2)
+                Shape.Circle(r) where r > 0.0 => println(1)
+                Shape.Circle(r) => println(0)
+                Shape.Rect(w, h) => println(3)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GuardClauseWithWildcard) {
+    auto result = check(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red where false => println(0)
+                _ => println(1)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GuardClauseNonExhaustive) {
+    auto result = check(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red where true => println(0)
+                Color.Green => println(1)
+                Color.Blue => println(2)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_nonexhaustive_match));
+}
+
+TEST_F(SemaTest, GuardClauseExhaustiveWithUnguarded) {
+    auto result = check(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red where true => println(0)
+                Color.Red => println(1)
+                Color.Green => println(2)
+                Color.Blue => println(3)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GuardClauseIntegerMatch) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = 5
+            match x {
+                1 where true => println(1)
+                2 => println(2)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, GuardClauseComplexExpr) {
+    auto result = check(R"--(
+        enum Shape {
+            case Circle(f64)
+            case Rect(f64, f64)
+        }
+        func main() {
+            let s = Shape.Circle(5.0)
+            match s {
+                Shape.Circle(r) where r > 0.0 && r < 100.0 => println(1)
+                Shape.Circle(r) => println(0)
+                Shape.Rect(w, h) => println(2)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Operator Overloading ===
+
+TEST_F(SemaTest, OperatorOverloadAddBasic) {
+    auto result = check(R"--(
+        protocol Add {
+            func add(self, other: Self) -> Self
+        }
+        struct Vec2 {
+            var x: f64
+            var y: f64
+        }
+        impl Vec2: Add {
+            func add(self, other: Vec2) -> Vec2 {
+                return Vec2 { x: self.x + other.x, y: self.y + other.y }
+            }
+        }
+        func main() {
+            let a = Vec2 { x: 1.0, y: 2.0 }
+            let b = Vec2 { x: 3.0, y: 4.0 }
+            let c = a + b
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadEq) {
+    auto result = check(R"--(
+        protocol Eq {
+            func eq(self, other: Self) -> bool
+        }
+        struct Point {
+            var x: i32
+            var y: i32
+        }
+        impl Point: Eq {
+            func eq(self, other: Point) -> bool {
+                return self.x == other.x && self.y == other.y
+            }
+        }
+        func main() {
+            let a = Point { x: 1, y: 2 }
+            let b = Point { x: 1, y: 2 }
+            let r = a == b
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadNotEq) {
+    auto result = check(R"--(
+        protocol Eq {
+            func eq(self, other: Self) -> bool
+        }
+        struct Point {
+            var x: i32
+            var y: i32
+        }
+        impl Point: Eq {
+            func eq(self, other: Point) -> bool {
+                return self.x == other.x && self.y == other.y
+            }
+        }
+        func main() {
+            let a = Point { x: 1, y: 2 }
+            let b = Point { x: 3, y: 4 }
+            let r = a != b
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadLessAndDerived) {
+    auto result = check(R"--(
+        protocol Less {
+            func less(self, other: Self) -> bool
+        }
+        protocol Eq {
+            func eq(self, other: Self) -> bool
+        }
+        struct Val {
+            var n: i32
+        }
+        impl Val: Less {
+            func less(self, other: Val) -> bool {
+                return self.n < other.n
+            }
+        }
+        impl Val: Eq {
+            func eq(self, other: Val) -> bool {
+                return self.n == other.n
+            }
+        }
+        func main() {
+            let a = Val { n: 1 }
+            let b = Val { n: 2 }
+            let r1 = a < b
+            let r2 = a <= b
+            let r3 = a > b
+            let r4 = a >= b
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadMultipleProtocols) {
+    auto result = check(R"--(
+        protocol Add {
+            func add(self, other: Self) -> Self
+        }
+        protocol Sub {
+            func sub(self, other: Self) -> Self
+        }
+        protocol Mul {
+            func mul(self, other: Self) -> Self
+        }
+        struct Vec2 {
+            var x: f64
+            var y: f64
+        }
+        impl Vec2: Add {
+            func add(self, other: Vec2) -> Vec2 {
+                return Vec2 { x: self.x + other.x, y: self.y + other.y }
+            }
+        }
+        impl Vec2: Sub {
+            func sub(self, other: Vec2) -> Vec2 {
+                return Vec2 { x: self.x - other.x, y: self.y - other.y }
+            }
+        }
+        impl Vec2: Mul {
+            func mul(self, other: Vec2) -> Vec2 {
+                return Vec2 { x: self.x * other.x, y: self.y * other.y }
+            }
+        }
+        func main() {
+            let a = Vec2 { x: 1.0, y: 2.0 }
+            let b = Vec2 { x: 3.0, y: 4.0 }
+            let c = a + b
+            let d = a - b
+            let e = a * b
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadMissingConformance) {
+    auto result = check(R"--(
+        struct Vec2 {
+            var x: f64
+            var y: f64
+        }
+        func main() {
+            let a = Vec2 { x: 1.0, y: 2.0 }
+            let b = Vec2 { x: 3.0, y: 4.0 }
+            let c = a + b
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadPrimitivesUnaffected) {
+    auto result = check(R"--(
+        func main() {
+            let a: i32 = 10
+            let b: i32 = 20
+            let c = a + b
+            let d: f64 = 1.5
+            let e: f64 = 2.5
+            let f = d + e
+            let g = a == b
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadResultTypeIsStruct) {
+    auto result = check(R"--(
+        protocol Add {
+            func add(self, other: Self) -> Self
+        }
+        struct Vec2 {
+            var x: f64
+            var y: f64
+        }
+        impl Vec2: Add {
+            func add(self, other: Vec2) -> Vec2 {
+                return Vec2 { x: self.x + other.x, y: self.y + other.y }
+            }
+        }
+        func main() {
+            let a = Vec2 { x: 1.0, y: 2.0 }
+            let b = Vec2 { x: 3.0, y: 4.0 }
+            let c = a + b
+            let r = c.x
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, OperatorOverloadDivMod) {
+    auto result = check(R"--(
+        protocol Div {
+            func div(self, other: Self) -> Self
+        }
+        protocol Mod {
+            func mod(self, other: Self) -> Self
+        }
+        struct Num {
+            var v: i32
+        }
+        impl Num: Div {
+            func div(self, other: Num) -> Num {
+                return Num { v: self.v / other.v }
+            }
+        }
+        impl Num: Mod {
+            func mod(self, other: Num) -> Num {
+                return Num { v: self.v % other.v }
+            }
+        }
+        func main() {
+            let a = Num { v: 10 }
+            let b = Num { v: 3 }
+            let c = a / b
+            let d = a % b
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

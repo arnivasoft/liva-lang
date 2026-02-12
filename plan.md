@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 398/398 gecen test (lexer:33, parser:78, sema:266, type:12, ownership:9)
+- **Test:** 424/424 gecen test (lexer:33, parser:79, sema:291, type:12, ownership:9)
 
 ---
 
@@ -554,9 +554,35 @@ kaynak kod (.liva)
 - Test coverage: AllKeywords lexer testi, 5 local const sema testi
 - plan.md sayisal tutarsizliklari duzeltildi (token/keyword/test sayilari)
 
+### F3: Guard Clause (Match Arms) [TAMAMLANDI] - 9 test (1 parser, 8 sema)
+- `case X where cond => ...` sozdizimi — match arm'larinda koruma ifadesi
+- AST: MatchArm.guard (unique_ptr<Expr>) — optional where kosulu
+- Parser: `parseMatchExpr` pattern sonrasi `where` keyword kontrolu → guard expression parse
+- Sema: visitMatchExpr guard ifadesini visit eder (tip kontrolu)
+- IRGen: guard false ise defaultBB'ye atla (condBr ile)
+- Exhaustiveness: guarded arm'lar exhaustive sayilmaz (unguarded wildcard gerekli)
+
+### F4: Drop Trait / Destructor [TAMAMLANDI] - 7 sema test
+- `protocol Drop { func drop(mut self) }` — kullanici tanimli destructor
+- Scope cikisinda otomatik `TypeName_drop()` cagrisi
+- Parser: `mut self` parametre destegi (isSelf=true, isMutRef=true)
+- Sema: Drop protocol validasyonu (method signature kontrolu)
+- IRGen: emitScopeCleanup'ta Drop conformance kontrolu → destructor cagrisi
+- `err_drop_method_signature` diagnostigi
+
+### F5: Operator Overloading [TAMAMLANDI] - 9 sema test
+- Protocol-tabanli operator overloading: Add/Sub/Mul/Div/Mod/Eq/Less
+- `protocol Add { func add(self, other: Self) -> Self }` → `a + b` struct uzerinde
+- Operator → protocol eslesmesi: `+`→Add, `-`→Sub, `*`→Mul, `/`→Div, `%`→Mod, `==`→Eq, `<`→Less
+- Turetilmis operatorler: `!=` = NOT eq, `>=` = NOT less, `<=` = less OR eq, `>` = NOT(less OR eq)
+- Sema: getOpProto() helper + visitBinaryExpr'de Named type dispatch
+- IRGen: getOpMethodName() + struct method call dispatch + derived op codegen
+- Primitive tipler etkilenmez (Kind::Named kontrolu ONCE yapilir)
+- `err_binary_op_on_struct` diagnostigi (conformance yoksa)
+
 ---
 
-## Diagnostik Envanterleri (65 tanimli)
+## Diagnostik Envanterleri (67 tanimli)
 
 ### Lexer Hatalari (6)
 - `err_unexpected_character`, `err_unterminated_string`, `err_unterminated_block_comment`
@@ -582,9 +608,9 @@ kaynak kod (.liva)
 - `err_immut_borrow_conflict`, `err_move_while_borrowed`, `err_borrow_outlives_value`
 - `err_double_move`, `err_partial_move`, `err_mut_ref_to_immutable`
 
-### Sema - Protocol/Trait (4)
+### Sema - Protocol/Trait (5)
 - `err_undefined_protocol`, `err_missing_protocol_method`, `err_no_conformance`
-- `err_missing_associated_type`
+- `err_missing_associated_type`, `err_binary_op_on_struct`
 
 ### Sema - Error Handling (1)
 - `err_try_on_non_result`
@@ -607,6 +633,9 @@ kaynak kod (.liva)
 ### Sema - Const (2)
 - `err_const_requires_init`, `err_const_init_not_constant`
 
+### Sema - Drop (1)
+- `err_drop_method_signature`
+
 ### Sema - Diger (3)
 - `err_main_not_found`, `err_break_outside_loop`, `err_continue_outside_loop`
 
@@ -624,11 +653,11 @@ kaynak kod (.liva)
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
 | `tests/unit/LexerTest.cpp` | 33 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings, hata yollari, bitwise tokenlar |
-| `tests/unit/ParserTest.cpp` | 75 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const, hata yollari |
-| `tests/unit/SemaTest.cpp` | 236 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const |
+| `tests/unit/ParserTest.cpp` | 79 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const, multi-bound, guard clause, hata yollari |
+| `tests/unit/SemaTest.cpp` | 291 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const, multi-bound, stdlib builtins, drop trait, guard clause, operator overloading |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
-| **Toplam** | **365** | |
+| **Toplam** | **424** | |
 
 ---
 
@@ -691,6 +720,9 @@ clang output.ll -o output.exe
 18. ~~**Derleme zamani degerlendirme**~~ - TAMAMLANDI (M35 const keyword, compile-time eval)
 19. ~~**Teknik Borc 4**~~ - TAMAMLANDI (TD4 deprecated LLVM API fix, test coverage, plan.md tutarliligi)
 20. ~~**Zengin Stdlib (I2)**~~ - TAMAMLANDI (14 yeni builtin: randInt, randFloat, env, exit, args, clock, clockMs, sleep, regexMatch, regexFind, regexFindAll, regexReplace, httpGet, httpPost)
+21. ~~**Guard Clause (F3)**~~ - TAMAMLANDI (match arm'larinda where kosulu)
+22. ~~**Drop Trait (F4)**~~ - TAMAMLANDI (protocol Drop, otomatik scope cleanup)
+23. ~~**Operator Overloading (F5)**~~ - TAMAMLANDI (protocol-tabanli Add/Sub/Mul/Div/Mod/Eq/Less)
 
 ---
 
@@ -702,9 +734,9 @@ clang output.ll -o output.exe
 |---|---------|----------|-------------|
 | F1 | **Async/Await Faz 2** | Gercek coroutine destegi (LLVM coroutines), runtime scheduler | Yuksek | [TAMAMLANDI] |
 | F2 | **Coklu Trait Bound** | `T: Printable + Hashable` sozdizimi ile coklu kisitlama | Orta | [TAMAMLANDI] |
-| F3 | **Guard Clause (Pattern)** | `case .Circle(r) where r > 0 =>` match arm koruma ifadesi | Orta |
-| F4 | **Drop Trait / Destructor** | Kullanici tanimli kaynak temizleme, scope cikisinda otomatik cagrilan `drop(self)` | Yuksek |
-| F5 | **Operator Overloading** | `+`, `==`, `<` vb. operatorleri struct/enum icin ozellestirme (`protocol Add { ... }`) | Orta |
+| F3 | **Guard Clause (Pattern)** | `case .Circle(r) where r > 0 =>` match arm koruma ifadesi | Orta | [TAMAMLANDI] |
+| F4 | **Drop Trait / Destructor** | Kullanici tanimli kaynak temizleme, scope cikisinda otomatik cagrilan `drop(self)` | Yuksek | [TAMAMLANDI] |
+| F5 | **Operator Overloading** | `+`, `==`, `<` vb. operatorleri struct/enum icin ozellestirme (`protocol Add { ... }`) | Orta | [TAMAMLANDI] |
 | F6 | **Custom Iterator** | `Iterator` protokolu, `next() -> T?` ile `for-in` genisletme | Orta |
 | F7 | **Variadic Fonksiyonlar** | Degisken sayida arguman destegi (`func print(args: T...)`) | Orta |
 | F8 | **Nested Pattern Matching** | `match` icinde ic ice pattern esleme (`case .Some(.Circle(r)) =>`) | Orta |

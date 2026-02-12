@@ -307,6 +307,7 @@ struct MatchArm {
     std::string pattern;                        // Pattern string (simplified for now)
     std::vector<std::string> bindings;          // Bound variables in pattern
     std::unique_ptr<Expr> body;                 // Body expression
+    std::unique_ptr<Expr> guard;                // Optional where condition
 };
 
 /// Match expression: match expr { arms }

@@ -437,14 +437,19 @@ std::unique_ptr<Expr> Parser::parseMatchExpr() {
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         MatchArm arm;
 
-        // Parse pattern (simplified: just consume tokens until =>)
+        // Parse pattern (simplified: just consume tokens until => or where)
         std::string pattern;
-        while (!check(TokenKind::fat_arrow) && !check(TokenKind::r_brace) &&
-               !check(TokenKind::eof)) {
+        while (!check(TokenKind::fat_arrow) && !check(TokenKind::kw_where) &&
+               !check(TokenKind::r_brace) && !check(TokenKind::eof)) {
             pattern += std::string(current_.getText());
             advance();
         }
         arm.pattern = pattern;
+
+        // Parse optional guard clause: where <expr>
+        if (match(TokenKind::kw_where)) {
+            arm.guard = parseExpression();
+        }
 
         expect(TokenKind::fat_arrow);
 

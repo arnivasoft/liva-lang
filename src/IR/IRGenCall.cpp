@@ -2190,6 +2190,15 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             }
         }
 
+        // Guard clause: if guard is false, jump to defaultBB
+        if (arm.guard) {
+            auto *guardVal = visit(arm.guard.get());
+            auto *bodyBB = llvm::BasicBlock::Create(*context_,
+                "match.arm." + std::to_string(i) + ".body", func);
+            builder_->CreateCondBr(guardVal, bodyBB, defaultBB);
+            builder_->SetInsertPoint(bodyBB);
+        }
+
         visit(arm.body.get());
         if (!builder_->GetInsertBlock()->getTerminator())
             builder_->CreateBr(mergeBB);

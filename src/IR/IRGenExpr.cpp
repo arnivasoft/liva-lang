@@ -95,6 +95,64 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
     if (!lhs || !rhs)
         return nullptr;
 
+    // Struct operator overload dispatch
+    if (node->getLHS()->getResolvedType() &&
+        node->getLHS()->getResolvedType()->getKind() == TypeRepr::Kind::Named) {
+        auto *namedTy = static_cast<const NamedTypeRepr *>(node->getLHS()->getResolvedType());
+        const std::string &sName = namedTy->getName();
+        const char *mName = nullptr;
+        switch (node->getOp()) {
+        case BinaryExpr::Op::Add: mName = "add"; break;
+        case BinaryExpr::Op::Sub: mName = "sub"; break;
+        case BinaryExpr::Op::Mul: mName = "mul"; break;
+        case BinaryExpr::Op::Div: mName = "div"; break;
+        case BinaryExpr::Op::Mod: mName = "mod"; break;
+        case BinaryExpr::Op::Eq: case BinaryExpr::Op::NotEq: mName = "eq"; break;
+        case BinaryExpr::Op::Less: case BinaryExpr::Op::LessEq:
+        case BinaryExpr::Op::Greater: case BinaryExpr::Op::GreaterEq: mName = "less"; break;
+        default: break;
+        }
+        if (mName) {
+            std::string mangled = sName + "_" + mName;
+            auto *callee = module_->getFunction(mangled);
+            if (callee) {
+                auto *func = builder_->GetInsertBlock()->getParent();
+                auto *lhsAlloca = createEntryBlockAlloca(func, "op.lhs", lhs->getType());
+                builder_->CreateStore(lhs, lhsAlloca);
+                auto *result = builder_->CreateCall(callee, {lhsAlloca, rhs}, "op.result");
+                switch (node->getOp()) {
+                case BinaryExpr::Op::NotEq:
+                    return builder_->CreateNot(result, "neq");
+                case BinaryExpr::Op::GreaterEq:
+                    return builder_->CreateNot(result, "geq");
+                case BinaryExpr::Op::LessEq: {
+                    auto *eqFn = module_->getFunction(sName + "_eq");
+                    if (eqFn) {
+                        auto *a2 = createEntryBlockAlloca(func, "op.lhs2", lhs->getType());
+                        builder_->CreateStore(lhs, a2);
+                        auto *eqR = builder_->CreateCall(eqFn, {a2, rhs}, "eq.r");
+                        return builder_->CreateOr(result, eqR, "leq");
+                    }
+                    return result;
+                }
+                case BinaryExpr::Op::Greater: {
+                    auto *eqFn = module_->getFunction(sName + "_eq");
+                    if (eqFn) {
+                        auto *a2 = createEntryBlockAlloca(func, "op.lhs2", lhs->getType());
+                        builder_->CreateStore(lhs, a2);
+                        auto *eqR = builder_->CreateCall(eqFn, {a2, rhs}, "eq.r");
+                        auto *orR = builder_->CreateOr(result, eqR, "leq.tmp");
+                        return builder_->CreateNot(orR, "gt");
+                    }
+                    return builder_->CreateNot(result, "gt");
+                }
+                default:
+                    return result;
+                }
+            }
+        }
+    }
+
     // Check for string operations via resolved type
     bool isString = node->getLHS()->getResolvedType() &&
         node->getLHS()->getResolvedType()->getKind() == TypeRepr::Kind::String;

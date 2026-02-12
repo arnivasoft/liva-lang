@@ -705,9 +705,63 @@ void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
     }
 }
 
+namespace {
+struct OpProtoInfo { const char *proto; const char *method; };
+const OpProtoInfo *getOpProto(BinaryExpr::Op op) {
+    static const std::pair<BinaryExpr::Op, OpProtoInfo> table[] = {
+        {BinaryExpr::Op::Add,       {"Add", "add"}},
+        {BinaryExpr::Op::Sub,       {"Sub", "sub"}},
+        {BinaryExpr::Op::Mul,       {"Mul", "mul"}},
+        {BinaryExpr::Op::Div,       {"Div", "div"}},
+        {BinaryExpr::Op::Mod,       {"Mod", "mod"}},
+        {BinaryExpr::Op::Eq,        {"Eq", "eq"}},
+        {BinaryExpr::Op::NotEq,     {"Eq", "eq"}},
+        {BinaryExpr::Op::Less,      {"Less", "less"}},
+        {BinaryExpr::Op::LessEq,    {"Less", "less"}},
+        {BinaryExpr::Op::Greater,   {"Less", "less"}},
+        {BinaryExpr::Op::GreaterEq, {"Less", "less"}},
+    };
+    for (auto &[o, info] : table)
+        if (o == op) return &info;
+    return nullptr;
+}
+} // anon
+
 void TypeChecker::visitBinaryExpr(BinaryExpr *node) {
     visit(node->getLHS());
     visit(node->getRHS());
+
+    // Struct operator overload dispatch
+    auto *lhsType = node->getLHS()->getResolvedType();
+    if (lhsType && lhsType->getKind() == TypeRepr::Kind::Named) {
+        auto *named = static_cast<const NamedTypeRepr *>(lhsType);
+        const std::string &typeName = named->getName();
+        auto *info = getOpProto(node->getOp());
+        if (info) {
+            bool conforms = false;
+            auto confIt = protocolConformances_.find(std::string(info->proto));
+            if (confIt != protocolConformances_.end()) {
+                for (auto &t : confIt->second)
+                    if (t == typeName) { conforms = true; break; }
+            }
+            if (conforms) {
+                switch (node->getOp()) {
+                case BinaryExpr::Op::Eq: case BinaryExpr::Op::NotEq:
+                case BinaryExpr::Op::Less: case BinaryExpr::Op::LessEq:
+                case BinaryExpr::Op::Greater: case BinaryExpr::Op::GreaterEq:
+                    node->setResolvedType(makeBoolType());
+                    break;
+                default:
+                    node->setResolvedType(makeNamedType(typeName));
+                    break;
+                }
+                return;
+            }
+            diag_.report(node->getStartLoc(), DiagID::err_binary_op_on_struct,
+                         node->getOpSpelling(), typeName, info->proto);
+            return;
+        }
+    }
 
     // Result type depends on operator
     switch (node->getOp()) {
@@ -1393,9 +1447,11 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
                     ? afterDot.substr(0, parenPos)
                     : afterDot;
                 if (coveredCases.count(caseName)) {
-                    diag_.report(node->getStartLoc(), DiagID::warn_unreachable_match_arm,
-                                 arm.pattern);
-                } else {
+                    if (!arm.guard) {
+                        diag_.report(node->getStartLoc(), DiagID::warn_unreachable_match_arm,
+                                     arm.pattern);
+                    }
+                } else if (!arm.guard) {
                     coveredCases.insert(caseName);
                 }
             }
@@ -1434,6 +1490,9 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
                         }
                     }
                 }
+            }
+            if (arm.guard) {
+                visit(arm.guard.get());
             }
             visit(arm.body.get());
             scopes_.popScope();

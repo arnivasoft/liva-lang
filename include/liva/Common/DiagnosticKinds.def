@@ -75,6 +75,9 @@ DIAG(err_tuple_arity_mismatch,      error,   "tuple destructuring arity mismatch
 DIAG(err_tuple_index_out_of_range,  error,   "tuple index %0 is out of range for tuple with %1 elements")
 DIAG(err_missing_associated_type,   error,   "implementation of '%0' is missing associated type '%1' required by '%2'")
 
+// === Sema - Operator Overloading ===
+DIAG(err_binary_op_on_struct, error, "binary operator '%0' cannot be applied to type '%1'; implement protocol '%2'")
+
 // === Sema - Drop ===
 DIAG(err_drop_method_signature,      error,   "Drop protocol requires method 'drop(mut self)' with void return type")
 
