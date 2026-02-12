@@ -815,3 +815,39 @@ clang output.ll -o output.exe
 |---|---------|----------|-------------|
 | T1 | **REPL** | Interaktif komut satiri degerlendirme (JIT ile) | Orta |
 | T2 | **LSP Sunucusu** | IDE destegi — otomatik tamamlama, hata gosterimi, go-to-definition | Yuksek |
+
+---
+
+## Production Yol Haritasi
+
+### Faz 1: Stabilite [TAMAMLANDI]
+
+| # | Gorev | Aciklama | Durum |
+|---|-------|----------|-------|
+| S1 | **Runtime Bellek Sizintilari** | `liva_str_array_free`, `liva_args_free` free fonksiyonlari, async kuyruk tasma kontrolu | TAMAMLANDI |
+| S2 | **Parser Hata Kurtarma** | `synchronize()` ile statement/declaration boundary recovery, `maxErrors_=20` limiti, `err_too_many_errors` diagnostigi | TAMAMLANDI |
+| S3 | **IRGen Null Guard'lari** | `getOrPanic()` helper ile ~60 runtime getFunction() cagrisi korundu, assert ile hata tespiti | TAMAMLANDI |
+
+### Faz 2: Kullanilabilirlik
+
+| # | Gorev | Aciklama | Durum |
+|---|-------|----------|-------|
+| S4 | **Hata Mesaji Kaynak Gosterimi** | Diagnostik ciktisinda kaynak satir + caret (`^~~~`) gosterimi | |
+| S5 | **Debug Bilgisi (DWARF/CodeView)** | LLVM DIBuilder ile fonksiyon/degisken/satir debug metadata uretimi | |
+| S6 | **Unicode Destegi** | UTF-8 identifier, `\u{XXXX}` escape, multibyte sutun takibi veya ASCII-only belgeleme | |
+
+### Faz 3: Platform Genisletme
+
+| # | Gorev | Aciklama | Durum |
+|---|-------|----------|-------|
+| S7 | **Linux/macOS Destegi** | PATH'den clang arama, platform-agnostic HTTP, POSIX args, dosya yolu normalizasyonu | |
+| S8 | **Ayri Derleme** | Modul basina ayri .o dosyasi, incremental build, interface/implementation ayirimi | |
+
+### Faz 4: Ekosistem
+
+| # | Gorev | Aciklama | Durum |
+|---|-------|----------|-------|
+| S9 | **Liva Stdlib Sarmalayicilari** | Import edilebilir standart moduller (String, Array, Map, IO, Math) | |
+| S10 | **Paket Yonetimi** | Dependency resolution, versiyon kontrolu, paket registry | |
+| S11 | **LSP Sunucusu** | IDE destegi (otomatik tamamlama, hata gosterimi, go-to-definition) | |
+| S12 | **REPL** | Interaktif komut satiri degerlendirme (JIT ile) | |

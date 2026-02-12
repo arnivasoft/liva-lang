@@ -41,6 +41,9 @@ public:
     /// Report a diagnostic with formatted arguments
     template <typename... Args>
     void report(SourceLocation loc, DiagID id, Args &&...args) {
+        // If we already hit the max error limit, suppress further diagnostics
+        if (hasMaxErrors()) return;
+
         auto [level, fmt] = getDiagInfo(id);
         std::string msg = formatMessage(fmt, std::forward<Args>(args)...);
         diagnostics_.push_back({id, level, loc, std::move(msg)});
@@ -50,10 +53,22 @@ public:
         if (printCallback_) {
             printCallback_(diagnostics_.back());
         }
+
+        // Emit a final "too many errors" diagnostic when we just hit the limit
+        if (level == DiagLevel::Error && hasMaxErrors()) {
+            auto [limLevel, limFmt] = getDiagInfo(DiagID::err_too_many_errors);
+            std::string limMsg = formatMessage(limFmt);
+            diagnostics_.push_back({DiagID::err_too_many_errors, limLevel, loc, std::move(limMsg)});
+            if (printCallback_) {
+                printCallback_(diagnostics_.back());
+            }
+        }
     }
 
     bool hasErrors() const { return errorCount_ > 0; }
     uint32_t getErrorCount() const { return errorCount_; }
+    bool hasMaxErrors() const { return maxErrors_ > 0 && errorCount_ >= static_cast<uint32_t>(maxErrors_); }
+    void setMaxErrors(int max) { maxErrors_ = max; }
     const std::vector<Diagnostic> &getDiagnostics() const { return diagnostics_; }
 
     void clear() {
@@ -121,6 +136,7 @@ private:
     const SourceManager *sourceManager_ = nullptr;
     std::vector<Diagnostic> diagnostics_;
     uint32_t errorCount_ = 0;
+    int maxErrors_ = 20;  // default: stop after 20 errors (0 = unlimited)
     PrintCallback printCallback_;
 };
 

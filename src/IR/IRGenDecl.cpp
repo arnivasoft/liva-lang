@@ -242,7 +242,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             {currentCoroId_, phiMem}, "coro.hdl");
 
         // Create LivaTask
-        auto *taskCreateFn = module_->getFunction("liva_task_create");
+        auto *taskCreateFn = getOrPanic("liva_task_create");
         auto *task = builder_->CreateCall(taskCreateFn, {currentCoroHandle_}, "task");
         builder_->CreateStore(task, currentCoroTask_);
 
@@ -332,7 +332,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         // coro.final: mark task complete + final suspend
         builder_->SetInsertPoint(currentCoroFinalBB_);
         auto *taskLoad = builder_->CreateLoad(ptrTy, currentCoroTask_, "task.final");
-        auto *completeFn = module_->getFunction("liva_task_complete");
+        auto *completeFn = getOrPanic("liva_task_complete");
         builder_->CreateCall(completeFn, {taskLoad});
 
         auto *coroSuspendFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
@@ -408,14 +408,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         auto *asyncTask = builder_->CreateCall(func, {}, "root.task");
 
         // Run scheduler
-        auto *schedulerFn = module_->getFunction("liva_scheduler_run");
+        auto *schedulerFn = getOrPanic("liva_scheduler_run");
         builder_->CreateCall(schedulerFn, {asyncTask});
 
         // Get result from promise if non-void return type
         auto *declaredRet = toLLVMType(node->getReturnType());
         if (declaredRet->isIntegerTy(32)) {
             // Get handle, then use coro.promise to read result
-            auto *getHandleFn = module_->getFunction("liva_task_get_handle");
+            auto *getHandleFn = getOrPanic("liva_task_get_handle");
             auto *hdl = builder_->CreateCall(getHandleFn, {asyncTask}, "root.hdl");
 
             auto *coroPromiseFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
@@ -425,19 +425,19 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             auto *result = builder_->CreateLoad(i32Ty, promisePtr, "main.result");
 
             // Cleanup
-            auto *coroDestroyFn = module_->getFunction("liva_coro_destroy");
+            auto *coroDestroyFn = getOrPanic("liva_coro_destroy");
             builder_->CreateCall(coroDestroyFn, {hdl});
-            auto *taskDestroyFn = module_->getFunction("liva_task_destroy");
+            auto *taskDestroyFn = getOrPanic("liva_task_destroy");
             builder_->CreateCall(taskDestroyFn, {asyncTask});
 
             builder_->CreateRet(result);
         } else {
             // Void or other: just cleanup and return 0
-            auto *getHandleFn = module_->getFunction("liva_task_get_handle");
+            auto *getHandleFn = getOrPanic("liva_task_get_handle");
             auto *hdl = builder_->CreateCall(getHandleFn, {asyncTask}, "root.hdl");
-            auto *coroDestroyFn = module_->getFunction("liva_coro_destroy");
+            auto *coroDestroyFn = getOrPanic("liva_coro_destroy");
             builder_->CreateCall(coroDestroyFn, {hdl});
-            auto *taskDestroyFn = module_->getFunction("liva_task_destroy");
+            auto *taskDestroyFn = getOrPanic("liva_task_destroy");
             builder_->CreateCall(taskDestroyFn, {asyncTask});
 
             builder_->CreateRet(builder_->getInt32(0));
@@ -776,7 +776,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             uint64_t initCap = initLen > 0 ? initLen : 8;
 
             // liva_array_new(elem_size, capacity)
-            auto *newFn = module_->getFunction("liva_array_new");
+            auto *newFn = getOrPanic("liva_array_new");
             auto *dataPtr = builder_->CreateCall(newFn,
                 {builder_->getInt64(elemSize), builder_->getInt64(initCap)}, "arr.data");
 
@@ -819,7 +819,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *structTy = getMapStructTy();
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
 
-            auto *newFn = module_->getFunction("liva_map_new");
+            auto *newFn = getOrPanic("liva_map_new");
             auto *dataPtr = builder_->CreateCall(newFn,
                 {builder_->getInt64(initCap), builder_->getInt64(stride)}, "map.entries");
 
@@ -847,7 +847,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *structTy = getMapStructTy();
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
 
-            auto *newFn = module_->getFunction("liva_set_new");
+            auto *newFn = getOrPanic("liva_set_new");
             auto *dataPtr = builder_->CreateCall(newFn,
                 {builder_->getInt64(initCap), builder_->getInt64(stride)}, "set.entries");
 

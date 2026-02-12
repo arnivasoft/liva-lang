@@ -3,6 +3,7 @@
 #include "liva/AST/ASTVisitor.h"
 #include "liva/AST/Decl.h"
 #include "liva/Common/Diagnostics.h"
+#include <cassert>
 
 #ifdef LIVA_HAS_LLVM
 #include "liva/Sema/ModuleLoader.h"
@@ -92,6 +93,13 @@ public:
     llvm::Value *visitAwaitExpr(AwaitExpr *node);
 
 private:
+    /// Lookup a runtime function by name, asserting it was declared
+    llvm::Function *getOrPanic(const char *name) {
+        auto *fn = module_->getFunction(name);
+        assert(fn && "Missing runtime function declaration — check createRuntimeDecls()");
+        return fn;
+    }
+
     /// Convert Liva type to LLVM type
     llvm::Type *toLLVMType(const TypeRepr *type);
 

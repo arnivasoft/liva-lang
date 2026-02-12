@@ -93,6 +93,9 @@ DIAG(err_multiple_variadic,          error,   "function cannot have more than on
 DIAG(err_const_requires_init,      error, "'const' declaration requires an initializer")
 DIAG(err_const_init_not_constant,  error, "'const' initializer must be a compile-time constant expression")
 
+// === Parser - Error Recovery ===
+DIAG(err_too_many_errors,            error,   "too many errors emitted, stopping now")
+
 // === Warnings ===
 DIAG(warn_unused_variable,           warning, "unused variable '%0'")
 DIAG(warn_unreachable_code,          warning, "code after return statement will never be executed")

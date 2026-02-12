@@ -198,6 +198,7 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
 
     std::vector<std::unique_ptr<FieldDecl>> fields;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;
         auto fieldStart = current_.getLocation();
         bool fieldMutable = false;
 
@@ -241,6 +242,7 @@ std::unique_ptr<EnumDecl> Parser::parseEnumDecl(bool isPublic) {
 
     std::vector<std::unique_ptr<EnumCaseDecl>> cases;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;
         expect(TokenKind::kw_case);
         auto caseStart = current_.getLocation();
         auto caseName = expect(TokenKind::identifier);
@@ -316,6 +318,7 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
     std::vector<std::unique_ptr<FuncDecl>> methods;
     std::unordered_map<std::string, std::string> associatedTypes;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;
         if (check(TokenKind::kw_type)) {
             advance();  // consume 'type'
             auto assocName = expect(TokenKind::identifier);
@@ -356,6 +359,7 @@ std::unique_ptr<ProtocolDecl> Parser::parseProtocolDecl(bool isPublic) {
     std::vector<std::unique_ptr<FuncDecl>> methods;
     std::vector<std::string> associatedTypes;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;
         if (check(TokenKind::kw_type)) {
             advance();  // consume 'type'
             auto typeName = expect(TokenKind::identifier);

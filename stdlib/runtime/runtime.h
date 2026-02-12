@@ -98,6 +98,9 @@ char *liva_str_replace(const char *str, const char *old_sub, const char *new_sub
 /// count is set to the number of parts
 char **liva_str_split(const char *str, const char *delim, int64_t *count);
 
+/// Free a string array returned by liva_str_split or liva_regex_find_all
+void liva_str_array_free(char **arr, int64_t count);
+
 // === File I/O ===
 
 /// Open a file, returns FILE* or NULL on failure
@@ -227,6 +230,9 @@ char *liva_env_get(const char *name);
 
 /// Get command line arguments, sets count
 char **liva_args(int64_t *count);
+
+/// Free command line arguments returned by liva_args
+void liva_args_free(char **args, int64_t count);
 
 // === Date/Time ===
 

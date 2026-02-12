@@ -35,16 +35,49 @@ SourceRange Parser::rangeFrom(SourceLocation start) const {
     return {start, current_.getLocation()};
 }
 
+void Parser::synchronize() {
+    while (current_.getKind() != TokenKind::eof) {
+        // Stop at closing braces (end of a block)
+        if (current_.getKind() == TokenKind::r_brace) {
+            return;
+        }
+        // Stop at declaration/statement keywords (start of a new construct)
+        switch (current_.getKind()) {
+            case TokenKind::kw_func:
+            case TokenKind::kw_struct:
+            case TokenKind::kw_enum:
+            case TokenKind::kw_impl:
+            case TokenKind::kw_protocol:
+            case TokenKind::kw_import:
+            case TokenKind::kw_let:
+            case TokenKind::kw_var:
+            case TokenKind::kw_const:
+            case TokenKind::kw_if:
+            case TokenKind::kw_while:
+            case TokenKind::kw_for:
+            case TokenKind::kw_return:
+            case TokenKind::kw_type:
+            case TokenKind::kw_pub:
+            case TokenKind::kw_async:
+                return;
+            default:
+                advance();
+        }
+    }
+}
+
 std::unique_ptr<TranslationUnit> Parser::parseTranslationUnit() {
     auto tu = std::make_unique<TranslationUnit>();
 
     while (!current_.is(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;  // stop after too many errors
+
         auto decl = parseTopLevelDecl();
         if (decl) {
             tu->addDeclaration(std::move(decl));
         } else {
-            // Error recovery: skip to next declaration
-            advance();
+            // Error recovery: skip to next declaration boundary
+            synchronize();
         }
     }
 

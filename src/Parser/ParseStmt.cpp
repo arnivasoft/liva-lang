@@ -69,12 +69,14 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
 
     std::vector<std::unique_ptr<ASTNode>> statements;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;
+
         auto stmt = parseStatement();
         if (stmt) {
             statements.push_back(std::move(stmt));
         } else {
-            // Error recovery: skip token
-            advance();
+            // Error recovery: skip to next statement boundary
+            synchronize();
         }
     }
 

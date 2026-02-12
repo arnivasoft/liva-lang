@@ -27,7 +27,7 @@ void IRGen::emitScopeCleanup() {
         auto *dataGEP = builder_->CreateStructGEP(getDynArrayStructTy(), structAlloca, 0,
                                                    name + ".data.drop");
         auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, name + ".ptr.drop");
-        builder_->CreateCall(module_->getFunction("liva_array_free"), {dataPtr});
+        builder_->CreateCall(getOrPanic("liva_array_free"), {dataPtr});
     }
 
     // Free Maps
@@ -39,7 +39,7 @@ void IRGen::emitScopeCleanup() {
         auto *entriesGEP = builder_->CreateStructGEP(getMapStructTy(), structAlloca, 0,
                                                       name + ".entries.drop");
         auto *entriesPtr = builder_->CreateLoad(ptrTy, entriesGEP, name + ".ptr.drop");
-        builder_->CreateCall(module_->getFunction("liva_map_free"), {entriesPtr});
+        builder_->CreateCall(getOrPanic("liva_map_free"), {entriesPtr});
     }
 
     // Free Sets
@@ -51,7 +51,7 @@ void IRGen::emitScopeCleanup() {
         auto *entriesGEP = builder_->CreateStructGEP(getMapStructTy(), structAlloca, 0,
                                                       name + ".entries.drop");
         auto *entriesPtr = builder_->CreateLoad(ptrTy, entriesGEP, name + ".ptr.drop");
-        builder_->CreateCall(module_->getFunction("liva_set_free"), {entriesPtr});
+        builder_->CreateCall(getOrPanic("liva_set_free"), {entriesPtr});
     }
 
     // Call drop() for struct variables implementing Drop protocol

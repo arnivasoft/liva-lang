@@ -299,6 +299,14 @@ char **liva_str_split(const char *str, const char *delim, int64_t *count) {
     return parts;
 }
 
+void liva_str_array_free(char **arr, int64_t count) {
+    if (!arr) return;
+    for (int64_t i = 0; i < count; i++) {
+        free(arr[i]);
+    }
+    free(arr);
+}
+
 // === File I/O ===
 
 void *liva_file_open(const char *path, const char *mode) {
@@ -780,6 +788,10 @@ char **liva_args(int64_t *count) {
     return result;
 }
 
+void liva_args_free(char **args, int64_t count) {
+    liva_str_array_free(args, count);
+}
+
 // === Date/Time ===
 
 double liva_clock() {
@@ -998,6 +1010,10 @@ static int ready_head = 0;
 static int ready_tail = 0;
 
 static void ready_push(LivaTask *task) {
+    int count = ready_tail - ready_head;
+    if (count >= 1024) {
+        liva_panic("async task queue overflow (max 1024 concurrent tasks)");
+    }
     ready_queue[ready_tail % 1024] = task;
     ready_tail++;
 }

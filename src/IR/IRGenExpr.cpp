@@ -53,7 +53,7 @@ llvm::Value *IRGen::visitUnwrapExpr(UnwrapExpr *node) {
     builder_->CreateCondBr(hasVal, okBB, panicBB);
 
     builder_->SetInsertPoint(panicBB);
-    auto *panicFn = module_->getFunction("liva_panic");
+    auto *panicFn = getOrPanic("liva_panic");
     auto *msg = builder_->CreateGlobalString("unwrap of nil optional value");
     builder_->CreateCall(panicFn, {msg});
     builder_->CreateUnreachable();
@@ -160,17 +160,17 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
     if (isString) {
         switch (node->getOp()) {
         case BinaryExpr::Op::Add: {
-            auto *concatFn = module_->getFunction("liva_str_concat");
+            auto *concatFn = getOrPanic("liva_str_concat");
             return builder_->CreateCall(concatFn, {lhs, rhs});
         }
         case BinaryExpr::Op::Eq: {
-            auto *equalFn = module_->getFunction("liva_str_equal");
+            auto *equalFn = getOrPanic("liva_str_equal");
             auto *result = builder_->CreateCall(equalFn, {lhs, rhs});
             return builder_->CreateICmpNE(result,
                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context_), 0));
         }
         case BinaryExpr::Op::NotEq: {
-            auto *equalFn = module_->getFunction("liva_str_equal");
+            auto *equalFn = getOrPanic("liva_str_equal");
             auto *result = builder_->CreateCall(equalFn, {lhs, rhs});
             return builder_->CreateICmpEQ(result,
                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context_), 0));
@@ -1128,7 +1128,7 @@ llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
     auto *func = builder_->GetInsertBlock()->getParent();
 
     // Check if child task is already done
-    auto *isDoneFn = module_->getFunction("liva_task_is_done");
+    auto *isDoneFn = getOrPanic("liva_task_is_done");
     auto *doneI8 = builder_->CreateCall(isDoneFn, {childTask}, "done.i8");
     auto *isDone = builder_->CreateICmpNE(doneI8, builder_->getInt8(0), "is.done");
 
@@ -1139,7 +1139,7 @@ llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
     // await.suspend: set parent and suspend
     builder_->SetInsertPoint(awaitSuspendBB);
     auto *curTask = builder_->CreateLoad(ptrTy, currentCoroTask_, "cur.task");
-    auto *setParentFn = module_->getFunction("liva_task_set_parent");
+    auto *setParentFn = getOrPanic("liva_task_set_parent");
     builder_->CreateCall(setParentFn, {childTask, curTask});
 
     auto *coroSuspendFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
@@ -1172,7 +1172,7 @@ llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
     }
 
     // Get child handle and read promise
-    auto *getHandleFn = module_->getFunction("liva_task_get_handle");
+    auto *getHandleFn = getOrPanic("liva_task_get_handle");
     auto *childHdl = builder_->CreateCall(getHandleFn, {childTask}, "child.hdl");
 
     auto *coroPromiseFn = llvm::Intrinsic::getOrInsertDeclaration(module_.get(),
@@ -1184,9 +1184,9 @@ llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
     auto *result = builder_->CreateLoad(resultType, promisePtr, "await.result");
 
     // Cleanup child
-    auto *coroDestroyFn = module_->getFunction("liva_coro_destroy");
+    auto *coroDestroyFn = getOrPanic("liva_coro_destroy");
     builder_->CreateCall(coroDestroyFn, {childHdl});
-    auto *taskDestroyFn = module_->getFunction("liva_task_destroy");
+    auto *taskDestroyFn = getOrPanic("liva_task_destroy");
     builder_->CreateCall(taskDestroyFn, {childTask});
 
     return result;

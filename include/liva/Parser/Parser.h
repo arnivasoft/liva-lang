@@ -81,6 +81,9 @@ private:
     bool match(TokenKind kind);
     Token expect(TokenKind kind);
 
+    /// Advance tokens until a synchronization point (statement/declaration boundary)
+    void synchronize();
+
     /// Create a source range from start to current position
     SourceRange rangeFrom(SourceLocation start) const;
 

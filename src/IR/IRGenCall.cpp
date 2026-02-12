@@ -51,7 +51,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     builder_->CreateCondBr(isOk, okBB, panicBB);
 
                     builder_->SetInsertPoint(panicBB);
-                    auto *panicFn = module_->getFunction("liva_panic");
+                    auto *panicFn = getOrPanic("liva_panic");
                     auto *msg = builder_->CreateGlobalString("unwrap of Err Result value");
                     builder_->CreateCall(panicFn, {msg});
                     builder_->CreateUnreachable();
@@ -72,7 +72,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 auto *modeVal = visit(node->getArgs()[1].get());
                 if (!pathVal || !modeVal) return nullptr;
 
-                auto *openFn = module_->getFunction("liva_file_open");
+                auto *openFn = getOrPanic("liva_file_open");
                 auto *fp = builder_->CreateCall(openFn, {pathVal, modeVal}, "file.fp");
                 auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
@@ -102,7 +102,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 auto *fp = builder_->CreateLoad(ptrTy, nvIt->second, "file.ptr");
 
                 if (methodName == "readLine") {
-                    auto *fn = module_->getFunction("liva_file_read_line");
+                    auto *fn = getOrPanic("liva_file_read_line");
                     auto *raw = builder_->CreateCall(fn, {fp}, "file.readline.raw");
                     // Build Optional<string>: null check → { i1, ptr }
                     auto *isNull = builder_->CreateICmpEQ(raw,
@@ -120,14 +120,14 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 }
 
                 if (methodName == "readAll") {
-                    auto *fn = module_->getFunction("liva_file_read_all");
+                    auto *fn = getOrPanic("liva_file_read_all");
                     return builder_->CreateCall(fn, {fp}, "file.readall");
                 }
 
                 if (methodName == "write" && !node->getArgs().empty()) {
                     auto *strVal = visit(node->getArgs()[0].get());
                     if (!strVal) return nullptr;
-                    auto *fn = module_->getFunction("liva_file_write");
+                    auto *fn = getOrPanic("liva_file_write");
                     builder_->CreateCall(fn, {fp, strVal});
                     return nullptr;
                 }
@@ -135,13 +135,13 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 if (methodName == "writeLine" && !node->getArgs().empty()) {
                     auto *strVal = visit(node->getArgs()[0].get());
                     if (!strVal) return nullptr;
-                    auto *fn = module_->getFunction("liva_file_write_line");
+                    auto *fn = getOrPanic("liva_file_write_line");
                     builder_->CreateCall(fn, {fp, strVal});
                     return nullptr;
                 }
 
                 if (methodName == "close") {
-                    auto *fn = module_->getFunction("liva_file_close");
+                    auto *fn = getOrPanic("liva_file_close");
                     builder_->CreateCall(fn, {fp});
                     return nullptr;
                 }
@@ -157,7 +157,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             if (methodName == "contains" && node->getArgs().size() >= 1) {
                 auto *arg = visit(node->getArgs()[0].get());
                 if (!arg) return nullptr;
-                auto *fn = module_->getFunction("liva_str_contains");
+                auto *fn = getOrPanic("liva_str_contains");
                 auto *result = builder_->CreateCall(fn, {obj, arg}, "str.contains");
                 return builder_->CreateTrunc(result, builder_->getInt1Ty(), "str.contains.bool");
             }
@@ -165,7 +165,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             if (methodName == "startsWith" && node->getArgs().size() >= 1) {
                 auto *arg = visit(node->getArgs()[0].get());
                 if (!arg) return nullptr;
-                auto *fn = module_->getFunction("liva_str_starts_with");
+                auto *fn = getOrPanic("liva_str_starts_with");
                 auto *result = builder_->CreateCall(fn, {obj, arg}, "str.startswith");
                 return builder_->CreateTrunc(result, builder_->getInt1Ty(), "str.startswith.bool");
             }
@@ -173,7 +173,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             if (methodName == "endsWith" && node->getArgs().size() >= 1) {
                 auto *arg = visit(node->getArgs()[0].get());
                 if (!arg) return nullptr;
-                auto *fn = module_->getFunction("liva_str_ends_with");
+                auto *fn = getOrPanic("liva_str_ends_with");
                 auto *result = builder_->CreateCall(fn, {obj, arg}, "str.endswith");
                 return builder_->CreateTrunc(result, builder_->getInt1Ty(), "str.endswith.bool");
             }
@@ -181,7 +181,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             if (methodName == "indexOf" && node->getArgs().size() >= 1) {
                 auto *arg = visit(node->getArgs()[0].get());
                 if (!arg) return nullptr;
-                auto *fn = module_->getFunction("liva_str_index_of");
+                auto *fn = getOrPanic("liva_str_index_of");
                 return builder_->CreateCall(fn, {obj, arg}, "str.indexof");
             }
 
@@ -194,22 +194,22 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     start = builder_->CreateSExt(start, builder_->getInt64Ty());
                 if (length->getType()->isIntegerTy(32))
                     length = builder_->CreateSExt(length, builder_->getInt64Ty());
-                auto *fn = module_->getFunction("liva_str_substring");
+                auto *fn = getOrPanic("liva_str_substring");
                 return builder_->CreateCall(fn, {obj, start, length}, "str.substring");
             }
 
             if (methodName == "trim") {
-                auto *fn = module_->getFunction("liva_str_trim");
+                auto *fn = getOrPanic("liva_str_trim");
                 return builder_->CreateCall(fn, {obj}, "str.trim");
             }
 
             if (methodName == "toUpper") {
-                auto *fn = module_->getFunction("liva_str_to_upper");
+                auto *fn = getOrPanic("liva_str_to_upper");
                 return builder_->CreateCall(fn, {obj}, "str.toupper");
             }
 
             if (methodName == "toLower") {
-                auto *fn = module_->getFunction("liva_str_to_lower");
+                auto *fn = getOrPanic("liva_str_to_lower");
                 return builder_->CreateCall(fn, {obj}, "str.tolower");
             }
 
@@ -217,7 +217,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 auto *oldSub = visit(node->getArgs()[0].get());
                 auto *newSub = visit(node->getArgs()[1].get());
                 if (!oldSub || !newSub) return nullptr;
-                auto *fn = module_->getFunction("liva_str_replace");
+                auto *fn = getOrPanic("liva_str_replace");
                 return builder_->CreateCall(fn, {obj, oldSub, newSub}, "str.replace");
             }
 
@@ -228,7 +228,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 // count output parameter
                 auto *countAlloca = createEntryBlockAlloca(curFunc, "split.count", builder_->getInt64Ty());
                 builder_->CreateStore(builder_->getInt64(0), countAlloca);
-                auto *fn = module_->getFunction("liva_str_split");
+                auto *fn = getOrPanic("liva_str_split");
                 auto *resultPtr = builder_->CreateCall(fn, {obj, delim, countAlloca}, "split.data");
                 auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "split.len");
                 // Build DynArray struct { ptr data, i64 length, i64 capacity }
@@ -281,7 +281,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
                     auto *capField = builder_->CreateStructGEP(structTy, arrAlloca, 2);
 
-                    auto *pushFn = module_->getFunction("liva_array_push");
+                    auto *pushFn = getOrPanic("liva_array_push");
                     builder_->CreateCall(pushFn, {dataField, lenField, capField,
                                                    elemAlloca,
                                                    builder_->getInt64(daIt->second.elemSize)});
@@ -290,7 +290,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
                 if (methodName == "pop") {
                     auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
-                    auto *popFn = module_->getFunction("liva_array_pop");
+                    auto *popFn = getOrPanic("liva_array_pop");
                     builder_->CreateCall(popFn, {lenField});
                     return nullptr;
                 }
@@ -308,7 +308,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
                     auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
                     int8_t keyKind = daIt->second.elementType->isPointerTy() ? 1 : 0;
-                    auto *fn = module_->getFunction("liva_array_contains");
+                    auto *fn = getOrPanic("liva_array_contains");
                     auto *result = builder_->CreateCall(fn, {
                         data, len, elemAlloca,
                         builder_->getInt64(daIt->second.elemSize),
@@ -330,7 +330,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
                     auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
                     int8_t keyKind = daIt->second.elementType->isPointerTy() ? 1 : 0;
-                    auto *fn = module_->getFunction("liva_array_index_of");
+                    auto *fn = getOrPanic("liva_array_index_of");
                     return builder_->CreateCall(fn, {
                         data, len, elemAlloca,
                         builder_->getInt64(daIt->second.elemSize),
@@ -344,7 +344,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                         llvm::PointerType::getUnqual(*context_), dataField, "arr.data");
                     auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
                     auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
-                    auto *fn = module_->getFunction("liva_array_reverse");
+                    auto *fn = getOrPanic("liva_array_reverse");
                     builder_->CreateCall(fn, {data, len, builder_->getInt64(daIt->second.elemSize)});
                     return nullptr;
                 }
@@ -406,7 +406,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                         const llvm::DataLayout &dl = module_->getDataLayout();
                         resultElemSize = dl.getTypeAllocSize(resultElemType);
                         resultAlloca = createEntryBlockAlloca(curFunc, "hof.result", structTy);
-                        auto *newFn = module_->getFunction("liva_array_new");
+                        auto *newFn = getOrPanic("liva_array_new");
                         resultData = builder_->CreateCall(newFn,
                             {builder_->getInt64(resultElemSize), len}, "hof.newdata");
                         auto *rDataField = builder_->CreateStructGEP(structTy, resultAlloca, 0);
@@ -607,7 +607,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
                     auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
 
-                    auto *insertFn = module_->getFunction("liva_map_insert");
+                    auto *insertFn = getOrPanic("liva_map_insert");
                     builder_->CreateCall(insertFn, {
                         entriesField, sizeField, capField,
                         keyAlloca, valAlloca,
@@ -631,7 +631,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
                     auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField, "map.cap");
 
-                    auto *getFn = module_->getFunction("liva_map_get");
+                    auto *getFn = getOrPanic("liva_map_get");
                     auto *resultPtr = builder_->CreateCall(getFn, {
                         entries, cap, keyAlloca,
                         builder_->getInt64(info.keySize),
@@ -683,7 +683,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
                     auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
 
-                    auto *containsFn = module_->getFunction("liva_map_contains");
+                    auto *containsFn = getOrPanic("liva_map_contains");
                     auto *result = builder_->CreateCall(containsFn, {
                         entries, cap, keyAlloca,
                         builder_->getInt64(info.keySize),
@@ -707,7 +707,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
                     auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
 
-                    auto *removeFn = module_->getFunction("liva_map_remove");
+                    auto *removeFn = getOrPanic("liva_map_remove");
                     auto *result = builder_->CreateCall(removeFn, {
                         entries, sizeField, cap, keyAlloca,
                         builder_->getInt64(info.keySize),
@@ -742,7 +742,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
                     auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2);
 
-                    auto *insertFn = module_->getFunction("liva_set_insert");
+                    auto *insertFn = getOrPanic("liva_set_insert");
                     builder_->CreateCall(insertFn, {
                         entriesField, sizeField, capField,
                         elemAlloca,
@@ -765,7 +765,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2);
                     auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
 
-                    auto *containsFn = module_->getFunction("liva_set_contains");
+                    auto *containsFn = getOrPanic("liva_set_contains");
                     auto *result = builder_->CreateCall(containsFn, {
                         entries, cap, elemAlloca,
                         builder_->getInt64(info.elemSize),
@@ -788,7 +788,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2);
                     auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField);
 
-                    auto *removeFn = module_->getFunction("liva_set_remove");
+                    auto *removeFn = getOrPanic("liva_set_remove");
                     auto *result = builder_->CreateCall(removeFn, {
                         entries, sizeField, cap, elemAlloca,
                         builder_->getInt64(info.elemSize),
@@ -952,7 +952,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!node->getArgs().empty()) {
             auto *arg = visit(node->getArgs()[0].get());
             if (!arg) return nullptr;
-            auto *lenFn = module_->getFunction("liva_str_length");
+            auto *lenFn = getOrPanic("liva_str_length");
             return builder_->CreateCall(lenFn, {arg});
         }
         return nullptr;
@@ -964,12 +964,12 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             auto *arg = visit(node->getArgs()[0].get());
             if (!arg) return nullptr;
             if (arg->getType()->isIntegerTy(32)) {
-                return builder_->CreateCall(module_->getFunction("liva_i32_to_str"), {arg});
+                return builder_->CreateCall(getOrPanic("liva_i32_to_str"), {arg});
             } else if (arg->getType()->isDoubleTy()) {
-                return builder_->CreateCall(module_->getFunction("liva_f64_to_str"), {arg});
+                return builder_->CreateCall(getOrPanic("liva_f64_to_str"), {arg});
             } else if (arg->getType()->isIntegerTy(1)) {
                 auto *ext = builder_->CreateZExt(arg, llvm::Type::getInt8Ty(*context_));
-                return builder_->CreateCall(module_->getFunction("liva_bool_to_str"), {ext});
+                return builder_->CreateCall(getOrPanic("liva_bool_to_str"), {ext});
             } else if (arg->getType()->isPointerTy()) {
                 return arg; // already a string
             }
@@ -984,7 +984,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!strArg) return nullptr;
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *resultAlloca = createEntryBlockAlloca(curFunc, "parse.tmp", builder_->getInt32Ty());
-        auto *fn = module_->getFunction("liva_str_parse_i32");
+        auto *fn = getOrPanic("liva_str_parse_i32");
         auto *ok = builder_->CreateCall(fn, {strArg, resultAlloca}, "parse.ok");
         auto *hasVal = builder_->CreateTrunc(ok, builder_->getInt1Ty(), "parse.hasval");
         auto *val = builder_->CreateLoad(builder_->getInt32Ty(), resultAlloca, "parse.val");
@@ -1002,7 +1002,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!strArg) return nullptr;
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *resultAlloca = createEntryBlockAlloca(curFunc, "parse.tmp", builder_->getInt64Ty());
-        auto *fn = module_->getFunction("liva_str_parse_i64");
+        auto *fn = getOrPanic("liva_str_parse_i64");
         auto *ok = builder_->CreateCall(fn, {strArg, resultAlloca}, "parse.ok");
         auto *hasVal = builder_->CreateTrunc(ok, builder_->getInt1Ty(), "parse.hasval");
         auto *val = builder_->CreateLoad(builder_->getInt64Ty(), resultAlloca, "parse.val");
@@ -1020,7 +1020,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!strArg) return nullptr;
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *resultAlloca = createEntryBlockAlloca(curFunc, "parse.tmp", builder_->getDoubleTy());
-        auto *fn = module_->getFunction("liva_str_parse_f64");
+        auto *fn = getOrPanic("liva_str_parse_f64");
         auto *ok = builder_->CreateCall(fn, {strArg, resultAlloca}, "parse.ok");
         auto *hasVal = builder_->CreateTrunc(ok, builder_->getInt1Ty(), "parse.hasval");
         auto *val = builder_->CreateLoad(builder_->getDoubleTy(), resultAlloca, "parse.val");
@@ -1042,12 +1042,12 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             minArg = builder_->CreateTrunc(minArg, builder_->getInt32Ty());
         if (maxArg->getType()->isIntegerTy(64))
             maxArg = builder_->CreateTrunc(maxArg, builder_->getInt32Ty());
-        auto *fn = module_->getFunction("liva_rand_int");
+        auto *fn = getOrPanic("liva_rand_int");
         return builder_->CreateCall(fn, {minArg, maxArg}, "randint");
     }
 
     if (funcName == "randFloat") {
-        auto *fn = module_->getFunction("liva_rand_float");
+        auto *fn = getOrPanic("liva_rand_float");
         return builder_->CreateCall(fn, {}, "randfloat");
     }
 
@@ -1055,7 +1055,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (funcName == "env" && !node->getArgs().empty()) {
         auto *nameArg = visit(node->getArgs()[0].get());
         if (!nameArg) return nullptr;
-        auto *fn = module_->getFunction("liva_env_get");
+        auto *fn = getOrPanic("liva_env_get");
         auto *result = builder_->CreateCall(fn, {nameArg}, "env.raw");
         // Wrap in Optional<string>: null → nil, non-null → some
         auto *curFunc = builder_->GetInsertBlock()->getParent();
@@ -1076,7 +1076,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!codeArg) return nullptr;
         if (codeArg->getType()->isIntegerTy(64))
             codeArg = builder_->CreateTrunc(codeArg, builder_->getInt32Ty());
-        auto *fn = module_->getFunction("liva_exit");
+        auto *fn = getOrPanic("liva_exit");
         builder_->CreateCall(fn, {codeArg});
         builder_->CreateUnreachable();
         return nullptr;
@@ -1085,7 +1085,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (funcName == "args") {
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *countAlloca = createEntryBlockAlloca(curFunc, "args.count", builder_->getInt64Ty());
-        auto *fn = module_->getFunction("liva_args");
+        auto *fn = getOrPanic("liva_args");
         auto *resultPtr = builder_->CreateCall(fn, {countAlloca}, "args.data");
         auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "args.len");
         auto *structTy = getDynArrayStructTy();
@@ -1101,12 +1101,12 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
     // === Stdlib: Date/Time ===
     if (funcName == "clock") {
-        auto *fn = module_->getFunction("liva_clock");
+        auto *fn = getOrPanic("liva_clock");
         return builder_->CreateCall(fn, {}, "clock");
     }
 
     if (funcName == "clockMs") {
-        auto *fn = module_->getFunction("liva_clock_ms");
+        auto *fn = getOrPanic("liva_clock_ms");
         return builder_->CreateCall(fn, {}, "clockms");
     }
 
@@ -1115,7 +1115,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!msArg) return nullptr;
         if (msArg->getType()->isIntegerTy(32))
             msArg = builder_->CreateSExt(msArg, builder_->getInt64Ty());
-        auto *fn = module_->getFunction("liva_sleep");
+        auto *fn = getOrPanic("liva_sleep");
         builder_->CreateCall(fn, {msArg});
         return nullptr;
     }
@@ -1125,7 +1125,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *strArg = visit(node->getArgs()[0].get());
         auto *patArg = visit(node->getArgs()[1].get());
         if (!strArg || !patArg) return nullptr;
-        auto *fn = module_->getFunction("liva_regex_match");
+        auto *fn = getOrPanic("liva_regex_match");
         auto *result = builder_->CreateCall(fn, {strArg, patArg}, "regex.match");
         return builder_->CreateTrunc(result, builder_->getInt1Ty(), "regex.bool");
     }
@@ -1134,7 +1134,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *strArg = visit(node->getArgs()[0].get());
         auto *patArg = visit(node->getArgs()[1].get());
         if (!strArg || !patArg) return nullptr;
-        auto *fn = module_->getFunction("liva_regex_find");
+        auto *fn = getOrPanic("liva_regex_find");
         auto *result = builder_->CreateCall(fn, {strArg, patArg}, "regex.find.raw");
         // Wrap in Optional<string>
         auto *curFunc = builder_->GetInsertBlock()->getParent();
@@ -1156,7 +1156,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!strArg || !patArg) return nullptr;
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *countAlloca = createEntryBlockAlloca(curFunc, "regex.findall.count", builder_->getInt64Ty());
-        auto *fn = module_->getFunction("liva_regex_find_all");
+        auto *fn = getOrPanic("liva_regex_find_all");
         auto *resultPtr = builder_->CreateCall(fn, {strArg, patArg, countAlloca}, "regex.findall.data");
         auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "regex.findall.len");
         auto *structTy = getDynArrayStructTy();
@@ -1175,7 +1175,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *patArg = visit(node->getArgs()[1].get());
         auto *replArg = visit(node->getArgs()[2].get());
         if (!strArg || !patArg || !replArg) return nullptr;
-        auto *fn = module_->getFunction("liva_regex_replace");
+        auto *fn = getOrPanic("liva_regex_replace");
         return builder_->CreateCall(fn, {strArg, patArg, replArg}, "regex.replace");
     }
 
@@ -1183,7 +1183,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (funcName == "httpGet" && !node->getArgs().empty()) {
         auto *urlArg = visit(node->getArgs()[0].get());
         if (!urlArg) return nullptr;
-        auto *fn = module_->getFunction("liva_http_get");
+        auto *fn = getOrPanic("liva_http_get");
         auto *result = builder_->CreateCall(fn, {urlArg}, "http.get.raw");
         // Wrap in Optional<string>
         auto *curFunc = builder_->GetInsertBlock()->getParent();
@@ -1203,7 +1203,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *urlArg = visit(node->getArgs()[0].get());
         auto *bodyArg = visit(node->getArgs()[1].get());
         if (!urlArg || !bodyArg) return nullptr;
-        auto *fn = module_->getFunction("liva_http_post");
+        auto *fn = getOrPanic("liva_http_post");
         auto *result = builder_->CreateCall(fn, {urlArg, bodyArg}, "http.post.raw");
         // Wrap in Optional<string>
         auto *curFunc = builder_->GetInsertBlock()->getParent();
@@ -1221,7 +1221,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
     // Handle readLine() built-in
     if (funcName == "readLine") {
-        auto *fn = module_->getFunction("liva_read_line");
+        auto *fn = getOrPanic("liva_read_line");
         return builder_->CreateCall(fn, {}, "readline");
     }
 
@@ -1267,18 +1267,18 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     // emitToString inline
                     if (argVal->getType()->isIntegerTy(32)) {
                         argVal = builder_->CreateCall(
-                            module_->getFunction("liva_i32_to_str"), {argVal}, "fmt.i32");
+                            getOrPanic("liva_i32_to_str"), {argVal}, "fmt.i32");
                     } else if (argVal->getType()->isIntegerTy(64)) {
                         argVal = builder_->CreateCall(
-                            module_->getFunction("liva_i64_to_str"), {argVal}, "fmt.i64");
+                            getOrPanic("liva_i64_to_str"), {argVal}, "fmt.i64");
                     } else if (argVal->getType()->isDoubleTy()) {
                         argVal = builder_->CreateCall(
-                            module_->getFunction("liva_f64_to_str"), {argVal}, "fmt.f64");
+                            getOrPanic("liva_f64_to_str"), {argVal}, "fmt.f64");
                     } else if (argVal->getType()->isIntegerTy(1)) {
                         auto *ext = builder_->CreateZExt(argVal,
                             llvm::Type::getInt8Ty(*context_));
                         argVal = builder_->CreateCall(
-                            module_->getFunction("liva_bool_to_str"), {ext}, "fmt.bool");
+                            getOrPanic("liva_bool_to_str"), {ext}, "fmt.bool");
                     }
                     // ptr (string) → use directly
                     parts.push_back(argVal);
@@ -1291,7 +1291,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // Concatenate all parts with liva_str_concat
         if (parts.empty()) return fmtArg;
         llvm::Value *result = parts[0];
-        auto *concatFn = module_->getFunction("liva_str_concat");
+        auto *concatFn = getOrPanic("liva_str_concat");
         for (size_t i = 1; i < parts.size(); ++i) {
             result = builder_->CreateCall(concatFn, {result, parts[i]}, "fmt.concat");
         }
@@ -1909,7 +1909,7 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         node->getMember() == "length") {
         auto *obj = visit(node->getObject());
         if (!obj) return nullptr;
-        auto *lenFn = module_->getFunction("liva_str_length");
+        auto *lenFn = getOrPanic("liva_str_length");
         return builder_->CreateCall(lenFn, {obj});
     }
 
@@ -2472,7 +2472,7 @@ void IRGen::emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal) {
     auto *okBB = llvm::BasicBlock::Create(*context_, "bounds.ok", func);
     builder_->CreateCondBr(cmp, panicBB, okBB);
     builder_->SetInsertPoint(panicBB);
-    auto *panicFn = module_->getFunction("liva_panic");
+    auto *panicFn = getOrPanic("liva_panic");
     auto *msg = builder_->CreateGlobalString("index out of bounds");
     builder_->CreateCall(panicFn, {msg});
     builder_->CreateUnreachable();
