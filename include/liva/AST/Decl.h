@@ -30,6 +30,7 @@ struct ParamDecl {
     bool isRef = false;
     bool isMutRef = false;
     bool isSelf = false;
+    bool isVariadic = false;
     SourceLocation location;
     std::unique_ptr<Expr> defaultValue;  // optional: func foo(x: i32 = 10)
     bool hasDefault() const { return defaultValue != nullptr; }

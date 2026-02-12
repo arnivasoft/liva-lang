@@ -190,6 +190,11 @@ ParamDecl Parser::parseParamDecl() {
 
     param.type = parseType();
 
+    // Check for variadic: name: Type...
+    if (match(TokenKind::ellipsis)) {
+        param.isVariadic = true;
+    }
+
     // Optional default value: name: Type = expr
     if (match(TokenKind::equal)) {
         param.defaultValue = parseExpression();

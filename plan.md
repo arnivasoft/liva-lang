@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest
-- **Test:** 424/424 gecen test (lexer:33, parser:79, sema:291, type:12, ownership:9)
+- **Test:** 447/447 gecen test (lexer:34, parser:82, sema:310, type:12, ownership:9)
 
 ---
 
@@ -58,13 +58,13 @@ kaynak kod (.liva)
 - GoogleTest entegrasyonu
 - Dizin yapisi: include/, src/, tests/, examples/
 
-### M1: Lexer [TAMAMLANDI] - 33 test
-- 102 token turu (anahtar kelimeler, operatorler, literaller, noktalamalar)
+### M1: Lexer [TAMAMLANDI] - 34 test
+- 103 token turu (anahtar kelimeler, operatorler, literaller, noktalamalar)
 - Tam token listesi:
   - **Ozel:** `eof`, `identifier`, `integer_literal`, `float_literal`, `string_literal`, `char_literal`, `bool_literal`, `newline`, `string_interp_begin`, `string_interp_mid`, `string_interp_end`
   - **Anahtar kelimeler (32):** `func`, `struct`, `enum`, `impl`, `protocol`, `import`, `case`, `let`, `var`, `const`, `if`, `else`, `while`, `for`, `in`, `break`, `continue`, `return`, `match`, `as`, `pub`, `self`, `ref`, `mut`, `true`, `false`, `nil`, `where`, `async`, `await`, `try`, `type`
   - **Tip anahtar kelimeleri (13):** `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `string`, `void`
-  - **Operatorler & Noktalamalar (46):** `( ) { } [ ] , ; : . .. -> => :: + - * / % == != < <= > >= && || ! & | ^ ~ << >> = += -= *= /= %= @ # ? ?? ?. _`
+  - **Operatorler & Noktalamalar (47):** `( ) { } [ ] , ; : . .. ... -> => :: + - * / % == != < <= > >= && || ! & | ^ ~ << >> = += -= *= /= %= @ # ? ?? ?. _`
 - Hex (0x), binary (0b), octal (0o) sayi literal destegi
 - Satir ve blok yorum destegi
 - String interpolasyon tokenleri (`\(expr)`)
@@ -580,9 +580,37 @@ kaynak kod (.liva)
 - Primitive tipler etkilenmez (Kind::Named kontrolu ONCE yapilir)
 - `err_binary_op_on_struct` diagnostigi (conformance yoksa)
 
+### F6: Custom Iterator Protocol [TAMAMLANDI] - 7 sema test
+- `protocol Iter { func next(mut self) -> T? }` — kullanici tanimli iterator
+- `for item in obj { ... }` — Iter protokolunu uygulayan tipler icin for-in destegi
+- Sema: iteratorElementTypes_ map ile element tipi takibi
+- IRGen: Iter.next() cagrisi ile loop codegen (nil check ile cikis)
+- Desteklenen tipler: struct'lar Iter protokolunu implemente ederek for-in'de kullanilabilir
+
+### F7: Variadic Fonksiyonlar [TAMAMLANDI] - 10 test (1 lexer, 2 parser, 7 sema)
+- `func sum(values: i32...) -> i32` — degisken sayida arguman destegi
+- Lexer: `...` (ellipsis) token eklendi
+- AST: ParamDecl.isVariadic flag
+- Parser: parseParamDecl'de type'dan sonra `...` kontrolu
+- Sema: variadic validasyon (son parametre olmali, birden fazla olamaz)
+- Sema: variadic parametre scope'da `[T]` (DynArray) olarak kayit edilir
+- IRGen: variadic param → getDynArrayStructTy() `{ptr, i64, i64}`
+- IRGen: call site'da argUmanlar stack-allocated array'e yazilip DynArray struct olusturulur
+- 0 arguman → bos DynArray, N arguman → N elemanli DynArray
+- Diagnostikler: `err_variadic_not_last`, `err_multiple_variadic`
+
+### F8: Nested Pattern Matching [TAMAMLANDI] - 6 test (1 parser, 5 sema)
+- `case Outer.Some(Inner.Val(n)) =>` — ic ice enum pattern esleme
+- Parser: degisiklik gereksiz (mevcut token birlestirme nested parenleri otomatik yakalar)
+- Sema: extractPatternBindings() — depth-aware paren matching ile recursive leaf binding cikarimi
+- IRGen: parseMatchPattern() — depth-aware paren esleme + top-level comma split + recursive sub-pattern
+- IRGen: emitNestedPatternMatch() — ic enum tag kontrolu + ic payload binding cikarimi
+- Arbitrary depth nesting desteklenir (A(B(C(x))) gibi)
+- Payload ve simple (non-payload) enum'lar ic ice kullanilabilir
+
 ---
 
-## Diagnostik Envanterleri (67 tanimli)
+## Diagnostik Envanterleri (69 tanimli)
 
 ### Lexer Hatalari (6)
 - `err_unexpected_character`, `err_unterminated_string`, `err_unterminated_block_comment`
@@ -636,6 +664,9 @@ kaynak kod (.liva)
 ### Sema - Drop (1)
 - `err_drop_method_signature`
 
+### Sema - Variadic (2)
+- `err_variadic_not_last`, `err_multiple_variadic`
+
 ### Sema - Diger (3)
 - `err_main_not_found`, `err_break_outside_loop`, `err_continue_outside_loop`
 
@@ -652,12 +683,12 @@ kaynak kod (.liva)
 
 | Test Dosyasi | Sayi | Kapsam |
 |-------------|------|--------|
-| `tests/unit/LexerTest.cpp` | 33 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings, hata yollari, bitwise tokenlar |
-| `tests/unit/ParserTest.cpp` | 79 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const, multi-bound, guard clause, hata yollari |
-| `tests/unit/SemaTest.cpp` | 291 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const, multi-bound, stdlib builtins, drop trait, guard clause, operator overloading |
+| `tests/unit/LexerTest.cpp` | 34 | Token turleri, literaller, yorumlar, konum, string interpolasyon, optional chain, multi-line strings, hata yollari, bitwise tokenlar, ellipsis |
+| `tests/unit/ParserTest.cpp` | 82 | Bildirimler, ifadeler, generics, optional, closure, protocol, import, trait bounds, where clause, optional chain, for-in collections, ternary, type aliases, tuples, async/await, const, multi-bound, guard clause, variadic, nested pattern, hata yollari |
+| `tests/unit/SemaTest.cpp` | 310 | Struct, enum, match, string, generics, dyn array, optional, closure, protocol, result, module, trait bounds, where clause, ref expr, optional chain, math, map/set, I/O, for-in collections, string methods, type conversions, stdlib, higher-order, reduce/enum methods/while-let, practical, syntax, ternary, type aliases, tuples, capture-by-ref, ownership-cleanup, associated types, async/await, const, multi-bound, stdlib builtins, drop trait, guard clause, operator overloading, custom iterators, variadic functions, nested pattern matching |
 | `tests/unit/TypeTest.cpp` | 12 | Tip uyumlulugu, donusum, bit genisligi |
 | `tests/unit/OwnershipTest.cpp` | 9 | Move, borrow, use-after-move, lifetime analysis |
-| **Toplam** | **424** | |
+| **Toplam** | **447** | |
 
 ---
 
@@ -723,6 +754,9 @@ clang output.ll -o output.exe
 21. ~~**Guard Clause (F3)**~~ - TAMAMLANDI (match arm'larinda where kosulu)
 22. ~~**Drop Trait (F4)**~~ - TAMAMLANDI (protocol Drop, otomatik scope cleanup)
 23. ~~**Operator Overloading (F5)**~~ - TAMAMLANDI (protocol-tabanli Add/Sub/Mul/Div/Mod/Eq/Less)
+24. ~~**Custom Iterator (F6)**~~ - TAMAMLANDI (Iter protocol, next(mut self) -> T? ile for-in)
+25. ~~**Variadic Fonksiyonlar (F7)**~~ - TAMAMLANDI (T... sozdizimi, DynArray packing)
+26. ~~**Nested Pattern Matching (F8)**~~ - TAMAMLANDI (recursive pattern esleme, emitNestedPatternMatch)
 
 ---
 
@@ -737,9 +771,9 @@ clang output.ll -o output.exe
 | F3 | **Guard Clause (Pattern)** | `case .Circle(r) where r > 0 =>` match arm koruma ifadesi | Orta | [TAMAMLANDI] |
 | F4 | **Drop Trait / Destructor** | Kullanici tanimli kaynak temizleme, scope cikisinda otomatik cagrilan `drop(self)` | Yuksek | [TAMAMLANDI] |
 | F5 | **Operator Overloading** | `+`, `==`, `<` vb. operatorleri struct/enum icin ozellestirme (`protocol Add { ... }`) | Orta | [TAMAMLANDI] |
-| F6 | **Custom Iterator** | `Iterator` protokolu, `next() -> T?` ile `for-in` genisletme | Orta |
-| F7 | **Variadic Fonksiyonlar** | Degisken sayida arguman destegi (`func print(args: T...)`) | Orta |
-| F8 | **Nested Pattern Matching** | `match` icinde ic ice pattern esleme (`case .Some(.Circle(r)) =>`) | Orta |
+| F6 | **Custom Iterator** | `Iterator` protokolu, `next() -> T?` ile `for-in` genisletme | Orta | [TAMAMLANDI] |
+| F7 | **Variadic Fonksiyonlar** | Degisken sayida arguman destegi (`func sum(values: i32...)`) | Orta | [TAMAMLANDI] |
+| F8 | **Nested Pattern Matching** | `match` icinde ic ice pattern esleme (`case .Some(.Circle(r)) =>`) | Orta | [TAMAMLANDI] |
 
 ### Altyapi
 

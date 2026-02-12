@@ -263,10 +263,15 @@ private:
         std::vector<std::string> bindings;
         int tag = -1;
         bool isWildcard = false;
+        std::vector<PatternInfo> nestedPatterns; // one per binding slot
     };
 
     PatternInfo parseMatchPattern(const std::string &pattern,
                                    const std::string &subjectEnumType);
+
+    /// Emit nested pattern check: verify inner enum tag and extract bindings
+    void emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nested,
+                                llvm::BasicBlock *failBB, llvm::Function *func);
 
     llvm::Value *emitEnumCaseConstruct(const std::string &enumName,
                                         const std::string &caseName, int tag,

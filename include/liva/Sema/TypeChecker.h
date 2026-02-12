@@ -107,12 +107,21 @@ private:
     /// Resolve a type through aliases (returns target if alias, else original)
     const TypeRepr *resolveAlias(const TypeRepr *type) const;
 
+    /// Extract leaf bindings from a pattern string (supports nested patterns)
+    void extractPatternBindings(const std::string &pattern);
+
     /// Async function tracking
     bool currentIsAsync_ = false;
     std::set<std::string> asyncFuncNames_;
 
+    /// Iterator element types: typeName → element TypeRepr*
+    std::unordered_map<std::string, const TypeRepr *> iteratorElementTypes_;
+
     /// File-typed variable tracking
     std::set<std::string> fileVariables_;
+
+    /// Owned types for variadic param DynArray wrappers
+    std::vector<std::unique_ptr<TypeRepr>> variadicArrayTypes_;
 
     /// Compile-time constant evaluation
     struct ConstValue {

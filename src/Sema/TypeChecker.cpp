@@ -175,12 +175,42 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         }
     }
 
+    // Validate variadic parameters
+    bool seenVariadic = false;
+    for (size_t pi = 0; pi < node->getParams().size(); ++pi) {
+        auto &param = node->getParams()[pi];
+        if (param.isVariadic) {
+            if (seenVariadic) {
+                diag_.report(param.location, DiagID::err_multiple_variadic, param.name);
+            }
+            seenVariadic = true;
+            // Check it's the last non-self param
+            bool isLast = true;
+            for (size_t pj = pi + 1; pj < node->getParams().size(); ++pj) {
+                if (!node->getParams()[pj].isSelf) {
+                    isLast = false;
+                    break;
+                }
+            }
+            if (!isLast) {
+                diag_.report(param.location, DiagID::err_variadic_not_last, param.name);
+            }
+        }
+    }
+
     // Register parameters
     for (auto &param : node->getParams()) {
         Symbol sym;
         sym.name = param.name;
         sym.kind = Symbol::Kind::Parameter;
-        sym.type = param.type.get();
+        if (param.isVariadic && param.type) {
+            // Variadic param: type in scope is [T] (DynArray)
+            auto arrType = std::make_unique<ArrayTypeRepr>(cloneTypeRepr(param.type.get()), -1);
+            sym.type = arrType.get();
+            variadicArrayTypes_.push_back(std::move(arrType));
+        } else {
+            sym.type = param.type.get();
+        }
         sym.isMutable = param.isMutRef;
         scopes_.declare(sym.name, sym);
     }
@@ -388,6 +418,20 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
             }
             // Record successful conformance
             protocolConformances_[node->getProtocolName()].push_back(node->getTypeName());
+
+            // Iter protocol: extract element type from next() -> T?
+            if (node->getProtocolName() == "Iter") {
+                for (auto &method : node->getMethods()) {
+                    if (method->getName() == "next") {
+                        auto *retType = method->getReturnType();
+                        if (retType && retType->getKind() == TypeRepr::Kind::Optional) {
+                            auto *optType = static_cast<const OptionalTypeRepr *>(retType);
+                            iteratorElementTypes_[node->getTypeName()] = optType->getInner();
+                        }
+                        break;
+                    }
+                }
+            }
 
             // Drop protocol validation
             if (node->getProtocolName() == "Drop") {
@@ -625,6 +669,23 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                     sym.type = genType->getTypeArgs()[0].get();
                 } else if (genType->getBaseName() == "Set" && genType->getTypeArgs().size() >= 1) {
                     sym.type = genType->getTypeArgs()[0].get();
+                }
+            }
+            // Custom Iterator (Iter protocol): Named type → check conformance
+            else if (iterableType->getKind() == TypeRepr::Kind::Named) {
+                auto *namedType = static_cast<const NamedTypeRepr *>(iterableType);
+                const std::string &typeName = namedType->getName();
+                auto confIt = protocolConformances_.find("Iter");
+                if (confIt != protocolConformances_.end()) {
+                    for (auto &t : confIt->second) {
+                        if (t == typeName) {
+                            auto elemIt = iteratorElementTypes_.find(typeName);
+                            if (elemIt != iteratorElementTypes_.end()) {
+                                sym.type = elemIt->second;
+                            }
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -1412,6 +1473,59 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
     return expr->getResolvedType();
 }
 
+void TypeChecker::extractPatternBindings(const std::string &pattern) {
+    auto parenPos = pattern.find('(');
+    if (parenPos == std::string::npos) return;
+
+    // Find matching closing paren (depth-aware for nested patterns)
+    int depth = 0;
+    size_t closePos = std::string::npos;
+    for (size_t i = parenPos; i < pattern.size(); ++i) {
+        if (pattern[i] == '(') depth++;
+        else if (pattern[i] == ')') {
+            depth--;
+            if (depth == 0) { closePos = i; break; }
+        }
+    }
+    if (closePos == std::string::npos) return;
+
+    auto innerStr = pattern.substr(parenPos + 1, closePos - parenPos - 1);
+
+    // Split by top-level commas (respecting nested parens)
+    std::vector<std::string> slots;
+    int slotDepth = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < innerStr.size(); ++i) {
+        if (innerStr[i] == '(') slotDepth++;
+        else if (innerStr[i] == ')') slotDepth--;
+        else if (innerStr[i] == ',' && slotDepth == 0) {
+            slots.push_back(innerStr.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    if (start < innerStr.size())
+        slots.push_back(innerStr.substr(start));
+
+    for (auto &slot : slots) {
+        // Trim whitespace
+        size_t b = slot.find_first_not_of(" \t");
+        if (b == std::string::npos) continue;
+        size_t e = slot.find_last_not_of(" \t");
+        auto trimmed = slot.substr(b, e - b + 1);
+
+        if (trimmed.find('.') != std::string::npos) {
+            // Nested enum pattern — recursively extract leaf bindings
+            extractPatternBindings(trimmed);
+        } else if (!trimmed.empty()) {
+            Symbol sym;
+            sym.name = trimmed;
+            sym.kind = Symbol::Kind::Variable;
+            sym.isMutable = false;
+            scopes_.declare(trimmed, sym);
+        }
+    }
+}
+
 void TypeChecker::visitMatchExpr(MatchExpr *node) {
     visit(const_cast<Expr *>(node->getSubject()));
 
@@ -1458,39 +1572,9 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
         }
 
         if (arm.body) {
-            // Extract bindings from pattern: Shape.Circle(r) -> r
+            // Extract bindings from pattern (supports nested patterns)
             scopes_.pushScope();
-            auto parenPos = arm.pattern.find('(');
-            if (parenPos != std::string::npos) {
-                auto closePos = arm.pattern.find(')', parenPos);
-                if (closePos != std::string::npos) {
-                    auto bindingStr = arm.pattern.substr(parenPos + 1,
-                                                          closePos - parenPos - 1);
-                    size_t start = 0;
-                    while (start < bindingStr.size()) {
-                        auto commaPos = bindingStr.find(',', start);
-                        std::string binding;
-                        if (commaPos == std::string::npos) {
-                            binding = bindingStr.substr(start);
-                            start = bindingStr.size();
-                        } else {
-                            binding = bindingStr.substr(start, commaPos - start);
-                            start = commaPos + 1;
-                        }
-                        // Trim whitespace
-                        size_t b = binding.find_first_not_of(" \t");
-                        size_t e = binding.find_last_not_of(" \t");
-                        if (b != std::string::npos) {
-                            auto name = binding.substr(b, e - b + 1);
-                            Symbol sym;
-                            sym.name = name;
-                            sym.kind = Symbol::Kind::Variable;
-                            sym.isMutable = false;
-                            scopes_.declare(name, sym);
-                        }
-                    }
-                }
-            }
+            extractPatternBindings(arm.pattern);
             if (arm.guard) {
                 visit(arm.guard.get());
             }

@@ -1601,6 +1601,79 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return nullptr;
     }
 
+    // Check if function has variadic param
+    auto fdIt = funcDecls_.find(funcName);
+    bool hasVariadic = false;
+    size_t variadicIdx = 0;
+    llvm::Type *variadicElemType = nullptr;
+    if (fdIt != funcDecls_.end()) {
+        const auto &params = fdIt->second->getParams();
+        for (size_t vi = 0; vi < params.size(); ++vi) {
+            if (params[vi].isVariadic) {
+                hasVariadic = true;
+                variadicIdx = vi;
+                variadicElemType = toLLVMType(params[vi].type.get());
+                break;
+            }
+        }
+    }
+
+    if (hasVariadic) {
+        // Normal args (before variadic)
+        std::vector<llvm::Value *> args;
+        for (size_t ai = 0; ai < variadicIdx && ai < node->getArgs().size(); ++ai) {
+            auto *val = visit(node->getArgs()[ai].get());
+            if (!val) return nullptr;
+            args.push_back(val);
+        }
+
+        // Pack variadic args into DynArray
+        size_t numVariadicArgs = node->getArgs().size() > variadicIdx
+            ? node->getArgs().size() - variadicIdx : 0;
+
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *structTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(curFunc, "varargs.da", structTy);
+
+        if (numVariadicArgs > 0) {
+            // Stack-allocate element array
+            auto *arrType = llvm::ArrayType::get(variadicElemType, numVariadicArgs);
+            auto *elemArray = createEntryBlockAlloca(curFunc, "varargs.elems", arrType);
+
+            for (size_t ai = 0; ai < numVariadicArgs; ++ai) {
+                auto *val = visit(node->getArgs()[variadicIdx + ai].get());
+                if (!val) return nullptr;
+                auto *gep = builder_->CreateConstInBoundsGEP2_64(
+                    arrType, elemArray, 0, ai, "vararg." + std::to_string(ai));
+                builder_->CreateStore(val, gep);
+            }
+
+            // Build DynArray struct
+            auto *dataField = builder_->CreateStructGEP(structTy, daAlloca, 0);
+            builder_->CreateStore(elemArray, dataField);
+            auto *lenField = builder_->CreateStructGEP(structTy, daAlloca, 1);
+            builder_->CreateStore(builder_->getInt64(numVariadicArgs), lenField);
+            auto *capField = builder_->CreateStructGEP(structTy, daAlloca, 2);
+            builder_->CreateStore(builder_->getInt64(numVariadicArgs), capField);
+        } else {
+            // Empty DynArray: {null, 0, 0}
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            auto *dataField = builder_->CreateStructGEP(structTy, daAlloca, 0);
+            builder_->CreateStore(llvm::ConstantPointerNull::get(ptrTy), dataField);
+            auto *lenField = builder_->CreateStructGEP(structTy, daAlloca, 1);
+            builder_->CreateStore(builder_->getInt64(0), lenField);
+            auto *capField = builder_->CreateStructGEP(structTy, daAlloca, 2);
+            builder_->CreateStore(builder_->getInt64(0), capField);
+        }
+
+        auto *daVal = builder_->CreateLoad(structTy, daAlloca, "varargs.val");
+        args.push_back(daVal);
+
+        if (callee->getReturnType()->isVoidTy())
+            return builder_->CreateCall(callee, args);
+        return builder_->CreateCall(callee, args, "calltmp");
+    }
+
     std::vector<llvm::Value *> args;
     for (auto &arg : node->getArgs()) {
         auto *val = visit(arg.get());
@@ -1611,9 +1684,9 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
     // Fill in default arguments for missing params
     if (args.size() < callee->arg_size()) {
-        auto fdIt = funcDecls_.find(funcName);
-        if (fdIt != funcDecls_.end()) {
-            const auto &params = fdIt->second->getParams();
+        auto fdIt2 = funcDecls_.find(funcName);
+        if (fdIt2 != funcDecls_.end()) {
+            const auto &params = fdIt2->second->getParams();
             for (size_t i = args.size(); i < params.size(); ++i) {
                 if (params[i].hasDefault()) {
                     auto *defVal = visit(const_cast<Expr *>(params[i].defaultValue.get()));
@@ -2178,14 +2251,19 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             for (size_t b = 0; b < info.pat.bindings.size() && b < payloadTypes.size(); ++b) {
                 auto *fieldPtr = builder_->CreateConstInBoundsGEP1_64(
                     builder_->getInt8Ty(), payloadPtr, offset,
-                    "bind." + info.pat.bindings[b]);
-                auto *val = builder_->CreateLoad(payloadTypes[b], fieldPtr,
-                                                  info.pat.bindings[b]);
-                // Create alloca for binding
-                auto *bindAlloca = createEntryBlockAlloca(func, info.pat.bindings[b],
-                                                           payloadTypes[b]);
-                builder_->CreateStore(val, bindAlloca);
-                namedValues_[info.pat.bindings[b]] = bindAlloca;
+                    "bind." + std::to_string(b));
+
+                if (b < info.pat.nestedPatterns.size() && info.pat.nestedPatterns[b].tag >= 0) {
+                    // Nested enum pattern: check inner tag and extract inner bindings
+                    emitNestedPatternMatch(fieldPtr, info.pat.nestedPatterns[b], defaultBB, func);
+                } else if (!info.pat.bindings[b].empty()) {
+                    auto *val = builder_->CreateLoad(payloadTypes[b], fieldPtr,
+                                                      info.pat.bindings[b]);
+                    auto *bindAlloca = createEntryBlockAlloca(func, info.pat.bindings[b],
+                                                               payloadTypes[b]);
+                    builder_->CreateStore(val, bindAlloca);
+                    namedValues_[info.pat.bindings[b]] = bindAlloca;
+                }
                 offset += dl.getTypeAllocSize(payloadTypes[b]);
             }
         }
@@ -2220,6 +2298,32 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     return nullptr;
 }
 
+/// Split a string by top-level commas (respecting nested parentheses)
+static std::vector<std::string> splitTopLevelCommas(const std::string &s) {
+    std::vector<std::string> result;
+    int depth = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '(') depth++;
+        else if (s[i] == ')') depth--;
+        else if (s[i] == ',' && depth == 0) {
+            result.push_back(s.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    if (start < s.size())
+        result.push_back(s.substr(start));
+    return result;
+}
+
+/// Trim whitespace from both ends
+static std::string trimStr(const std::string &s) {
+    size_t b = s.find_first_not_of(" \t");
+    if (b == std::string::npos) return "";
+    size_t e = s.find_last_not_of(" \t");
+    return s.substr(b, e - b + 1);
+}
+
 IRGen::PatternInfo IRGen::parseMatchPattern(const std::string &pattern,
                                              const std::string &subjectEnumType) {
     PatternInfo info;
@@ -2240,27 +2344,30 @@ IRGen::PatternInfo IRGen::parseMatchPattern(const std::string &pattern,
         auto parenPos = rest.find('(');
         if (parenPos != std::string::npos) {
             info.caseName = rest.substr(0, parenPos);
-            // Extract bindings between ( and )
-            auto closePos = rest.find(')', parenPos);
+            // Find matching closing paren (depth-aware for nested patterns)
+            int depth = 0;
+            size_t closePos = std::string::npos;
+            for (size_t ci = parenPos; ci < rest.size(); ++ci) {
+                if (rest[ci] == '(') depth++;
+                else if (rest[ci] == ')') {
+                    depth--;
+                    if (depth == 0) { closePos = ci; break; }
+                }
+            }
             if (closePos != std::string::npos) {
-                auto bindingStr = rest.substr(parenPos + 1, closePos - parenPos - 1);
-                // Split by comma
-                size_t start = 0;
-                while (start < bindingStr.size()) {
-                    auto commaPos = bindingStr.find(',', start);
-                    std::string binding;
-                    if (commaPos == std::string::npos) {
-                        binding = bindingStr.substr(start);
-                        start = bindingStr.size();
+                auto innerStr = rest.substr(parenPos + 1, closePos - parenPos - 1);
+                // Split by top-level commas (respecting nested parens)
+                auto slots = splitTopLevelCommas(innerStr);
+                for (auto &slot : slots) {
+                    auto trimmed = trimStr(slot);
+                    if (trimmed.find('.') != std::string::npos) {
+                        // Nested enum pattern — recurse
+                        info.bindings.push_back(""); // placeholder
+                        info.nestedPatterns.push_back(parseMatchPattern(trimmed, ""));
                     } else {
-                        binding = bindingStr.substr(start, commaPos - start);
-                        start = commaPos + 1;
+                        info.bindings.push_back(trimmed);
+                        info.nestedPatterns.push_back(PatternInfo{}); // empty (tag=-1)
                     }
-                    // Trim whitespace
-                    size_t b = binding.find_first_not_of(" \t");
-                    size_t e = binding.find_last_not_of(" \t");
-                    if (b != std::string::npos)
-                        info.bindings.push_back(binding.substr(b, e - b + 1));
                 }
             }
         } else {
@@ -2299,6 +2406,59 @@ IRGen::PatternInfo IRGen::parseMatchPattern(const std::string &pattern,
     }
 
     return info;
+}
+
+void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nested,
+                                    llvm::BasicBlock *failBB, llvm::Function *func) {
+    auto etIt = enumTypes_.find(nested.enumName);
+    if (etIt != enumTypes_.end()) {
+        // Payload enum: struct {i32 tag, [payload bytes]}
+        auto *enumStructTy = etIt->second;
+        auto *innerTagPtr = builder_->CreateStructGEP(enumStructTy, fieldPtr, 0, "nested.tag.ptr");
+        auto *innerTag = builder_->CreateLoad(builder_->getInt32Ty(), innerTagPtr, "nested.tag");
+
+        auto *cmp = builder_->CreateICmpEQ(innerTag, builder_->getInt32(nested.tag), "nested.cmp");
+        auto *matchBB = llvm::BasicBlock::Create(*context_, "nested.match", func);
+        builder_->CreateCondBr(cmp, matchBB, failBB);
+        builder_->SetInsertPoint(matchBB);
+
+        // Extract inner bindings
+        if (!nested.bindings.empty()) {
+            auto *innerPayloadPtr = builder_->CreateStructGEP(enumStructTy, fieldPtr, 1, "nested.payload");
+            auto cpIt = enumCasePayloads_.find(nested.enumName);
+            if (cpIt != enumCasePayloads_.end()) {
+                auto ccIt = cpIt->second.find(nested.caseName);
+                if (ccIt != cpIt->second.end()) {
+                    auto &innerPayloadTypes = ccIt->second;
+                    const llvm::DataLayout &dl = module_->getDataLayout();
+                    uint64_t offset = 0;
+                    for (size_t b = 0; b < nested.bindings.size() && b < innerPayloadTypes.size(); ++b) {
+                        auto *innerFieldPtr = builder_->CreateConstInBoundsGEP1_64(
+                            builder_->getInt8Ty(), innerPayloadPtr, offset,
+                            "nested.bind." + std::to_string(b));
+
+                        if (b < nested.nestedPatterns.size() && nested.nestedPatterns[b].tag >= 0) {
+                            // Deeper nesting — recurse
+                            emitNestedPatternMatch(innerFieldPtr, nested.nestedPatterns[b], failBB, func);
+                        } else if (!nested.bindings[b].empty()) {
+                            auto *val = builder_->CreateLoad(innerPayloadTypes[b], innerFieldPtr, nested.bindings[b]);
+                            auto *bindAlloca = createEntryBlockAlloca(func, nested.bindings[b], innerPayloadTypes[b]);
+                            builder_->CreateStore(val, bindAlloca);
+                            namedValues_[nested.bindings[b]] = bindAlloca;
+                        }
+                        offset += dl.getTypeAllocSize(innerPayloadTypes[b]);
+                    }
+                }
+            }
+        }
+    } else {
+        // Simple enum (no payload): just an i32 tag value
+        auto *innerTag = builder_->CreateLoad(builder_->getInt32Ty(), fieldPtr, "nested.tag");
+        auto *cmp = builder_->CreateICmpEQ(innerTag, builder_->getInt32(nested.tag), "nested.cmp");
+        auto *matchBB = llvm::BasicBlock::Create(*context_, "nested.match", func);
+        builder_->CreateCondBr(cmp, matchBB, failBB);
+        builder_->SetInsertPoint(matchBB);
+    }
 }
 
 void IRGen::emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal) {

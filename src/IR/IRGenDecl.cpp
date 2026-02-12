@@ -69,7 +69,9 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     // Build function type
     std::vector<llvm::Type *> paramTypes;
     for (auto &param : node->getParams()) {
-        if (param.isRef) {
+        if (param.isVariadic) {
+            paramTypes.push_back(getDynArrayStructTy());
+        } else if (param.isRef) {
             paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
         } else {
             paramTypes.push_back(toLLVMType(param.type.get()));
@@ -262,6 +264,16 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         builder_->CreateStore(&arg, alloca);
         namedValues_[std::string(arg.getName())] = alloca;
         ++i;
+    }
+
+    // Register variadic params as DynArray variables
+    for (auto &param : node->getParams()) {
+        if (param.isVariadic && param.type) {
+            auto *elemType = toLLVMType(param.type.get());
+            auto &DL = module_->getDataLayout();
+            uint64_t elemSize = DL.getTypeAllocSize(elemType);
+            varDynArrayTypes_[param.name] = {elemType, elemSize};
+        }
     }
 
     // Populate varRefTypes_ for ref parameters

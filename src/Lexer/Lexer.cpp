@@ -186,8 +186,11 @@ Token Lexer::nextToken() {
         return makeToken(TokenKind::colon, startOffset);
 
     case '.':
-        if (match('.'))
+        if (match('.')) {
+            if (match('.'))
+                return makeToken(TokenKind::ellipsis, startOffset);
             return makeToken(TokenKind::dotdot, startOffset);
+        }
         return makeToken(TokenKind::dot, startOffset);
 
     case '+':

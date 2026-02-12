@@ -1123,3 +1123,69 @@ TEST_F(ParserTest, MatchExprWithGuardClause) {
     // Third arm (wildcard) has no guard
     EXPECT_EQ(matchExpr->getArms()[2].guard, nullptr);
 }
+
+// === F7: Variadic Parameters ===
+
+TEST_F(ParserTest, VariadicParam) {
+    auto result = parse(R"--(
+        func f(x: i32...) {
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getParams().size(), 1);
+    EXPECT_EQ(func->getParams()[0].name, "x");
+    EXPECT_TRUE(func->getParams()[0].isVariadic);
+}
+
+TEST_F(ParserTest, VariadicParamWithNormal) {
+    auto result = parse(R"--(
+        func f(a: i32, b: string...) {
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getParams().size(), 2);
+    EXPECT_EQ(func->getParams()[0].name, "a");
+    EXPECT_FALSE(func->getParams()[0].isVariadic);
+    EXPECT_EQ(func->getParams()[1].name, "b");
+    EXPECT_TRUE(func->getParams()[1].isVariadic);
+}
+
+// === F8: Nested Pattern Matching ===
+
+TEST_F(ParserTest, NestedPatternMatch) {
+    auto result = parse(R"--(
+        enum Inner {
+            case Val(i32)
+            case None
+        }
+        enum Outer {
+            case Some(Inner)
+            case Empty
+        }
+        func main() {
+            let x = Outer.Some(Inner.Val(42))
+            match x {
+                Outer.Some(Inner.Val(n)) => println(n)
+                Outer.Some(Inner.None) => println(0)
+                Outer.Empty => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    // Verify the match expression parsed correctly with nested pattern
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[2].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 3);
+    // First arm pattern should contain nested pattern string
+    EXPECT_NE(matchExpr->getArms()[0].pattern.find("Inner.Val"), std::string::npos);
+}

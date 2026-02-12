@@ -398,3 +398,12 @@ TEST_F(LexerTest, MultiLineStringEmpty) {
     expectToken(tokens[0], TokenKind::string_literal);
     EXPECT_EQ(tokens[0].getStringValue(), "");
 }
+
+// === F7: Variadic / Ellipsis Token ===
+
+TEST_F(LexerTest, EllipsisToken) {
+    auto tokens = lex(".. ...");
+    ASSERT_GE(tokens.size(), 2);
+    expectToken(tokens[0], TokenKind::dotdot);
+    expectToken(tokens[1], TokenKind::ellipsis);
+}

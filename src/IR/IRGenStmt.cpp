@@ -533,6 +533,50 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             builder_->SetInsertPoint(exitBB);
             return nullptr;
         }
+
+        // === Custom Iterator (Iter protocol) iteration ===
+        auto structIt = varStructTypes_.find(iterName);
+        if (structIt != varStructTypes_.end()) {
+            std::string nextFn = structIt->second + "_next";
+            auto *nextFunc = module_->getFunction(nextFn);
+            if (nextFunc) {
+                auto *iterAlloca = namedValues_[iterName];
+
+                // next() returns Optional<T> = {i1, T}
+                auto *retType = nextFunc->getReturnType();
+                auto *optStructTy = llvm::cast<llvm::StructType>(retType);
+                auto *elemType = optStructTy->getElementType(1);
+
+                auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
+                namedValues_[node->getVarName()] = loopVar;
+
+                auto *condBB = llvm::BasicBlock::Create(*context_, "iter.cond", func);
+                auto *bodyBB = llvm::BasicBlock::Create(*context_, "iter.body", func);
+                auto *exitBB = llvm::BasicBlock::Create(*context_, "iter.exit", func);
+
+                builder_->CreateBr(condBB);
+
+                // Condition: call next(), check hasValue
+                builder_->SetInsertPoint(condBB);
+                auto *optVal = builder_->CreateCall(nextFunc, {iterAlloca}, "iter.next");
+                auto *hasVal = builder_->CreateExtractValue(optVal, {0}, "iter.has");
+                builder_->CreateCondBr(hasVal, bodyBB, exitBB);
+
+                // Body: extract value, store to loop var
+                builder_->SetInsertPoint(bodyBB);
+                auto *elemVal = builder_->CreateExtractValue(optVal, {1}, "iter.val");
+                builder_->CreateStore(elemVal, loopVar);
+
+                loopStack_.push_back({exitBB, condBB});
+                visit(const_cast<ASTNode *>(node->getBody()));
+                loopStack_.pop_back();
+                if (!builder_->GetInsertBlock()->getTerminator())
+                    builder_->CreateBr(condBB);
+
+                builder_->SetInsertPoint(exitBB);
+                return nullptr;
+            }
+        }
     }
 
     // Fallback: just emit body once

@@ -85,6 +85,10 @@ DIAG(err_drop_method_signature,      error,   "Drop protocol requires method 'dr
 DIAG(err_await_outside_async, error, "'await' can only be used inside an async function")
 DIAG(err_async_main,          error, "'main' function cannot be declared async")
 
+// === Sema - Variadic ===
+DIAG(err_variadic_not_last,          error,   "variadic parameter '%0' must be the last parameter")
+DIAG(err_multiple_variadic,          error,   "function cannot have more than one variadic parameter")
+
 // === Sema - Const ===
 DIAG(err_const_requires_init,      error, "'const' declaration requires an initializer")
 DIAG(err_const_init_not_constant,  error, "'const' initializer must be a compile-time constant expression")

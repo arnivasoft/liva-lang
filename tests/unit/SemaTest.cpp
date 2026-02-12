@@ -3945,3 +3945,395 @@ TEST_F(SemaTest, OperatorOverloadDivMod) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Custom Iterator (Iter Protocol) Tests ===
+
+TEST_F(SemaTest, CustomIterBasicForIn) {
+    auto result = check(R"--(
+        protocol Iter {
+            func next(mut self) -> i32?
+        }
+        struct Counter {
+            var current: i32
+            var max: i32
+        }
+        impl Counter: Iter {
+            func next(mut self) -> i32? {
+                if self.current < self.max {
+                    let val = self.current
+                    self.current = self.current + 1
+                    return val
+                }
+                return nil
+            }
+        }
+        func main() {
+            var c = Counter { current: 0, max: 5 }
+            for item in c {
+                let x: i32 = item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CustomIterStringElement) {
+    auto result = check(R"--(
+        protocol Iter {
+            func next(mut self) -> string?
+        }
+        struct Words {
+            var index: i32
+        }
+        impl Words: Iter {
+            func next(mut self) -> string? {
+                if self.index < 3 {
+                    self.index = self.index + 1
+                    return "word"
+                }
+                return nil
+            }
+        }
+        func main() {
+            var w = Words { index: 0 }
+            for item in w {
+                let s: string = item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CustomIterF64Element) {
+    auto result = check(R"--(
+        protocol Iter {
+            func next(mut self) -> f64?
+        }
+        struct Floats {
+            var index: i32
+        }
+        impl Floats: Iter {
+            func next(mut self) -> f64? {
+                if self.index < 2 {
+                    self.index = self.index + 1
+                    return 3.14
+                }
+                return nil
+            }
+        }
+        func main() {
+            var f = Floats { index: 0 }
+            for item in f {
+                let v: f64 = item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CustomIterNoConformance) {
+    auto result = check(R"--(
+        struct Plain {
+            var x: i32
+        }
+        func main() {
+            var p = Plain { x: 0 }
+            for item in p {
+                let v = item
+            }
+        }
+    )--");
+    // No Iter conformance — no element type set, but no hard error either
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CustomIterProtocolDecl) {
+    auto result = check(R"--(
+        protocol Iter {
+            func next(mut self) -> i32?
+        }
+        struct MyIter {
+            var pos: i32
+        }
+        impl MyIter: Iter {
+            func next(mut self) -> i32? {
+                return nil
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CustomIterBodyTypeCheck) {
+    auto result = check(R"--(
+        protocol Iter {
+            func next(mut self) -> i32?
+        }
+        struct Range5 {
+            var i: i32
+        }
+        impl Range5: Iter {
+            func next(mut self) -> i32? {
+                if self.i < 5 {
+                    let val = self.i
+                    self.i = self.i + 1
+                    return val
+                }
+                return nil
+            }
+        }
+        func main() {
+            var r = Range5 { i: 0 }
+            for item in r {
+                let doubled: i32 = item + item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CustomIterMultipleTypes) {
+    auto result = check(R"--(
+        protocol Iter {
+            func next(mut self) -> i32?
+        }
+        struct Counter {
+            var current: i32
+            var max: i32
+        }
+        impl Counter: Iter {
+            func next(mut self) -> i32? {
+                if self.current < self.max {
+                    let val = self.current
+                    self.current = self.current + 1
+                    return val
+                }
+                return nil
+            }
+        }
+        struct Countdown {
+            var n: i32
+        }
+        impl Countdown: Iter {
+            func next(mut self) -> i32? {
+                if self.n > 0 {
+                    self.n = self.n - 1
+                    return self.n
+                }
+                return nil
+            }
+        }
+        func main() {
+            var c = Counter { current: 0, max: 3 }
+            for item in c {
+                let x: i32 = item
+            }
+            var d = Countdown { n: 3 }
+            for item in d {
+                let y: i32 = item
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === F7: Variadic Functions ===
+
+TEST_F(SemaTest, VariadicBasic) {
+    auto result = check(R"--(
+        func f(args: i32...) {
+            for v in args {
+                let x: i32 = v
+            }
+        }
+        func main() {
+            f(1, 2, 3)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VariadicWithNormalParams) {
+    auto result = check(R"--(
+        func f(a: i32, rest: i32...) {
+            let x: i32 = a
+            for v in rest {
+                let y: i32 = v
+            }
+        }
+        func main() {
+            f(10, 20, 30)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VariadicNotLast) {
+    auto result = check(R"--(
+        func f(a: i32..., b: i32) {
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_variadic_not_last));
+}
+
+TEST_F(SemaTest, VariadicMultiple) {
+    auto result = check(R"--(
+        func f(a: i32..., b: string...) {
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_multiple_variadic));
+}
+
+TEST_F(SemaTest, VariadicCall) {
+    auto result = check(R"--(
+        func sum(values: i32...) -> i32 {
+            var total: i32 = 0
+            for v in values {
+                total = total + v
+            }
+            return total
+        }
+        func main() {
+            let s: i32 = sum(1, 2, 3)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VariadicEmpty) {
+    auto result = check(R"--(
+        func f(args: i32...) {
+        }
+        func main() {
+            f()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VariadicStringType) {
+    auto result = check(R"--(
+        func f(args: string...) {
+            for s in args {
+                println(s)
+            }
+        }
+        func main() {
+            f("hello", "world")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === F8: Nested Pattern Matching ===
+
+TEST_F(SemaTest, NestedPatternBasic) {
+    auto result = check(R"--(
+        enum Inner {
+            case Val(i32)
+            case None
+        }
+        enum Outer {
+            case Some(Inner)
+            case Empty
+        }
+        func main() {
+            let x = Outer.Some(Inner.Val(42))
+            match x {
+                Outer.Some(Inner.Val(n)) => println(n)
+                Outer.Some(Inner.None) => println(0)
+                Outer.Empty => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NestedPatternMultipleBindings) {
+    auto result = check(R"--(
+        enum Shape {
+            case Circle(f64)
+            case Rect(f64, f64)
+        }
+        enum Wrapper {
+            case Wrapped(Shape)
+            case Empty
+        }
+        func main() {
+            let w = Wrapper.Wrapped(Shape.Rect(1.0, 2.0))
+            match w {
+                Wrapper.Wrapped(Shape.Circle(r)) => println(r)
+                Wrapper.Wrapped(Shape.Rect(w, h)) => println(w)
+                Wrapper.Empty => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NestedPatternWithWildcard) {
+    auto result = check(R"--(
+        enum Inner {
+            case A(i32)
+            case B
+        }
+        enum Outer {
+            case X(Inner)
+            case Y
+        }
+        func main() {
+            let v = Outer.X(Inner.A(10))
+            match v {
+                Outer.X(Inner.A(n)) => println(n)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NestedPatternExhaustive) {
+    auto result = check(R"--(
+        enum Color {
+            case Red
+            case Blue
+        }
+        enum Box {
+            case Has(Color)
+            case Empty
+        }
+        func main() {
+            let b = Box.Has(Color.Red)
+            match b {
+                Box.Has(c) => println(0)
+                Box.Empty => println(1)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NestedPatternUseBinding) {
+    auto result = check(R"--(
+        enum Inner {
+            case Val(i32)
+            case None
+        }
+        enum Outer {
+            case Some(Inner)
+            case Empty
+        }
+        func main() {
+            let x = Outer.Some(Inner.Val(42))
+            match x {
+                Outer.Some(Inner.Val(n)) => println(n)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
