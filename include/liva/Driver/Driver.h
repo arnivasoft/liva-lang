@@ -6,7 +6,7 @@
 
 namespace liva {
 
-enum class Subcommand { None, Build, Run, Init, Lsp };
+enum class Subcommand { None, Build, Run, Init, Lsp, Repl };
 
 /// Command-line options
 struct DriverOptions {
@@ -49,6 +49,7 @@ private:
     int executeRun();
     int executeInit();
     int executeLsp();
+    int executeRepl();
     int executeLegacy();
 
     int buildProject(bool runAfter);

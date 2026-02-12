@@ -2,6 +2,7 @@
 #include "liva/Common/Version.h"
 #include "liva/Driver/CompilerInstance.h"
 #include "liva/LSP/LSPServer.h"
+#include "liva/REPL/REPL.h"
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -34,6 +35,10 @@ bool Driver::parseArgs(int argc, const char **argv) {
             return true;
         } else if (std::strcmp(argv[1], "lsp") == 0) {
             options_.subcommand = Subcommand::Lsp;
+            startIdx = 2;
+            return true;
+        } else if (std::strcmp(argv[1], "repl") == 0) {
+            options_.subcommand = Subcommand::Repl;
             startIdx = 2;
             return true;
         }
@@ -153,6 +158,7 @@ int Driver::execute() {
     case Subcommand::Run:   return executeRun();
     case Subcommand::Init:  return executeInit();
     case Subcommand::Lsp:   return executeLsp();
+    case Subcommand::Repl:  return executeRepl();
     case Subcommand::None:  return executeLegacy();
     }
 
@@ -322,6 +328,74 @@ int Driver::executeLsp() {
     return server.run();
 }
 
+int Driver::executeRepl() {
+    std::cout << "Liva REPL (type :help for help, :quit to exit)\n";
+
+    REPLSession session;
+
+    while (true) {
+        std::cout << session.getPrompt() << std::flush;
+
+        std::string line;
+        if (!std::getline(std::cin, line)) {
+            // EOF (Ctrl+D / Ctrl+Z)
+            std::cout << "\nGoodbye!\n";
+            return 0;
+        }
+
+        REPLResult result = session.processLine(line);
+
+        switch (result.kind) {
+        case REPLResult::Empty:
+        case REPLResult::Incomplete:
+            break;
+
+        case REPLResult::Quit:
+            std::cout << result.output << "\n";
+            return 0;
+
+        case REPLResult::Help:
+        case REPLResult::Reset:
+        case REPLResult::ShowDecls:
+        case REPLResult::Declaration:
+            std::cout << result.output << "\n";
+            break;
+
+        case REPLResult::CommandError:
+            std::cerr << result.output << "\n";
+            break;
+
+        case REPLResult::Expression:
+            if (result.needsExecution) {
+#ifdef LIVA_HAS_LLVM
+                // Compile and execute
+                CompilerInstance compiler;
+                compiler.setExecutablePath(executablePath_);
+                compiler.setSource("_repl_tmp.liva", result.generatedCode);
+
+                std::string tmpExe = "_repl_tmp";
+#ifdef _WIN32
+                tmpExe += ".exe";
+#endif
+                if (compiler.compile(tmpExe)) {
+                    std::system(tmpExe.c_str());
+                    std::remove(tmpExe.c_str());
+                }
+#else
+                std::cout << "Semantic analysis passed.\n";
+#endif
+            }
+            break;
+
+        case REPLResult::Error:
+            std::cerr << result.output;
+            break;
+        }
+    }
+
+    return 0;
+}
+
 int Driver::executeBuild() {
     return buildProject(false);
 }
@@ -423,6 +497,7 @@ void Driver::printHelp() {
               << "  run                 Build and run project\n"
               << "  init [name]         Create a new Liva project\n"
               << "  lsp                 Start Language Server Protocol server\n"
+              << "  repl                Start interactive REPL\n"
               << "\n"
               << "Options:\n"
               << "  -h, --help          Show this help message\n"

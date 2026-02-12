@@ -131,6 +131,13 @@ add_library(liva_lsp STATIC
 target_link_libraries(liva_lsp PUBLIC liva_sema liva_parser liva_common)
 liva_set_compiler_flags(liva_lsp)
 
+# liva_repl
+add_library(liva_repl STATIC
+    src/REPL/REPL.cpp
+)
+target_link_libraries(liva_repl PUBLIC liva_sema liva_parser liva_common)
+liva_set_compiler_flags(liva_repl)
+
 # liva_driver (TOML parser, path utils)
 add_library(liva_driver STATIC
     src/Driver/ProjectConfig.cpp
@@ -147,6 +154,7 @@ add_executable(livac
 target_link_libraries(livac PRIVATE
     liva_driver
     liva_lsp
+    liva_repl
     liva_parser
     liva_sema
 )

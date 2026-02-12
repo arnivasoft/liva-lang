@@ -35,3 +35,8 @@ liva_add_test(lsp_test
     unit/LSPTest.cpp
 )
 target_link_libraries(lsp_test PRIVATE liva_lsp liva_sema liva_parser)
+
+liva_add_test(repl_test
+    unit/REPLTest.cpp
+)
+target_link_libraries(repl_test PRIVATE liva_repl liva_sema liva_parser)
