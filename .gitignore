@@ -60,5 +60,12 @@ editors/vscode/liva-lang/out/
 editors/vscode/liva-lang/node_modules/
 editors/vscode/liva-lang/*.vsix
 
+# Example build artifacts
+examples/*.exe
+examples/*.pdb
+examples/*.ilk
+examples/*.o
+examples/*.obj
+
 # Google Test build
 _deps/

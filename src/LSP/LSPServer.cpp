@@ -533,6 +533,10 @@ JSONValue LSPServer::dispatch(const JSONValue &msg) {
             return handleSignatureHelp(id, params);
         if (method == "textDocument/semanticTokens/full")
             return handleSemanticTokens(id, params);
+        if (method == "textDocument/formatting")
+            return handleFormatting(id, params);
+        if (method == "textDocument/codeAction")
+            return handleCodeAction(id, params);
         // Unknown request → method not found
         return makeError(id, -32601, "method not found: " + method);
     }
@@ -656,6 +660,12 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
     semanticTokensOpts.set("legend", std::move(legend));
     semanticTokensOpts.set("full", JSONValue(true));
     capabilities.set("semanticTokensProvider", std::move(semanticTokensOpts));
+
+    // Document formatting
+    capabilities.set("documentFormattingProvider", JSONValue(true));
+
+    // Code actions
+    capabilities.set("codeActionProvider", JSONValue(true));
 
     auto serverInfo = JSONValue::object();
     serverInfo.set("name", JSONValue("liva-lsp"));
@@ -1500,6 +1510,117 @@ JSONValue LSPServer::handleSemanticTokens(const JSONValue &id,
     auto result = JSONValue::object();
     result.set("data", std::move(data));
     return makeResponse(id, std::move(result));
+}
+
+// ============================================================
+// Formatting
+// ============================================================
+
+JSONValue LSPServer::handleFormatting(const JSONValue &id,
+                                      const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end()) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    const std::string &content = it->second.content;
+
+    // Split content into lines
+    std::vector<std::string> lines;
+    std::string currentLine;
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (content[i] == '\n') {
+            lines.push_back(currentLine);
+            currentLine.clear();
+        } else if (content[i] == '\r') {
+            // skip \r (handle \r\n)
+            continue;
+        } else {
+            currentLine += content[i];
+        }
+    }
+    // Add the last line if non-empty or if content ends without newline
+    if (!currentLine.empty() || (!content.empty() && content.back() == '\n')) {
+        lines.push_back(currentLine);
+    }
+
+    // Format each line with brace-depth indentation
+    int depth = 0;
+    std::string formatted;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        // Trim leading and trailing whitespace
+        size_t start = 0;
+        while (start < lines[i].size() &&
+               (lines[i][start] == ' ' || lines[i][start] == '\t'))
+            ++start;
+        size_t end = lines[i].size();
+        while (end > start &&
+               (lines[i][end - 1] == ' ' || lines[i][end - 1] == '\t'))
+            --end;
+        std::string trimmed = lines[i].substr(start, end - start);
+
+        // Count braces in this line
+        int opens = 0;
+        int closes = 0;
+        for (char c : trimmed) {
+            if (c == '{') ++opens;
+            else if (c == '}') ++closes;
+        }
+
+        // If line starts with '}', this line should be at reduced depth
+        bool leadingClose = (!trimmed.empty() && trimmed[0] == '}');
+        int lineDepth = depth;
+        if (leadingClose) {
+            lineDepth = depth - 1;
+            if (lineDepth < 0) lineDepth = 0;
+        }
+
+        // Build indented line
+        std::string indent(static_cast<size_t>(lineDepth) * 4, ' ');
+        if (!trimmed.empty()) {
+            formatted += indent + trimmed;
+        }
+        if (i + 1 < lines.size()) {
+            formatted += "\n";
+        }
+
+        // Update depth: add opens, subtract closes
+        depth += opens - closes;
+        if (depth < 0) depth = 0;
+    }
+
+    // Build the TextEdit that replaces the entire document
+    int lastLine = lines.empty() ? 0 : static_cast<int>(lines.size()) - 1;
+    int lastCol = lines.empty() ? 0 : static_cast<int>(lines.back().size());
+
+    auto rangeStart = JSONValue::object();
+    rangeStart.set("line", JSONValue(static_cast<int64_t>(0)));
+    rangeStart.set("character", JSONValue(static_cast<int64_t>(0)));
+    auto rangeEnd = JSONValue::object();
+    rangeEnd.set("line", JSONValue(static_cast<int64_t>(lastLine)));
+    rangeEnd.set("character", JSONValue(static_cast<int64_t>(lastCol)));
+    auto range = JSONValue::object();
+    range.set("start", std::move(rangeStart));
+    range.set("end", std::move(rangeEnd));
+
+    auto edit = JSONValue::object();
+    edit.set("range", std::move(range));
+    edit.set("newText", JSONValue(formatted));
+
+    auto result = JSONValue::array();
+    result.push(std::move(edit));
+    return makeResponse(id, std::move(result));
+}
+
+// ============================================================
+// Code Action
+// ============================================================
+
+JSONValue LSPServer::handleCodeAction(const JSONValue &id,
+                                      const JSONValue & /*params*/) {
+    // Infrastructure: return empty array (no quick fixes implemented yet)
+    return makeResponse(id, JSONValue::array());
 }
 
 // ============================================================

@@ -303,6 +303,28 @@ protected:
                "\"params\":{\"textDocument\":{\"uri\":\"" + uri + "\"}}}";
     }
 
+    // Build a textDocument/formatting request
+    std::string formattingRequest(const std::string &uri, int id = 90) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/formatting\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+               "\"},\"options\":{\"tabSize\":4,\"insertSpaces\":true}}}";
+    }
+
+    // Build a textDocument/codeAction request
+    std::string codeActionRequest(const std::string &uri, int startLine,
+                                  int startCol, int endLine, int endCol,
+                                  int id = 95) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/codeAction\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+               "\"},\"range\":{\"start\":{\"line\":" + std::to_string(startLine) +
+               ",\"character\":" + std::to_string(startCol) +
+               "},\"end\":{\"line\":" + std::to_string(endLine) +
+               ",\"character\":" + std::to_string(endCol) +
+               "}},\"context\":{\"diagnostics\":[]}}}";
+    }
+
     // Parse a JSON response
     JSONValue parseResponse(const std::string &resp) {
         auto r = parseJSON(resp);
@@ -872,4 +894,66 @@ TEST_F(LSPTest, SemanticTokensEmptyDocument) {
     EXPECT_TRUE(resp["result"].isObject());
     const auto &dataArr = resp["result"]["data"].getArray();
     EXPECT_TRUE(dataArr.empty());
+}
+
+// ============================================================
+// Formatting Tests
+// ============================================================
+
+TEST_F(LSPTest, FormattingBasic) {
+    // Poorly indented function — all lines at column 0
+    std::string badCode = "func foo() {\nreturn 42\n}";
+    initAndOpen("file:///test.liva", badCode);
+    auto resp = parseResponse(
+        server.handleMessage(formattingRequest("file:///test.liva")));
+    const auto &edits = resp["result"].getArray();
+    ASSERT_EQ(edits.size(), 1u);
+    EXPECT_TRUE(edits[0]["range"].isObject());
+    std::string newText = edits[0]["newText"].getString();
+    // After formatting: "func foo() {\n    return 42\n}"
+    EXPECT_NE(newText.find("func foo() {"), std::string::npos);
+    EXPECT_NE(newText.find("    return 42"), std::string::npos);
+    EXPECT_NE(newText.find("\n}"), std::string::npos);
+}
+
+TEST_F(LSPTest, FormattingNestedBlocks) {
+    // Nested if/while blocks with no indentation
+    std::string badCode = "func test() {\nif true {\nwhile true {\nbreak\n}\n}\n}";
+    initAndOpen("file:///test.liva", badCode);
+    auto resp = parseResponse(
+        server.handleMessage(formattingRequest("file:///test.liva")));
+    const auto &edits = resp["result"].getArray();
+    ASSERT_EQ(edits.size(), 1u);
+    std::string newText = edits[0]["newText"].getString();
+    // Verify nested indentation: 4 spaces for if body, 8 spaces for while body
+    EXPECT_NE(newText.find("    if true {"), std::string::npos);
+    EXPECT_NE(newText.find("        while true {"), std::string::npos);
+    EXPECT_NE(newText.find("            break"), std::string::npos);
+    // Closing braces should be at proper depth
+    EXPECT_NE(newText.find("        }"), std::string::npos);
+    EXPECT_NE(newText.find("    }"), std::string::npos);
+}
+
+TEST_F(LSPTest, FormattingCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["documentFormattingProvider"].getBool());
+}
+
+// ============================================================
+// Code Action Tests
+// ============================================================
+
+TEST_F(LSPTest, CodeActionEmpty) {
+    initAndOpen("file:///test.liva", "func main() {\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    EXPECT_TRUE(resp["result"].isArray());
+    EXPECT_TRUE(resp["result"].getArray().empty());
+}
+
+TEST_F(LSPTest, CodeActionCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["codeActionProvider"].getBool());
 }

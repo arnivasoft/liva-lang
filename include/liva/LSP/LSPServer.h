@@ -150,6 +150,8 @@ private:
     JSONValue handleRename(const JSONValue &id, const JSONValue &params);
     JSONValue handleSignatureHelp(const JSONValue &id, const JSONValue &params);
     JSONValue handleSemanticTokens(const JSONValue &id, const JSONValue &params);
+    JSONValue handleFormatting(const JSONValue &id, const JSONValue &params);
+    JSONValue handleCodeAction(const JSONValue &id, const JSONValue &params);
 
     // Analysis helpers
     void analyzeDocument(DocumentState &doc);

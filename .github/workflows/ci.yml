@@ -77,6 +77,35 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --parallel 4
 
+  build-macos:
+    name: macOS (Apple Clang)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install cmake ninja
+
+      - name: Configure CMake
+        run: |
+          cmake -G Ninja -B build \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build test targets
+        run: |
+          cmake --build build --target lexer_test
+          cmake --build build --target parser_test
+          cmake --build build --target sema_test
+          cmake --build build --target type_test
+          cmake --build build --target ownership_test
+          cmake --build build --target projectconfig_test
+          cmake --build build --target lsp_test
+          cmake --build build --target repl_test
+          cmake --build build --target integration_test
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
   coverage:
     name: Code Coverage (GCC 13)
     runs-on: ubuntu-latest
