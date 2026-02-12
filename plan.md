@@ -4,8 +4,8 @@
 
 **Liva**, Swift benzeri sozdizimi ve Rust tarzi ownership/borrowing semantigine sahip bir programlama dili. C++20 ile yazilmis derleyici LLVM 21 backend kullaniyor.
 
-- **Platform:** Windows, LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
-- **Build:** CMake, GoogleTest
+- **Platform:** Windows, Linux, macOS — LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
+- **Build:** CMake, GoogleTest, Ninja
 - **Test:** 481/481 gecen test (lexer:41, parser:82, sema:310, type:12, ownership:9, projectconfig:27)
 
 ---
@@ -732,6 +732,11 @@ ctest --test-dir build-clang --output-on-failure
 # MSVC build (legacy, vcvarsall gerekli)
 build_msvc.bat
 
+# Linux/macOS build
+./build.sh              # Debug build
+./build.sh --release    # Release build
+./build.sh --test       # Build + test
+
 # Ornek calistirma
 livac --emit-ir examples/associated_values.liva -o output.ll
 clang output.ll -o output.exe
@@ -783,6 +788,8 @@ clang output.ll -o output.exe
 25. ~~**Variadic Fonksiyonlar (F7)**~~ - TAMAMLANDI (T... sozdizimi, DynArray packing)
 26. ~~**Nested Pattern Matching (F8)**~~ - TAMAMLANDI (recursive pattern esleme, emitNestedPatternMatch)
 27. ~~**Proje Manifest (P1)**~~ - TAMAMLANDI (liva.toml, livac build/run/init, TOML parser, coklu modul yollari)
+28. ~~**Cross-Platform Destegi (S7)**~~ - TAMAMLANDI (findClang, liva_init_args, libcurl HTTP, cmake cross-platform, build.sh)
+29. ~~**Derleme Pipeline (S8)**~~ - TAMAMLANDI (CodeGen API: optimize → emitObjectFile → link, platform-agnostic runtime lib arama)
 
 ---
 
@@ -808,6 +815,8 @@ clang output.ll -o output.exe
 | I1 | **Ayri Derleme** | Modul basina ayri LLVM Module / object file + linking | Yuksek |
 | I2 | **Zengin Stdlib** | Daha kapsamli standart kutuphane (date/time, regex, networking) | Yuksek | [TAMAMLANDI] |
 | P1 | **Proje Manifest** | liva.toml konfigurasyonu, livac build/run/init alt-komutlari, coklu modul arama yollari | Orta | [TAMAMLANDI] |
+| S7 | **Cross-Platform** | findClang(), liva_init_args, libcurl HTTP, cmake cross-platform, build.sh | Orta | [TAMAMLANDI] |
+| S8 | **CodeGen Pipeline** | .ll yerine CodeGen API (optimize/emitObjectFile/link), platform-agnostic runtime lib | Orta | [TAMAMLANDI] |
 
 ### Araclar
 
@@ -836,12 +845,31 @@ clang output.ll -o output.exe
 | S5 | **Debug Bilgisi (DWARF/CodeView)** | LLVM DIBuilder ile fonksiyon/satir debug metadata uretimi, `-g` flag'i ile aktif, CodeView (Windows) destegi | TAMAMLANDI |
 | S6 | **Unicode Escape Dezimleri** | `\u{XXXX}` string escape destegi — Lexer + Token.getStringValue() UTF-8 encoding, 7 yeni test | TAMAMLANDI |
 
-### Faz 3: Platform Genisletme
+### S7: Cross-Platform Destegi [TAMAMLANDI]
+- **findClang()**: `LIVA_CLANG_PATH` env var override, platform-spesifik arama yollari (Win/macOS/Linux)
+- **liva_init_args(argc, argv)**: `__argc`/`__argv` (Windows-only) yerine portable global args
+- **main(int argc, char **argv)**: LLVM IR'de C ABI signature, entry block'ta `liva_init_args` cagrisi
+- **libcurl HTTP**: `#ifdef LIVA_HAS_CURL` ile Linux/macOS HTTP destegi (WinHTTP paraleli)
+- **cmake/LLVM.cmake**: Linux (`/usr/lib/llvm-*`), macOS (`/opt/homebrew/opt/llvm`) arama yollari
+- **CMakeLists.txt**: `find_package(CURL)` kosullu baglama, `stdc++` Linux link
+- **build.sh**: Ninja generator ile Linux/macOS build script (`--release`, `--test` flag'leri)
+- **Platform link flags**: `-lmsvcrt` sadece Windows, `-lwinhttp` sadece Windows
+
+### S8: Derleme Pipeline Iyilestirmesi [TAMAMLANDI]
+- **Eski pipeline**: `IRGen → .ll dosyasi yaz → std::system("clang .ll -o .exe")`
+- **Yeni pipeline**: `IRGen → CodeGen::optimize() → CodeGen::emitObjectFile(.o) → CodeGen::link(.o → .exe)`
+- **CodeGen::link() extraFlags**: `-lwinhttp`, `-g` gibi platform-spesifik flag'ler vector ile gecirilir
+- **Runtime lib arama**: `.lib` (Windows) + `lib*.a` (Linux/macOS) her ikisi de denenir
+- **cmd.exe quoting**: Windows'ta `"\"cmd\""` sarmalama ile std::system() uyumlulugu
+- **Gecici .o temizligi**: `std::remove(objPath.c_str())` ile derleme sonrasi temizlik
+- Degisen dosyalar: CompilerInstance.cpp, CodeGen.h, CodeGen.cpp, IRGen.h (getModule() zaten mevcut)
+
+### Faz 3: Platform Genisletme [TAMAMLANDI]
 
 | # | Gorev | Aciklama | Durum |
 |---|-------|----------|-------|
-| S7 | **Linux/macOS Destegi** | PATH'den clang arama, platform-agnostic HTTP, POSIX args, dosya yolu normalizasyonu | |
-| S8 | **Ayri Derleme** | Modul basina ayri .o dosyasi, incremental build, interface/implementation ayirimi | |
+| S7 | **Cross-Platform Destegi** | findClang() + LIVA_CLANG_PATH env, liva_init_args(argc,argv) POSIX args, libcurl HTTP (Linux/macOS), cmake cross-platform LLVM kesfı, build.sh | TAMAMLANDI |
+| S8 | **Derleme Pipeline Iyilestirmesi** | .ll→system("clang") yerine CodeGen API: optimize() → emitObjectFile(.o) → link(), platform-agnostic runtime lib arama, extraFlags parametresi | TAMAMLANDI |
 
 ### Faz 4: Ekosistem
 
