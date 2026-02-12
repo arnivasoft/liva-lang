@@ -15,6 +15,7 @@ struct DriverOptions {
     bool emitIR = false;
     bool emitObj = false;
     int optLevel = 0;
+    bool debugInfo = false;
     bool showHelp = false;
     bool showVersion = false;
 };

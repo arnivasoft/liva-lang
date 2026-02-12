@@ -171,6 +171,9 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
     // Use clang from PATH to compile IR + link runtime → executable
     std::string cmd = "\"clang -Wno-override-module";
+    cmd += " -O" + std::to_string(optLevel_);
+    if (debugInfo_)
+        cmd += " -g";
     cmd += " \"" + irPath + "\" \"" + runtimeLib + "\"";
     cmd += " -lwinhttp";
     cmd += " -o \"" + outputPath + "\"\"";

@@ -65,6 +65,20 @@ bool Driver::parseArgs(int argc, const char **argv) {
             options_.optLevel = 3;
             continue;
         }
+        if (std::strcmp(arg, "-g") == 0) {
+            options_.debugInfo = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--debug") == 0) {
+            options_.optLevel = 0;
+            options_.debugInfo = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--release") == 0) {
+            options_.optLevel = 2;
+            options_.debugInfo = false;
+            continue;
+        }
 
         // If starts with -, unknown flag
         if (arg[0] == '-') {
@@ -104,6 +118,8 @@ int Driver::execute() {
 
     CompilerInstance compiler;
     compiler.setExecutablePath(executablePath_);
+    compiler.setOptLevel(options_.optLevel);
+    compiler.setDebugInfo(options_.debugInfo);
     if (!compiler.loadFile(options_.inputFile))
         return 1;
 
@@ -159,7 +175,10 @@ void Driver::printHelp() {
               << "  --check-only        Run semantic analysis only\n"
               << "  --emit-ir           Emit LLVM IR\n"
               << "  --emit-obj          Emit object file\n"
-              << "  -O0/-O1/-O2/-O3     Optimization level\n";
+              << "  -O0/-O1/-O2/-O3     Optimization level\n"
+              << "  -g                  Generate debug information\n"
+              << "  --debug             Debug build (O0, debug info)\n"
+              << "  --release           Release build (O2, no debug info)\n";
 }
 
 } // namespace liva
