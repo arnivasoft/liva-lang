@@ -525,6 +525,14 @@ JSONValue LSPServer::dispatch(const JSONValue &msg) {
             return handleDefinition(id, params);
         if (method == "textDocument/documentSymbol")
             return handleDocumentSymbol(id, params);
+        if (method == "textDocument/references")
+            return handleReferences(id, params);
+        if (method == "textDocument/rename")
+            return handleRename(id, params);
+        if (method == "textDocument/signatureHelp")
+            return handleSignatureHelp(id, params);
+        if (method == "textDocument/semanticTokens/full")
+            return handleSemanticTokens(id, params);
         // Unknown request → method not found
         return makeError(id, -32601, "method not found: " + method);
     }
@@ -606,6 +614,48 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
 
     // Document symbols
     capabilities.set("documentSymbolProvider", JSONValue(true));
+
+    // References
+    capabilities.set("referencesProvider", JSONValue(true));
+
+    // Rename
+    capabilities.set("renameProvider", JSONValue(true));
+
+    // Signature help
+    auto signatureHelpOpts = JSONValue::object();
+    auto sigTriggers = JSONValue::array();
+    sigTriggers.push(JSONValue("("));
+    sigTriggers.push(JSONValue(","));
+    signatureHelpOpts.set("triggerCharacters", std::move(sigTriggers));
+    capabilities.set("signatureHelpProvider", std::move(signatureHelpOpts));
+
+    // Semantic tokens
+    auto tokenTypes = JSONValue::array();
+    tokenTypes.push(JSONValue("keyword"));       // 0
+    tokenTypes.push(JSONValue("type"));           // 1
+    tokenTypes.push(JSONValue("function"));       // 2
+    tokenTypes.push(JSONValue("variable"));       // 3
+    tokenTypes.push(JSONValue("string"));         // 4
+    tokenTypes.push(JSONValue("number"));         // 5
+    tokenTypes.push(JSONValue("comment"));        // 6
+    tokenTypes.push(JSONValue("operator"));       // 7
+    tokenTypes.push(JSONValue("enumMember"));     // 8
+    tokenTypes.push(JSONValue("struct"));         // 9
+    tokenTypes.push(JSONValue("parameter"));      // 10
+
+    auto tokenModifiers = JSONValue::array();
+    tokenModifiers.push(JSONValue("declaration"));  // 0
+    tokenModifiers.push(JSONValue("definition"));   // 1
+    tokenModifiers.push(JSONValue("readonly"));     // 2
+
+    auto legend = JSONValue::object();
+    legend.set("tokenTypes", std::move(tokenTypes));
+    legend.set("tokenModifiers", std::move(tokenModifiers));
+
+    auto semanticTokensOpts = JSONValue::object();
+    semanticTokensOpts.set("legend", std::move(legend));
+    semanticTokensOpts.set("full", JSONValue(true));
+    capabilities.set("semanticTokensProvider", std::move(semanticTokensOpts));
 
     auto serverInfo = JSONValue::object();
     serverInfo.set("name", JSONValue("liva-lsp"));
@@ -1023,6 +1073,436 @@ JSONValue LSPServer::handleDocumentSymbol(const JSONValue &id,
 }
 
 // ============================================================
+// References
+// ============================================================
+
+JSONValue LSPServer::handleReferences(const JSONValue &id,
+                                      const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    uint32_t line = static_cast<uint32_t>(params["position"]["line"].getInteger()) + 1;
+    uint32_t col = static_cast<uint32_t>(params["position"]["character"].getInteger()) + 1;
+
+    auto it = documents_.find(uri);
+    if (it == documents_.end() || !it->second.tu) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    std::string name = getDeclNameAtPosition(it->second.tu.get(), line, col);
+    if (name.empty()) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    auto locations = findNameOccurrences(it->second.content, name);
+    auto result = JSONValue::array();
+    for (const auto &loc : locations) {
+        auto start = JSONValue::object();
+        start.set("line", JSONValue(static_cast<int64_t>(loc.line)));
+        start.set("character", JSONValue(static_cast<int64_t>(loc.col)));
+        auto end = JSONValue::object();
+        end.set("line", JSONValue(static_cast<int64_t>(loc.line)));
+        end.set("character", JSONValue(static_cast<int64_t>(loc.endCol)));
+        auto range = JSONValue::object();
+        range.set("start", std::move(start));
+        range.set("end", std::move(end));
+        auto location = JSONValue::object();
+        location.set("uri", JSONValue(uri));
+        location.set("range", std::move(range));
+        result.push(std::move(location));
+    }
+
+    return makeResponse(id, std::move(result));
+}
+
+// ============================================================
+// Rename
+// ============================================================
+
+JSONValue LSPServer::handleRename(const JSONValue &id,
+                                  const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    uint32_t line = static_cast<uint32_t>(params["position"]["line"].getInteger()) + 1;
+    uint32_t col = static_cast<uint32_t>(params["position"]["character"].getInteger()) + 1;
+    std::string newName = params["newName"].getString();
+
+    auto it = documents_.find(uri);
+    if (it == documents_.end() || !it->second.tu) {
+        return makeError(id, -32600, "document not found");
+    }
+
+    std::string oldName = getDeclNameAtPosition(it->second.tu.get(), line, col);
+    if (oldName.empty()) {
+        return makeError(id, -32600, "no symbol at position");
+    }
+
+    if (newName.empty()) {
+        return makeError(id, -32600, "new name is empty");
+    }
+
+    auto locations = findNameOccurrences(it->second.content, oldName);
+
+    auto edits = JSONValue::array();
+    for (const auto &loc : locations) {
+        auto start = JSONValue::object();
+        start.set("line", JSONValue(static_cast<int64_t>(loc.line)));
+        start.set("character", JSONValue(static_cast<int64_t>(loc.col)));
+        auto end = JSONValue::object();
+        end.set("line", JSONValue(static_cast<int64_t>(loc.line)));
+        end.set("character", JSONValue(static_cast<int64_t>(loc.endCol)));
+        auto range = JSONValue::object();
+        range.set("start", std::move(start));
+        range.set("end", std::move(end));
+        auto edit = JSONValue::object();
+        edit.set("range", std::move(range));
+        edit.set("newText", JSONValue(newName));
+        edits.push(std::move(edit));
+    }
+
+    auto changes = JSONValue::object();
+    changes.set(uri, std::move(edits));
+
+    auto result = JSONValue::object();
+    result.set("changes", std::move(changes));
+    return makeResponse(id, std::move(result));
+}
+
+// ============================================================
+// Signature Help
+// ============================================================
+
+JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
+                                         const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    uint32_t line = static_cast<uint32_t>(params["position"]["line"].getInteger()) + 1;
+    uint32_t col = static_cast<uint32_t>(params["position"]["character"].getInteger()) + 1;
+
+    auto it = documents_.find(uri);
+    if (it == documents_.end() || !it->second.tu) {
+        return makeResponse(id, JSONValue());
+    }
+
+    // Find what function is being called at the cursor by scanning the line
+    // Look backward from cursor for a function name followed by '('
+    const std::string &content = it->second.content;
+    uint32_t targetLine = line - 1; // 0-indexed
+    uint32_t targetCol = col - 1;
+
+    // Find the line in content
+    uint32_t currentLine = 0;
+    size_t lineStart = 0;
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (currentLine == targetLine) {
+            lineStart = i;
+            break;
+        }
+        if (content[i] == '\n') ++currentLine;
+    }
+
+    // Scan backward from cursor to find the function name
+    size_t cursorPos = lineStart + targetCol;
+    if (cursorPos > content.size()) cursorPos = content.size();
+
+    // Count commas to determine active parameter
+    int activeParam = 0;
+    int parenDepth = 0;
+    std::string funcName;
+    size_t funcNameEnd = 0;
+
+    for (size_t i = cursorPos; i > 0; --i) {
+        char c = content[i - 1];
+        if (c == ')') ++parenDepth;
+        else if (c == '(') {
+            if (parenDepth == 0) {
+                // Found the opening paren — extract function name
+                size_t nameEnd = i - 1;
+                // Skip whitespace
+                while (nameEnd > 0 && (content[nameEnd - 1] == ' ' || content[nameEnd - 1] == '\t'))
+                    --nameEnd;
+                funcNameEnd = nameEnd;
+                size_t nameStart = nameEnd;
+                while (nameStart > 0 && (std::isalnum(static_cast<unsigned char>(content[nameStart - 1])) ||
+                                          content[nameStart - 1] == '_'))
+                    --nameStart;
+                funcName = content.substr(nameStart, nameEnd - nameStart);
+                break;
+            }
+            --parenDepth;
+        }
+        else if (c == ',' && parenDepth == 0) {
+            ++activeParam;
+        }
+    }
+
+    if (funcName.empty()) {
+        return makeResponse(id, JSONValue());
+    }
+
+    // Find the function declaration
+    const Decl *decl = findDeclByName(it->second.tu.get(), funcName);
+    const FuncDecl *fd = decl ? dynamic_cast<const FuncDecl *>(decl) : nullptr;
+
+    // Also search in impl blocks
+    if (!fd) {
+        for (const auto &node : it->second.tu->getDeclarations()) {
+            auto *impl = dynamic_cast<ImplDecl *>(node.get());
+            if (!impl) continue;
+            for (const auto &method : impl->getMethods()) {
+                if (method->getName() == funcName) {
+                    fd = method.get();
+                    break;
+                }
+            }
+            if (fd) break;
+        }
+    }
+
+    if (!fd) {
+        return makeResponse(id, JSONValue());
+    }
+
+    // Build signature string
+    std::string sigLabel = "func " + fd->getName() + "(";
+    auto sigParams = JSONValue::array();
+    bool first = true;
+    for (const auto &p : fd->getParams()) {
+        if (p.isSelf) continue;
+        if (!first) sigLabel += ", ";
+        first = false;
+
+        size_t paramStart = sigLabel.size();
+        sigLabel += p.name;
+        if (p.type) {
+            sigLabel += ": " + p.type->toString();
+        }
+        size_t paramEnd = sigLabel.size();
+
+        auto paramLabel = JSONValue::array();
+        paramLabel.push(JSONValue(static_cast<int64_t>(paramStart)));
+        paramLabel.push(JSONValue(static_cast<int64_t>(paramEnd)));
+
+        auto paramInfo = JSONValue::object();
+        paramInfo.set("label", std::move(paramLabel));
+        sigParams.push(std::move(paramInfo));
+    }
+    sigLabel += ")";
+    if (fd->getReturnType() && !fd->getReturnType()->isVoid()) {
+        sigLabel += " -> " + fd->getReturnType()->toString();
+    }
+
+    auto sigInfo = JSONValue::object();
+    sigInfo.set("label", JSONValue(sigLabel));
+    sigInfo.set("parameters", std::move(sigParams));
+
+    auto signatures = JSONValue::array();
+    signatures.push(std::move(sigInfo));
+
+    auto result = JSONValue::object();
+    result.set("signatures", std::move(signatures));
+    result.set("activeSignature", JSONValue(static_cast<int64_t>(0)));
+    result.set("activeParameter", JSONValue(static_cast<int64_t>(activeParam)));
+
+    return makeResponse(id, std::move(result));
+}
+
+// ============================================================
+// Semantic Tokens
+// ============================================================
+
+JSONValue LSPServer::handleSemanticTokens(const JSONValue &id,
+                                           const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end()) {
+        auto result = JSONValue::object();
+        result.set("data", JSONValue::array());
+        return makeResponse(id, std::move(result));
+    }
+
+    const std::string &content = it->second.content;
+    std::string path = uriToPath(uri);
+    if (path.empty()) path = uri;
+
+    // Create a temporary SourceManager and DiagnosticsEngine for lexing
+    SourceManager sm(path, content);
+    DiagnosticsEngine diag(&sm);
+    Lexer lexer(sm, diag);
+
+    auto tokens = lexer.lexAll();
+
+    auto data = JSONValue::array();
+    uint32_t prevLine = 0;
+    uint32_t prevCol = 0;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const Token &tok = tokens[i];
+        TokenKind kind = tok.getKind();
+
+        // Skip EOF and newline tokens
+        if (kind == TokenKind::eof || kind == TokenKind::newline)
+            continue;
+
+        // Classify the token into a semantic type
+        int tokenType = -1;
+        int tokenModifiers = 0;
+
+        switch (kind) {
+        // Language keywords
+        case TokenKind::kw_func:
+        case TokenKind::kw_let:
+        case TokenKind::kw_var:
+        case TokenKind::kw_if:
+        case TokenKind::kw_else:
+        case TokenKind::kw_while:
+        case TokenKind::kw_for:
+        case TokenKind::kw_in:
+        case TokenKind::kw_match:
+        case TokenKind::kw_case:
+        case TokenKind::kw_enum:
+        case TokenKind::kw_struct:
+        case TokenKind::kw_impl:
+        case TokenKind::kw_protocol:
+        case TokenKind::kw_import:
+        case TokenKind::kw_pub:
+        case TokenKind::kw_async:
+        case TokenKind::kw_await:
+        case TokenKind::kw_return:
+        case TokenKind::kw_break:
+        case TokenKind::kw_continue:
+        case TokenKind::kw_const:
+        case TokenKind::kw_try:
+        case TokenKind::kw_type:
+        case TokenKind::kw_where:
+        case TokenKind::kw_as:
+        case TokenKind::kw_ref:
+        case TokenKind::kw_mut:
+            tokenType = 0; // keyword
+            break;
+
+        // Type keywords
+        case TokenKind::kw_i8:
+        case TokenKind::kw_i16:
+        case TokenKind::kw_i32:
+        case TokenKind::kw_i64:
+        case TokenKind::kw_u8:
+        case TokenKind::kw_u16:
+        case TokenKind::kw_u32:
+        case TokenKind::kw_u64:
+        case TokenKind::kw_f32:
+        case TokenKind::kw_f64:
+        case TokenKind::kw_bool:
+        case TokenKind::kw_string:
+        case TokenKind::kw_void:
+            tokenType = 1; // type
+            break;
+
+        // Boolean and nil literals
+        case TokenKind::kw_true:
+        case TokenKind::kw_false:
+        case TokenKind::bool_literal:
+        case TokenKind::kw_nil:
+            tokenType = 8; // enumMember
+            break;
+
+        // self keyword
+        case TokenKind::kw_self:
+            tokenType = 10; // parameter
+            break;
+
+        // Identifiers — check if followed by '(' to classify as function
+        case TokenKind::identifier: {
+            bool isFunc = false;
+            // Look ahead to see if the next non-newline token is '('
+            for (size_t j = i + 1; j < tokens.size(); ++j) {
+                if (tokens[j].getKind() == TokenKind::newline)
+                    continue;
+                if (tokens[j].getKind() == TokenKind::l_paren)
+                    isFunc = true;
+                break;
+            }
+            tokenType = isFunc ? 2 : 3; // function or variable
+            break;
+        }
+
+        // String literals
+        case TokenKind::string_literal:
+        case TokenKind::string_interp_begin:
+        case TokenKind::string_interp_mid:
+        case TokenKind::string_interp_end:
+        case TokenKind::char_literal:
+            tokenType = 4; // string
+            break;
+
+        // Numeric literals
+        case TokenKind::integer_literal:
+        case TokenKind::float_literal:
+            tokenType = 5; // number
+            break;
+
+        // Operators and punctuators
+        case TokenKind::plus:
+        case TokenKind::minus:
+        case TokenKind::star:
+        case TokenKind::slash:
+        case TokenKind::percent:
+        case TokenKind::equal_equal:
+        case TokenKind::bang_equal:
+        case TokenKind::less:
+        case TokenKind::less_equal:
+        case TokenKind::greater:
+        case TokenKind::greater_equal:
+        case TokenKind::amp_amp:
+        case TokenKind::pipe_pipe:
+        case TokenKind::bang:
+        case TokenKind::amp:
+        case TokenKind::pipe:
+        case TokenKind::caret:
+        case TokenKind::tilde:
+        case TokenKind::less_less:
+        case TokenKind::greater_greater:
+        case TokenKind::equal:
+        case TokenKind::plus_equal:
+        case TokenKind::minus_equal:
+        case TokenKind::star_equal:
+        case TokenKind::slash_equal:
+        case TokenKind::percent_equal:
+        case TokenKind::arrow:
+        case TokenKind::fat_arrow:
+            tokenType = 7; // operator
+            break;
+
+        default:
+            // Skip punctuation like parens, braces, commas, etc.
+            break;
+        }
+
+        if (tokenType < 0)
+            continue;
+
+        // Get line/column (1-indexed from SourceLocation, convert to 0-indexed)
+        SourceLocation loc = tok.getLocation();
+        uint32_t line = loc.line > 0 ? loc.line - 1 : 0;
+        uint32_t col = loc.column > 0 ? loc.column - 1 : 0;
+        uint32_t length = static_cast<uint32_t>(tok.getText().size());
+
+        // Delta encoding
+        uint32_t deltaLine = line - prevLine;
+        uint32_t deltaCol = (deltaLine == 0) ? (col - prevCol) : col;
+
+        data.push(JSONValue(static_cast<int64_t>(deltaLine)));
+        data.push(JSONValue(static_cast<int64_t>(deltaCol)));
+        data.push(JSONValue(static_cast<int64_t>(length)));
+        data.push(JSONValue(static_cast<int64_t>(tokenType)));
+        data.push(JSONValue(static_cast<int64_t>(tokenModifiers)));
+
+        prevLine = line;
+        prevCol = col;
+    }
+
+    auto result = JSONValue::object();
+    result.set("data", std::move(data));
+    return makeResponse(id, std::move(result));
+}
+
+// ============================================================
 // AST helpers
 // ============================================================
 
@@ -1064,6 +1544,62 @@ const Decl *LSPServer::findDeclByName(const TranslationUnit *tu,
         }
     }
     return nullptr;
+}
+
+// ============================================================
+// Name occurrence / rename helpers
+// ============================================================
+
+std::string LSPServer::getDeclNameAtPosition(const TranslationUnit *tu,
+                                             uint32_t line, uint32_t col) const {
+    const ASTNode *node = findNodeAtPosition(tu, line, col);
+    if (!node) return "";
+
+    if (auto *fd = dynamic_cast<const FuncDecl *>(node)) return fd->getName();
+    if (auto *vd = dynamic_cast<const VarDecl *>(node)) return vd->getName();
+    if (auto *sd = dynamic_cast<const StructDecl *>(node)) return sd->getName();
+    if (auto *ed = dynamic_cast<const EnumDecl *>(node)) return ed->getName();
+    if (auto *pd = dynamic_cast<const ProtocolDecl *>(node)) return pd->getName();
+    if (auto *td = dynamic_cast<const TypeAliasDecl *>(node)) return td->getName();
+    return "";
+}
+
+std::vector<LSPServer::TextLocation>
+LSPServer::findNameOccurrences(const std::string &content,
+                               const std::string &name) const {
+    std::vector<TextLocation> results;
+    if (name.empty()) return results;
+
+    uint32_t lineNum = 0;
+    uint32_t colNum = 0;
+
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (content[i] == '\n') {
+            ++lineNum;
+            colNum = 0;
+            continue;
+        }
+
+        // Check if this position starts the name
+        if (content.compare(i, name.size(), name) == 0) {
+            // Verify word boundary: char before should not be alphanumeric/underscore
+            bool prevOk = (i == 0) ||
+                          !(std::isalnum(static_cast<unsigned char>(content[i - 1])) ||
+                            content[i - 1] == '_');
+            size_t afterPos = i + name.size();
+            bool nextOk = (afterPos >= content.size()) ||
+                          !(std::isalnum(static_cast<unsigned char>(content[afterPos])) ||
+                            content[afterPos] == '_');
+            if (prevOk && nextOk) {
+                results.push_back({lineNum, colNum,
+                                   colNum + static_cast<uint32_t>(name.size())});
+            }
+        }
+
+        ++colNum;
+    }
+
+    return results;
 }
 
 // ============================================================

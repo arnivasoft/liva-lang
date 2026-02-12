@@ -1,0 +1,37 @@
+// Ownership and Borrowing
+
+struct Buffer {
+    var data: string
+    var size: i32
+}
+
+func readOnly(data: ref Buffer) {
+    // Immutable borrow - can read but not modify
+    println(data.data)
+    println(data.size)
+}
+
+func modify(data: ref mut Buffer) {
+    // Mutable borrow - can modify
+    data.size = data.size + 1
+}
+
+func consume(buf: Buffer) {
+    // Takes ownership - buf is dropped at end of function
+    println(buf.data)
+}
+
+func main() {
+    var buf = Buffer { data: "hello", size: 5 }
+
+    // Immutable borrow
+    readOnly(ref buf)
+
+    // Mutable borrow
+    modify(ref mut buf)
+    println(buf.size)
+
+    // Move ownership
+    consume(buf)
+    // buf is no longer usable here
+}

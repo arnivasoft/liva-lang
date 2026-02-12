@@ -1,0 +1,16 @@
+func apply(f: () -> void) {
+    f()
+    f()
+    f()
+}
+
+func main() {
+    var count: i32 = 0
+    apply(| | -> void { count += 1 })
+    println(count)
+
+    var sum: i32 = 0
+    let data: [i32] = [10, 20, 30]
+    data.forEach(|x| { sum += x })
+    println(sum)
+}

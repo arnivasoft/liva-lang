@@ -153,7 +153,7 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
     std::string objPath = outputPath + ".o";
     if (!codegen.emitObjectFile(*module, objPath)) {
-        std::cerr << "error: failed to emit object file\n";
+        std::cerr << "error: failed to emit object file '" << objPath << "'\n";
         return false;
     }
 
@@ -181,7 +181,9 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     }
     if (runtimeLib.empty()) {
         std::cerr << "error: cannot find runtime library\n";
-        std::cerr << "  searched relative to: " << exeDir << "\n";
+        std::cerr << "  searched paths:\n";
+        for (auto &c : candidates)
+            std::cerr << "    " << c << "\n";
         std::remove(objPath.c_str());
         return false;
     }
@@ -201,7 +203,8 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     std::remove(objPath.c_str());
 
     if (!linkOk) {
-        std::cerr << "error: linking failed\n";
+        std::cerr << "error: linking failed for '" << outputPath << "'\n";
+        std::cerr << "  objects: " << objPath << " " << runtimeLib << "\n";
         return false;
     }
 

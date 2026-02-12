@@ -16,6 +16,7 @@ struct REPLResult {
         ShowDecls,    // :declarations command
         CommandError, // Unknown command
         Declaration,  // Declaration added to session
+        Statement,    // Statement processed (if/while/for)
         Expression,   // Expression processed
         Error         // Parse/sema error
     };
@@ -47,7 +48,7 @@ public:
     void reset();
 
 private:
-    enum class InputKind { Empty, Command, Declaration, Expression };
+    enum class InputKind { Empty, Command, Declaration, Statement, Expression };
 
     InputKind classifyInput(const std::string &input) const;
     bool hasUnclosedDelimiters(const std::string &input) const;

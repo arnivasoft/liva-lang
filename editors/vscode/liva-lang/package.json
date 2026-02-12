@@ -1,0 +1,64 @@
+{
+    "name": "liva-lang",
+    "displayName": "Liva Language",
+    "description": "Language support for Liva programming language",
+    "version": "0.1.0",
+    "publisher": "liva-lang",
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "activationEvents": [
+        "onLanguage:liva"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "liva",
+                "extensions": [
+                    ".liva"
+                ],
+                "aliases": [
+                    "Liva",
+                    "liva"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "liva",
+                "scopeName": "source.liva",
+                "path": "./syntaxes/liva.tmLanguage.json"
+            }
+        ],
+        "configuration": {
+            "title": "Liva",
+            "properties": {
+                "liva.livacPath": {
+                    "type": "string",
+                    "default": "livac",
+                    "description": "Path to the livac compiler executable. Used for LSP diagnostics, completions, hover, and go-to-definition."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "package": "npx vsce package",
+        "lint": "tsc --noEmit"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.0"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.85.0",
+        "typescript": "^5.3.0",
+        "esbuild": "^0.19.0"
+    }
+}

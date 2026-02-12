@@ -264,6 +264,45 @@ protected:
                "\"params\":{\"textDocument\":{\"uri\":\"" + uri + "\"}}}";
     }
 
+    // Build a references request
+    std::string referencesRequest(const std::string &uri, int line, int col,
+                                  int id = 50) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/references\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+               "\"},\"position\":{\"line\":" + std::to_string(line) +
+               ",\"character\":" + std::to_string(col) +
+               "},\"context\":{\"includeDeclaration\":true}}}";
+    }
+
+    // Build a rename request
+    std::string renameRequest(const std::string &uri, int line, int col,
+                              const std::string &newName, int id = 60) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/rename\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+               "\"},\"position\":{\"line\":" + std::to_string(line) +
+               ",\"character\":" + std::to_string(col) +
+               "},\"newName\":\"" + newName + "\"}}";
+    }
+
+    // Build a signatureHelp request
+    std::string signatureHelpRequest(const std::string &uri, int line, int col,
+                                     int id = 70) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/signatureHelp\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+               "\"},\"position\":{\"line\":" + std::to_string(line) +
+               ",\"character\":" + std::to_string(col) + "}}}";
+    }
+
+    // Build a semanticTokens/full request
+    std::string semanticTokensRequest(const std::string &uri, int id = 80) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+               ",\"method\":\"textDocument/semanticTokens/full\","
+               "\"params\":{\"textDocument\":{\"uri\":\"" + uri + "\"}}}";
+    }
+
     // Parse a JSON response
     JSONValue parseResponse(const std::string &resp) {
         auto r = parseJSON(resp);
@@ -608,4 +647,229 @@ TEST_F(LSPTest, DocumentSymbolsEmpty) {
         server.handleMessage(documentSymbolRequest("file:///test.liva")));
     EXPECT_TRUE(resp["result"].isArray());
     EXPECT_TRUE(resp["result"].getArray().empty());
+}
+
+// ============================================================
+// References Tests
+// ============================================================
+
+TEST_F(LSPTest, ReferencesOfFunction) {
+    initAndOpen("file:///test.liva", "func greet() {}\nfunc main() {\n    greet()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(referencesRequest("file:///test.liva", 0, 5)));
+    const auto &refs = resp["result"].getArray();
+    // Should find at least the declaration and the call
+    EXPECT_GE(refs.size(), 2u);
+    for (const auto &loc : refs) {
+        EXPECT_EQ(loc["uri"].getString(), "file:///test.liva");
+        EXPECT_TRUE(loc["range"].isObject());
+    }
+}
+
+TEST_F(LSPTest, ReferencesOfVariable) {
+    initAndOpen("file:///test.liva", "let x: i32 = 42");
+    auto resp = parseResponse(
+        server.handleMessage(referencesRequest("file:///test.liva", 0, 4)));
+    const auto &refs = resp["result"].getArray();
+    EXPECT_GE(refs.size(), 1u);
+}
+
+TEST_F(LSPTest, ReferencesNoSymbol) {
+    initAndOpen("file:///test.liva", "func main() {}");
+    auto resp = parseResponse(
+        server.handleMessage(referencesRequest("file:///test.liva", 100, 0)));
+    const auto &refs = resp["result"].getArray();
+    EXPECT_TRUE(refs.empty());
+}
+
+// ============================================================
+// Rename Tests
+// ============================================================
+
+TEST_F(LSPTest, RenameFunction) {
+    initAndOpen("file:///test.liva", "func greet() {}\nfunc main() {\n    greet()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(renameRequest("file:///test.liva", 0, 5, "sayHello")));
+    EXPECT_TRUE(resp["result"].isObject());
+    const auto &changes = resp["result"]["changes"];
+    EXPECT_TRUE(changes.isObject());
+    const auto &edits = changes["file:///test.liva"].getArray();
+    EXPECT_GE(edits.size(), 2u);
+    for (const auto &edit : edits) {
+        EXPECT_EQ(edit["newText"].getString(), "sayHello");
+        EXPECT_TRUE(edit["range"].isObject());
+    }
+}
+
+TEST_F(LSPTest, RenameVariable) {
+    initAndOpen("file:///test.liva", "let x: i32 = 42");
+    auto resp = parseResponse(
+        server.handleMessage(renameRequest("file:///test.liva", 0, 4, "y")));
+    EXPECT_TRUE(resp["result"].isObject());
+    const auto &edits = resp["result"]["changes"]["file:///test.liva"].getArray();
+    EXPECT_GE(edits.size(), 1u);
+    EXPECT_EQ(edits[0]["newText"].getString(), "y");
+}
+
+TEST_F(LSPTest, RenameNoSymbol) {
+    initAndOpen("file:///test.liva", "func main() {}");
+    auto resp = parseResponse(
+        server.handleMessage(renameRequest("file:///test.liva", 100, 0, "newName")));
+    // Should return error
+    EXPECT_TRUE(resp["error"].isObject());
+}
+
+// ============================================================
+// Signature Help Tests
+// ============================================================
+
+TEST_F(LSPTest, SignatureHelpBasic) {
+    initAndOpen("file:///test.liva",
+                "func add(a: i32, b: i32) -> i32 {\n    return a + b\n}\nfunc main() {\n    add(\n}");
+    // Cursor after 'add(' on line 4, col 8
+    auto resp = parseResponse(
+        server.handleMessage(signatureHelpRequest("file:///test.liva", 4, 8)));
+    if (!resp["result"].isNull()) {
+        const auto &sigs = resp["result"]["signatures"].getArray();
+        ASSERT_GE(sigs.size(), 1u);
+        std::string label = sigs[0]["label"].getString();
+        EXPECT_FALSE(label.empty());
+        // Should contain 'add' and parameter names
+        EXPECT_NE(label.find("add"), std::string::npos);
+        EXPECT_NE(label.find("a:"), std::string::npos);
+        EXPECT_NE(label.find("b:"), std::string::npos);
+        // Check parameters
+        const auto &params = sigs[0]["parameters"].getArray();
+        EXPECT_EQ(params.size(), 2u);
+    }
+}
+
+TEST_F(LSPTest, SignatureHelpActiveParam) {
+    initAndOpen("file:///test.liva",
+                "func add(a: i32, b: i32) -> i32 {\n    return a + b\n}\nfunc main() {\n    add(1, \n}");
+    // After the comma — second parameter should be active
+    auto resp = parseResponse(
+        server.handleMessage(signatureHelpRequest("file:///test.liva", 4, 11)));
+    if (!resp["result"].isNull()) {
+        int64_t activeParam = resp["result"]["activeParameter"].getInteger();
+        EXPECT_EQ(activeParam, 1);
+    }
+}
+
+TEST_F(LSPTest, SignatureHelpNoFunc) {
+    initAndOpen("file:///test.liva", "func main() {}");
+    auto resp = parseResponse(
+        server.handleMessage(signatureHelpRequest("file:///test.liva", 0, 0)));
+    EXPECT_TRUE(resp["result"].isNull());
+}
+
+// ============================================================
+// Capability Tests (new capabilities)
+// ============================================================
+
+TEST_F(LSPTest, InitializeHasNewCapabilities) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["referencesProvider"].getBool());
+    EXPECT_TRUE(caps["renameProvider"].getBool());
+    EXPECT_TRUE(caps["signatureHelpProvider"].isObject());
+    const auto &sigTriggers =
+        caps["signatureHelpProvider"]["triggerCharacters"].getArray();
+    EXPECT_FALSE(sigTriggers.empty());
+}
+
+// ============================================================
+// Semantic Tokens Tests
+// ============================================================
+
+TEST_F(LSPTest, SemanticTokensCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["semanticTokensProvider"].isObject());
+    const auto &legend = caps["semanticTokensProvider"]["legend"];
+    EXPECT_TRUE(legend.isObject());
+    const auto &tokenTypes = legend["tokenTypes"].getArray();
+    EXPECT_GE(tokenTypes.size(), 11u);
+    EXPECT_EQ(tokenTypes[0].getString(), "keyword");
+    EXPECT_EQ(tokenTypes[1].getString(), "type");
+    EXPECT_EQ(tokenTypes[2].getString(), "function");
+    EXPECT_EQ(tokenTypes[3].getString(), "variable");
+    EXPECT_EQ(tokenTypes[4].getString(), "string");
+    EXPECT_EQ(tokenTypes[5].getString(), "number");
+    EXPECT_TRUE(caps["semanticTokensProvider"]["full"].getBool());
+}
+
+TEST_F(LSPTest, SemanticTokensBasic) {
+    // "func main() { let x: i32 = 42 }" on two lines
+    initAndOpen("file:///test.liva", "func main() {\n    let x: i32 = 42\n}");
+    auto resp = parseResponse(
+        server.handleMessage(semanticTokensRequest("file:///test.liva")));
+    EXPECT_TRUE(resp["result"].isObject());
+    const auto &dataArr = resp["result"]["data"].getArray();
+    // Data array should be non-empty and a multiple of 5
+    EXPECT_FALSE(dataArr.empty());
+    EXPECT_EQ(dataArr.size() % 5, 0u);
+}
+
+TEST_F(LSPTest, SemanticTokensClassifiesKeywords) {
+    // "let x: i32 = 42" — 'let' should be keyword(0), 'x' variable(3),
+    // 'i32' type(1), '=' operator(7), '42' number(5)
+    initAndOpen("file:///test.liva", "let x: i32 = 42");
+    auto resp = parseResponse(
+        server.handleMessage(semanticTokensRequest("file:///test.liva")));
+    const auto &dataArr = resp["result"]["data"].getArray();
+    ASSERT_GE(dataArr.size(), 5u);
+
+    // First token: 'let' — keyword (type 0), on line 0, col 0, length 3
+    EXPECT_EQ(dataArr[0].getInteger(), 0);  // deltaLine
+    EXPECT_EQ(dataArr[1].getInteger(), 0);  // deltaCol
+    EXPECT_EQ(dataArr[2].getInteger(), 3);  // length ("let")
+    EXPECT_EQ(dataArr[3].getInteger(), 0);  // tokenType = keyword
+}
+
+TEST_F(LSPTest, SemanticTokensFunctionVsVariable) {
+    // "func foo() {}\nlet x = 1" — 'foo' after 'func' and before '(' is function(2)
+    // 'x' after 'let' with no '(' is variable(3)
+    initAndOpen("file:///test.liva", "func foo() {}\nlet x = 1");
+    auto resp = parseResponse(
+        server.handleMessage(semanticTokensRequest("file:///test.liva")));
+    const auto &dataArr = resp["result"]["data"].getArray();
+
+    // Walk through data looking for token types
+    bool foundFunction = false;
+    bool foundVariable = false;
+    for (size_t i = 3; i < dataArr.size(); i += 5) {
+        int64_t tokenType = dataArr[i].getInteger();
+        if (tokenType == 2) foundFunction = true;   // function
+        if (tokenType == 3) foundVariable = true;    // variable
+    }
+    EXPECT_TRUE(foundFunction);
+    EXPECT_TRUE(foundVariable);
+}
+
+TEST_F(LSPTest, SemanticTokensTypeKeywords) {
+    // Verify i32 is classified as type, true/false as enumMember
+    initAndOpen("file:///test.liva", "let x: i32 = 0\nlet b: bool = true");
+    auto resp = parseResponse(
+        server.handleMessage(semanticTokensRequest("file:///test.liva")));
+    const auto &dataArr = resp["result"]["data"].getArray();
+
+    bool foundType = false;
+    bool foundEnumMember = false;
+    for (size_t i = 3; i < dataArr.size(); i += 5) {
+        int64_t tokenType = dataArr[i].getInteger();
+        if (tokenType == 1) foundType = true;        // type
+        if (tokenType == 8) foundEnumMember = true;  // enumMember (true/false)
+    }
+    EXPECT_TRUE(foundType);
+    EXPECT_TRUE(foundEnumMember);
+}
+
+TEST_F(LSPTest, SemanticTokensEmptyDocument) {
+    initAndOpen("file:///test.liva", "");
+    auto resp = parseResponse(
+        server.handleMessage(semanticTokensRequest("file:///test.liva")));
+    EXPECT_TRUE(resp["result"].isObject());
+    const auto &dataArr = resp["result"]["data"].getArray();
+    EXPECT_TRUE(dataArr.empty());
 }

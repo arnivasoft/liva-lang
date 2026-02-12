@@ -1,0 +1,21 @@
+// Async/Await Example
+
+async func fetchData() -> i32 {
+    return 42
+}
+
+async func compute(x: i32) -> i32 {
+    return x * x
+}
+
+async func process() -> i32 {
+    let a: i32 = await fetchData()
+    let b: i32 = await compute(a)
+    return a + b
+}
+
+func main() {
+    println("Async/Await example")
+    let items = [1, 2, 3, 4, 5]
+    println(items.length)
+}

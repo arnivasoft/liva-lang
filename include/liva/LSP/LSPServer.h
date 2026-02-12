@@ -146,6 +146,10 @@ private:
     JSONValue handleHover(const JSONValue &id, const JSONValue &params);
     JSONValue handleDefinition(const JSONValue &id, const JSONValue &params);
     JSONValue handleDocumentSymbol(const JSONValue &id, const JSONValue &params);
+    JSONValue handleReferences(const JSONValue &id, const JSONValue &params);
+    JSONValue handleRename(const JSONValue &id, const JSONValue &params);
+    JSONValue handleSignatureHelp(const JSONValue &id, const JSONValue &params);
+    JSONValue handleSemanticTokens(const JSONValue &id, const JSONValue &params);
 
     // Analysis helpers
     void analyzeDocument(DocumentState &doc);
@@ -158,6 +162,15 @@ private:
                                       uint32_t line, uint32_t col) const;
     const Decl *findDeclByName(const TranslationUnit *tu,
                                const std::string &name) const;
+
+    // Find all occurrences of a name in document text (line/col are 0-indexed)
+    struct TextLocation { uint32_t line; uint32_t col; uint32_t endCol; };
+    std::vector<TextLocation> findNameOccurrences(const std::string &content,
+                                                   const std::string &name) const;
+
+    // Get declaration name at cursor position
+    std::string getDeclNameAtPosition(const TranslationUnit *tu,
+                                      uint32_t line, uint32_t col) const;
 
     // State
     std::map<std::string, DocumentState> documents_;

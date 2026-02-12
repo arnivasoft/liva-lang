@@ -319,3 +319,75 @@ TEST(REPLTest, PromptRestoredAfterComplete) {
     session.processLine("}");
     EXPECT_EQ(session.getPrompt(), ">>> ");
 }
+
+// ============================================================
+// Statement Execution Tests
+// ============================================================
+
+TEST(REPLTest, IfStatement) {
+    REPLSession session;
+    auto r1 = session.processLine("if true {");
+    EXPECT_EQ(r1.kind, REPLResult::Incomplete);
+    auto r2 = session.processLine("    println(42)");
+    EXPECT_EQ(r2.kind, REPLResult::Incomplete);
+    auto r3 = session.processLine("}");
+    EXPECT_EQ(r3.kind, REPLResult::Statement);
+    EXPECT_TRUE(r3.needsExecution);
+    EXPECT_NE(r3.generatedCode.find("if true"), std::string::npos);
+}
+
+TEST(REPLTest, WhileStatement) {
+    REPLSession session;
+    auto r1 = session.processLine("while false {");
+    EXPECT_EQ(r1.kind, REPLResult::Incomplete);
+    auto r2 = session.processLine("}");
+    EXPECT_EQ(r2.kind, REPLResult::Statement);
+    EXPECT_TRUE(r2.needsExecution);
+}
+
+TEST(REPLTest, ForStatement) {
+    REPLSession session;
+    auto r1 = session.processLine("for i in [1, 2, 3] {");
+    EXPECT_EQ(r1.kind, REPLResult::Incomplete);
+    auto r2 = session.processLine("    println(i)");
+    EXPECT_EQ(r2.kind, REPLResult::Incomplete);
+    auto r3 = session.processLine("}");
+    EXPECT_EQ(r3.kind, REPLResult::Statement);
+    EXPECT_TRUE(r3.needsExecution);
+}
+
+TEST(REPLTest, StatementInMain) {
+    REPLSession session;
+    auto r1 = session.processLine("if true {");
+    auto r2 = session.processLine("    println(1)");
+    auto r3 = session.processLine("}");
+    EXPECT_NE(r3.generatedCode.find("func main()"), std::string::npos);
+}
+
+// ============================================================
+// Import Support Tests
+// ============================================================
+
+TEST(REPLTest, ImportDeclaration) {
+    REPLSession session;
+    auto r = session.processLine("import std::math");
+    EXPECT_EQ(r.kind, REPLResult::Declaration);
+    EXPECT_EQ(r.output, "Import added.");
+    EXPECT_EQ(session.getDeclarations().size(), 1u);
+    EXPECT_EQ(session.getDeclarations()[0], "import std::math");
+}
+
+TEST(REPLTest, ImportIncludedInGenerated) {
+    REPLSession session;
+    session.processLine("import std::math");
+    auto r = session.processLine("42");
+    EXPECT_EQ(r.kind, REPLResult::Expression);
+    EXPECT_NE(r.generatedCode.find("import std::math"), std::string::npos);
+}
+
+TEST(REPLTest, MultipleImports) {
+    REPLSession session;
+    session.processLine("import std::math");
+    session.processLine("import std::io");
+    EXPECT_EQ(session.getDeclarations().size(), 2u);
+}

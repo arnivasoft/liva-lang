@@ -1,0 +1,40 @@
+// Generics: Functions and Structs
+
+func identity<T>(x: T) -> T {
+    return x
+}
+
+func first<T, U>(a: T, b: U) -> T {
+    return a
+}
+
+struct Pair<T, U> {
+    let first: T
+    let second: U
+}
+
+struct Box<T> {
+    let data: T
+}
+
+impl Box<T> {
+    func get(self) -> T {
+        return self.data
+    }
+}
+
+func main() {
+    // Generic functions
+    println(identity(42))
+    println(identity("hello"))
+    println(first(1, 3.14))
+
+    // Generic structs
+    let p = Pair { first: 10, second: 20 }
+    println(p.first)
+    println(p.second)
+
+    // Generic struct with impl
+    let b = Box { data: 99 }
+    println(b.get())
+}

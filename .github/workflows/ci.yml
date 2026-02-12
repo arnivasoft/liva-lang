@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-windows-mingw:
+    name: Windows (MinGW GCC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: choco install ninja -y
+
+      - name: Set up MinGW
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          version: 13.2.0
+
+      - name: Configure CMake
+        run: cmake -G "MinGW Makefiles" -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+
+      - name: Build test targets
+        run: |
+          cmake --build build --target lexer_test
+          cmake --build build --target parser_test
+          cmake --build build --target sema_test
+          cmake --build build --target type_test
+          cmake --build build --target ownership_test
+          cmake --build build --target projectconfig_test
+          cmake --build build --target lsp_test
+          cmake --build build --target repl_test
+          cmake --build build --target integration_test
+        shell: bash
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --parallel 4
+        shell: bash
+
+  build-ubuntu:
+    name: Ubuntu (GCC ${{ matrix.gcc }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        gcc: [13, 14]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-${{ matrix.gcc }} cmake ninja-build
+
+      - name: Configure CMake
+        run: |
+          cmake -G Ninja -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-${{ matrix.gcc }}
+
+      - name: Build test targets
+        run: |
+          cmake --build build --target lexer_test
+          cmake --build build --target parser_test
+          cmake --build build --target sema_test
+          cmake --build build --target type_test
+          cmake --build build --target ownership_test
+          cmake --build build --target projectconfig_test
+          cmake --build build --target lsp_test
+          cmake --build build --target repl_test
+          cmake --build build --target integration_test
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
+  coverage:
+    name: Code Coverage (GCC 13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13 cmake ninja-build lcov
+
+      - name: Configure CMake with coverage flags
+        run: |
+          cmake -G Ninja -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=g++-13 \
+            -DCMAKE_CXX_FLAGS="--coverage -fprofile-arcs -ftest-coverage"
+
+      - name: Build test targets
+        run: |
+          cmake --build build --target lexer_test
+          cmake --build build --target parser_test
+          cmake --build build --target sema_test
+          cmake --build build --target type_test
+          cmake --build build --target ownership_test
+          cmake --build build --target projectconfig_test
+          cmake --build build --target lsp_test
+          cmake --build build --target repl_test
+          cmake --build build --target integration_test
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
+      - name: Capture coverage data
+        run: |
+          lcov --capture --directory build --output-file coverage.info \
+            --rc branch_coverage=1
+
+      - name: Remove system, test, and third-party files from coverage
+        run: |
+          lcov --remove coverage.info \
+            '/usr/*' '*/tests/*' '*/googletest/*' '*/gtest/*' '*/build/*' \
+            --output-file coverage.info \
+            --rc branch_coverage=1
+
+      - name: Generate coverage summary
+        run: lcov --list coverage.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.info

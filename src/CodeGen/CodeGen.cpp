@@ -15,6 +15,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
 
 namespace liva {
 
@@ -68,7 +69,7 @@ bool CodeGen::emitObjectFile(llvm::Module &module, const std::string &outputPath
     std::string error;
     auto *target = llvm::TargetRegistry::lookupTarget(target_.triple, error);
     if (!target) {
-        diag_.report(SourceLocation{}, DiagID::err_main_not_found);
+        std::cerr << "error: failed to lookup target '" << target_.triple << "': " << error << "\n";
         return false;
     }
 
@@ -81,12 +82,15 @@ bool CodeGen::emitObjectFile(llvm::Module &module, const std::string &outputPath
 
     std::error_code ec;
     llvm::raw_fd_ostream dest(outputPath, ec, llvm::sys::fs::OF_None);
-    if (ec)
+    if (ec) {
+        std::cerr << "error: cannot open output file '" << outputPath << "': " << ec.message() << "\n";
         return false;
+    }
 
     llvm::legacy::PassManager pass;
     if (targetMachine->addPassesToEmitFile(pass, dest, nullptr,
                                             llvm::CodeGenFileType::ObjectFile)) {
+        std::cerr << "error: target does not support object file emission\n";
         return false;
     }
 
@@ -98,8 +102,10 @@ bool CodeGen::emitObjectFile(llvm::Module &module, const std::string &outputPath
 bool CodeGen::emitAssembly(llvm::Module &module, const std::string &outputPath) {
     std::string error;
     auto *target = llvm::TargetRegistry::lookupTarget(target_.triple, error);
-    if (!target)
+    if (!target) {
+        std::cerr << "error: failed to lookup target '" << target_.triple << "': " << error << "\n";
         return false;
+    }
 
     llvm::TargetOptions opt;
     auto targetMachine = target->createTargetMachine(llvm::Triple(target_.triple),
@@ -110,12 +116,15 @@ bool CodeGen::emitAssembly(llvm::Module &module, const std::string &outputPath) 
 
     std::error_code ec;
     llvm::raw_fd_ostream dest(outputPath, ec, llvm::sys::fs::OF_None);
-    if (ec)
+    if (ec) {
+        std::cerr << "error: cannot open output file '" << outputPath << "': " << ec.message() << "\n";
         return false;
+    }
 
     llvm::legacy::PassManager pass;
     if (targetMachine->addPassesToEmitFile(pass, dest, nullptr,
                                             llvm::CodeGenFileType::AssemblyFile)) {
+        std::cerr << "error: target does not support assembly file emission\n";
         return false;
     }
 

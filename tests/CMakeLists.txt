@@ -40,3 +40,12 @@ liva_add_test(repl_test
     unit/REPLTest.cpp
 )
 target_link_libraries(repl_test PRIVATE liva_repl liva_sema liva_parser)
+
+# Integration tests (file-based + inline)
+liva_add_test(integration_test
+    unit/IntegrationTest.cpp
+)
+target_link_libraries(integration_test PRIVATE liva_sema liva_parser)
+target_compile_definitions(integration_test PRIVATE
+    LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
+)

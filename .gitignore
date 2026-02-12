@@ -1,5 +1,6 @@
 # Build directories
 build/
+build-clang/
 build-msvc/
 out/
 cmake-build-*/
@@ -48,6 +49,16 @@ desktop.ini
 *.tmp
 *.swp
 *~
+ir_out.txt
+nul
+
+# Claude Code
+.claude/
+
+# VS Code extension build artifacts
+editors/vscode/liva-lang/out/
+editors/vscode/liva-lang/node_modules/
+editors/vscode/liva-lang/*.vsix
 
 # Google Test build
 _deps/

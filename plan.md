@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, Linux, macOS — LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest, Ninja
-- **Test:** 613/613 gecen test (lexer:41, parser:82, sema:321, type:12, ownership:9, projectconfig:74, lsp:37, repl:37)
+- **Test:** 651/651 gecen test (lexer:41, parser:82, sema:321, type:12, ownership:9, projectconfig:74, lsp:47, repl:44, integration:21)
 
 ---
 
@@ -951,3 +951,39 @@ clang output.ll -o output.exe
 | S10 | **Paket Yonetimi** | SemVer, VersionConstraint, [dependencies] liva.toml, packages/ lokal paket cozumleme, liva.lock dosyasi | TAMAMLANDI |
 | S11 | **LSP Sunucusu** | IDE destegi (otomatik tamamlama, hata gosterimi, go-to-definition) | TAMAMLANDI |
 | S12 | **REPL** | Interaktif komut satiri degerlendirme (compile+execute / sema-only) | TAMAMLANDI |
+| S13 | **Production Readiness** | README, CONTRIBUTING, CI/CD, entegrasyon testleri, LSP+REPL iyilestirmeleri | TAMAMLANDI |
+
+### S13: Production Readiness [TAMAMLANDI] - 38 yeni test (651/651 toplam)
+
+**Dokumantasyon:**
+- README.md — proje aciklamasi, kurulum, hizli baslangic, dil referansi, mimari diyagrami
+- CONTRIBUTING.md — build talimatlari, test yazma rehberi, kod stili, PR sureci
+
+**CI/CD:**
+- `.github/workflows/ci.yml` — GitHub Actions pipeline
+  - Linux: GCC 13 + GCC 14 (ubuntu-24.04)
+  - Windows: MSVC 2022 (Visual Studio 17) + MinGW
+  - macOS: AppleClang (macos-14, M1)
+  - Otomatik build + test her push ve PR'da
+
+**Entegrasyon Test Altyapisi:**
+- `tests/unit/IntegrationTest.cpp` — 21 yeni test
+  - 6 dosya-tabanli test (tests/integration/*.liva)
+  - 4 hata testi (tests/error/*.liva)
+  - 11 inline entegrasyon testi (struct, enum, array, optional, generic, closure)
+  - Tam pipeline: Lexer → Parser → Sema dogrulama
+  - LIVA_PROJECT_ROOT compile-time tanımi ile dosya yolu cozumleme
+
+**LSP Iyilestirmeleri (10 yeni test, toplam 47):**
+- `textDocument/references` — sembol referanslarini bulma (text-based word matching)
+- `textDocument/rename` — sembol yeniden adlandirma (WorkspaceEdit donduruyor)
+- `textDocument/signatureHelp` — fonksiyon imza yardimi (parametre sayaci dahil)
+- Initialize'da yeni capability bildirileri: referencesProvider, renameProvider, signatureHelpProvider
+
+**REPL Iyilestirmeleri (7 yeni test, toplam 44):**
+- Statement calistirma: `if`, `while`, `for`, `guard`, `return`, `break`, `continue`
+  - Yeni InputKind::Statement + REPLResult::Statement
+  - Statement'lar dogrudan main() icine konuyor (wrapExpression atlanir)
+- Import destegi: `import std::math` gibi import bildirimleri
+  - Sema validation atlanir (ModuleLoader unavailable)
+  - Import'lar declarations listesine eklenir, generated code'a dahil edilir

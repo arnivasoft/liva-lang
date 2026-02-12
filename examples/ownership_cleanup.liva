@@ -1,0 +1,12 @@
+func main() {
+    var arr: [i32] = [10, 20, 30]
+    arr.push(40)
+    println(arr[0])
+
+    var m: Map<string, i32>
+    m.insert("hello", 42)
+
+    var s: Set<i32>
+    s.insert(1)
+    s.insert(2)
+}

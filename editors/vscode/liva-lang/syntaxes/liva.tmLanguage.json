@@ -1,0 +1,420 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Liva",
+    "scopeName": "source.liva",
+    "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#storage-types" },
+        { "include": "#constants" },
+        { "include": "#function-definition" },
+        { "include": "#struct-definition" },
+        { "include": "#enum-definition" },
+        { "include": "#protocol-definition" },
+        { "include": "#impl-definition" },
+        { "include": "#type-alias" },
+        { "include": "#function-call" },
+        { "include": "#builtin-functions" },
+        { "include": "#type-annotation" },
+        { "include": "#return-type" },
+        { "include": "#closure" },
+        { "include": "#operators" },
+        { "include": "#punctuation" },
+        { "include": "#identifiers" }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.liva",
+                    "match": "//.*$"
+                },
+                {
+                    "name": "comment.block.liva",
+                    "begin": "/\\*",
+                    "end": "\\*/",
+                    "patterns": [
+                        { "include": "#comments" }
+                    ]
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.quoted.triple.liva",
+                    "begin": "\"\"\"",
+                    "end": "\"\"\"",
+                    "patterns": [
+                        { "include": "#string-escape" },
+                        { "include": "#string-interpolation" }
+                    ]
+                },
+                {
+                    "name": "string.quoted.double.liva",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        { "include": "#string-escape" },
+                        { "include": "#string-interpolation" }
+                    ]
+                }
+            ]
+        },
+        "string-escape": {
+            "patterns": [
+                {
+                    "name": "constant.character.escape.liva",
+                    "match": "\\\\[nrt\\\\\"'0]"
+                },
+                {
+                    "name": "constant.character.escape.unicode.liva",
+                    "match": "\\\\u\\{[0-9a-fA-F]+\\}"
+                }
+            ]
+        },
+        "string-interpolation": {
+            "patterns": [
+                {
+                    "name": "meta.interpolation.liva",
+                    "begin": "\\\\\\(",
+                    "end": "\\)",
+                    "beginCaptures": {
+                        "0": { "name": "punctuation.section.interpolation.begin.liva" }
+                    },
+                    "endCaptures": {
+                        "0": { "name": "punctuation.section.interpolation.end.liva" }
+                    },
+                    "patterns": [
+                        { "include": "source.liva" }
+                    ]
+                }
+            ]
+        },
+        "numbers": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.hex.liva",
+                    "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.binary.liva",
+                    "match": "\\b0[bB][01][01_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.octal.liva",
+                    "match": "\\b0[oO][0-7][0-7_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.float.liva",
+                    "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?\\b"
+                },
+                {
+                    "name": "constant.numeric.integer.liva",
+                    "match": "\\b[0-9][0-9_]*\\b"
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.flow.liva",
+                    "match": "\\b(if|else|while|for|in|match|case|return|break|continue|guard|try)\\b"
+                },
+                {
+                    "name": "keyword.declaration.liva",
+                    "match": "\\b(func|let|var|const|struct|enum|impl|protocol|import|pub|type)\\b"
+                },
+                {
+                    "name": "keyword.operator.liva",
+                    "match": "\\b(as|ref|mut|where)\\b"
+                },
+                {
+                    "name": "keyword.other.async.liva",
+                    "match": "\\b(async|await)\\b"
+                },
+                {
+                    "name": "variable.language.self.liva",
+                    "match": "\\bself\\b"
+                }
+            ]
+        },
+        "constants": {
+            "patterns": [
+                {
+                    "name": "constant.language.boolean.true.liva",
+                    "match": "\\btrue\\b"
+                },
+                {
+                    "name": "constant.language.boolean.false.liva",
+                    "match": "\\bfalse\\b"
+                },
+                {
+                    "name": "constant.language.nil.liva",
+                    "match": "\\bnil\\b"
+                }
+            ]
+        },
+        "storage-types": {
+            "patterns": [
+                {
+                    "name": "storage.type.primitive.liva",
+                    "match": "\\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)\\b"
+                }
+            ]
+        },
+        "function-definition": {
+            "patterns": [
+                {
+                    "match": "\\b(func)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "entity.name.function.liva" }
+                    }
+                },
+                {
+                    "match": "\\b(async)\\s+(func)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+                    "captures": {
+                        "1": { "name": "keyword.other.async.liva" },
+                        "2": { "name": "keyword.declaration.liva" },
+                        "3": { "name": "entity.name.function.liva" }
+                    }
+                }
+            ]
+        },
+        "struct-definition": {
+            "patterns": [
+                {
+                    "match": "\\b(struct)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "entity.name.type.struct.liva" }
+                    }
+                }
+            ]
+        },
+        "enum-definition": {
+            "patterns": [
+                {
+                    "match": "\\b(enum)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "entity.name.type.enum.liva" }
+                    }
+                }
+            ]
+        },
+        "protocol-definition": {
+            "patterns": [
+                {
+                    "match": "\\b(protocol)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "entity.name.type.protocol.liva" }
+                    }
+                }
+            ]
+        },
+        "impl-definition": {
+            "patterns": [
+                {
+                    "match": "\\b(impl)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "entity.name.type.liva" }
+                    }
+                }
+            ]
+        },
+        "type-alias": {
+            "patterns": [
+                {
+                    "match": "\\b(type)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*=",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "entity.name.type.alias.liva" }
+                    }
+                }
+            ]
+        },
+        "builtin-functions": {
+            "patterns": [
+                {
+                    "name": "support.function.builtin.liva",
+                    "match": "\\b(println|print|len|push|pop|append|readLine|sqrt|abs|pow|sin|cos|tan|log|ceil|floor|round|min|max|randInt|randFloat|toString|parseInt|parseFloat)\\s*(?=\\()"
+                }
+            ]
+        },
+        "function-call": {
+            "patterns": [
+                {
+                    "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+                    "captures": {
+                        "1": { "name": "entity.name.function.call.liva" }
+                    }
+                },
+                {
+                    "match": "\\.\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+                    "captures": {
+                        "1": { "name": "entity.name.function.method.liva" }
+                    }
+                }
+            ]
+        },
+        "type-annotation": {
+            "patterns": [
+                {
+                    "match": ":\\s*(?:(\\[)\\s*)?(?:(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)|(Map|Set)\\s*<|([A-Z][a-zA-Z0-9_]*))(?:\\s*(\\]))?",
+                    "captures": {
+                        "1": { "name": "punctuation.definition.array.begin.liva" },
+                        "2": { "name": "storage.type.primitive.liva" },
+                        "3": { "name": "support.type.collection.liva" },
+                        "4": { "name": "entity.name.type.liva" },
+                        "5": { "name": "punctuation.definition.array.end.liva" }
+                    }
+                }
+            ]
+        },
+        "return-type": {
+            "patterns": [
+                {
+                    "match": "->\\s*(?:(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)|([A-Z][a-zA-Z0-9_]*))",
+                    "captures": {
+                        "1": { "name": "storage.type.primitive.liva" },
+                        "2": { "name": "entity.name.type.liva" }
+                    }
+                }
+            ]
+        },
+        "closure": {
+            "patterns": [
+                {
+                    "match": "\\|",
+                    "name": "punctuation.definition.closure.pipe.liva"
+                }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.comparison.liva",
+                    "match": "==|!=|<=|>=|<|>"
+                },
+                {
+                    "name": "keyword.operator.logical.liva",
+                    "match": "&&|\\|\\||!"
+                },
+                {
+                    "name": "keyword.operator.assignment.compound.liva",
+                    "match": "\\+=|-=|\\*=|/=|%="
+                },
+                {
+                    "name": "keyword.operator.assignment.liva",
+                    "match": "="
+                },
+                {
+                    "name": "keyword.operator.arithmetic.liva",
+                    "match": "\\+|-|\\*|/|%"
+                },
+                {
+                    "name": "keyword.operator.bitwise.liva",
+                    "match": "<<|>>|&|\\||\\^|~"
+                },
+                {
+                    "name": "keyword.operator.nil-coalescing.liva",
+                    "match": "\\?\\?"
+                },
+                {
+                    "name": "keyword.operator.optional-chaining.liva",
+                    "match": "\\?\\."
+                },
+                {
+                    "name": "keyword.operator.range.liva",
+                    "match": "\\.\\."
+                },
+                {
+                    "name": "keyword.operator.arrow.liva",
+                    "match": "->"
+                },
+                {
+                    "name": "keyword.operator.fat-arrow.liva",
+                    "match": "=>"
+                },
+                {
+                    "name": "keyword.operator.scope.liva",
+                    "match": "::"
+                },
+                {
+                    "name": "keyword.operator.spread.liva",
+                    "match": "\\.\\.\\."
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "name": "punctuation.separator.comma.liva",
+                    "match": ","
+                },
+                {
+                    "name": "punctuation.terminator.semicolon.liva",
+                    "match": ";"
+                },
+                {
+                    "name": "punctuation.separator.colon.liva",
+                    "match": ":"
+                },
+                {
+                    "name": "punctuation.accessor.dot.liva",
+                    "match": "\\."
+                },
+                {
+                    "name": "punctuation.section.braces.begin.liva",
+                    "match": "\\{"
+                },
+                {
+                    "name": "punctuation.section.braces.end.liva",
+                    "match": "\\}"
+                },
+                {
+                    "name": "punctuation.section.brackets.begin.liva",
+                    "match": "\\["
+                },
+                {
+                    "name": "punctuation.section.brackets.end.liva",
+                    "match": "\\]"
+                },
+                {
+                    "name": "punctuation.section.parens.begin.liva",
+                    "match": "\\("
+                },
+                {
+                    "name": "punctuation.section.parens.end.liva",
+                    "match": "\\)"
+                },
+                {
+                    "name": "punctuation.definition.annotation.liva",
+                    "match": "@"
+                },
+                {
+                    "name": "keyword.operator.wildcard.liva",
+                    "match": "\\b_\\b"
+                }
+            ]
+        },
+        "identifiers": {
+            "patterns": [
+                {
+                    "name": "entity.name.type.liva",
+                    "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+                },
+                {
+                    "name": "variable.other.liva",
+                    "match": "\\b[a-z_][a-zA-Z0-9_]*\\b"
+                }
+            ]
+        }
+    }
+}

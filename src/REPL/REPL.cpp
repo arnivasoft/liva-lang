@@ -61,7 +61,23 @@ REPLResult REPLSession::processLine(const std::string &line) {
             r.output = "Declaration added.";
             return r;
         }
-        // Expression or statement
+        // Statement (if/while/for) — put directly in main without wrapping
+        if (kind == InputKind::Statement) {
+            std::string source = generateFullSource(completeInput, false);
+            std::string errorMsg;
+            if (!validateSource(source, errorMsg)) {
+                REPLResult r;
+                r.kind = REPLResult::Error;
+                r.output = errorMsg;
+                return r;
+            }
+            REPLResult r;
+            r.kind = REPLResult::Statement;
+            r.generatedCode = source;
+            r.needsExecution = true;
+            return r;
+        }
+        // Expression
         std::string wrapped = wrapExpression(completeInput);
         std::string source = generateFullSource(wrapped, true);
         std::string errorMsg;
@@ -96,6 +112,20 @@ REPLResult REPLSession::processLine(const std::string &line) {
         return handleCommand(trimmed);
 
     case InputKind::Declaration: {
+        // Import declarations: add directly without sema validation
+        // (ModuleLoader is not available in REPL, but imports are needed
+        // for generated code to work when compiled)
+        {
+            size_t ws = trimmed.find_first_of(" \t");
+            std::string fw = (ws != std::string::npos) ? trimmed.substr(0, ws) : trimmed;
+            if (fw == "import") {
+                declarations_.push_back(trimmed);
+                REPLResult r;
+                r.kind = REPLResult::Declaration;
+                r.output = "Import added.";
+                return r;
+            }
+        }
         // Check for unclosed delimiters — start multi-line
         if (hasUnclosedDelimiters(trimmed)) {
             multilineBuffer_ = trimmed;
@@ -112,6 +142,27 @@ REPLResult REPLSession::processLine(const std::string &line) {
         REPLResult r;
         r.kind = REPLResult::Declaration;
         r.output = "Declaration added.";
+        return r;
+    }
+
+    case InputKind::Statement: {
+        // Check for unclosed delimiters — start multi-line
+        if (hasUnclosedDelimiters(trimmed)) {
+            multilineBuffer_ = trimmed;
+            return REPLResult{REPLResult::Incomplete};
+        }
+        std::string source = generateFullSource(trimmed, false);
+        std::string errorMsg;
+        if (!validateSource(source, errorMsg)) {
+            REPLResult r;
+            r.kind = REPLResult::Error;
+            r.output = errorMsg;
+            return r;
+        }
+        REPLResult r;
+        r.kind = REPLResult::Statement;
+        r.generatedCode = source;
+        r.needsExecution = true;
         return r;
     }
 
@@ -163,6 +214,12 @@ REPLSession::classifyInput(const std::string &input) const {
         firstWord == "import" || firstWord == "pub" || firstWord == "let" ||
         firstWord == "var" || firstWord == "const")
         return InputKind::Declaration;
+
+    // Statement keywords (executed inside main)
+    if (firstWord == "if" || firstWord == "while" || firstWord == "for" ||
+        firstWord == "guard" || firstWord == "return" || firstWord == "break" ||
+        firstWord == "continue")
+        return InputKind::Statement;
 
     return InputKind::Expression;
 }

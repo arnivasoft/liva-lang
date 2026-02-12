@@ -1,0 +1,41 @@
+// Error Handling with Result Type
+
+func safeDivide(a: f64, b: f64) -> Result<f64, string> {
+    if b == 0.0 {
+        return Result.err("Division by zero")
+    }
+    return Result.ok(a / b)
+}
+
+func safeSqrt(x: f64) -> Result<f64, string> {
+    if x < 0.0 {
+        return Result.err("Negative root")
+    }
+    return Result.ok(sqrt(x))
+}
+
+func main() {
+    let result = safeDivide(10.0, 3.0)
+    match result {
+        Result.Ok(val) => println(val)
+        Result.Err(e) => println(e)
+    }
+
+    let zero = safeDivide(5.0, 0.0)
+    match zero {
+        Result.Ok(val) => println(val)
+        Result.Err(e) => println(e)
+    }
+
+    let root = safeSqrt(16.0)
+    match root {
+        Result.Ok(val) => println(val)
+        Result.Err(e) => println(e)
+    }
+
+    let negRoot = safeSqrt(-4.0)
+    match negRoot {
+        Result.Ok(val) => println(val)
+        Result.Err(e) => println(e)
+    }
+}

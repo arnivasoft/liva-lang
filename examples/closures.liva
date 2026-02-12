@@ -1,0 +1,31 @@
+// Closures and Higher-Order Functions
+
+func apply(x: i32, f: (i32) -> i32) -> i32 {
+    return f(x)
+}
+
+func makeAdder(n: i32) -> (i32) -> i32 {
+    return |x: i32| -> i32 { return x + n }
+}
+
+func main() {
+    // Basic closure
+    let double = |x: i32| -> i32 { return x * 2 }
+    println(apply(5, double))
+
+    // Closure with capture
+    let offset: i32 = 10
+    let addOffset = |x: i32| -> i32 { return x + offset }
+    println(addOffset(5))
+
+    // Returned closure
+    let add5 = makeAdder(5)
+    println(add5(10))
+
+    // Array operations with closures
+    var numbers: [i32] = [1, 2, 3, 4, 5]
+    let doubled = numbers.map(|x: i32| -> i32 { return x * 2 })
+    let evens = numbers.filter(|x: i32| -> bool { return x % 2 == 0 })
+    println(doubled.length)
+    println(evens.length)
+}

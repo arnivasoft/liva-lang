@@ -378,8 +378,10 @@ int Driver::executeRepl() {
                 tmpExe += ".exe";
 #endif
                 if (compiler.compile(tmpExe)) {
-                    std::system(tmpExe.c_str());
+                    int exitCode = std::system(tmpExe.c_str());
                     std::remove(tmpExe.c_str());
+                    if (exitCode != 0)
+                        std::cerr << "  (process exited with code " << exitCode << ")\n";
                 }
 #else
                 std::cout << "Semantic analysis passed.\n";

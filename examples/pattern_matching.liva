@@ -1,0 +1,44 @@
+// Pattern Matching with Enums
+
+enum Shape {
+    case Circle(f64)
+    case Rectangle(f64, f64)
+    case Triangle(f64, f64, f64)
+}
+
+enum Option {
+    case Some(i32)
+    case None
+}
+
+func describeShape(shape: Shape) -> f64 {
+    match shape {
+        Shape.Circle(r) => return 3.14159 * r * r
+        Shape.Rectangle(w, h) => return w * h
+        Shape.Triangle(a, b, c) => {
+            let s = (a + b + c) / 2.0
+            return s
+        }
+    }
+}
+
+func unwrapOr(opt: Option, default_val: i32) -> i32 {
+    match opt {
+        Option.Some(v) => return v
+        Option.None => return default_val
+    }
+}
+
+func main() {
+    let c: Shape = Shape.Circle(5.0)
+    let r: Shape = Shape.Rectangle(3.0, 4.0)
+    let t: Shape = Shape.Triangle(3.0, 4.0, 5.0)
+    println(describeShape(c))
+    println(describeShape(r))
+    println(describeShape(t))
+
+    let x: Option = Option.Some(42)
+    let y: Option = Option.None
+    println(unwrapOr(x, 0))
+    println(unwrapOr(y, -1))
+}

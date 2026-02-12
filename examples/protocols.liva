@@ -1,0 +1,51 @@
+// Protocols (Traits)
+
+protocol Describable {
+    func describe(self) -> string
+}
+
+protocol HasArea {
+    func area(self) -> f64
+}
+
+struct Circle {
+    let radius: f64
+}
+
+struct Rectangle {
+    let width: f64
+    let height: f64
+}
+
+impl Circle: Describable {
+    func describe(self) -> string {
+        return "Circle"
+    }
+}
+
+impl Rectangle: Describable {
+    func describe(self) -> string {
+        return "Rectangle"
+    }
+}
+
+impl Circle: HasArea {
+    func area(self) -> f64 {
+        return 3.14159 * self.radius * self.radius
+    }
+}
+
+impl Rectangle: HasArea {
+    func area(self) -> f64 {
+        return self.width * self.height
+    }
+}
+
+func main() {
+    let c = Circle { radius: 5.0 }
+    let r = Rectangle { width: 3.0, height: 4.0 }
+    println(c.describe())
+    println(r.describe())
+    println(c.area())
+    println(r.area())
+}
