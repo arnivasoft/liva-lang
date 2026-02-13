@@ -41,6 +41,7 @@ private:
     Token lexString();
     Token lexStringContinuation();
     Token lexChar();
+    Token lexDocComment();
 
     Token makeToken(TokenKind kind, size_t startOffset);
     Token makeToken(TokenKind kind, size_t startOffset, std::string_view text);

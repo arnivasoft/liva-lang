@@ -41,28 +41,60 @@ void ModuleLoader::registerBuiltinModules() {
          "log", "log10", "sin", "cos", "tan", "round"});
 
     cache_["std::io"] = createBuiltinModule("std::io",
-        {"print", "println", "readLine", "format"}, {"File"});
+        {"print", "println", "readLine", "format",
+         "dirList", "dirCreate", "dirRemove", "dirExists",
+         "pathJoin", "pathDirname", "pathBasename", "pathExtension",
+         "pathExists", "isFile"}, {"File"});
 
     cache_["std::convert"] = createBuiltinModule("std::convert",
         {"parseInt", "parseInt64", "parseFloat", "toString"});
 
     cache_["std::os"] = createBuiltinModule("std::os",
-        {"env", "exit", "args", "clock", "clockMs", "sleep"});
+        {"env", "exit", "args", "clock", "clockMs", "sleep",
+         "exec", "execOutput", "processStart", "processWait",
+         "processKill", "processRead", "processClose"});
 
     cache_["std::random"] = createBuiltinModule("std::random",
         {"randInt", "randFloat"});
 
     cache_["std::regex"] = createBuiltinModule("std::regex",
-        {"regexMatch", "regexFind", "regexFindAll", "regexReplace"});
+        {"regexMatch", "regexFind", "regexFindAll", "regexReplace",
+         "regexFindGroups",
+         "regexCompile", "regexTest", "regexExec",
+         "regexExecGroups", "regexReplaceCompiled", "regexFree"});
 
     cache_["std::net"] = createBuiltinModule("std::net",
-        {"httpGet", "httpPost"});
+        {"httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete"});
+
+    cache_["std::json"] = createBuiltinModule("std::json",
+        {"jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
+         "jsonIsValid", "jsonKeys"});
+
+    cache_["std::log"] = createBuiltinModule("std::log",
+        {"logDebug", "logInfo", "logWarn", "logError", "logSetLevel"});
+
+    cache_["std::test"] = createBuiltinModule("std::test",
+        {"assert", "assertMsg", "assertEq", "assertEqStr", "assertEqFloat"});
+
+    cache_["std::datetime"] = createBuiltinModule("std::datetime",
+        {"dateNow", "timeNow", "datetimeNow", "dateFormat",
+         "dateYear", "dateMonth", "dateDay", "dateWeekday"});
+
+    cache_["std::compress"] = createBuiltinModule("std::compress",
+        {"base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32"});
+
+    cache_["std::sync"] = createBuiltinModule("std::sync",
+        {"mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",
+         "atomicCreate", "atomicLoad", "atomicStore",
+         "atomicAdd", "atomicSub", "atomicCas", "atomicFree"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();
     umbrella->name = "std";
     for (const auto &sub : {"std::math", "std::io", "std::convert",
-                             "std::os", "std::random", "std::regex", "std::net"}) {
+                             "std::os", "std::random", "std::regex", "std::net",
+                             "std::json", "std::log", "std::test",
+                             "std::datetime", "std::compress", "std::sync"}) {
         for (const auto &sym : cache_[sub]->exportedSymbols)
             umbrella->exportedSymbols.push_back(sym);
     }

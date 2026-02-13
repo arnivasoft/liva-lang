@@ -63,12 +63,150 @@ void TypeChecker::registerBuiltins() {
     for (auto &name : {"randInt", "randFloat", "env", "exit", "args",
                         "clock", "clockMs", "sleep",
                         "regexMatch", "regexFind", "regexFindAll", "regexReplace",
-                        "httpGet", "httpPost"}) {
+                        "regexFindGroups",
+                        "regexCompile", "regexTest", "regexExec",
+                        "regexExecGroups", "regexReplaceCompiled", "regexFree",
+                        "httpGet", "httpPost",
+                        "httpPut", "httpPatch", "httpDelete"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
         scopes_.declare(name, sym);
     }
+
+    // Stdlib: Directory and Path operations
+    for (auto &name : {"dirList", "dirCreate", "dirRemove", "dirExists",
+                        "pathJoin", "pathDirname", "pathBasename",
+                        "pathExtension", "pathExists", "isFile"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: Subprocess
+    for (auto &name : {"exec", "execOutput", "processStart",
+                        "processWait", "processKill", "processRead",
+                        "processClose"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: JSON
+    for (auto &name : {"jsonGet", "jsonGetInt", "jsonGetFloat",
+                        "jsonGetBool", "jsonIsValid", "jsonKeys"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: Logging
+    for (auto &name : {"logDebug", "logInfo", "logWarn", "logError",
+                        "logSetLevel"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: Testing
+    for (auto &name : {"assert", "assertMsg", "assertEq",
+                        "assertEqStr", "assertEqFloat"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: DateTime
+    for (auto &name : {"dateNow", "timeNow", "datetimeNow", "dateFormat",
+                        "dateYear", "dateMonth", "dateDay", "dateWeekday"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: Encoding/Compression
+    for (auto &name : {"base64Encode", "base64Decode", "hexEncode",
+                        "hexDecode", "crc32"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: Synchronization (Mutex + Atomic)
+    for (auto &name : {"mutexCreate", "mutexLock", "mutexUnlock",
+                        "mutexTryLock", "mutexFree",
+                        "atomicCreate", "atomicLoad", "atomicStore",
+                        "atomicAdd", "atomicSub", "atomicCas", "atomicFree"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+}
+
+// === "Did you mean?" suggestion helpers ===
+
+size_t TypeChecker::editDistance(const std::string &a, const std::string &b) {
+    size_t m = a.size(), n = b.size();
+    // Use single-row DP for O(min(m,n)) space
+    std::vector<size_t> prev(n + 1), curr(n + 1);
+    for (size_t j = 0; j <= n; ++j)
+        prev[j] = j;
+    for (size_t i = 1; i <= m; ++i) {
+        curr[0] = i;
+        for (size_t j = 1; j <= n; ++j) {
+            size_t cost = (a[i - 1] == b[j - 1]) ? 0 : 1;
+            curr[j] = prev[j] + 1;             // deletion
+            if (curr[j] > curr[j - 1] + 1)
+                curr[j] = curr[j - 1] + 1;     // insertion
+            if (curr[j] > prev[j - 1] + cost)
+                curr[j] = prev[j - 1] + cost;  // substitution
+        }
+        std::swap(prev, curr);
+    }
+    return prev[n];
+}
+
+std::string TypeChecker::findClosestMatch(const std::string &name,
+                                           const std::vector<std::string> &candidates,
+                                           size_t maxDist) {
+    if (candidates.empty())
+        return "";
+    // Default threshold: at most len/3 + 1, minimum 2
+    if (maxDist == 0) {
+        maxDist = name.size() / 3 + 1;
+        if (maxDist < 2)
+            maxDist = 2;
+    }
+    std::string best;
+    size_t bestDist = maxDist + 1;
+    for (const auto &c : candidates) {
+        // Quick reject: length difference too large
+        size_t lenDiff = (c.size() > name.size()) ? c.size() - name.size()
+                                                   : name.size() - c.size();
+        if (lenDiff > maxDist)
+            continue;
+        size_t d = editDistance(name, c);
+        if (d < bestDist) {
+            bestDist = d;
+            best = c;
+        }
+    }
+    return (bestDist <= maxDist) ? best : "";
+}
+
+void TypeChecker::suggestSimilar(SourceLocation loc, const std::string &name,
+                                  const std::vector<std::string> &candidates) {
+    std::string match = findClosestMatch(name, candidates);
+    if (!match.empty())
+        diag_.report(loc, DiagID::note_did_you_mean, match);
 }
 
 void TypeChecker::check(TranslationUnit &tu) {
@@ -181,6 +319,9 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
             auto *protoSym = scopes_.lookup(boundProto);
             if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
                 diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+                std::vector<std::string> protoCandidates;
+                scopes_.collectNames(Symbol::Kind::ProtocolType, protoCandidates);
+                suggestSimilar(node->getStartLoc(), boundProto, protoCandidates);
             }
         }
     }
@@ -430,6 +571,9 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
             auto *protoSym = scopes_.lookup(boundProto);
             if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
                 diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+                std::vector<std::string> protoCandidates;
+                scopes_.collectNames(Symbol::Kind::ProtocolType, protoCandidates);
+                suggestSimilar(node->getStartLoc(), boundProto, protoCandidates);
             }
         }
     }
@@ -447,6 +591,12 @@ void TypeChecker::visitTypeAliasDecl(TypeAliasDecl *node) {
         auto *sym = scopes_.lookup(named->getName());
         if (!sym) {
             diag_.report(node->getStartLoc(), DiagID::err_undefined_type, named->getName());
+            std::vector<std::string> typeCandidates;
+            scopes_.collectNames(Symbol::Kind::StructType, typeCandidates);
+            scopes_.collectNames(Symbol::Kind::EnumType, typeCandidates);
+            scopes_.collectNames(Symbol::Kind::ProtocolType, typeCandidates);
+            scopes_.collectNames(Symbol::Kind::TypeAlias, typeCandidates);
+            suggestSimilar(node->getStartLoc(), named->getName(), typeCandidates);
         }
     }
 }
@@ -462,6 +612,10 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
     auto *sym = scopes_.lookup(node->getTypeName());
     if (!sym) {
         diag_.report(node->getStartLoc(), DiagID::err_undefined_type, node->getTypeName());
+        std::vector<std::string> typeCandidates;
+        scopes_.collectNames(Symbol::Kind::StructType, typeCandidates);
+        scopes_.collectNames(Symbol::Kind::EnumType, typeCandidates);
+        suggestSimilar(node->getStartLoc(), node->getTypeName(), typeCandidates);
         return;
     }
 
@@ -471,6 +625,9 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
         if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
             diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol,
                          node->getProtocolName());
+            std::vector<std::string> protoCandidates;
+            scopes_.collectNames(Symbol::Kind::ProtocolType, protoCandidates);
+            suggestSimilar(node->getStartLoc(), node->getProtocolName(), protoCandidates);
         } else if (protoSym->protocolDecl) {
             for (auto &protoMethod : protoSym->protocolDecl->getMethods()) {
                 bool found = false;
@@ -546,6 +703,9 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
             auto *protoSym = scopes_.lookup(boundProto);
             if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
                 diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, boundProto);
+                std::vector<std::string> protoCandidates;
+                scopes_.collectNames(Symbol::Kind::ProtocolType, protoCandidates);
+                suggestSimilar(node->getStartLoc(), boundProto, protoCandidates);
             }
         }
     }
@@ -902,6 +1062,10 @@ void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
         // Result is a built-in type constructor, not a declared identifier
         if (node->getName() == "Result") return;
         diag_.report(node->getStartLoc(), DiagID::err_undeclared_identifier, node->getName());
+        // "Did you mean?" suggestion
+        std::vector<std::string> candidates;
+        scopes_.collectAllNames(candidates);
+        suggestSimilar(node->getStartLoc(), node->getName(), candidates);
         return;
     }
 
@@ -1190,10 +1354,109 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(std::move(arrType));
         } else if (ident->getName() == "regexReplace") {
             node->setResolvedType(makeStringType());
-        // Stdlib: Networking
-        } else if (ident->getName() == "httpGet" || ident->getName() == "httpPost") {
+        } else if (ident->getName() == "regexFindGroups") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
+        } else if (ident->getName() == "regexCompile") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "regexTest") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "regexExec") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
             node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "regexExecGroups") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
+        } else if (ident->getName() == "regexReplaceCompiled") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "regexFree") {
+            // void
+        // Stdlib: Networking
+        } else if (ident->getName() == "httpGet" || ident->getName() == "httpPost" ||
+                   ident->getName() == "httpPut" || ident->getName() == "httpPatch" ||
+                   ident->getName() == "httpDelete") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        // Stdlib: Directory operations
+        } else if (ident->getName() == "dirList") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
+        } else if (ident->getName() == "dirCreate" || ident->getName() == "dirRemove" ||
+                   ident->getName() == "dirExists" || ident->getName() == "pathExists" ||
+                   ident->getName() == "isFile") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "pathJoin" || ident->getName() == "pathDirname" ||
+                   ident->getName() == "pathBasename" || ident->getName() == "pathExtension") {
+            node->setResolvedType(makeStringType());
+        // Stdlib: Subprocess
+        } else if (ident->getName() == "exec" || ident->getName() == "processWait") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "execOutput" || ident->getName() == "processRead") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "processStart") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "processKill") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "processClose") {
+            // void — no resolved type needed
+        // Stdlib: JSON
+        } else if (ident->getName() == "jsonGet") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "jsonGetInt") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "jsonGetFloat") {
+            node->setResolvedType(makeF64Type());
+        } else if (ident->getName() == "jsonGetBool" || ident->getName() == "jsonIsValid") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "jsonKeys") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
+        // Stdlib: Logging (all void)
+        } else if (ident->getName() == "logDebug" || ident->getName() == "logInfo" ||
+                   ident->getName() == "logWarn" || ident->getName() == "logError" ||
+                   ident->getName() == "logSetLevel") {
+            // void — no resolved type needed
+        // Stdlib: Testing (all void — they abort on failure)
+        } else if (ident->getName() == "assert" || ident->getName() == "assertMsg" ||
+                   ident->getName() == "assertEq" || ident->getName() == "assertEqStr" ||
+                   ident->getName() == "assertEqFloat") {
+            // void — no resolved type needed
+        // Stdlib: DateTime
+        } else if (ident->getName() == "dateNow" || ident->getName() == "timeNow" ||
+                   ident->getName() == "datetimeNow") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "dateFormat") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "dateYear" || ident->getName() == "dateMonth" ||
+                   ident->getName() == "dateDay" || ident->getName() == "dateWeekday") {
+            node->setResolvedType(makeI32Type());
+        // Stdlib: Encoding/Compression
+        } else if (ident->getName() == "base64Encode" || ident->getName() == "hexEncode") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "base64Decode" || ident->getName() == "hexDecode") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "crc32") {
+            node->setResolvedType(makeI64Type());
+        // Stdlib: Synchronization
+        } else if (ident->getName() == "mutexCreate" ||
+                   ident->getName() == "atomicCreate") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "mutexTryLock" ||
+                   ident->getName() == "atomicCas") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "atomicLoad" ||
+                   ident->getName() == "atomicAdd" ||
+                   ident->getName() == "atomicSub") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "mutexLock" ||
+                   ident->getName() == "mutexUnlock" ||
+                   ident->getName() == "mutexFree" ||
+                   ident->getName() == "atomicStore" ||
+                   ident->getName() == "atomicFree") {
+            // void — no resolved type
         } else {
             auto *sym = scopes_.lookup(ident->getName());
             if (sym && sym->type &&
@@ -1346,6 +1609,10 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                     node->setResolvedType(std::move(optType));
                 } else if (methodName == "readAll") {
                     node->setResolvedType(makeStringType());
+                } else if (methodName == "seek") {
+                    node->setResolvedType(makeI32Type());
+                } else if (methodName == "tell" || methodName == "size") {
+                    node->setResolvedType(makeI64Type());
                 }
                 // write, writeLine, close → void (no resolved type)
             }
@@ -1415,10 +1682,17 @@ void TypeChecker::visitMemberExpr(MemberExpr *node) {
         }
     }
 
-    // string.length → i64
+    // string.length → i64 (UTF-8 code point count)
     if (node->getObject()->getResolvedType() &&
         node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
         node->getMember() == "length") {
+        node->setResolvedType(makeI64Type());
+    }
+
+    // string.byteLength → i64 (byte count)
+    if (node->getObject()->getResolvedType() &&
+        node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
+        node->getMember() == "byteLength") {
         node->setResolvedType(makeI64Type());
     }
 
@@ -1522,6 +1796,9 @@ void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
     }
     if (!sym || sym->kind != Symbol::Kind::StructType) {
         diag_.report(node->getStartLoc(), DiagID::err_undefined_type, node->getTypeName());
+        std::vector<std::string> typeCandidates;
+        scopes_.collectNames(Symbol::Kind::StructType, typeCandidates);
+        suggestSimilar(node->getStartLoc(), node->getTypeName(), typeCandidates);
         return;
     }
 
@@ -1713,7 +1990,22 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
 
 void TypeChecker::extractPatternBindings(const std::string &pattern) {
     auto parenPos = pattern.find('(');
-    if (parenPos == std::string::npos) return;
+    if (parenPos == std::string::npos) {
+        // No parens — check if it's a simple variable binding (e.g., "s" in "s if s >= 90.0")
+        if (pattern != "_" && pattern.find('.') == std::string::npos && !pattern.empty()) {
+            char *end = nullptr;
+            std::strtol(pattern.c_str(), &end, 10);
+            if (end == pattern.c_str() || *end != '\0') {
+                // Not an integer literal — treat as variable binding
+                Symbol sym;
+                sym.name = pattern;
+                sym.kind = Symbol::Kind::Variable;
+                sym.isMutable = false;
+                scopes_.declare(pattern, sym);
+            }
+        }
+        return;
+    }
 
     // Find matching closing paren (depth-aware for nested patterns)
     int depth = 0;

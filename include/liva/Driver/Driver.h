@@ -6,7 +6,7 @@
 
 namespace liva {
 
-enum class Subcommand { None, Build, Run, Init, Lsp, Repl };
+enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean };
 
 /// Command-line options
 struct DriverOptions {
@@ -20,6 +20,11 @@ struct DriverOptions {
     bool emitObj = false;
     int optLevel = 0;
     bool debugInfo = false;
+    std::string lto = "none";  // "none", "thin", "full"
+    bool hasLtoOverride = false;
+    std::string pgo = "none";  // "none", "generate", "use"
+    std::string pgoProfile;    // profile data path (for pgo=use)
+    bool hasPgoOverride = false;
     bool showHelp = false;
     bool showVersion = false;
     std::string initName;
@@ -50,9 +55,14 @@ private:
     int executeInit();
     int executeLsp();
     int executeRepl();
+    int executeClean();
     int executeLegacy();
 
     int buildProject(bool runAfter);
+    int linkCachedObject(const std::string &objPath,
+                         const std::string &outputPath, bool debugInfo,
+                         const std::string &ltoMode = "none",
+                         const std::string &pgoMode = "none");
 
     DriverOptions options_;
     std::string executablePath_;

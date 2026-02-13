@@ -75,6 +75,18 @@ private:
     /// Register built-in types and functions
     void registerBuiltins();
 
+    /// Compute edit distance between two strings (Levenshtein)
+    static size_t editDistance(const std::string &a, const std::string &b);
+
+    /// Find closest match from candidates; returns empty if no good match
+    static std::string findClosestMatch(const std::string &name,
+                                         const std::vector<std::string> &candidates,
+                                         size_t maxDistance = 0);
+
+    /// Suggest a similar name after reporting an error
+    void suggestSimilar(SourceLocation loc, const std::string &name,
+                        const std::vector<std::string> &candidates);
+
     /// Check if two types are compatible
     bool typesCompatible(const TypeRepr *expected, const TypeRepr *actual) const;
 

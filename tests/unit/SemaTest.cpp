@@ -2479,6 +2479,28 @@ TEST_F(SemaTest, StringSlicing) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, StringByteLengthProperty) {
+    auto result = check(R"(
+        func main() {
+            let s = "hello"
+            let n = s.byteLength
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StringLengthUTF8) {
+    // Both .length and .byteLength should resolve to i64
+    auto result = check(R"(
+        func main() {
+            let s = "hello"
+            let a: i64 = s.length
+            let b: i64 = s.byteLength
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, DynArraySlicing) {
     auto result = check(R"--(
         func main() {
@@ -3541,6 +3563,513 @@ TEST_F(SemaTest, HttpPostType) {
             let r: string? = httpPost("https://example.com", "data")
         }
     )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HttpPutType) {
+    auto result = check(R"--(
+        func main() {
+            let r: string? = httpPut("https://example.com/1", "{\"name\":\"test\"}")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HttpPatchType) {
+    auto result = check(R"--(
+        func main() {
+            let r: string? = httpPatch("https://example.com/1", "{\"name\":\"updated\"}")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HttpDeleteType) {
+    auto result = check(R"--(
+        func main() {
+            let r: string? = httpDelete("https://example.com/1")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HttpMethodsViaStdNet) {
+    auto result = checkWithModules(R"--(
+        import std::net
+        func main() {
+            let g = httpGet("http://example.com")
+            let p = httpPost("http://example.com", "data")
+            let u = httpPut("http://example.com/1", "body")
+            let a = httpPatch("http://example.com/1", "body")
+            let d = httpDelete("http://example.com/1")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === Directory & Path Operations ===
+
+TEST_F(SemaTest, DirCreateReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = dirCreate("/tmp/test")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DirExistsReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let exists: bool = dirExists("/tmp")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DirRemoveReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = dirRemove("/tmp/test")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DirListReturnsStringArray) {
+    auto result = check(R"--(
+        func main() {
+            let files = dirList("/tmp")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PathJoinReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let p: string = pathJoin("/home", "user")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PathDirnameReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let dir: string = pathDirname("/home/user/file.txt")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PathBasenameReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let name: string = pathBasename("/home/user/file.txt")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PathExtensionReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let ext: string = pathExtension("/home/user/file.txt")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PathExistsReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let exists: bool = pathExists("/tmp")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, IsFileReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let isf: bool = isFile("/tmp/test.txt")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DirPathViaStdIo) {
+    auto result = checkWithModules(R"--(
+        import std::io
+        func main() {
+            let ok = dirCreate("/tmp/test")
+            let p = pathJoin("/home", "user")
+            let exists = pathExists("/tmp")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileSeekTellSize) {
+    auto result = check(R"--(
+        func main() {
+            let f = File.open("test.txt", "r")
+            if let file = f {
+                let pos: i64 = file.tell()
+                let sz: i64 = file.size()
+                let r: i32 = file.seek(0, 0)
+                file.close()
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Subprocess ===
+
+TEST_F(SemaTest, ExecReturnsI32) {
+    auto result = check(R"--(
+        func main() {
+            let code: i32 = exec("echo hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ExecOutputReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let output = execOutput("echo hello")
+            if let out = output {
+                println(out)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProcessStartReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = processStart("echo test")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProcessWaitReturnsI32) {
+    auto result = check(R"--(
+        func main() {
+            let handle = processStart("echo test")
+            let code: i32 = processWait(handle)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProcessKillReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let handle = processStart("echo test")
+            let ok: bool = processKill(handle)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProcessReadReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let handle = processStart("echo test")
+            let output = processRead(handle)
+            if let out = output {
+                println(out)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ProcessCloseVoid) {
+    auto result = check(R"--(
+        func main() {
+            let handle = processStart("echo test")
+            processClose(handle)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SubprocessFullWorkflow) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = processStart("echo hello world")
+            let output = processRead(handle)
+            let code: i32 = processWait(handle)
+            processClose(handle)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SubprocessViaStdOs) {
+    auto result = checkWithModules(R"--(
+        import std::os
+        func main() {
+            let code = exec("echo hello")
+            let output = execOutput("echo hello")
+            let handle = processStart("echo test")
+            processClose(handle)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === JSON ===
+
+TEST_F(SemaTest, JsonGetReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let val = jsonGet("{\"name\":\"liva\"}", "name")
+            if let v = val {
+                println(v)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonGetIntReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let age: i64 = jsonGetInt("{\"age\":25}", "age")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonGetFloatReturnsF64) {
+    auto result = check(R"--(
+        func main() {
+            let pi: f64 = jsonGetFloat("{\"pi\":3.14}", "pi")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonGetBoolReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = jsonGetBool("{\"ok\":true}", "ok")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonIsValidReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let valid: bool = jsonIsValid("{\"key\":\"value\"}")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonKeysReturnsStringArray) {
+    auto result = check(R"--(
+        func main() {
+            let keys = jsonKeys("{\"a\":1,\"b\":2}")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonViaStdJson) {
+    auto result = checkWithModules(R"--(
+        import std::json
+        func main() {
+            let v = jsonGet("{}", "key")
+            let ok = jsonIsValid("{}")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === Logging ===
+
+TEST_F(SemaTest, LogFunctions) {
+    auto result = check(R"--(
+        func main() {
+            logDebug("debug message")
+            logInfo("info message")
+            logWarn("warning")
+            logError("error")
+            logSetLevel(2)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, LogViaStdLog) {
+    auto result = checkWithModules(R"--(
+        import std::log
+        func main() {
+            logInfo("hello from module")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === Testing ===
+
+TEST_F(SemaTest, AssertFunctions) {
+    auto result = check(R"--(
+        func main() {
+            assert(true)
+            assertMsg(true, "should pass")
+            assertEq(1, 1)
+            assertEqStr("hello", "hello")
+            assertEqFloat(3.14, 3.14)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TestViaStdTest) {
+    auto result = checkWithModules(R"--(
+        import std::test
+        func main() {
+            assert(true)
+            assertEqStr("a", "a")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === DateTime ===
+
+TEST_F(SemaTest, DateNowReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let d: string = dateNow()
+            let t: string = timeNow()
+            let dt: string = datetimeNow()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DateFormatReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let ts: f64 = clock()
+            let formatted: string = dateFormat(ts, "%Y-%m-%d")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DatePartsReturnI32) {
+    auto result = check(R"--(
+        func main() {
+            let ts: f64 = clock()
+            let y: i32 = dateYear(ts)
+            let m: i32 = dateMonth(ts)
+            let d: i32 = dateDay(ts)
+            let w: i32 = dateWeekday(ts)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DatetimeViaStdDatetime) {
+    auto result = checkWithModules(R"--(
+        import std::datetime
+        func main() {
+            let d = dateNow()
+            let y: i32 = dateYear(clock())
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === Encoding / Compression ===
+
+TEST_F(SemaTest, Base64EncodeReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let encoded: string = base64Encode("hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, Base64DecodeReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let decoded = base64Decode("aGVsbG8=")
+            if let d = decoded {
+                println(d)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HexEncodeReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let hex: string = hexEncode("hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HexDecodeReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let decoded = hexDecode("68656c6c6f")
+            if let d = decoded {
+                println(d)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, Crc32ReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let checksum: i64 = crc32("hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CompressViaStdCompress) {
+    auto result = checkWithModules(R"--(
+        import std::compress
+        func main() {
+            let e = base64Encode("test")
+            let h = hexEncode("test")
+            let c: i64 = crc32("test")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AllNewModulesViaStd) {
+    auto result = checkWithModules(R"--(
+        import std
+        func main() {
+            let j = jsonIsValid("{}")
+            logInfo("test")
+            assert(true)
+            let d = dateNow()
+            let e = base64Encode("hi")
+        }
+    )--", {});
     EXPECT_TRUE(result.passed);
 }
 
@@ -4988,4 +5517,391 @@ TEST_F(SemaTest, NoErrorTryOnResult) {
         }
     )--");
     EXPECT_TRUE(result.passed);
+}
+
+// === Regex: Capture Groups & Compiled Objects ===
+
+TEST_F(SemaTest, RegexFindGroupsReturnsArray) {
+    auto result = check(R"--(
+        func main() {
+            let groups: [string] = regexFindGroups("2024-01-15", "(\\d+)-(\\d+)-(\\d+)")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexCompileReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = regexCompile("\\d+")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexTestReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = regexCompile("\\d+")
+            let ok: bool = regexTest(handle, "abc123")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexExecReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = regexCompile("\\d+")
+            let m: string? = regexExec(handle, "abc123")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexExecGroupsReturnsArray) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = regexCompile("(\\w+)@(\\w+)")
+            let groups: [string] = regexExecGroups(handle, "user@host")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexReplaceCompiledReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = regexCompile("\\d+")
+            let s: string = regexReplaceCompiled(handle, "abc123", "NUM")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexFreeIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let handle: i64 = regexCompile("\\d+")
+            regexFree(handle)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexCompiledFullWorkflow) {
+    auto result = check(R"--(
+        func main() {
+            let re: i64 = regexCompile("(\\w+)-(\\d+)")
+            let ok: bool = regexTest(re, "item-42")
+            let m: string? = regexExec(re, "item-42")
+            let gs: [string] = regexExecGroups(re, "item-42")
+            let s: string = regexReplaceCompiled(re, "item-42", "$1=$2")
+            regexFree(re)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexCaptureGroupsViaStdRegex) {
+    auto result = checkWithModules(R"--(
+        import std::regex
+        func main() {
+            let groups: [string] = regexFindGroups("hello world", "(\\w+) (\\w+)")
+            let re: i64 = regexCompile("\\d+")
+            let ok: bool = regexTest(re, "abc123")
+            regexFree(re)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegexReplaceWithCaptureVars) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = regexReplace("John Smith", "(\\w+) (\\w+)", "$2, $1")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Thread Safety: Mutex & Atomic ===
+
+TEST_F(SemaTest, MutexCreateReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let m: i64 = mutexCreate()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MutexLockUnlockVoid) {
+    auto result = check(R"--(
+        func main() {
+            let m: i64 = mutexCreate()
+            mutexLock(m)
+            mutexUnlock(m)
+            mutexFree(m)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, MutexTryLockReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let m: i64 = mutexCreate()
+            let ok: bool = mutexTryLock(m)
+            mutexUnlock(m)
+            mutexFree(m)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AtomicCreateReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let a: i64 = atomicCreate(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AtomicLoadReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let a: i64 = atomicCreate(42)
+            let v: i64 = atomicLoad(a)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AtomicStoreIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let a: i64 = atomicCreate(0)
+            atomicStore(a, 100)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AtomicAddSubReturnI64) {
+    auto result = check(R"--(
+        func main() {
+            let a: i64 = atomicCreate(10)
+            let prev1: i64 = atomicAdd(a, 5)
+            let prev2: i64 = atomicSub(a, 3)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AtomicCasReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let a: i64 = atomicCreate(10)
+            let ok: bool = atomicCas(a, 10, 20)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AtomicFreeIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let a: i64 = atomicCreate(0)
+            atomicFree(a)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SyncFullWorkflow) {
+    auto result = check(R"--(
+        func main() {
+            let mtx: i64 = mutexCreate()
+            let counter: i64 = atomicCreate(0)
+
+            mutexLock(mtx)
+            let old: i64 = atomicAdd(counter, 1)
+            mutexUnlock(mtx)
+
+            let val: i64 = atomicLoad(counter)
+            let swapped: bool = atomicCas(counter, 1, 0)
+
+            atomicFree(counter)
+            mutexFree(mtx)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SyncViaStdSync) {
+    auto result = checkWithModules(R"--(
+        import std::sync
+        func main() {
+            let m: i64 = mutexCreate()
+            let a: i64 = atomicCreate(0)
+            mutexLock(m)
+            atomicStore(a, 42)
+            mutexUnlock(m)
+            atomicFree(a)
+            mutexFree(m)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SyncViaStdUmbrella) {
+    auto result = checkWithModules(R"--(
+        import std
+        func main() {
+            let m: i64 = mutexCreate()
+            let ok: bool = mutexTryLock(m)
+            mutexFree(m)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === "Did you mean?" Suggestion Tests ===
+
+TEST_F(SemaTest, DidYouMeanUndeclaredVariable) {
+    auto result = check(R"(
+        func main() {
+            let counter: i32 = 0
+            println(conter)
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
+    // Check the suggestion message contains "counter"
+    bool foundSuggestion = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::note_did_you_mean &&
+            d.message.find("counter") != std::string::npos)
+            foundSuggestion = true;
+    }
+    EXPECT_TRUE(foundSuggestion);
+}
+
+TEST_F(SemaTest, DidYouMeanFunction) {
+    auto result = check(R"(
+        func calculate(x: i32) -> i32 {
+            return x * 2
+        }
+        func main() {
+            let r: i32 = calclate(5)
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
+}
+
+TEST_F(SemaTest, DidYouMeanUndefinedType) {
+    auto result = check(R"--(
+        struct Point {
+            var x: i32
+            var y: i32
+        }
+        func main() {
+            let p = Pont { x: 1, y: 2 }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_type));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
+    bool foundSuggestion = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::note_did_you_mean &&
+            d.message.find("Point") != std::string::npos)
+            foundSuggestion = true;
+    }
+    EXPECT_TRUE(foundSuggestion);
+}
+
+TEST_F(SemaTest, DidYouMeanProtocol) {
+    auto result = check(R"--(
+        protocol Printable {
+            func display(self) -> string
+        }
+        func show<T: Printabel>(item: T) {
+            println(item)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_protocol));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
+    bool foundSuggestion = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::note_did_you_mean &&
+            d.message.find("Printable") != std::string::npos)
+            foundSuggestion = true;
+    }
+    EXPECT_TRUE(foundSuggestion);
+}
+
+TEST_F(SemaTest, DidYouMeanNoSuggestionForDistantName) {
+    // Name is too different — no suggestion should be made
+    auto result = check(R"(
+        func main() {
+            println(xyz_completely_different)
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
+    EXPECT_FALSE(hasDiag(result, DiagID::note_did_you_mean));
+}
+
+TEST_F(SemaTest, DidYouMeanBuiltinFunction) {
+    auto result = check(R"(
+        func main() {
+            prinln("hello")
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
+    bool foundSuggestion = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::note_did_you_mean &&
+            d.message.find("println") != std::string::npos)
+            foundSuggestion = true;
+    }
+    EXPECT_TRUE(foundSuggestion);
+}
+
+TEST_F(SemaTest, DidYouMeanCaseSensitive) {
+    auto result = check(R"(
+        func main() {
+            let value: i32 = 42
+            println(Value)
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
+    // "Value" vs "value" — edit distance 1, should suggest
+    EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
+}
+
+TEST_F(SemaTest, DidYouMeanImplForType) {
+    auto result = check(R"--(
+        struct Circle {
+            var radius: f64
+        }
+        impl Circl {
+            func area(self) -> f64 {
+                return self.radius
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_type));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
 }

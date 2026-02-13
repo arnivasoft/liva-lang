@@ -484,3 +484,44 @@ TEST_F(LexerTest, EllipsisToken) {
     expectToken(tokens[0], TokenKind::dotdot);
     expectToken(tokens[1], TokenKind::ellipsis);
 }
+
+// === Doc Comment Token ===
+
+TEST_F(LexerTest, DocCommentSingle) {
+    auto tokens = lex("/// This is a doc comment");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::doc_comment);
+    EXPECT_EQ(tokens[0].getText(), "This is a doc comment");
+}
+
+TEST_F(LexerTest, DocCommentBeforeDecl) {
+    auto tokens = lex("/// Adds two numbers\nfunc add() {}");
+    ASSERT_GE(tokens.size(), 4);
+    expectToken(tokens[0], TokenKind::doc_comment);
+    EXPECT_EQ(tokens[0].getText(), "Adds two numbers");
+    expectToken(tokens[1], TokenKind::kw_func);
+}
+
+TEST_F(LexerTest, DocCommentMultipleLines) {
+    auto tokens = lex("/// Line 1\n/// Line 2\nfunc foo() {}");
+    ASSERT_GE(tokens.size(), 5);
+    expectToken(tokens[0], TokenKind::doc_comment);
+    EXPECT_EQ(tokens[0].getText(), "Line 1");
+    expectToken(tokens[1], TokenKind::doc_comment);
+    EXPECT_EQ(tokens[1].getText(), "Line 2");
+    expectToken(tokens[2], TokenKind::kw_func);
+}
+
+TEST_F(LexerTest, RegularCommentNotDocComment) {
+    auto tokens = lex("// regular comment\nfunc foo() {}");
+    ASSERT_GE(tokens.size(), 3);
+    // Regular comments are skipped, first token should be func
+    expectToken(tokens[0], TokenKind::kw_func);
+}
+
+TEST_F(LexerTest, DocCommentNoSpace) {
+    auto tokens = lex("///no space");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::doc_comment);
+    EXPECT_EQ(tokens[0].getText(), "no space");
+}

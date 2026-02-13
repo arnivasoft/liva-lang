@@ -864,6 +864,22 @@ func main() {
     EXPECT_TRUE(result.errors.empty());
 }
 
+TEST_F(IntegrationTest, UTF8StringOperations) {
+    std::string source = R"(
+func main() {
+    let s = "hello"
+    let len = s.length
+    let blen = s.byteLength
+    println(len)
+    println(blen)
+}
+)";
+    auto result = runPipeline("utf8_string.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
 // --- Error Scenario Tests ---
 
 TEST_F(IntegrationTest, ErrorNilWithoutOptional) {
@@ -1473,4 +1489,90 @@ func main() {
         }
     }
     EXPECT_TRUE(foundAwaitErr) << "Expected error about 'await' outside async function";
+}
+
+TEST_F(IntegrationTest, StringMemoryCleanup) {
+    std::string source = R"--(
+func main() {
+    var s = "hello" + " world"
+    s = s + "!"
+    println(s)
+}
+)--";
+    auto result = runPipeline("string_cleanup.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for string_cleanup.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for string_cleanup.liva";
+    for (const auto &e : result.errors) { EXPECT_TRUE(false) << "Error: " << e; }
+}
+
+TEST_F(IntegrationTest, StringTempInLoop) {
+    std::string source = R"--(
+func main() {
+    for i in 0..5 {
+        let msg = "item " + toString(i)
+        println(msg)
+    }
+}
+)--";
+    auto result = runPipeline("string_temp_loop.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for string_temp_loop.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for string_temp_loop.liva";
+    for (const auto &e : result.errors) { EXPECT_TRUE(false) << "Error: " << e; }
+}
+
+TEST_F(IntegrationTest, AsyncSleep) {
+    std::string source = R"--(
+async func delayedValue() -> i32 {
+    sleep(100)
+    return 42
+}
+
+async func main() {
+    let result: i32 = await delayedValue()
+    println(result)
+}
+)--";
+    auto result = runPipeline("async_sleep.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for async_sleep.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for async_sleep.liva";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, AsyncMultipleSleeps) {
+    std::string source = R"--(
+async func taskA() -> i32 {
+    sleep(50)
+    return 1
+}
+
+async func taskB() -> i32 {
+    sleep(100)
+    return 2
+}
+
+async func main() {
+    let a: i32 = await taskA()
+    let b: i32 = await taskB()
+    println(a)
+    println(b)
+}
+)--";
+    auto result = runPipeline("async_multi_sleep.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for async_multi_sleep.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for async_multi_sleep.liva";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, StringInterpolationCleanup) {
+    std::string source = R"--(
+func main() {
+    let name = "world"
+    let greeting = format("Hello, {}!", name)
+    println(greeting)
+}
+)--";
+    auto result = runPipeline("string_interp_cleanup.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for string_interp_cleanup.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for string_interp_cleanup.liva";
+    for (const auto &e : result.errors) { EXPECT_TRUE(false) << "Error: " << e; }
 }

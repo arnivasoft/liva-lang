@@ -469,10 +469,24 @@ PackageResolutionResult resolvePackages(const std::vector<PackageDep> &deps,
 
 // === Lock File ===
 
-std::string generateLockFile(const std::vector<ResolvedPackage> &packages) {
+std::string generateLockFile(const std::vector<ResolvedPackage> &packages,
+                             const std::vector<LockFileEntry> &checksums) {
     std::string out = "[lock]\n";
     for (const auto &pkg : packages)
         out += pkg.name + " = \"" + pkg.version.toString() + "\"\n";
+
+    // Write checksums section if any entries have checksums
+    bool hasChecksums = false;
+    for (const auto &cs : checksums) {
+        if (!cs.checksum.empty()) { hasChecksums = true; break; }
+    }
+    if (hasChecksums) {
+        out += "\n[checksums]\n";
+        for (const auto &cs : checksums) {
+            if (!cs.checksum.empty())
+                out += cs.name + " = \"" + cs.checksum + "\"\n";
+        }
+    }
     return out;
 }
 
@@ -490,6 +504,17 @@ std::vector<LockFileEntry> parseLockFile(const std::string &content) {
             e.name = kv.first;
             e.version = kv.second.stringVal;
             entries.push_back(e);
+        }
+    }
+    // Read checksums section if present
+    auto csIt = parsed.doc.sections.find("checksums");
+    if (csIt != parsed.doc.sections.end()) {
+        for (auto &e : entries) {
+            auto kvIt = csIt->second.find(e.name);
+            if (kvIt != csIt->second.end() &&
+                kvIt->second.kind == TOMLValue::String) {
+                e.checksum = kvIt->second.stringVal;
+            }
         }
     }
     return entries;
@@ -525,8 +550,19 @@ ProjectConfig loadProjectConfig(const TOMLDocument &doc) {
     cfg.entry = doc.getString("project", "entry", "main.liva");
     cfg.optLevel = (int)doc.getInt("build", "opt-level", 0);
     cfg.debugInfo = doc.getBool("build", "debug-info", false);
+    cfg.lto = doc.getString("build", "lto", "none");
+    cfg.pgo = doc.getString("build", "pgo", "none");
+    cfg.pgoProfile = doc.getString("build", "pgo-profile", "");
     cfg.modulePaths = doc.getStringArray("paths", "modules");
     cfg.dependencies = parseDependencies(doc);
+
+    // Registry URL: liva.toml [registry] section or LIVA_REGISTRY_URL env
+    cfg.registryUrl = doc.getString("registry", "url", "");
+    if (cfg.registryUrl.empty()) {
+        const char *envUrl = std::getenv("LIVA_REGISTRY_URL");
+        if (envUrl)
+            cfg.registryUrl = envUrl;
+    }
     return cfg;
 }
 
@@ -589,6 +625,16 @@ bool createDirectories(const std::string &path) {
             return false;
     }
     return createDirectory(path);
+}
+
+bool removeDirectoryRecursive(const std::string &path) {
+    if (path.empty()) return false;
+#ifdef _WIN32
+    std::string cmd = "\"rmdir /s /q \"" + path + "\"\"";
+#else
+    std::string cmd = "rm -rf \"" + path + "\"";
+#endif
+    return std::system(cmd.c_str()) == 0;
 }
 
 std::string findProjectFile(const std::string &startDir) {

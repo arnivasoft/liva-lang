@@ -17,10 +17,17 @@ class Decl : public ASTNode {
 public:
     using ASTNode::ASTNode;
 
+    void setDocComment(std::string comment) { docComment_ = std::move(comment); }
+    const std::string &getDocComment() const { return docComment_; }
+    bool hasDocComment() const { return !docComment_.empty(); }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::FuncDecl &&
                node->getKind() <= NodeKind::TypeAliasDecl;
     }
+
+private:
+    std::string docComment_;
 };
 
 /// Function parameter

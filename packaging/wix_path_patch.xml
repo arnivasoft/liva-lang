@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CPackWiXPatch>
+    <!-- Add livac.exe directory to system PATH -->
+    <CPackWiXFragment Id="CM_CP_bin.livac.exe">
+        <Environment Id="PATH" Name="PATH" Value="[INSTALL_DIR]bin"
+                     Permanent="no" Part="last" Action="set" System="yes" />
+    </CPackWiXFragment>
+</CPackWiXPatch>

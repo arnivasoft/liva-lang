@@ -146,14 +146,21 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     if (!irgen.generate(*tu))
         return false;
 
-    // Use CodeGen API: optimize → emit object → link
+    // Use CodeGen API: optimize → emit object/bitcode → link
     auto *module = irgen.getModule();
     CodeGen codegen(diag_);
-    codegen.optimize(*module, optLevel_);
+    codegen.optimize(*module, optLevel_, ltoMode_, pgoMode_, pgoProfile_);
 
-    std::string objPath = outputPath + ".o";
-    if (!codegen.emitObjectFile(*module, objPath)) {
-        std::cerr << "error: failed to emit object file '" << objPath << "'\n";
+    bool useLto = (ltoMode_ == "thin" || ltoMode_ == "full");
+    std::string objPath = outputPath + (useLto ? ".bc" : ".o");
+    lastObjPath_ = objPath;
+
+    bool emitOk = useLto ? codegen.emitBitcode(*module, objPath)
+                         : codegen.emitObjectFile(*module, objPath);
+    if (!emitOk) {
+        std::cerr << "error: failed to emit "
+                  << (useLto ? "bitcode" : "object") << " file '"
+                  << objPath << "'\n";
         return false;
     }
 
@@ -197,10 +204,11 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     if (debugInfo_)
         flags.push_back("-g");
 
-    bool linkOk = codegen.link(objects, outputPath, flags);
+    bool linkOk = codegen.link(objects, outputPath, flags, ltoMode_, pgoMode_);
 
-    // Clean up temp object file
-    std::remove(objPath.c_str());
+    // Clean up temp object file (unless kept for caching)
+    if (!keepObjectFile_)
+        std::remove(objPath.c_str());
 
     if (!linkOk) {
         std::cerr << "error: linking failed for '" << outputPath << "'\n";

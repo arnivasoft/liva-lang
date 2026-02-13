@@ -62,6 +62,12 @@ public:
     /// Create a child scope
     std::unique_ptr<Scope> createChild();
 
+    /// Collect all symbol names visible from this scope (including parents)
+    void collectAllNames(std::vector<std::string> &out) const;
+
+    /// Collect all symbol names of a specific kind visible from this scope
+    void collectNames(Symbol::Kind kind, std::vector<std::string> &out) const;
+
 private:
     Scope *parent_;
     std::unordered_map<std::string, Symbol> symbols_;
@@ -80,6 +86,18 @@ public:
     Symbol *lookupLocal(const std::string &name);
 
     Scope *currentScope() { return scopes_.back().get(); }
+
+    /// Collect all visible symbol names
+    void collectAllNames(std::vector<std::string> &out) const {
+        if (!scopes_.empty())
+            scopes_.back()->collectAllNames(out);
+    }
+
+    /// Collect visible symbol names of a specific kind
+    void collectNames(Symbol::Kind kind, std::vector<std::string> &out) const {
+        if (!scopes_.empty())
+            scopes_.back()->collectNames(kind, out);
+    }
 
 private:
     std::vector<std::unique_ptr<Scope>> scopes_;

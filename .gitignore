@@ -4,6 +4,7 @@ build-clang/
 build-msvc/
 out/
 cmake-build-*/
+.liva-cache/
 
 # IDE files
 .vs/

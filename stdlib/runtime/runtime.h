@@ -42,8 +42,11 @@ char *liva_str_concat(const char *a, const char *b);
 /// Compare two C strings for equality (returns 1 if equal, 0 otherwise)
 int32_t liva_str_equal(const char *a, const char *b);
 
-/// Get length of a C string
+/// Get length of a C string (UTF-8 code point count)
 int64_t liva_str_length(const char *a);
+
+/// Get byte length of a C string
+int64_t liva_str_byte_length(const char *a);
 
 /// Convert i32 to string, returns malloc'd result
 char *liva_i32_to_str(int32_t value);
@@ -121,11 +124,54 @@ void liva_file_write(void *fp, const char *str);
 /// Write a string + newline to file
 void liva_file_write_line(void *fp, const char *str);
 
+/// Seek within a file. whence: 0=SET, 1=CUR, 2=END. Returns 0 on success.
+int32_t liva_file_seek(void *fp, int64_t offset, int32_t whence);
+
+/// Get current position in file. Returns -1 on error.
+int64_t liva_file_tell(void *fp);
+
+/// Get size of file in bytes. Returns -1 on error.
+int64_t liva_file_size(void *fp);
+
 /// Read a line from stdin, returns malloc'd string
 char *liva_read_line();
 
 /// Convert i64 to string, returns malloc'd result
 char *liva_i64_to_str(int64_t value);
+
+// === Directory Operations ===
+
+/// List directory contents, returns malloc'd array of malloc'd strings, sets count
+char **liva_dir_list(const char *path, int64_t *count);
+
+/// Create directory (and parents). Returns 1 on success, 0 on failure.
+int8_t liva_dir_create(const char *path);
+
+/// Remove directory recursively. Returns 1 on success, 0 on failure.
+int8_t liva_dir_remove(const char *path);
+
+/// Check if directory exists. Returns 1 if exists and is a directory, 0 otherwise.
+int8_t liva_dir_exists(const char *path);
+
+// === Path Operations ===
+
+/// Join two path components, returns malloc'd result
+char *liva_path_join(const char *a, const char *b);
+
+/// Get parent directory of path, returns malloc'd result
+char *liva_path_dirname(const char *path);
+
+/// Get filename component of path, returns malloc'd result
+char *liva_path_basename(const char *path);
+
+/// Get file extension (including dot), returns malloc'd result
+char *liva_path_extension(const char *path);
+
+/// Check if a path exists (file or directory). Returns 1 if exists, 0 otherwise.
+int8_t liva_path_exists(const char *path);
+
+/// Check if path is a regular file. Returns 1 if file, 0 otherwise.
+int8_t liva_file_is_file(const char *path);
 
 // === I/O ===
 
@@ -237,6 +283,29 @@ char **liva_args(int64_t *count);
 /// Free command line arguments returned by liva_args
 void liva_args_free(char **args, int64_t count);
 
+// === Subprocess ===
+
+/// Execute command synchronously, return exit code
+int32_t liva_exec(const char *command);
+
+/// Execute command and capture stdout, returns malloc'd string or NULL
+char *liva_exec_output(const char *command);
+
+/// Start async process, returns opaque handle as i64 (0 on failure)
+int64_t liva_process_start(const char *command);
+
+/// Wait for process to finish, returns exit code (-1 on error)
+int32_t liva_process_wait(int64_t handle);
+
+/// Kill a running process, returns 1 on success, 0 on failure
+int8_t liva_process_kill(int64_t handle);
+
+/// Read stdout from process, returns malloc'd string or NULL
+char *liva_process_read(int64_t handle);
+
+/// Close process handle and clean up resources
+void liva_process_close(int64_t handle);
+
 // === Date/Time ===
 
 /// Current time as seconds since epoch (f64)
@@ -259,16 +328,80 @@ char *liva_regex_find(const char *str, const char *pattern);
 /// Find all matches, sets count, returns malloc'd array of malloc'd strings
 char **liva_regex_find_all(const char *str, const char *pattern, int64_t *count);
 
-/// Replace all matches of pattern with replacement, returns malloc'd
+/// Replace all matches of pattern with replacement ($1,$2 supported), returns malloc'd
 char *liva_regex_replace(const char *str, const char *pattern, const char *replacement);
 
+/// Find first match and return capture groups (group 0 = full match)
+/// Returns malloc'd array of malloc'd strings, sets count
+char **liva_regex_find_groups(const char *str, const char *pattern, int64_t *count);
+
+/// Compile a regex pattern. Returns handle (cast ptr) or 0 on error
+int64_t liva_regex_compile(const char *pattern);
+
+/// Test if string matches compiled regex
+int8_t liva_regex_test(int64_t handle, const char *str);
+
+/// Find first match using compiled regex (returns malloc'd or NULL)
+char *liva_regex_exec(int64_t handle, const char *str);
+
+/// Find first match groups using compiled regex
+/// Returns malloc'd array of malloc'd strings, sets count
+char **liva_regex_exec_groups(int64_t handle, const char *str, int64_t *count);
+
+/// Replace using compiled regex ($1,$2 supported), returns malloc'd
+char *liva_regex_replace_compiled(int64_t handle, const char *str, const char *replacement);
+
+/// Free a compiled regex handle
+void liva_regex_free(int64_t handle);
+
 // === Networking ===
+
+/// HTTP response with status code, body, and headers
+typedef struct LivaHttpResponse {
+    int32_t status_code;      // HTTP status code (200, 404, etc.)
+    char *body;               // Response body (malloc'd, caller frees)
+    char **header_names;      // Header names array (malloc'd)
+    char **header_values;     // Header values array (malloc'd)
+    int64_t header_count;     // Number of headers
+} LivaHttpResponse;
 
 /// HTTP GET request, returns malloc'd response body or NULL on failure
 char *liva_http_get(const char *url);
 
 /// HTTP POST request, returns malloc'd response body or NULL on failure
 char *liva_http_post(const char *url, const char *body);
+
+/// HTTP PUT request, returns malloc'd response body or NULL on failure
+char *liva_http_put(const char *url, const char *body);
+
+/// HTTP PATCH request, returns malloc'd response body or NULL on failure
+char *liva_http_patch(const char *url, const char *body);
+
+/// HTTP DELETE request, returns malloc'd response body or NULL on failure
+char *liva_http_delete(const char *url);
+
+/// Full HTTP request with method, headers, timeout, and structured response.
+/// method: "GET", "POST", "PUT", "PATCH", "DELETE"
+/// headers: alternating name/value strings (name1, val1, name2, val2, ...)
+/// header_count: number of header PAIRS (total strings = header_count * 2)
+/// timeout_ms: request timeout in milliseconds (0 = no timeout)
+/// Returns heap-allocated LivaHttpResponse* or NULL on failure.
+LivaHttpResponse *liva_http_request(const char *method, const char *url,
+                                     const char *body,
+                                     const char **headers, int64_t header_count,
+                                     int64_t timeout_ms);
+
+/// Free an HTTP response returned by liva_http_request
+void liva_http_response_free(LivaHttpResponse *resp);
+
+/// Get status code from response (0 if NULL)
+int32_t liva_http_response_status(const LivaHttpResponse *resp);
+
+/// Get body from response (NULL if NULL)
+char *liva_http_response_body(const LivaHttpResponse *resp);
+
+/// Get header value by name from response (returns malloc'd copy or NULL)
+char *liva_http_response_header(const LivaHttpResponse *resp, const char *name);
 
 // === Async/Coroutine Runtime ===
 
@@ -287,6 +420,140 @@ void liva_task_destroy(LivaTask *task);
 void liva_coro_resume(void *handle);
 void liva_coro_destroy(void *handle);
 void liva_scheduler_run(LivaTask *root);
+
+/// Async sleep: register timer and suspend coroutine
+void liva_async_sleep(LivaTask *task, int64_t ms);
+
+// === JSON ===
+
+/// Get string value by key from JSON object, returns malloc'd string or NULL
+char *liva_json_get(const char *json, const char *key);
+
+/// Get integer value by key from JSON object (0 if not found)
+int64_t liva_json_get_int(const char *json, const char *key);
+
+/// Get float value by key from JSON object (0.0 if not found)
+double liva_json_get_float(const char *json, const char *key);
+
+/// Get bool value by key from JSON object (false if not found)
+int8_t liva_json_get_bool(const char *json, const char *key);
+
+/// Check if string is valid JSON
+int8_t liva_json_is_valid(const char *json);
+
+/// Get all keys from JSON object, returns malloc'd array of malloc'd strings
+char **liva_json_keys(const char *json, int64_t *count);
+
+// === Logging ===
+
+/// Log messages at different levels
+void liva_log_debug(const char *msg);
+void liva_log_info(const char *msg);
+void liva_log_warn(const char *msg);
+void liva_log_error(const char *msg);
+
+/// Set minimum log level: 0=debug, 1=info, 2=warn, 3=error
+void liva_log_set_level(int32_t level);
+
+// === Testing ===
+
+/// Assert condition is true, panic if false
+void liva_assert(int8_t condition);
+
+/// Assert condition with custom message
+void liva_assert_msg(int8_t condition, const char *msg);
+
+/// Assert two i64 values are equal
+void liva_assert_eq(int64_t a, int64_t b);
+
+/// Assert two strings are equal
+void liva_assert_eq_str(const char *a, const char *b);
+
+/// Assert two f64 values are approximately equal (epsilon = 1e-9)
+void liva_assert_eq_float(double a, double b);
+
+// === DateTime ===
+
+/// Current date as "YYYY-MM-DD", returns malloc'd string
+char *liva_date_now();
+
+/// Current time as "HH:MM:SS", returns malloc'd string
+char *liva_time_now();
+
+/// Current datetime as "YYYY-MM-DD HH:MM:SS", returns malloc'd string
+char *liva_datetime_now();
+
+/// Format timestamp (seconds since epoch) with strftime format, returns malloc'd
+char *liva_date_format(double timestamp, const char *fmt);
+
+/// Extract year from timestamp
+int32_t liva_date_year(double timestamp);
+
+/// Extract month (1-12) from timestamp
+int32_t liva_date_month(double timestamp);
+
+/// Extract day (1-31) from timestamp
+int32_t liva_date_day(double timestamp);
+
+/// Extract day of week (0=Sunday, 6=Saturday) from timestamp
+int32_t liva_date_weekday(double timestamp);
+
+// === Encoding / Compression ===
+
+/// Base64 encode, returns malloc'd string
+char *liva_base64_encode(const char *data);
+
+/// Base64 decode, returns malloc'd string or NULL on invalid input
+char *liva_base64_decode(const char *data);
+
+/// Hex encode (bytes to hex string), returns malloc'd string
+char *liva_hex_encode(const char *data);
+
+/// Hex decode (hex string to bytes), returns malloc'd string or NULL
+char *liva_hex_decode(const char *data);
+
+/// CRC-32 checksum
+int64_t liva_crc32(const char *data);
+
+// === Synchronization: Mutex ===
+
+/// Create a mutex, returns handle (0 on error)
+int64_t liva_mutex_create();
+
+/// Lock a mutex (blocks until acquired)
+void liva_mutex_lock(int64_t handle);
+
+/// Unlock a mutex
+void liva_mutex_unlock(int64_t handle);
+
+/// Try to lock without blocking, returns 1 if acquired
+int8_t liva_mutex_try_lock(int64_t handle);
+
+/// Free a mutex
+void liva_mutex_free(int64_t handle);
+
+// === Synchronization: Atomic i64 ===
+
+/// Create an atomic i64 with initial value, returns handle
+int64_t liva_atomic_create(int64_t initial);
+
+/// Load value atomically
+int64_t liva_atomic_load(int64_t handle);
+
+/// Store value atomically
+void liva_atomic_store(int64_t handle, int64_t value);
+
+/// Atomically add and return previous value
+int64_t liva_atomic_add(int64_t handle, int64_t value);
+
+/// Atomically subtract and return previous value
+int64_t liva_atomic_sub(int64_t handle, int64_t value);
+
+/// Compare-and-swap: if current == expected, set to desired. Returns 1 on success
+int8_t liva_atomic_cas(int64_t handle, int64_t expected, int64_t desired);
+
+/// Free an atomic handle
+void liva_atomic_free(int64_t handle);
 
 // === Panic ===
 

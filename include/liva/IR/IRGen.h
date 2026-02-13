@@ -14,8 +14,10 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Value.h>
+#include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #endif
@@ -143,6 +145,16 @@ private:
     /// Get field index by name for a struct type
     int getStructFieldIndex(const std::string &structName, const std::string &fieldName);
 
+    /// Info for a struct member that is a DynArray field
+    struct MemberDynArrayInfo {
+        llvm::Value *arrGEP;      // GEP pointing to the DynArray struct within the parent struct
+        llvm::Type *elementType;
+        uint64_t elemSize;
+    };
+
+    /// Resolve a MemberExpr to a DynArray field GEP if it is a struct.dynArrayField
+    std::optional<MemberDynArrayInfo> resolveMemberDynArray(MemberExpr *memberExpr);
+
     /// Named values in current scope
     std::unordered_map<std::string, llvm::AllocaInst *> namedValues_;
 
@@ -151,6 +163,9 @@ private:
 
     /// Struct field names in order (struct name -> field names)
     std::unordered_map<std::string, std::vector<std::string>> structFieldNames_;
+
+    /// Struct field TypeRepr* (struct name -> field TypeReprs for DynArray detection)
+    std::unordered_map<std::string, std::vector<const TypeRepr *>> structFieldTypeReprs_;
 
     /// Variable to struct type name mapping
     std::unordered_map<std::string, std::string> varStructTypes_;
@@ -343,6 +358,21 @@ private:
     /// Track variables that have been moved (passed by value to functions)
     std::set<std::string> movedVars_;
 
+    /// Heap-allocated string temps in current statement (freed after statement)
+    std::vector<llvm::Value *> tempStrings_;
+
+    /// String variables holding heap-allocated memory (freed at scope exit)
+    std::set<std::string> heapStringVars_;
+
+    /// Helper: emit free for all temp strings and clear list
+    void emitTempStringCleanup();
+
+    /// Helper: register a malloc'd string temp for cleanup
+    void trackStringTemp(llvm::Value *val);
+
+    /// Helper: transfer ownership from temp to named variable
+    void transferStringOwnership(llvm::Value *val, const std::string &varName);
+
     /// Emit cleanup calls for heap-allocated resources before scope exit
     void emitScopeCleanup();
 
@@ -351,6 +381,9 @@ private:
 
     /// Track Optional<File> variables (for if-let unwrap → varFileTypes_)
     std::set<std::string> varFileOptionalTypes_;
+
+    /// Optional return type support — non-null when the current function returns T?
+    llvm::Type *currentFuncOptionalInner_ = nullptr;
 
     /// Result type support
     struct ResultInfo { llvm::Type *okType; llvm::Type *errType; };

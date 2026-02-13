@@ -50,6 +50,9 @@ void Lexer::skipWhitespace() {
         if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
             advance();
         } else if (c == '/' && peekNext() == '/') {
+            // Check for doc comment (///) — don't skip, let nextToken() handle it
+            if (currentPos_ + 2 < source_.size() && source_[currentPos_ + 2] == '/')
+                break;
             skipLineComment();
         } else if (c == '/' && peekNext() == '*') {
             if (!skipBlockComment())
@@ -112,6 +115,12 @@ Token Lexer::nextToken() {
     size_t startOffset = currentPos_;
     auto startLoc = currentLocation();
     char c = source_[currentPos_];
+
+    // Doc comments: /// ...
+    if (c == '/' && currentPos_ + 2 < source_.size() &&
+        source_[currentPos_ + 1] == '/' && source_[currentPos_ + 2] == '/') {
+        return lexDocComment();
+    }
 
     // Identifiers and keywords
     if (std::isalpha(c) || c == '_') {
@@ -532,6 +541,24 @@ Token Lexer::lexChar() {
     }
 
     return makeToken(TokenKind::char_literal, startOffset);
+}
+
+Token Lexer::lexDocComment() {
+    size_t startOffset = currentPos_;
+    // Skip the ///
+    advance(); // /
+    advance(); // /
+    advance(); // /
+    // Skip optional leading space
+    if (currentPos_ < source_.size() && source_[currentPos_] == ' ')
+        advance();
+    // Consume until end of line
+    size_t textStart = currentPos_;
+    while (currentPos_ < source_.size() && source_[currentPos_] != '\n') {
+        advance();
+    }
+    std::string_view text = source_.substr(textStart, currentPos_ - textStart);
+    return makeToken(TokenKind::doc_comment, startOffset, text);
 }
 
 Token Lexer::makeToken(TokenKind kind, size_t startOffset) {

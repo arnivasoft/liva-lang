@@ -1297,3 +1297,42 @@ TEST_F(LSPTest, DocumentHighlightCapability) {
     const auto &caps = resp["result"]["capabilities"];
     EXPECT_TRUE(caps["documentHighlightProvider"].getBool());
 }
+
+// ============================================================
+// Doc Comment Hover Tests
+// ============================================================
+
+TEST_F(LSPTest, HoverWithDocComment) {
+    initAndOpen("file:///test.liva", "/// Adds two numbers\nfunc add() {}");
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 1, 5)));
+    if (!resp["result"].isNull()) {
+        std::string val = resp["result"]["contents"]["value"].getString();
+        EXPECT_NE(val.find("func add()"), std::string::npos);
+        EXPECT_NE(val.find("Adds two numbers"), std::string::npos);
+    }
+}
+
+TEST_F(LSPTest, HoverWithMultiLineDocComment) {
+    initAndOpen("file:///test.liva", "/// First line\n/// Second line\nfunc foo() {}");
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 2, 5)));
+    if (!resp["result"].isNull()) {
+        std::string val = resp["result"]["contents"]["value"].getString();
+        EXPECT_NE(val.find("func foo()"), std::string::npos);
+        EXPECT_NE(val.find("First line"), std::string::npos);
+        EXPECT_NE(val.find("Second line"), std::string::npos);
+    }
+}
+
+TEST_F(LSPTest, HoverWithoutDocComment) {
+    initAndOpen("file:///test.liva", "func bar() {}");
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 0, 5)));
+    if (!resp["result"].isNull()) {
+        std::string val = resp["result"]["contents"]["value"].getString();
+        EXPECT_NE(val.find("func bar()"), std::string::npos);
+        // No doc comment separator should appear
+        EXPECT_EQ(val.find("---"), std::string::npos);
+    }
+}

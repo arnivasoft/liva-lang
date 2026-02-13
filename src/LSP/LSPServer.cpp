@@ -958,9 +958,19 @@ JSONValue LSPServer::handleHover(const JSONValue &id,
         return makeResponse(id, JSONValue());
     }
 
+    // Append doc comment if available
+    std::string docComment;
+    if (auto *decl = dynamic_cast<const Decl *>(node)) {
+        if (decl->hasDocComment())
+            docComment = decl->getDocComment();
+    }
+
     auto contents = JSONValue::object();
     contents.set("kind", JSONValue("markdown"));
-    contents.set("value", JSONValue("```liva\n" + hoverText + "\n```"));
+    std::string markdown = "```liva\n" + hoverText + "\n```";
+    if (!docComment.empty())
+        markdown += "\n\n---\n\n" + docComment;
+    contents.set("value", JSONValue(markdown));
 
     auto result = JSONValue::object();
     result.set("contents", std::move(contents));

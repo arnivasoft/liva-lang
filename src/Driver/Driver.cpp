@@ -1,6 +1,9 @@
 #include "liva/Driver/Driver.h"
 #include "liva/Common/Version.h"
+#include "liva/Driver/BuildCache.h"
 #include "liva/Driver/CompilerInstance.h"
+#include "liva/Driver/PackageManager.h"
+#include "liva/CodeGen/CodeGen.h"
 #include "liva/LSP/LSPServer.h"
 #include "liva/REPL/REPL.h"
 #include <cstdlib>
@@ -32,6 +35,10 @@ bool Driver::parseArgs(int argc, const char **argv) {
                 options_.initName = argv[2];
                 startIdx = 3;
             }
+            return true;
+        } else if (std::strcmp(argv[1], "clean") == 0) {
+            options_.subcommand = Subcommand::Clean;
+            startIdx = 2;
             return true;
         } else if (std::strcmp(argv[1], "lsp") == 0) {
             options_.subcommand = Subcommand::Lsp;
@@ -123,6 +130,40 @@ bool Driver::parseArgs(int argc, const char **argv) {
             options_.hasDebugOverride = true;
             continue;
         }
+        if (std::strcmp(arg, "--lto") == 0 || std::strcmp(arg, "--lto=full") == 0) {
+            options_.lto = "full";
+            options_.hasLtoOverride = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--lto=thin") == 0) {
+            options_.lto = "thin";
+            options_.hasLtoOverride = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--lto=none") == 0) {
+            options_.lto = "none";
+            options_.hasLtoOverride = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--pgo=generate") == 0) {
+            options_.pgo = "generate";
+            options_.hasPgoOverride = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--pgo=use") == 0) {
+            options_.pgo = "use";
+            options_.hasPgoOverride = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--pgo=none") == 0) {
+            options_.pgo = "none";
+            options_.hasPgoOverride = true;
+            continue;
+        }
+        if (std::strncmp(arg, "--pgo-profile=", 14) == 0) {
+            options_.pgoProfile = arg + 14;
+            continue;
+        }
 
         // If starts with -, unknown flag
         if (arg[0] == '-') {
@@ -154,12 +195,13 @@ int Driver::execute() {
     }
 
     switch (options_.subcommand) {
-    case Subcommand::Build: return executeBuild();
-    case Subcommand::Run:   return executeRun();
-    case Subcommand::Init:  return executeInit();
-    case Subcommand::Lsp:   return executeLsp();
-    case Subcommand::Repl:  return executeRepl();
-    case Subcommand::None:  return executeLegacy();
+    case Subcommand::Build:  return executeBuild();
+    case Subcommand::Run:    return executeRun();
+    case Subcommand::Init:   return executeInit();
+    case Subcommand::Clean:  return executeClean();
+    case Subcommand::Lsp:    return executeLsp();
+    case Subcommand::Repl:   return executeRepl();
+    case Subcommand::None:   return executeLegacy();
     }
 
     return 1;
@@ -213,7 +255,10 @@ int Driver::executeLegacy() {
 #endif
     }
 
-    return compiler.compile(output) ? 0 : 1;
+    if (!compiler.compile(output))
+        return 1;
+    std::cout << "Built " << output << "\n";
+    return 0;
 }
 
 int Driver::buildProject(bool runAfter) {
@@ -250,6 +295,12 @@ int Driver::buildProject(bool runAfter) {
         cfg.optLevel = options_.optLevel;
     if (options_.hasDebugOverride)
         cfg.debugInfo = options_.debugInfo;
+    if (options_.hasLtoOverride)
+        cfg.lto = options_.lto;
+    if (options_.hasPgoOverride)
+        cfg.pgo = options_.pgo;
+    if (!options_.pgoProfile.empty())
+        cfg.pgoProfile = options_.pgoProfile;
 
     // Resolve entry file
     std::string entryPath = joinPath(cfg.projectRoot, cfg.entry);
@@ -263,38 +314,92 @@ int Driver::buildProject(bool runAfter) {
     for (const auto &mp : cfg.modulePaths)
         searchPaths.push_back(joinPath(cfg.projectRoot, mp));
 
-    // Resolve dependencies
+    // Resolve dependencies (local + remote registry)
     if (!cfg.dependencies.empty()) {
-        std::string packagesDir = joinPath(cfg.projectRoot, "packages");
-        auto resolution = resolvePackages(cfg.dependencies, packagesDir);
+        PackageManager pkgMgr(cfg.projectRoot, cfg.registryUrl);
+        auto resolution = pkgMgr.resolveAndInstall(cfg.dependencies);
         if (!resolution.success) {
             std::cerr << "error: " << resolution.errorMsg << "\n";
             return 1;
+        }
+        // Build lock file entries with checksums
+        std::vector<LockFileEntry> lockEntries;
+        for (const auto &pkg : resolution.packages) {
+            LockFileEntry le;
+            le.name = pkg.name;
+            le.version = pkg.version.toString();
+            // Check if package has a checksum file
+            std::string csPath = joinPath(pkg.path, ".checksum");
+            std::ifstream csFile(csPath);
+            if (csFile.is_open()) {
+                std::string cs;
+                std::getline(csFile, cs);
+                le.checksum = cs;
+            }
+            lockEntries.push_back(le);
         }
         for (const auto &pkg : resolution.packages)
             searchPaths.push_back(pkg.srcPath);
         // Write lock file
         std::string lockPath = joinPath(cfg.projectRoot, "liva.lock");
-        std::string lockContent = generateLockFile(resolution.packages);
+        std::string lockContent = generateLockFile(resolution.packages, lockEntries);
         std::ofstream lockFile(lockPath);
         if (lockFile.is_open())
             lockFile << lockContent;
     }
 
-    // Determine output
+    // Determine output directory: build/release or build/debug
+    std::string buildDir;
+    if (cfg.optLevel >= 2 && !cfg.debugInfo)
+        buildDir = joinPath(cfg.projectRoot, joinPath("build", "release"));
+    else
+        buildDir = joinPath(cfg.projectRoot, joinPath("build", "debug"));
+
     std::string output = options_.outputFile;
     if (output.empty()) {
-        output = joinPath(cfg.projectRoot, cfg.name);
+        createDirectories(buildDir);
+        output = joinPath(buildDir, cfg.name);
 #ifdef _WIN32
         output += ".exe";
 #endif
     }
+
+    // Check if we can skip compilation via build cache
+    // (only for full builds, not emitIR or checkOnly)
+    if (!options_.emitIR && !options_.checkOnly && !options_.emitObj) {
+        BuildCache cache(cfg.projectRoot);
+        auto depFiles = cache.scanDependencies(entryPath, searchPaths);
+        std::string cachedObj = cache.checkCache(depFiles, cfg.optLevel, cfg.debugInfo);
+
+        if (!cachedObj.empty()) {
+            // Cache hit — link directly
+            int linkResult = linkCachedObject(cachedObj, output, cfg.debugInfo,
+                                               cfg.lto, cfg.pgo);
+            if (linkResult == 0) {
+                std::cout << "Built " << cfg.name << " -> " << output
+                          << " (cached)\n";
+                if (runAfter) {
+                    std::cout << "Running " << output << "...\n";
+                    return std::system(output.c_str());
+                }
+                return 0;
+            }
+            // Link failed — fall through to full compilation
+        }
+    }
+
+    // Resolve PGO profile path for 'use' mode
+    if (cfg.pgo == "use" && cfg.pgoProfile.empty())
+        cfg.pgoProfile = joinPath(cfg.projectRoot, "default.profdata");
 
     // Compile
     CompilerInstance compiler;
     compiler.setExecutablePath(executablePath_);
     compiler.setOptLevel(cfg.optLevel);
     compiler.setDebugInfo(cfg.debugInfo);
+    compiler.setLtoMode(cfg.lto);
+    compiler.setPgoMode(cfg.pgo);
+    compiler.setPgoProfile(cfg.pgoProfile);
     compiler.setSearchPaths(searchPaths);
 
     if (!compiler.loadFile(entryPath))
@@ -310,8 +415,22 @@ int Driver::buildProject(bool runAfter) {
         return ok ? 0 : 1;
     }
 
+    // Keep object file for caching
+    compiler.setKeepObjectFile(true);
+
     if (!compiler.compile(output))
         return 1;
+
+    // Store compiled object in cache
+    {
+        BuildCache cache(cfg.projectRoot);
+        auto depFiles = cache.scanDependencies(entryPath, searchPaths);
+        cache.storeCache(depFiles, compiler.getObjectFilePath(),
+                         cfg.optLevel, cfg.debugInfo);
+    }
+
+    // Clean up kept object file
+    std::remove(compiler.getObjectFilePath().c_str());
 
     std::cout << "Built " << cfg.name << " -> " << output << "\n";
 
@@ -449,6 +568,8 @@ int Driver::executeInit() {
           << "[build]\n"
           << "opt-level = 0\n"
           << "debug-info = false\n"
+          << "# lto = \"none\"  # \"none\", \"thin\", or \"full\"\n"
+          << "# pgo = \"none\"  # \"none\", \"generate\", or \"use\"\n"
           << "\n"
           << "# [dependencies]\n"
           << "# mylib = \"1.0.0\"\n";
@@ -475,12 +596,95 @@ int Driver::executeInit() {
             f << "build/\n"
               << "*.exe\n"
               << "*.o\n"
-              << "*.ll\n";
+              << "*.bc\n"
+              << "*.ll\n"
+              << "*.profraw\n"
+              << "*.profdata\n";
         }
     }
 
     std::cout << "Created project '" << name << "' in " << projectDir << "\n";
     return 0;
+}
+
+int Driver::executeClean() {
+    std::string cwd = getCurrentDirectory();
+    std::string tomlPath = findProjectFile(cwd);
+
+    if (tomlPath.empty()) {
+        std::cerr << "error: no liva.toml found in " << cwd
+                  << " or any parent directory\n";
+        return 1;
+    }
+
+    std::string projectRoot = getDirectoryOf(tomlPath);
+    std::string buildDir = joinPath(projectRoot, "build");
+
+    // Try to remove — will fail silently if dir doesn't exist
+    removeDirectoryRecursive(buildDir);
+
+    // Also clean build cache
+    BuildCache cache(projectRoot);
+    cache.clean();
+
+    std::cout << "Cleaned build artifacts.\n";
+    return 0;
+}
+
+int Driver::linkCachedObject(const std::string &objPath,
+                             const std::string &outputPath, bool debugInfo,
+                             const std::string &ltoMode,
+                             const std::string &pgoMode) {
+#ifdef LIVA_HAS_LLVM
+    // Find runtime library relative to livac executable
+    auto dirOfPath = [](const std::string &path) -> std::string {
+        auto pos = path.find_last_of("/\\");
+        return (pos != std::string::npos) ? path.substr(0, pos) : ".";
+    };
+
+    std::string exeDir = dirOfPath(executablePath_);
+    std::string runtimeLib;
+    std::string candidates[] = {
+        exeDir + "/lib/liva_runtime.lib",
+        exeDir + "/../lib/liva_runtime.lib",
+        exeDir + "/lib/libliva_runtime.a",
+        exeDir + "/../lib/libliva_runtime.a",
+    };
+    for (auto &c : candidates) {
+        std::ifstream f(c);
+        if (f.is_open()) { runtimeLib = c; break; }
+    }
+    if (runtimeLib.empty()) {
+        std::cerr << "error: cannot find runtime library for cached link\n";
+        return 1;
+    }
+
+    DiagnosticsEngine diag;
+    CodeGen codegen(diag);
+
+    std::vector<std::string> objects = { objPath, runtimeLib };
+    std::vector<std::string> flags;
+#ifdef _WIN32
+    flags.push_back("-lwinhttp");
+#endif
+    if (debugInfo)
+        flags.push_back("-g");
+
+    if (!codegen.link(objects, outputPath, flags, ltoMode, pgoMode)) {
+        std::cerr << "error: linking cached object failed\n";
+        return 1;
+    }
+
+    return 0;
+#else
+    (void)objPath;
+    (void)outputPath;
+    (void)debugInfo;
+    (void)ltoMode;
+    (void)pgoMode;
+    std::cerr << "error: LLVM not available, cannot link\n";
+    return 1;
+#endif
 }
 
 void Driver::printVersion() {
@@ -492,12 +696,14 @@ void Driver::printHelp() {
               << "       livac build [--release|--debug] [-o <file>]\n"
               << "       livac run [--release|--debug]\n"
               << "       livac init [name]\n"
+              << "       livac clean\n"
               << "       livac lsp\n"
               << "\n"
               << "Subcommands:\n"
               << "  build               Build project using liva.toml\n"
               << "  run                 Build and run project\n"
               << "  init [name]         Create a new Liva project\n"
+              << "  clean               Remove build artifacts\n"
               << "  lsp                 Start Language Server Protocol server\n"
               << "  repl                Start interactive REPL\n"
               << "\n"
@@ -513,7 +719,11 @@ void Driver::printHelp() {
               << "  -O0/-O1/-O2/-O3     Optimization level\n"
               << "  -g                  Generate debug information\n"
               << "  --debug             Debug build (O0, debug info)\n"
-              << "  --release           Release build (O2, no debug info)\n";
+              << "  --release           Release build (O2, no debug info)\n"
+              << "  --lto[=thin|full]   Enable link-time optimization\n"
+              << "  --pgo=generate      Build with PGO instrumentation\n"
+              << "  --pgo=use           Build with PGO profile data\n"
+              << "  --pgo-profile=PATH  Profile data path (default: default.profdata)\n";
 }
 
 } // namespace liva

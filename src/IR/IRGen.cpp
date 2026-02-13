@@ -53,9 +53,16 @@ llvm::DISubroutineType *IRGen::createFunctionDebugType() {
 
 void IRGen::emitDebugLocation(const SourceLocation &loc) {
     if (!diBuilder_ || !loc.isValid()) return;
-    auto curDL = builder_->getCurrentDebugLocation();
-    llvm::DIScope *scope = curDL ? curDL->getScope()
-                                 : static_cast<llvm::DIScope *>(diCU_);
+    // Always use current function's subprogram as scope
+    llvm::DIScope *scope = nullptr;
+    auto *bb = builder_->GetInsertBlock();
+    if (bb) {
+        auto *func = bb->getParent();
+        if (func)
+            scope = func->getSubprogram();
+    }
+    if (!scope)
+        scope = diCU_;
     builder_->SetCurrentDebugLocation(
         llvm::DILocation::get(*context_, loc.line, loc.column, scope));
 }
@@ -99,11 +106,18 @@ bool IRGen::generate(TranslationUnit &tu) {
 
     finalizeDebugInfo();
 
+    // Check for main function
+    if (!module_->getFunction("main")) {
+        diag_.report(SourceLocation{}, DiagID::err_main_not_found);
+        return false;
+    }
+
     // Verify the module
     std::string errStr;
     llvm::raw_string_ostream errStream(errStr);
     if (llvm::verifyModule(*module_, &errStream)) {
-        diag_.report(SourceLocation{}, DiagID::err_main_not_found);
+        errStream.flush();
+        diag_.report(SourceLocation{}, DiagID::err_module_verify, errStr);
         return false;
     }
 
@@ -141,6 +155,7 @@ void IRGen::createRuntimeDecls() {
 
     auto *lenTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_str_length", lenTy);
+    module_->getOrInsertFunction("liva_str_byte_length", lenTy);
 
     auto *i32ToStrTy = llvm::FunctionType::get(i8PtrTy, {i32Ty}, false);
     module_->getOrInsertFunction("liva_i32_to_str", i32ToStrTy);
@@ -336,12 +351,217 @@ void IRGen::createRuntimeDecls() {
     auto *regexReplaceTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_regex_replace", regexReplaceTy);
 
+    // regexFindGroups(str, pattern, &count) -> char**
+    module_->getOrInsertFunction("liva_regex_find_groups", regexFindAllTy);
+
+    // regexCompile(pattern) -> i64 handle
+    auto *regexCompileTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_compile", regexCompileTy);
+
+    // regexTest(handle, str) -> i8 (bool)
+    auto *regexTestTy = llvm::FunctionType::get(i8Ty, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_test", regexTestTy);
+
+    // regexExec(handle, str) -> char*
+    auto *regexExecTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_exec", regexExecTy);
+
+    // regexExecGroups(handle, str, &count) -> char**
+    auto *regexExecGroupsTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_exec_groups", regexExecGroupsTy);
+
+    // regexReplaceCompiled(handle, str, replacement) -> char*
+    auto *regexReplCompTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_regex_replace_compiled", regexReplCompTy);
+
+    // regexFree(handle) -> void
+    auto *voidTy = builder_->getVoidTy();
+    auto *regexFreeTy = llvm::FunctionType::get(voidTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_regex_free", regexFreeTy);
+
     // === Stdlib: Networking ===
     auto *httpGetTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_http_get", httpGetTy);
 
     auto *httpPostTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_http_post", httpPostTy);
+
+    // PUT, PATCH: same signature as POST (url, body) -> char*
+    module_->getOrInsertFunction("liva_http_put", httpPostTy);
+    module_->getOrInsertFunction("liva_http_patch", httpPostTy);
+
+    // DELETE: same signature as GET (url) -> char*
+    module_->getOrInsertFunction("liva_http_delete", httpGetTy);
+
+    // === File I/O: seek/tell/size ===
+    // liva_file_seek(fp, offset, whence) -> i32
+    auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_file_seek", fileSeekTy);
+
+    // liva_file_tell(fp) -> i64
+    auto *fileTellTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_file_tell", fileTellTy);
+
+    // liva_file_size(fp) -> i64
+    module_->getOrInsertFunction("liva_file_size", fileTellTy);
+
+    // === Directory operations ===
+    // liva_dir_list(path, &count) -> char**
+    auto *dirListTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_dir_list", dirListTy);
+
+    // liva_dir_create(path) -> i8
+    auto *dirBoolTy = llvm::FunctionType::get(i8Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_dir_create", dirBoolTy);
+    module_->getOrInsertFunction("liva_dir_remove", dirBoolTy);
+    module_->getOrInsertFunction("liva_dir_exists", dirBoolTy);
+
+    // === Path operations ===
+    // liva_path_join(a, b) -> char*
+    auto *pathJoinTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_path_join", pathJoinTy);
+
+    // liva_path_dirname(path) -> char*
+    module_->getOrInsertFunction("liva_path_dirname", strNoArgTy);
+    module_->getOrInsertFunction("liva_path_basename", strNoArgTy);
+    module_->getOrInsertFunction("liva_path_extension", strNoArgTy);
+
+    // liva_path_exists(path) -> i8
+    module_->getOrInsertFunction("liva_path_exists", dirBoolTy);
+
+    // liva_file_is_file(path) -> i8
+    module_->getOrInsertFunction("liva_file_is_file", dirBoolTy);
+
+    // liva_str_array_free(arr, count) -> void
+    auto *strArrayFreeTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_str_array_free", strArrayFreeTy);
+
+    // === Subprocess ===
+    // liva_exec(command) -> i32
+    auto *execTy = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_exec", execTy);
+
+    // liva_exec_output(command) -> char*
+    module_->getOrInsertFunction("liva_exec_output", strNoArgTy);
+
+    // liva_process_start(command) -> i64
+    auto *procStartTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_process_start", procStartTy);
+
+    // liva_process_wait(handle) -> i32
+    auto *procWaitTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_process_wait", procWaitTy);
+
+    // liva_process_kill(handle) -> i8
+    auto *procKillTy = llvm::FunctionType::get(i8Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_process_kill", procKillTy);
+
+    // liva_process_read(handle) -> char*
+    auto *procReadTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_process_read", procReadTy);
+
+    // liva_process_close(handle) -> void
+    auto *procCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
+    module_->getOrInsertFunction("liva_process_close", procCloseTy);
+
+    // === JSON ===
+    // liva_json_get(json, key) -> char*
+    module_->getOrInsertFunction("liva_json_get", concatTy); // (ptr, ptr) -> ptr
+    // liva_json_get_int(json, key) -> i64
+    auto *jsonGetIntTy = llvm::FunctionType::get(i64Ty, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_json_get_int", jsonGetIntTy);
+    // liva_json_get_float(json, key) -> f64
+    auto *jsonGetFloatTy = llvm::FunctionType::get(f64Ty, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_json_get_float", jsonGetFloatTy);
+    // liva_json_get_bool(json, key) -> i8
+    module_->getOrInsertFunction("liva_json_get_bool", strBoolTy); // (ptr, ptr) -> i8
+    // liva_json_is_valid(json) -> i8
+    auto *jsonIsValidTy = llvm::FunctionType::get(i8Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_json_is_valid", jsonIsValidTy);
+    // liva_json_keys(json, &count) -> char**
+    module_->getOrInsertFunction("liva_json_keys", dirListTy); // (ptr, ptr) -> ptr
+
+    // === Logging ===
+    auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_log_debug", logMsgTy);
+    module_->getOrInsertFunction("liva_log_info", logMsgTy);
+    module_->getOrInsertFunction("liva_log_warn", logMsgTy);
+    module_->getOrInsertFunction("liva_log_error", logMsgTy);
+    auto *logSetLevelTy = llvm::FunctionType::get(builder_->getVoidTy(), {i32Ty}, false);
+    module_->getOrInsertFunction("liva_log_set_level", logSetLevelTy);
+
+    // === Testing ===
+    auto *assertTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8Ty}, false);
+    module_->getOrInsertFunction("liva_assert", assertTy);
+    auto *assertMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_assert_msg", assertMsgTy);
+    auto *assertEqTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_assert_eq", assertEqTy);
+    auto *assertEqStrTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_assert_eq_str", assertEqStrTy);
+    auto *assertEqFloatTy = llvm::FunctionType::get(builder_->getVoidTy(), {f64Ty, f64Ty}, false);
+    module_->getOrInsertFunction("liva_assert_eq_float", assertEqFloatTy);
+
+    // === DateTime ===
+    auto *dateNowTy = llvm::FunctionType::get(i8PtrTy, {}, false);
+    module_->getOrInsertFunction("liva_date_now", dateNowTy);
+    module_->getOrInsertFunction("liva_time_now", dateNowTy);
+    module_->getOrInsertFunction("liva_datetime_now", dateNowTy);
+    auto *dateFormatTy = llvm::FunctionType::get(i8PtrTy, {f64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_date_format", dateFormatTy);
+    auto *datePartTy = llvm::FunctionType::get(i32Ty, {f64Ty}, false);
+    module_->getOrInsertFunction("liva_date_year", datePartTy);
+    module_->getOrInsertFunction("liva_date_month", datePartTy);
+    module_->getOrInsertFunction("liva_date_day", datePartTy);
+    module_->getOrInsertFunction("liva_date_weekday", datePartTy);
+
+    // === Encoding/Compression ===
+    // base64Encode/hexEncode: (ptr) -> ptr (same as strNoArgTy)
+    module_->getOrInsertFunction("liva_base64_encode", strNoArgTy);
+    module_->getOrInsertFunction("liva_base64_decode", strNoArgTy);
+    module_->getOrInsertFunction("liva_hex_encode", strNoArgTy);
+    module_->getOrInsertFunction("liva_hex_decode", strNoArgTy);
+    // crc32: (ptr) -> i64
+    module_->getOrInsertFunction("liva_crc32", lenTy); // (ptr) -> i64
+
+    // === Stdlib: Synchronization ===
+
+    // mutexCreate() -> i64
+    auto *noArgI64Ty = llvm::FunctionType::get(i64Ty, {}, false);
+    module_->getOrInsertFunction("liva_mutex_create", noArgI64Ty);
+
+    // mutexLock(handle), mutexUnlock(handle), mutexFree(handle) -> void
+    auto *voidI64Ty = llvm::FunctionType::get(voidTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_mutex_lock", voidI64Ty);
+    module_->getOrInsertFunction("liva_mutex_unlock", voidI64Ty);
+    module_->getOrInsertFunction("liva_mutex_free", voidI64Ty);
+
+    // mutexTryLock(handle) -> i8
+    auto *i8FromI64Ty = llvm::FunctionType::get(i8Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_mutex_try_lock", i8FromI64Ty);
+
+    // atomicCreate(initial) -> i64
+    auto *i64FromI64Ty = llvm::FunctionType::get(i64Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_atomic_create", i64FromI64Ty);
+
+    // atomicLoad(handle) -> i64
+    module_->getOrInsertFunction("liva_atomic_load", i64FromI64Ty);
+
+    // atomicStore(handle, value) -> void
+    auto *voidI64I64Ty = llvm::FunctionType::get(voidTy, {i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_atomic_store", voidI64I64Ty);
+
+    // atomicAdd(handle, value) -> i64, atomicSub(handle, value) -> i64
+    auto *i64FromI64I64Ty = llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_atomic_add", i64FromI64I64Ty);
+    module_->getOrInsertFunction("liva_atomic_sub", i64FromI64I64Ty);
+
+    // atomicCas(handle, expected, desired) -> i8
+    auto *casArgTy = llvm::FunctionType::get(i8Ty, {i64Ty, i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_atomic_cas", casArgTy);
+
+    // atomicFree(handle) -> void
+    module_->getOrInsertFunction("liva_atomic_free", voidI64Ty);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
@@ -428,6 +648,10 @@ void IRGen::declareAsyncRuntimeFuncs() {
 
     // void liva_scheduler_run(LivaTask *root)
     module_->getOrInsertFunction("liva_scheduler_run", voidPtrTy);
+
+    // void liva_async_sleep(LivaTask *task, int64_t ms)
+    auto *asyncSleepTy = llvm::FunctionType::get(voidTy, {ptrTy, builder_->getInt64Ty()}, false);
+    module_->getOrInsertFunction("liva_async_sleep", asyncSleepTy);
 }
 
 llvm::StructType *IRGen::getResultType(llvm::Type *okType, llvm::Type *errType) {
@@ -602,6 +826,20 @@ llvm::AllocaInst *IRGen::createEntryBlockAlloca(llvm::Function *func,
     llvm::IRBuilder<> tmpBuilder(&func->getEntryBlock(),
                                   func->getEntryBlock().begin());
     return tmpBuilder.CreateAlloca(type, nullptr, name);
+}
+
+void IRGen::trackStringTemp(llvm::Value *val) {
+    if (val) tempStrings_.push_back(val);
+}
+
+void IRGen::transferStringOwnership(llvm::Value *val, const std::string &varName) {
+    if (!val) return;
+    auto it = std::find(tempStrings_.begin(), tempStrings_.end(), val);
+    if (it != tempStrings_.end()) {
+        tempStrings_.erase(it);
+        heapStringVars_.insert(varName);
+    }
+    // If val is not in tempStrings_ (e.g., string literal), don't add to heapStringVars_
 }
 
 } // namespace liva

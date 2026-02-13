@@ -72,8 +72,23 @@ std::unique_ptr<TranslationUnit> Parser::parseTranslationUnit() {
     while (!current_.is(TokenKind::eof)) {
         if (diag_.hasMaxErrors()) break;  // stop after too many errors
 
+        // Collect consecutive doc comments before a declaration
+        std::string docComment;
+        while (current_.is(TokenKind::doc_comment)) {
+            if (!docComment.empty())
+                docComment += '\n';
+            docComment += std::string(current_.getText());
+            advance();
+        }
+
+        if (current_.is(TokenKind::eof)) break;
+
         auto decl = parseTopLevelDecl();
         if (decl) {
+            if (!docComment.empty()) {
+                if (auto *d = dynamic_cast<Decl *>(decl.get()))
+                    d->setDocComment(std::move(docComment));
+            }
             tu->addDeclaration(std::move(decl));
         } else {
             // Error recovery: skip to next declaration boundary

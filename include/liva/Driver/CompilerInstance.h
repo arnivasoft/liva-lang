@@ -24,6 +24,15 @@ public:
     /// Set debug info generation
     void setDebugInfo(bool enable) { debugInfo_ = enable; }
 
+    /// Set LTO mode: "none", "thin", "full"
+    void setLtoMode(const std::string &mode) { ltoMode_ = mode; }
+
+    /// Set PGO mode: "none", "generate", "use"
+    void setPgoMode(const std::string &mode) { pgoMode_ = mode; }
+
+    /// Set profile data path for PGO use mode
+    void setPgoProfile(const std::string &path) { pgoProfile_ = path; }
+
     /// Set additional module search paths
     void setSearchPaths(const std::vector<std::string> &paths) {
         searchPaths_ = paths;
@@ -50,6 +59,10 @@ public:
     /// Emit LLVM IR
     bool emitIR(const std::string &outputPath);
 
+    /// Keep object file after linking (for build cache)
+    void setKeepObjectFile(bool keep) { keepObjectFile_ = keep; }
+    const std::string &getObjectFilePath() const { return lastObjPath_; }
+
     DiagnosticsEngine &getDiag() { return diag_; }
     const SourceManager *getSourceManager() const { return sourceManager_.get(); }
 
@@ -62,6 +75,11 @@ private:
     std::string executablePath_;
     int optLevel_ = 0;
     bool debugInfo_ = false;
+    std::string ltoMode_ = "none";
+    std::string pgoMode_ = "none";
+    std::string pgoProfile_;
+    bool keepObjectFile_ = false;
+    std::string lastObjPath_;
     std::vector<std::string> searchPaths_;
 };
 

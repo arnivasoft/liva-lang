@@ -8,11 +8,23 @@ llvm::Value *IRGen::visitBlockStmt(BlockStmt *node) {
     llvm::Value *last = nullptr;
     for (auto &stmt : node->getStatements()) {
         last = visit(stmt.get());
+        // Free string temporaries created during this statement
+        emitTempStringCleanup();
         // Stop if we hit a terminator
         if (builder_->GetInsertBlock()->getTerminator())
             break;
     }
     return last;
+}
+
+void IRGen::emitTempStringCleanup() {
+    if (tempStrings_.empty()) return;
+    auto *freeFn = module_->getFunction("free");
+    if (!freeFn) return;
+    for (auto *val : tempStrings_) {
+        builder_->CreateCall(freeFn, {val});
+    }
+    tempStrings_.clear();
 }
 
 void IRGen::emitScopeCleanup() {
@@ -67,12 +79,62 @@ void IRGen::emitScopeCleanup() {
 
         builder_->CreateCall(dropFn, {it->second});
     }
+
+    // Free heap-allocated string variables
+    auto *freeFn = module_->getFunction("free");
+    if (freeFn) {
+        for (auto &name : heapStringVars_) {
+            if (movedVars_.count(name)) continue;
+            auto it = namedValues_.find(name);
+            if (it == namedValues_.end()) continue;
+            auto *strPtr = builder_->CreateLoad(ptrTy, it->second, name + ".str.drop");
+            builder_->CreateCall(freeFn, {strPtr});
+        }
+    }
 }
 
 llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
     if (node->hasValue()) {
+        // Check for 'return nil' in optional-returning function
+        bool isReturnNil = node->getValue()->getKind() ==
+                           ASTNode::NodeKind::NilLiteralExpr;
+
+        if (isReturnNil && currentFuncOptionalInner_) {
+            // return nil → return Optional { hasVal=false, val=zeroinit }
+            emitScopeCleanup();
+            auto *optTy = getOptionalType(currentFuncOptionalInner_);
+            llvm::Value *optVal = llvm::Constant::getNullValue(optTy);
+            if (currentIsAsync_ && currentCoroPromise_) {
+                builder_->CreateStore(optVal, currentCoroPromise_);
+                builder_->CreateBr(currentCoroFinalBB_);
+                return nullptr;
+            }
+            return builder_->CreateRet(optVal);
+        }
+
         auto *val = visit(node->getValue());
+
+        // Protect return value from cleanup
+        // If returning a temp string, remove from tempStrings_
+        auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
+        if (tIt != tempStrings_.end()) tempStrings_.erase(tIt);
+        // If returning a heap string variable, remove from heapStringVars_
+        if (node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *retIdent = static_cast<IdentifierExpr *>(node->getValue());
+            heapStringVars_.erase(retIdent->getName());
+        }
+
         emitScopeCleanup();
+
+        // Wrap plain value in Optional if the function returns T?
+        if (currentFuncOptionalInner_ && val) {
+            auto *optTy = getOptionalType(currentFuncOptionalInner_);
+            llvm::Value *optVal = llvm::UndefValue::get(optTy);
+            optVal = builder_->CreateInsertValue(optVal, builder_->getTrue(), 0);
+            optVal = builder_->CreateInsertValue(optVal, val, 1);
+            val = optVal;
+        }
+
         if (currentIsAsync_ && currentCoroPromise_) {
             // Phase 2: store to promise and branch to coro.final
             builder_->CreateStore(val, currentCoroPromise_);
@@ -133,6 +195,20 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         if (it != namedValues_.end()) optAlloca = it->second;
         auto optIt = varOptionalTypes_.find(ident->getName());
         if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+    }
+    // Handle arbitrary expressions returning Optional (e.g., method calls)
+    if (!optAlloca || !innerType) {
+        auto *exprVal = visit(node->getOptionalExpr());
+        if (exprVal) {
+            auto *structTy = llvm::dyn_cast<llvm::StructType>(exprVal->getType());
+            if (structTy && structTy->getNumElements() == 2 &&
+                structTy->getElementType(0)->isIntegerTy(1)) {
+                innerType = structTy->getElementType(1);
+                auto *func = builder_->GetInsertBlock()->getParent();
+                optAlloca = createEntryBlockAlloca(func, "iflet.opt.tmp", structTy);
+                builder_->CreateStore(exprVal, optAlloca);
+            }
+        }
     }
     if (!optAlloca || !innerType) return nullptr;
 
@@ -386,6 +462,7 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         // === Map iteration ===
         auto mapIt = varMapTypes_.find(iterName);
         if (mapIt != varMapTypes_.end()) {
+
             auto &info = mapIt->second;
             auto *structTy = getMapStructTy();
             auto *mapAlloca = namedValues_[iterName];
@@ -576,6 +653,61 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
                 builder_->SetInsertPoint(exitBB);
                 return nullptr;
             }
+        }
+    }
+
+    // === DynArray struct member iteration: for g in self.grades ===
+    if (node->getIterable()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *memberIterable = static_cast<MemberExpr *>(
+            const_cast<Expr *>(node->getIterable()));
+        auto daInfo = resolveMemberDynArray(memberIterable);
+        if (daInfo) {
+            auto *elemType = daInfo->elementType;
+            auto *structTy = getDynArrayStructTy();
+            auto *arrGEP = daInfo->arrGEP;
+
+            auto *dataField = builder_->CreateStructGEP(structTy, arrGEP, 0, "mda.data.ptr");
+            auto *dataPtr = builder_->CreateLoad(builder_->getPtrTy(), dataField, "mda.data");
+            auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1, "mda.len.ptr");
+            auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "mda.len");
+
+            auto *idxVar = createEntryBlockAlloca(func, "for.idx", builder_->getInt64Ty());
+            builder_->CreateStore(builder_->getInt64(0), idxVar);
+
+            auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
+            namedValues_[node->getVarName()] = loopVar;
+
+            auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
+            auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
+            auto *latchBB = llvm::BasicBlock::Create(*context_, "for.latch", func);
+            auto *exitBB = llvm::BasicBlock::Create(*context_, "for.exit", func);
+
+            builder_->CreateBr(condBB);
+
+            builder_->SetInsertPoint(condBB);
+            auto *idx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *cond = builder_->CreateICmpSLT(idx, len, "for.cmp");
+            builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+            builder_->SetInsertPoint(bodyBB);
+            auto *elemPtr = builder_->CreateGEP(elemType, dataPtr, idx, "mda.elem.ptr");
+            auto *elem = builder_->CreateLoad(elemType, elemPtr, "mda.elem");
+            builder_->CreateStore(elem, loopVar);
+
+            loopStack_.push_back({exitBB, latchBB});
+            visit(const_cast<ASTNode *>(node->getBody()));
+            loopStack_.pop_back();
+            if (!builder_->GetInsertBlock()->getTerminator())
+                builder_->CreateBr(latchBB);
+
+            builder_->SetInsertPoint(latchBB);
+            auto *curIdx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "idx");
+            auto *nextIdx = builder_->CreateAdd(curIdx, builder_->getInt64(1), "idx.inc");
+            builder_->CreateStore(nextIdx, idxVar);
+            builder_->CreateBr(condBB);
+
+            builder_->SetInsertPoint(exitBB);
+            return nullptr;
         }
     }
 

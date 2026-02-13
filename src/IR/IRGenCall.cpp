@@ -6,6 +6,68 @@
 
 namespace liva {
 
+std::optional<IRGen::MemberDynArrayInfo>
+IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
+    // Pattern: identifier.field where field is a DynArray in the struct
+    if (memberExpr->getObject()->getKind() != ASTNode::NodeKind::IdentifierExpr)
+        return std::nullopt;
+
+    auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+    const std::string &objName = ident->getName();
+    const std::string &fieldName = memberExpr->getMember();
+
+    // Find struct type name for the variable
+    auto stIt = varStructTypes_.find(objName);
+    if (stIt == varStructTypes_.end())
+        return std::nullopt;
+    const std::string &structTypeName = stIt->second;
+
+    // Find the field's TypeRepr to check if it's a DynArray
+    auto ftrIt = structFieldTypeReprs_.find(structTypeName);
+    if (ftrIt == structFieldTypeReprs_.end())
+        return std::nullopt;
+
+    int idx = getStructFieldIndex(structTypeName, fieldName);
+    if (idx < 0 || static_cast<size_t>(idx) >= ftrIt->second.size())
+        return std::nullopt;
+
+    auto *fieldTypeRepr = ftrIt->second[idx];
+    if (!fieldTypeRepr || fieldTypeRepr->getKind() != TypeRepr::Kind::Array)
+        return std::nullopt;
+
+    auto *arrRepr = static_cast<const ArrayTypeRepr *>(fieldTypeRepr);
+    if (!arrRepr->isDynamic())
+        return std::nullopt;
+
+    // It IS a DynArray field — compute GEP
+    auto allocaIt = namedValues_.find(objName);
+    if (allocaIt == namedValues_.end())
+        return std::nullopt;
+
+    auto *objAlloca = allocaIt->second;
+    auto *structTy = structTypes_[structTypeName];
+
+    // If the variable stores a pointer to the struct (e.g., self parameter)
+    llvm::Value *basePtr = objAlloca;
+    if (objAlloca->getAllocatedType()->isPointerTy()) {
+        basePtr = builder_->CreateLoad(objAlloca->getAllocatedType(), objAlloca, objName + ".ptr");
+    }
+
+    auto *elemType = toLLVMType(arrRepr->getElement());
+    const llvm::DataLayout &dl = module_->getDataLayout();
+    uint64_t elemSize = dl.getTypeAllocSize(elemType);
+
+    // GEP to the DynArray struct field within the parent struct
+    auto *dynStructTy = getDynArrayStructTy();
+    auto *fieldGEP = builder_->CreateStructGEP(structTy, basePtr, idx, fieldName + ".da");
+
+    MemberDynArrayInfo info;
+    info.arrGEP = fieldGEP;
+    info.elementType = elemType;
+    info.elemSize = elemSize;
+    return info;
+}
+
 llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     // Check for method call or enum case constructor: obj.method(args) / Shape.Circle(3.14)
     if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
@@ -104,6 +166,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 if (methodName == "readLine") {
                     auto *fn = getOrPanic("liva_file_read_line");
                     auto *raw = builder_->CreateCall(fn, {fp}, "file.readline.raw");
+                    trackStringTemp(raw);
                     // Build Optional<string>: null check → { i1, ptr }
                     auto *isNull = builder_->CreateICmpEQ(raw,
                         llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
@@ -121,7 +184,9 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
                 if (methodName == "readAll") {
                     auto *fn = getOrPanic("liva_file_read_all");
-                    return builder_->CreateCall(fn, {fp}, "file.readall");
+                    auto *r = builder_->CreateCall(fn, {fp}, "file.readall");
+                    trackStringTemp(r);
+                    return r;
                 }
 
                 if (methodName == "write" && !node->getArgs().empty()) {
@@ -144,6 +209,24 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *fn = getOrPanic("liva_file_close");
                     builder_->CreateCall(fn, {fp});
                     return nullptr;
+                }
+
+                if (methodName == "seek" && node->getArgs().size() >= 2) {
+                    auto *offsetVal = visit(node->getArgs()[0].get());
+                    auto *whenceVal = visit(node->getArgs()[1].get());
+                    if (!offsetVal || !whenceVal) return nullptr;
+                    auto *fn = getOrPanic("liva_file_seek");
+                    return builder_->CreateCall(fn, {fp, offsetVal, whenceVal}, "file.seek");
+                }
+
+                if (methodName == "tell") {
+                    auto *fn = getOrPanic("liva_file_tell");
+                    return builder_->CreateCall(fn, {fp}, "file.tell");
+                }
+
+                if (methodName == "size") {
+                    auto *fn = getOrPanic("liva_file_size");
+                    return builder_->CreateCall(fn, {fp}, "file.size");
                 }
             }
         }
@@ -195,22 +278,30 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 if (length->getType()->isIntegerTy(32))
                     length = builder_->CreateSExt(length, builder_->getInt64Ty());
                 auto *fn = getOrPanic("liva_str_substring");
-                return builder_->CreateCall(fn, {obj, start, length}, "str.substring");
+                auto *r = builder_->CreateCall(fn, {obj, start, length}, "str.substring");
+                trackStringTemp(r);
+                return r;
             }
 
             if (methodName == "trim") {
                 auto *fn = getOrPanic("liva_str_trim");
-                return builder_->CreateCall(fn, {obj}, "str.trim");
+                auto *r = builder_->CreateCall(fn, {obj}, "str.trim");
+                trackStringTemp(r);
+                return r;
             }
 
             if (methodName == "toUpper") {
                 auto *fn = getOrPanic("liva_str_to_upper");
-                return builder_->CreateCall(fn, {obj}, "str.toupper");
+                auto *r = builder_->CreateCall(fn, {obj}, "str.toupper");
+                trackStringTemp(r);
+                return r;
             }
 
             if (methodName == "toLower") {
                 auto *fn = getOrPanic("liva_str_to_lower");
-                return builder_->CreateCall(fn, {obj}, "str.tolower");
+                auto *r = builder_->CreateCall(fn, {obj}, "str.tolower");
+                trackStringTemp(r);
+                return r;
             }
 
             if (methodName == "replace" && node->getArgs().size() >= 2) {
@@ -218,7 +309,9 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 auto *newSub = visit(node->getArgs()[1].get());
                 if (!oldSub || !newSub) return nullptr;
                 auto *fn = getOrPanic("liva_str_replace");
-                return builder_->CreateCall(fn, {obj, oldSub, newSub}, "str.replace");
+                auto *r = builder_->CreateCall(fn, {obj, oldSub, newSub}, "str.replace");
+                trackStringTemp(r);
+                return r;
             }
 
             if (methodName == "split" && node->getArgs().size() >= 1) {
@@ -581,6 +674,73 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // DynArray method on struct member field: self.grades.push(val) etc.
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            auto *innerMember = static_cast<MemberExpr *>(memberExpr->getObject());
+            auto daInfo = resolveMemberDynArray(innerMember);
+            if (daInfo) {
+                auto *arrGEP = daInfo->arrGEP;
+                auto *structTy = getDynArrayStructTy();
+
+                if (methodName == "push" && !node->getArgs().empty()) {
+                    auto *val = visit(node->getArgs()[0].get());
+                    if (!val) return nullptr;
+                    auto *func = builder_->GetInsertBlock()->getParent();
+                    auto *elemAlloca = createEntryBlockAlloca(func, "mpush.tmp",
+                                                              daInfo->elementType);
+                    builder_->CreateStore(val, elemAlloca);
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrGEP, 0);
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
+                    auto *capField = builder_->CreateStructGEP(structTy, arrGEP, 2);
+                    auto *pushFn = getOrPanic("liva_array_push");
+                    builder_->CreateCall(pushFn, {dataField, lenField, capField,
+                                                   elemAlloca,
+                                                   builder_->getInt64(daInfo->elemSize)});
+                    return nullptr;
+                }
+
+                if (methodName == "pop") {
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
+                    auto *popFn = getOrPanic("liva_array_pop");
+                    builder_->CreateCall(popFn, {lenField});
+                    return nullptr;
+                }
+
+                if (methodName == "contains" && !node->getArgs().empty()) {
+                    auto *val = visit(node->getArgs()[0].get());
+                    if (!val) return nullptr;
+                    auto *curFunc = builder_->GetInsertBlock()->getParent();
+                    auto *elemAlloca = createEntryBlockAlloca(curFunc, "mda.contains.tmp",
+                                                              daInfo->elementType);
+                    builder_->CreateStore(val, elemAlloca);
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrGEP, 0);
+                    auto *data = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), dataField, "mda.data");
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "mda.len");
+                    int8_t keyKind = daInfo->elementType->isPointerTy() ? 1 : 0;
+                    auto *fn = getOrPanic("liva_array_contains");
+                    auto *result = builder_->CreateCall(fn, {
+                        data, len, elemAlloca,
+                        builder_->getInt64(daInfo->elemSize),
+                        builder_->getInt8(keyKind)
+                    }, "mda.contains");
+                    return builder_->CreateTrunc(result, builder_->getInt1Ty(), "mda.contains.bool");
+                }
+
+                if (methodName == "reverse") {
+                    auto *dataField = builder_->CreateStructGEP(structTy, arrGEP, 0);
+                    auto *data = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), dataField, "mda.data");
+                    auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
+                    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "mda.len");
+                    auto *fn = getOrPanic("liva_array_reverse");
+                    builder_->CreateCall(fn, {data, len, builder_->getInt64(daInfo->elemSize)});
+                    return nullptr;
+                }
+            }
+        }
+
         // Map method: m.insert(k,v), m.get(k), m.contains(k), m.remove(k)
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
@@ -890,6 +1050,34 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Static method call: Type.method() (e.g., Student.new("Alice"))
+        if (!objAlloca && structTypeName.empty()) {
+            auto typeIt = structTypes_.find(objName);
+            if (typeIt != structTypes_.end()) {
+                structTypeName = objName;
+                std::string mangledName = structTypeName + "_" + methodName;
+                auto *callee = module_->getFunction(mangledName);
+                if (callee) {
+                    std::vector<llvm::Value *> args;
+                    // No self argument for static methods
+                    for (auto &arg : node->getArgs()) {
+                        auto *val = visit(arg.get());
+                        if (!val)
+                            return nullptr;
+                        args.push_back(val);
+                    }
+                    if (callee->getReturnType()->isVoidTy())
+                        return builder_->CreateCall(callee, args);
+                    return builder_->CreateCall(callee, args, "scall");
+                }
+            }
+            // Also check for enum type static calls
+            auto enumIt = enumTypes_.find(objName);
+            if (enumIt != enumTypes_.end()) {
+                structTypeName = objName;
+            }
+        }
+
         if (objAlloca && !structTypeName.empty()) {
             std::string mangledName = structTypeName + "_" + methodName;
             auto *callee = module_->getFunction(mangledName);
@@ -964,12 +1152,22 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             auto *arg = visit(node->getArgs()[0].get());
             if (!arg) return nullptr;
             if (arg->getType()->isIntegerTy(32)) {
-                return builder_->CreateCall(getOrPanic("liva_i32_to_str"), {arg});
+                auto *r = builder_->CreateCall(getOrPanic("liva_i32_to_str"), {arg});
+                trackStringTemp(r);
+                return r;
+            } else if (arg->getType()->isIntegerTy(64)) {
+                auto *r = builder_->CreateCall(getOrPanic("liva_i64_to_str"), {arg});
+                trackStringTemp(r);
+                return r;
             } else if (arg->getType()->isDoubleTy()) {
-                return builder_->CreateCall(getOrPanic("liva_f64_to_str"), {arg});
+                auto *r = builder_->CreateCall(getOrPanic("liva_f64_to_str"), {arg});
+                trackStringTemp(r);
+                return r;
             } else if (arg->getType()->isIntegerTy(1)) {
                 auto *ext = builder_->CreateZExt(arg, llvm::Type::getInt8Ty(*context_));
-                return builder_->CreateCall(getOrPanic("liva_bool_to_str"), {ext});
+                auto *r = builder_->CreateCall(getOrPanic("liva_bool_to_str"), {ext});
+                trackStringTemp(r);
+                return r;
             } else if (arg->getType()->isPointerTy()) {
                 return arg; // already a string
             }
@@ -1057,6 +1255,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!nameArg) return nullptr;
         auto *fn = getOrPanic("liva_env_get");
         auto *result = builder_->CreateCall(fn, {nameArg}, "env.raw");
+        trackStringTemp(result);
         // Wrap in Optional<string>: null → nil, non-null → some
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
@@ -1115,6 +1314,28 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!msArg) return nullptr;
         if (msArg->getType()->isIntegerTy(32))
             msArg = builder_->CreateSExt(msArg, builder_->getInt64Ty());
+
+        if (currentIsAsync_ && currentCoroTask_) {
+            // Async context: register timer + suspend coroutine
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            auto *curTask = builder_->CreateLoad(ptrTy, currentCoroTask_, "sleep.task");
+            builder_->CreateCall(getOrPanic("liva_async_sleep"), {curTask, msArg});
+
+            auto *func = builder_->GetInsertBlock()->getParent();
+            auto *resumeBB = llvm::BasicBlock::Create(*context_, "sleep.resume", func);
+            auto *coroSuspendFn = llvm::Intrinsic::getOrInsertDeclaration(
+                module_.get(), llvm::Intrinsic::coro_suspend);
+            auto *noneToken = llvm::ConstantTokenNone::get(*context_);
+            auto *suspVal = builder_->CreateCall(coroSuspendFn,
+                {noneToken, builder_->getFalse()}, "sleep.sus");
+            auto *sw = builder_->CreateSwitch(suspVal, currentCoroSuspendBB_, 2);
+            sw->addCase(builder_->getInt8(0), resumeBB);
+            sw->addCase(builder_->getInt8(1), currentCoroCleanupBB_);
+            builder_->SetInsertPoint(resumeBB);
+            return nullptr;
+        }
+
+        // Sync context: blocking sleep
         auto *fn = getOrPanic("liva_sleep");
         builder_->CreateCall(fn, {msArg});
         return nullptr;
@@ -1136,6 +1357,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!strArg || !patArg) return nullptr;
         auto *fn = getOrPanic("liva_regex_find");
         auto *result = builder_->CreateCall(fn, {strArg, patArg}, "regex.find.raw");
+        trackStringTemp(result);
         // Wrap in Optional<string>
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
@@ -1176,7 +1398,219 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *replArg = visit(node->getArgs()[2].get());
         if (!strArg || !patArg || !replArg) return nullptr;
         auto *fn = getOrPanic("liva_regex_replace");
-        return builder_->CreateCall(fn, {strArg, patArg, replArg}, "regex.replace");
+        auto *r = builder_->CreateCall(fn, {strArg, patArg, replArg}, "regex.replace");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // regexFindGroups(str, pattern) -> [string]
+    if (funcName == "regexFindGroups" && node->getArgs().size() >= 2) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        auto *patArg = visit(node->getArgs()[1].get());
+        if (!strArg || !patArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "regex.groups.count", builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_regex_find_groups");
+        auto *resultPtr = builder_->CreateCall(fn, {strArg, patArg, countAlloca}, "regex.groups.data");
+        auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "regex.groups.len");
+        auto *structTy = getDynArrayStructTy();
+        auto *arrAlloca = createEntryBlockAlloca(curFunc, "regex.groups.arr", structTy);
+        auto *dataPtr = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+        builder_->CreateStore(resultPtr, dataPtr);
+        auto *lenPtr = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+        builder_->CreateStore(count, lenPtr);
+        auto *capPtr = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+        builder_->CreateStore(count, capPtr);
+        return builder_->CreateLoad(structTy, arrAlloca, "regex.groups.result");
+    }
+
+    // regexCompile(pattern) -> i64
+    if (funcName == "regexCompile" && !node->getArgs().empty()) {
+        auto *patArg = visit(node->getArgs()[0].get());
+        if (!patArg) return nullptr;
+        auto *fn = getOrPanic("liva_regex_compile");
+        return builder_->CreateCall(fn, {patArg}, "regex.compile");
+    }
+
+    // regexTest(handle, str) -> bool
+    if (funcName == "regexTest" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *strArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !strArg) return nullptr;
+        auto *fn = getOrPanic("liva_regex_test");
+        auto *result = builder_->CreateCall(fn, {handleArg, strArg}, "regex.test");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "regex.test.bool");
+    }
+
+    // regexExec(handle, str) -> string?
+    if (funcName == "regexExec" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *strArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !strArg) return nullptr;
+        auto *fn = getOrPanic("liva_regex_exec");
+        auto *result = builder_->CreateCall(fn, {handleArg, strArg}, "regex.exec.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "regex.exec.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "regex.exec.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "regex.exec.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "regex.exec.result");
+    }
+
+    // regexExecGroups(handle, str) -> [string]
+    if (funcName == "regexExecGroups" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *strArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !strArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "regex.execgrp.count", builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_regex_exec_groups");
+        auto *resultPtr = builder_->CreateCall(fn, {handleArg, strArg, countAlloca}, "regex.execgrp.data");
+        auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "regex.execgrp.len");
+        auto *structTy = getDynArrayStructTy();
+        auto *arrAlloca = createEntryBlockAlloca(curFunc, "regex.execgrp.arr", structTy);
+        auto *dataPtr = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+        builder_->CreateStore(resultPtr, dataPtr);
+        auto *lenPtr = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+        builder_->CreateStore(count, lenPtr);
+        auto *capPtr = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+        builder_->CreateStore(count, capPtr);
+        return builder_->CreateLoad(structTy, arrAlloca, "regex.execgrp.result");
+    }
+
+    // regexReplaceCompiled(handle, str, replacement) -> string
+    if (funcName == "regexReplaceCompiled" && node->getArgs().size() >= 3) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *strArg = visit(node->getArgs()[1].get());
+        auto *replArg = visit(node->getArgs()[2].get());
+        if (!handleArg || !strArg || !replArg) return nullptr;
+        auto *fn = getOrPanic("liva_regex_replace_compiled");
+        auto *r = builder_->CreateCall(fn, {handleArg, strArg, replArg}, "regex.replcomp");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // regexFree(handle) -> void
+    if (funcName == "regexFree" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_regex_free");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // === Stdlib: Synchronization ===
+
+    // mutexCreate() -> i64
+    if (funcName == "mutexCreate" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_mutex_create");
+        return builder_->CreateCall(fn, {}, "mutex.create");
+    }
+
+    // mutexLock(handle) -> void
+    if (funcName == "mutexLock" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_mutex_lock");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // mutexUnlock(handle) -> void
+    if (funcName == "mutexUnlock" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_mutex_unlock");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // mutexTryLock(handle) -> bool
+    if (funcName == "mutexTryLock" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_mutex_try_lock");
+        auto *result = builder_->CreateCall(fn, {handleArg}, "mutex.trylock");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "mutex.trylock.bool");
+    }
+
+    // mutexFree(handle) -> void
+    if (funcName == "mutexFree" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_mutex_free");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // atomicCreate(initial) -> i64
+    if (funcName == "atomicCreate" && !node->getArgs().empty()) {
+        auto *initArg = visit(node->getArgs()[0].get());
+        if (!initArg) return nullptr;
+        auto *fn = getOrPanic("liva_atomic_create");
+        return builder_->CreateCall(fn, {initArg}, "atomic.create");
+    }
+
+    // atomicLoad(handle) -> i64
+    if (funcName == "atomicLoad" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_atomic_load");
+        return builder_->CreateCall(fn, {handleArg}, "atomic.load");
+    }
+
+    // atomicStore(handle, value) -> void
+    if (funcName == "atomicStore" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *valArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_atomic_store");
+        builder_->CreateCall(fn, {handleArg, valArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // atomicAdd(handle, value) -> i64
+    if (funcName == "atomicAdd" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *valArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_atomic_add");
+        return builder_->CreateCall(fn, {handleArg, valArg}, "atomic.add");
+    }
+
+    // atomicSub(handle, value) -> i64
+    if (funcName == "atomicSub" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *valArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_atomic_sub");
+        return builder_->CreateCall(fn, {handleArg, valArg}, "atomic.sub");
+    }
+
+    // atomicCas(handle, expected, desired) -> bool
+    if (funcName == "atomicCas" && node->getArgs().size() >= 3) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *expArg = visit(node->getArgs()[1].get());
+        auto *desArg = visit(node->getArgs()[2].get());
+        if (!handleArg || !expArg || !desArg) return nullptr;
+        auto *fn = getOrPanic("liva_atomic_cas");
+        auto *result = builder_->CreateCall(fn, {handleArg, expArg, desArg}, "atomic.cas");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "atomic.cas.bool");
+    }
+
+    // atomicFree(handle) -> void
+    if (funcName == "atomicFree" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_atomic_free");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 
     // === Stdlib: Networking ===
@@ -1185,6 +1619,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!urlArg) return nullptr;
         auto *fn = getOrPanic("liva_http_get");
         auto *result = builder_->CreateCall(fn, {urlArg}, "http.get.raw");
+        trackStringTemp(result);
         // Wrap in Optional<string>
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
@@ -1205,6 +1640,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!urlArg || !bodyArg) return nullptr;
         auto *fn = getOrPanic("liva_http_post");
         auto *result = builder_->CreateCall(fn, {urlArg, bodyArg}, "http.post.raw");
+        trackStringTemp(result);
         // Wrap in Optional<string>
         auto *curFunc = builder_->GetInsertBlock()->getParent();
         auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
@@ -1219,10 +1655,513 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(optTy, optAlloca, "http.post.result");
     }
 
+    // httpPut(url, body) -> string?
+    if (funcName == "httpPut" && node->getArgs().size() >= 2) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        auto *bodyArg = visit(node->getArgs()[1].get());
+        if (!urlArg || !bodyArg) return nullptr;
+        auto *fn = getOrPanic("liva_http_put");
+        auto *result = builder_->CreateCall(fn, {urlArg, bodyArg}, "http.put.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "http.put.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "http.put.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "http.put.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "http.put.result");
+    }
+
+    // httpPatch(url, body) -> string?
+    if (funcName == "httpPatch" && node->getArgs().size() >= 2) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        auto *bodyArg = visit(node->getArgs()[1].get());
+        if (!urlArg || !bodyArg) return nullptr;
+        auto *fn = getOrPanic("liva_http_patch");
+        auto *result = builder_->CreateCall(fn, {urlArg, bodyArg}, "http.patch.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "http.patch.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "http.patch.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "http.patch.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "http.patch.result");
+    }
+
+    // httpDelete(url) -> string?
+    if (funcName == "httpDelete" && !node->getArgs().empty()) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        if (!urlArg) return nullptr;
+        auto *fn = getOrPanic("liva_http_delete");
+        auto *result = builder_->CreateCall(fn, {urlArg}, "http.delete.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "http.delete.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "http.delete.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "http.delete.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "http.delete.result");
+    }
+
+    // === Directory operations ===
+    if (funcName == "dirList" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_dir_list");
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *i64Ty = builder_->getInt64Ty();
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+
+        // Allocate count variable
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "dirlist.count", i64Ty);
+        builder_->CreateStore(builder_->getInt64(0), countAlloca);
+
+        // Call liva_dir_list(path, &count) -> char**
+        auto *rawArr = builder_->CreateCall(fn, {pathArg, countAlloca}, "dirlist.raw");
+        auto *count = builder_->CreateLoad(i64Ty, countAlloca, "dirlist.count");
+
+        // Build DynArray<string> from raw array
+        auto *daTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(curFunc, "dirlist.da", daTy);
+
+        // data = rawArr, len = count, cap = count
+        auto *dataPtr = builder_->CreateStructGEP(daTy, daAlloca, 0);
+        builder_->CreateStore(rawArr, dataPtr);
+        auto *lenPtr = builder_->CreateStructGEP(daTy, daAlloca, 1);
+        builder_->CreateStore(count, lenPtr);
+        auto *capPtr = builder_->CreateStructGEP(daTy, daAlloca, 2);
+        builder_->CreateStore(count, capPtr);
+
+        return builder_->CreateLoad(daTy, daAlloca, "dirlist.da.val");
+    }
+
+    if (funcName == "dirCreate" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_dir_create");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "dir.create");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "dir.create.bool");
+    }
+
+    if (funcName == "dirRemove" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_dir_remove");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "dir.remove");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "dir.remove.bool");
+    }
+
+    if (funcName == "dirExists" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_dir_exists");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "dir.exists");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "dir.exists.bool");
+    }
+
+    // === Path operations ===
+    if (funcName == "pathJoin" && node->getArgs().size() >= 2) {
+        auto *aArg = visit(node->getArgs()[0].get());
+        auto *bArg = visit(node->getArgs()[1].get());
+        if (!aArg || !bArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_join");
+        auto *r = builder_->CreateCall(fn, {aArg, bArg}, "path.join");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "pathDirname" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_dirname");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "path.dirname");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "pathBasename" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_basename");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "path.basename");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "pathExtension" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_extension");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "path.extension");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "pathExists" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_exists");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "path.exists");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "path.exists.bool");
+    }
+
+    if (funcName == "isFile" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_file_is_file");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "is.file");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "is.file.bool");
+    }
+
+    // === Subprocess ===
+    if (funcName == "exec" && !node->getArgs().empty()) {
+        auto *cmdArg = visit(node->getArgs()[0].get());
+        if (!cmdArg) return nullptr;
+        auto *fn = getOrPanic("liva_exec");
+        return builder_->CreateCall(fn, {cmdArg}, "exec.code");
+    }
+
+    if (funcName == "execOutput" && !node->getArgs().empty()) {
+        auto *cmdArg = visit(node->getArgs()[0].get());
+        if (!cmdArg) return nullptr;
+        auto *fn = getOrPanic("liva_exec_output");
+        auto *result = builder_->CreateCall(fn, {cmdArg}, "exec.output.raw");
+        trackStringTemp(result);
+        // Wrap in Optional<string>
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "exec.output.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "exec.output.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "exec.output.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "exec.output.result");
+    }
+
+    if (funcName == "processStart" && !node->getArgs().empty()) {
+        auto *cmdArg = visit(node->getArgs()[0].get());
+        if (!cmdArg) return nullptr;
+        auto *fn = getOrPanic("liva_process_start");
+        return builder_->CreateCall(fn, {cmdArg}, "proc.start");
+    }
+
+    if (funcName == "processWait" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_process_wait");
+        return builder_->CreateCall(fn, {handleArg}, "proc.wait");
+    }
+
+    if (funcName == "processKill" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_process_kill");
+        auto *r = builder_->CreateCall(fn, {handleArg}, "proc.kill");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "proc.kill.bool");
+    }
+
+    if (funcName == "processRead" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_process_read");
+        auto *result = builder_->CreateCall(fn, {handleArg}, "proc.read.raw");
+        trackStringTemp(result);
+        // Wrap in Optional<string>
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "proc.read.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "proc.read.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "proc.read.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "proc.read.result");
+    }
+
+    if (funcName == "processClose" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_process_close");
+        builder_->CreateCall(fn, {handleArg});
+        return nullptr;
+    }
+
+    // === JSON ===
+    if (funcName == "jsonGet" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_get");
+        auto *result = builder_->CreateCall(fn, {jsonArg, keyArg}, "json.get.raw");
+        trackStringTemp(result);
+        // Wrap in Optional<string>
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "json.get.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "json.get.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "json.get.opt", optTy);
+        builder_->CreateStructGEP(optTy, optAlloca, 0);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "json.get.result");
+    }
+
+    if (funcName == "jsonGetInt" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_get_int");
+        return builder_->CreateCall(fn, {jsonArg, keyArg}, "json.getint");
+    }
+
+    if (funcName == "jsonGetFloat" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_get_float");
+        return builder_->CreateCall(fn, {jsonArg, keyArg}, "json.getfloat");
+    }
+
+    if (funcName == "jsonGetBool" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_get_bool");
+        auto *r = builder_->CreateCall(fn, {jsonArg, keyArg}, "json.getbool");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "json.getbool.bool");
+    }
+
+    if (funcName == "jsonIsValid" && !node->getArgs().empty()) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        if (!jsonArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_is_valid");
+        auto *r = builder_->CreateCall(fn, {jsonArg}, "json.isvalid");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "json.isvalid.bool");
+    }
+
+    if (funcName == "jsonKeys" && !node->getArgs().empty()) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        if (!jsonArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_keys");
+        auto *i64Ty = builder_->getInt64Ty();
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "jsonkeys.count", i64Ty);
+        builder_->CreateStore(builder_->getInt64(0), countAlloca);
+        auto *rawArr = builder_->CreateCall(fn, {jsonArg, countAlloca}, "jsonkeys.raw");
+        auto *count = builder_->CreateLoad(i64Ty, countAlloca, "jsonkeys.count");
+        auto *daTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(curFunc, "jsonkeys.da", daTy);
+        builder_->CreateStore(rawArr, builder_->CreateStructGEP(daTy, daAlloca, 0));
+        builder_->CreateStore(count, builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(count, builder_->CreateStructGEP(daTy, daAlloca, 2));
+        return builder_->CreateLoad(daTy, daAlloca, "jsonkeys.da.val");
+    }
+
+    // === Logging ===
+    if (funcName == "logDebug" && !node->getArgs().empty()) {
+        auto *msgArg = visit(node->getArgs()[0].get());
+        if (!msgArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_log_debug"), {msgArg});
+        return nullptr;
+    }
+    if (funcName == "logInfo" && !node->getArgs().empty()) {
+        auto *msgArg = visit(node->getArgs()[0].get());
+        if (!msgArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_log_info"), {msgArg});
+        return nullptr;
+    }
+    if (funcName == "logWarn" && !node->getArgs().empty()) {
+        auto *msgArg = visit(node->getArgs()[0].get());
+        if (!msgArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_log_warn"), {msgArg});
+        return nullptr;
+    }
+    if (funcName == "logError" && !node->getArgs().empty()) {
+        auto *msgArg = visit(node->getArgs()[0].get());
+        if (!msgArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_log_error"), {msgArg});
+        return nullptr;
+    }
+    if (funcName == "logSetLevel" && !node->getArgs().empty()) {
+        auto *levelArg = visit(node->getArgs()[0].get());
+        if (!levelArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_log_set_level"), {levelArg});
+        return nullptr;
+    }
+
+    // === Testing ===
+    if (funcName == "assert" && !node->getArgs().empty()) {
+        auto *condArg = visit(node->getArgs()[0].get());
+        if (!condArg) return nullptr;
+        auto *i8Val = builder_->CreateZExt(condArg, builder_->getInt8Ty(), "assert.i8");
+        builder_->CreateCall(getOrPanic("liva_assert"), {i8Val});
+        return nullptr;
+    }
+    if (funcName == "assertMsg" && node->getArgs().size() >= 2) {
+        auto *condArg = visit(node->getArgs()[0].get());
+        auto *msgArg = visit(node->getArgs()[1].get());
+        if (!condArg || !msgArg) return nullptr;
+        auto *i8Val = builder_->CreateZExt(condArg, builder_->getInt8Ty(), "assertmsg.i8");
+        builder_->CreateCall(getOrPanic("liva_assert_msg"), {i8Val, msgArg});
+        return nullptr;
+    }
+    if (funcName == "assertEq" && node->getArgs().size() >= 2) {
+        auto *aArg = visit(node->getArgs()[0].get());
+        auto *bArg = visit(node->getArgs()[1].get());
+        if (!aArg || !bArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_assert_eq"), {aArg, bArg});
+        return nullptr;
+    }
+    if (funcName == "assertEqStr" && node->getArgs().size() >= 2) {
+        auto *aArg = visit(node->getArgs()[0].get());
+        auto *bArg = visit(node->getArgs()[1].get());
+        if (!aArg || !bArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_assert_eq_str"), {aArg, bArg});
+        return nullptr;
+    }
+    if (funcName == "assertEqFloat" && node->getArgs().size() >= 2) {
+        auto *aArg = visit(node->getArgs()[0].get());
+        auto *bArg = visit(node->getArgs()[1].get());
+        if (!aArg || !bArg) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_assert_eq_float"), {aArg, bArg});
+        return nullptr;
+    }
+
+    // === DateTime ===
+    if (funcName == "dateNow" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_date_now");
+        auto *r = builder_->CreateCall(fn, {}, "date.now");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "timeNow" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_time_now");
+        auto *r = builder_->CreateCall(fn, {}, "time.now");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "datetimeNow" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_datetime_now");
+        auto *r = builder_->CreateCall(fn, {}, "datetime.now");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "dateFormat" && node->getArgs().size() >= 2) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        auto *fmtArg = visit(node->getArgs()[1].get());
+        if (!tsArg || !fmtArg) return nullptr;
+        auto *fn = getOrPanic("liva_date_format");
+        auto *r = builder_->CreateCall(fn, {tsArg, fmtArg}, "date.format");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "dateYear" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_date_year"), {tsArg}, "date.year");
+    }
+    if (funcName == "dateMonth" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_date_month"), {tsArg}, "date.month");
+    }
+    if (funcName == "dateDay" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_date_day"), {tsArg}, "date.day");
+    }
+    if (funcName == "dateWeekday" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_date_weekday"), {tsArg}, "date.weekday");
+    }
+
+    // === Encoding/Compression ===
+    if (funcName == "base64Encode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_base64_encode"), {dataArg}, "b64.enc");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "base64Decode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *fn = getOrPanic("liva_base64_decode");
+        auto *result = builder_->CreateCall(fn, {dataArg}, "b64.dec.raw");
+        trackStringTemp(result);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "b64.dec.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "b64.dec.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "b64.dec.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "b64.dec.result");
+    }
+    if (funcName == "hexEncode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_hex_encode"), {dataArg}, "hex.enc");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "hexDecode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *fn = getOrPanic("liva_hex_decode");
+        auto *result = builder_->CreateCall(fn, {dataArg}, "hex.dec.raw");
+        trackStringTemp(result);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "hex.dec.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "hex.dec.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "hex.dec.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "hex.dec.result");
+    }
+    if (funcName == "crc32" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_crc32"), {dataArg}, "crc32");
+    }
+
     // Handle readLine() built-in
     if (funcName == "readLine") {
         auto *fn = getOrPanic("liva_read_line");
-        return builder_->CreateCall(fn, {}, "readline");
+        auto *r = builder_->CreateCall(fn, {}, "readline");
+        trackStringTemp(r);
+        return r;
     }
 
     // Handle format() built-in
@@ -1268,17 +2207,21 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     if (argVal->getType()->isIntegerTy(32)) {
                         argVal = builder_->CreateCall(
                             getOrPanic("liva_i32_to_str"), {argVal}, "fmt.i32");
+                        trackStringTemp(argVal);
                     } else if (argVal->getType()->isIntegerTy(64)) {
                         argVal = builder_->CreateCall(
                             getOrPanic("liva_i64_to_str"), {argVal}, "fmt.i64");
+                        trackStringTemp(argVal);
                     } else if (argVal->getType()->isDoubleTy()) {
                         argVal = builder_->CreateCall(
                             getOrPanic("liva_f64_to_str"), {argVal}, "fmt.f64");
+                        trackStringTemp(argVal);
                     } else if (argVal->getType()->isIntegerTy(1)) {
                         auto *ext = builder_->CreateZExt(argVal,
                             llvm::Type::getInt8Ty(*context_));
                         argVal = builder_->CreateCall(
                             getOrPanic("liva_bool_to_str"), {ext}, "fmt.bool");
+                        trackStringTemp(argVal);
                     }
                     // ptr (string) → use directly
                     parts.push_back(argVal);
@@ -1294,6 +2237,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *concatFn = getOrPanic("liva_str_concat");
         for (size_t i = 1; i < parts.size(); ++i) {
             result = builder_->CreateCall(concatFn, {result, parts[i]}, "fmt.concat");
+            trackStringTemp(result);
         }
         return result;
     }
@@ -1870,6 +2814,26 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     break;
                 }
             }
+
+            // Free old heap string before reassignment
+            if (node->getOp() == AssignExpr::Op::Assign &&
+                heapStringVars_.count(ident->getName())) {
+                auto *freeFn = module_->getFunction("free");
+                if (freeFn) {
+                    auto *old = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), it->second, "old.str");
+                    builder_->CreateCall(freeFn, {old});
+                }
+                // Transfer ownership from tempStrings_ if applicable
+                auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
+                if (tIt != tempStrings_.end()) {
+                    tempStrings_.erase(tIt);
+                    // keep in heapStringVars_
+                } else {
+                    heapStringVars_.erase(ident->getName());
+                }
+            }
+
             builder_->CreateStore(val, it->second);
         }
     }
@@ -1903,7 +2867,7 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         }
     }
 
-    // Check for string.length
+    // Check for string.length (UTF-8 code point count)
     if (node->getObject()->getResolvedType() &&
         node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
         node->getMember() == "length") {
@@ -1911,6 +2875,16 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         if (!obj) return nullptr;
         auto *lenFn = getOrPanic("liva_str_length");
         return builder_->CreateCall(lenFn, {obj});
+    }
+
+    // Check for string.byteLength (byte count)
+    if (node->getObject()->getResolvedType() &&
+        node->getObject()->getResolvedType()->getKind() == TypeRepr::Kind::String &&
+        node->getMember() == "byteLength") {
+        auto *obj = visit(node->getObject());
+        if (!obj) return nullptr;
+        auto *byteLenFn = getOrPanic("liva_str_byte_length");
+        return builder_->CreateCall(byteLenFn, {obj});
     }
 
     // Dynamic array properties: arr.length, arr.capacity, arr.isEmpty
@@ -1936,6 +2910,30 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
                     auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField);
                     return builder_->CreateICmpEQ(len, builder_->getInt64(0), "arr.empty");
                 }
+            }
+        }
+    }
+
+    // DynArray properties on struct member field: self.grades.length, self.grades.isEmpty
+    if (node->getObject()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *innerMember = static_cast<MemberExpr *>(node->getObject());
+        auto daInfo = resolveMemberDynArray(innerMember);
+        if (daInfo) {
+            auto *arrGEP = daInfo->arrGEP;
+            auto *structTy = getDynArrayStructTy();
+
+            if (node->getMember() == "length") {
+                auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
+                return builder_->CreateLoad(builder_->getInt64Ty(), lenField, "mda.len");
+            }
+            if (node->getMember() == "capacity") {
+                auto *capField = builder_->CreateStructGEP(structTy, arrGEP, 2);
+                return builder_->CreateLoad(builder_->getInt64Ty(), capField, "mda.cap");
+            }
+            if (node->getMember() == "isEmpty") {
+                auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
+                auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField);
+                return builder_->CreateICmpEQ(len, builder_->getInt64(0), "mda.empty");
             }
         }
     }
@@ -2068,6 +3066,7 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
         auto *structTy = structTypes_[mangledName];
         auto *func = builder_->GetInsertBlock()->getParent();
         auto *alloca = createEntryBlockAlloca(func, mangledName + ".tmp", structTy);
+        builder_->CreateStore(llvm::Constant::getNullValue(structTy), alloca);
 
         for (size_t i = 0; i < node->getFields().size(); ++i) {
             int idx = getStructFieldIndex(mangledName, node->getFields()[i].name);
@@ -2087,6 +3086,7 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
     auto *structTy = stIt->second;
     auto *func = builder_->GetInsertBlock()->getParent();
     auto *alloca = createEntryBlockAlloca(func, typeName + ".tmp", structTy);
+    builder_->CreateStore(llvm::Constant::getNullValue(structTy), alloca);
 
     for (auto &fieldInit : node->getFields()) {
         int idx = getStructFieldIndex(typeName, fieldInit.name);
@@ -2222,11 +3222,27 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             ++numCases;
     }
 
-    auto *switchInst = builder_->CreateSwitch(tagVal, defaultBB, numCases);
+    // Collect arm results for PHI node (match-as-expression)
+    std::vector<std::pair<llvm::Value *, llvm::BasicBlock *>> armResults;
 
-    for (auto &info : armInfos) {
-        if (!info.pat.isWildcard && info.pat.tag >= 0) {
-            switchInst->addCase(builder_->getInt32(info.pat.tag), info.bb);
+    // Use if-else chain for non-integer types (float/double/pointer) or when
+    // all arms are guarded bindings (no concrete switch cases)
+    bool useIfElseChain = !tagVal->getType()->isIntegerTy() || numCases == 0;
+
+    if (!useIfElseChain) {
+        auto *switchInst = builder_->CreateSwitch(tagVal, defaultBB, numCases);
+        for (auto &info : armInfos) {
+            if (!info.pat.isWildcard && info.pat.tag >= 0) {
+                switchInst->addCase(builder_->getInt32(info.pat.tag), info.bb);
+            }
+        }
+    } else {
+        // If-else chain: check guards in order, fall through to next arm
+        // First arm gets control from current block
+        if (!armInfos.empty()) {
+            builder_->CreateBr(armInfos[0].bb);
+        } else {
+            builder_->CreateBr(mergeBB);
         }
     }
 
@@ -2268,24 +3284,67 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             }
         }
 
-        // Guard clause: if guard is false, jump to defaultBB
+        // Bind subject value for guarded binding patterns (s if s >= 90.0)
+        if (useIfElseChain && !info.pat.bindings.empty() && !isPayloadEnum) {
+            for (auto &bindName : info.pat.bindings) {
+                if (!bindName.empty()) {
+                    auto *bindAlloca = createEntryBlockAlloca(func, bindName,
+                                                               tagVal->getType());
+                    builder_->CreateStore(tagVal, bindAlloca);
+                    namedValues_[bindName] = bindAlloca;
+                }
+            }
+        }
+
+        // Guard clause: if guard is false, jump to next arm or default
         if (arm.guard) {
             auto *guardVal = visit(arm.guard.get());
             auto *bodyBB = llvm::BasicBlock::Create(*context_,
                 "match.arm." + std::to_string(i) + ".body", func);
-            builder_->CreateCondBr(guardVal, bodyBB, defaultBB);
+            // Determine fallthrough: next arm's BB, or defaultBB
+            llvm::BasicBlock *nextBB = defaultBB;
+            if (useIfElseChain && i + 1 < armInfos.size()) {
+                nextBB = armInfos[i + 1].bb;
+            }
+            builder_->CreateCondBr(guardVal, bodyBB, nextBB);
             builder_->SetInsertPoint(bodyBB);
         }
 
-        visit(arm.body.get());
-        if (!builder_->GetInsertBlock()->getTerminator())
+        auto *armVal = visit(arm.body.get());
+        auto *incomingBB = builder_->GetInsertBlock();
+        bool terminated = incomingBB->getTerminator() != nullptr;
+        if (!terminated)
             builder_->CreateBr(mergeBB);
+
+        // Collect arm value and its block for PHI
+        if (armVal && !terminated) {
+            armResults.push_back({armVal, incomingBB});
+        }
 
         // Restore named values
         namedValues_ = savedNamedValues;
     }
 
     builder_->SetInsertPoint(mergeBB);
+
+    // Build PHI node if arms produce values (match-as-expression)
+    llvm::PHINode *phi = nullptr;
+    if (!armResults.empty()) {
+        auto *valType = armResults[0].first->getType();
+        bool allSameType = true;
+        for (auto &p : armResults) {
+            if (p.first->getType() != valType) {
+                allSameType = false;
+                break;
+            }
+        }
+        if (allSameType) {
+            phi = builder_->CreatePHI(valType, armResults.size(), "match.val");
+            for (auto &p : armResults) {
+                phi->addIncoming(p.first, p.second);
+            }
+        }
+    }
 
     // Clean up temporary Result enum entries
     if (isResultMatch) {
@@ -2295,7 +3354,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         varEnumTypes_.erase(subjectVarName);
     }
 
-    return nullptr;
+    return phi;
 }
 
 /// Split a string by top-level commas (respecting nested parentheses)
@@ -2401,8 +3460,14 @@ IRGen::PatternInfo IRGen::parseMatchPattern(const std::string &pattern,
                 info.enumName = subjectEnumType;
                 info.caseName = pattern;
                 info.tag = cIt->second;
+                return info;
             }
         }
+    }
+
+    // Simple identifier — treat as variable binding (e.g., "s" in "s if s >= 90.0")
+    if (info.tag < 0 && !info.isWildcard && info.bindings.empty() && !pattern.empty()) {
+        info.bindings.push_back(pattern);
     }
 
     return info;

@@ -27,6 +27,22 @@ std::unique_ptr<Scope> Scope::createChild() {
     return std::make_unique<Scope>(this);
 }
 
+void Scope::collectAllNames(std::vector<std::string> &out) const {
+    for (const auto &[name, _] : symbols_)
+        out.push_back(name);
+    if (parent_)
+        parent_->collectAllNames(out);
+}
+
+void Scope::collectNames(Symbol::Kind kind, std::vector<std::string> &out) const {
+    for (const auto &[name, sym] : symbols_) {
+        if (sym.kind == kind)
+            out.push_back(name);
+    }
+    if (parent_)
+        parent_->collectNames(kind, out);
+}
+
 // === ScopeStack ===
 
 ScopeStack::ScopeStack() {

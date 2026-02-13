@@ -161,7 +161,9 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
         switch (node->getOp()) {
         case BinaryExpr::Op::Add: {
             auto *concatFn = getOrPanic("liva_str_concat");
-            return builder_->CreateCall(concatFn, {lhs, rhs});
+            auto *r = builder_->CreateCall(concatFn, {lhs, rhs}, "str.concat");
+            trackStringTemp(r);
+            return r;
         }
         case BinaryExpr::Op::Eq: {
             auto *equalFn = getOrPanic("liva_str_equal");
@@ -674,6 +676,8 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     auto savedRefTypes2 = varRefTypes_;
     auto savedMovedVars2 = movedVars_;
     auto *savedFuncRI2 = currentFuncResultInfo_;
+    auto savedHeapStringVars2 = heapStringVars_;
+    auto savedTempStrings2 = tempStrings_;
 
     // --- Capture analysis ---
     auto captured = collectFreeVars(node, namedValues_);
@@ -836,6 +840,8 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varRefTypes_ = savedRefTypes2;
     movedVars_ = savedMovedVars2;
     currentFuncResultInfo_ = savedFuncRI2;
+    heapStringVars_ = savedHeapStringVars2;
+    tempStrings_ = savedTempStrings2;
 
     // Build closure object: { func_ptr, env_ptr }
     auto *closureObjTy = getClosureObjTy();
@@ -894,6 +900,26 @@ llvm::Value *IRGen::visitTupleLiteralExpr(TupleLiteralExpr *node) {
 }
 
 llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
+    // DynArray index on struct member field: self.grades[i]
+    if (node->getBase()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *memberBase = static_cast<MemberExpr *>(const_cast<Expr *>(node->getBase()));
+        auto daInfo = resolveMemberDynArray(memberBase);
+        if (daInfo) {
+            auto *indexVal = visit(const_cast<Expr *>(node->getIndex()));
+            if (!indexVal) return nullptr;
+            auto *structTy = getDynArrayStructTy();
+            auto *dataField = builder_->CreateStructGEP(structTy, daInfo->arrGEP, 0);
+            auto *dataPtr = builder_->CreateLoad(llvm::PointerType::getUnqual(*context_), dataField);
+            if (indexVal->getType()->isIntegerTy(32))
+                indexVal = builder_->CreateSExt(indexVal, builder_->getInt64Ty(), "idx.ext");
+            auto *lenField = builder_->CreateStructGEP(structTy, daInfo->arrGEP, 1);
+            auto *lenVal = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "mda.len");
+            emitBoundsCheck(indexVal, lenVal);
+            auto *elemPtr = builder_->CreateGEP(daInfo->elementType, dataPtr, indexVal, "mda.elem");
+            return builder_->CreateLoad(daInfo->elementType, elemPtr, "mda.val");
+        }
+    }
+
     if (node->getBase()->getKind() != ASTNode::NodeKind::IdentifierExpr)
         return nullptr;
     auto *ident = static_cast<const IdentifierExpr *>(node->getBase());
@@ -920,9 +946,11 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
             auto *subFn = module_->getOrInsertFunction(
                 "liva_str_substring",
                 llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false)).getCallee();
-            return builder_->CreateCall(
+            auto *sliceResult = builder_->CreateCall(
                 llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false),
                 subFn, {strVal, startVal, sliceLen}, "str.slice");
+            trackStringTemp(sliceResult);
+            return sliceResult;
         }
 
         // DynArray slicing: arr[1..3] -> new DynArray with copied elements
@@ -1020,9 +1048,11 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         auto *subFn = module_->getOrInsertFunction(
             "liva_str_substring",
             llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false)).getCallee();
-        return builder_->CreateCall(
+        auto *charResult = builder_->CreateCall(
             llvm::FunctionType::get(ptrTy, {ptrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false),
             subFn, {strVal, indexVal, builder_->getInt64(1)}, "str.char");
+        trackStringTemp(charResult);
+        return charResult;
     }
 
     return nullptr;

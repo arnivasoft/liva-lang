@@ -1189,3 +1189,61 @@ TEST_F(ParserTest, NestedPatternMatch) {
     // First arm pattern should contain nested pattern string
     EXPECT_NE(matchExpr->getArms()[0].pattern.find("Inner.Val"), std::string::npos);
 }
+
+// === Doc Comment Tests ===
+
+TEST_F(ParserTest, DocCommentOnFunc) {
+    auto result = parse("/// Adds two numbers\nfunc add(x: i32, y: i32) -> i32 {\n    return x\n}");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_TRUE(fn->hasDocComment());
+    EXPECT_EQ(fn->getDocComment(), "Adds two numbers");
+}
+
+TEST_F(ParserTest, DocCommentMultiLine) {
+    auto result = parse("/// First line\n/// Second line\nfunc foo() {}");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_TRUE(fn->hasDocComment());
+    EXPECT_EQ(fn->getDocComment(), "First line\nSecond line");
+}
+
+TEST_F(ParserTest, DocCommentOnStruct) {
+    auto result = parse("/// A 2D point\nstruct Point {\n    var x: i32\n}");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *sd = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(sd, nullptr);
+    EXPECT_TRUE(sd->hasDocComment());
+    EXPECT_EQ(sd->getDocComment(), "A 2D point");
+}
+
+TEST_F(ParserTest, DocCommentOnEnum) {
+    auto result = parse("/// Direction enum\nenum Dir {\n    case North\n}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *ed = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(ed, nullptr);
+    EXPECT_TRUE(ed->hasDocComment());
+    EXPECT_EQ(ed->getDocComment(), "Direction enum");
+}
+
+TEST_F(ParserTest, NoDocComment) {
+    auto result = parse("func bar() {}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_FALSE(fn->hasDocComment());
+}
+
+TEST_F(ParserTest, DocCommentOnPublicFunc) {
+    auto result = parse("/// Public function\npub func hello() {}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_TRUE(fn->hasDocComment());
+    EXPECT_EQ(fn->getDocComment(), "Public function");
+}

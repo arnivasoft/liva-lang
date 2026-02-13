@@ -94,6 +94,7 @@ struct ResolvedPackage {
 struct LockFileEntry {
     std::string name;
     std::string version;
+    std::string checksum; // "sha256:..." or empty (local packages)
 };
 
 struct PackageResolutionResult {
@@ -105,7 +106,8 @@ struct PackageResolutionResult {
 PackageResolutionResult resolvePackages(const std::vector<PackageDep> &deps,
                                         const std::string &packagesDir);
 
-std::string generateLockFile(const std::vector<ResolvedPackage> &packages);
+std::string generateLockFile(const std::vector<ResolvedPackage> &packages,
+                             const std::vector<LockFileEntry> &checksums = {});
 std::vector<LockFileEntry> parseLockFile(const std::string &content);
 bool isLockFileCurrent(const std::vector<PackageDep> &deps,
                        const std::vector<LockFileEntry> &lockEntries);
@@ -126,9 +128,13 @@ struct ProjectConfig {
     std::string entry = "main.liva";
     int optLevel = 0;
     bool debugInfo = false;
+    std::string lto = "none";        // "none", "thin", "full"
+    std::string pgo = "none";        // "none", "generate", "use"
+    std::string pgoProfile;          // profile data path (for pgo=use)
     std::vector<std::string> modulePaths;
     std::string projectRoot;
     std::vector<PackageDep> dependencies;
+    std::string registryUrl; // from [registry] url or LIVA_REGISTRY_URL env
 };
 
 ProjectConfig loadProjectConfig(const TOMLDocument &doc);
@@ -141,5 +147,6 @@ std::string joinPath(const std::string &base, const std::string &relative);
 bool fileExists(const std::string &path);
 bool createDirectory(const std::string &path);
 bool createDirectories(const std::string &path);
+bool removeDirectoryRecursive(const std::string &path);
 
 } // namespace liva

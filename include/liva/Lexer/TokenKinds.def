@@ -28,6 +28,7 @@ TOKEN(newline,          "newline")
 TOKEN(string_interp_begin, "string interpolation begin")
 TOKEN(string_interp_mid,   "string interpolation mid")
 TOKEN(string_interp_end,   "string interpolation end")
+TOKEN(doc_comment,         "doc comment")
 
 // === Keywords ===
 KEYWORD(let,        "let")

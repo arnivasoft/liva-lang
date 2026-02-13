@@ -60,6 +60,7 @@ DIAG(err_mut_ref_to_immutable,       error,   "cannot take mutable reference to 
 
 // === Sema - Misc ===
 DIAG(err_main_not_found,             error,   "no 'main' function found")
+DIAG(err_module_verify,              error,   "LLVM module verification failed: %0")
 DIAG(err_break_outside_loop,         error,   "'break' statement outside of loop")
 DIAG(err_continue_outside_loop,      error,   "'continue' statement outside of loop")
 DIAG(err_nonexhaustive_match,        error,   "match is not exhaustive; missing case '%0'")
@@ -106,5 +107,6 @@ DIAG(warn_unreachable_match_arm,     warning, "unreachable match arm: case '%0' 
 DIAG(note_previous_declaration,      note,    "previous declaration of '%0' is here")
 DIAG(note_moved_here,                note,    "'%0' was moved here")
 DIAG(note_borrowed_here,             note,    "'%0' was borrowed here")
+DIAG(note_did_you_mean,              note,    "did you mean '%0'?")
 
 #undef DIAG

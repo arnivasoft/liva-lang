@@ -1,18 +1,34 @@
 {
     "name": "liva-lang",
     "displayName": "Liva Language",
-    "description": "Language support for Liva programming language",
-    "version": "0.1.0",
+    "description": "Full language support for Liva — a modern, compiled language with Swift-like syntax and Rust-style ownership. Provides 12 LSP features, syntax highlighting, and diagnostics.",
+    "version": "0.2.0",
     "publisher": "liva-lang",
     "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/liva-lang/liva-lang"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
     "categories": [
-        "Programming Languages"
+        "Programming Languages",
+        "Debuggers",
+        "Linters",
+        "Formatters"
+    ],
+    "keywords": [
+        "liva",
+        "compiler",
+        "ownership",
+        "generics",
+        "pattern-matching",
+        "llvm"
     ],
     "activationEvents": [
-        "onLanguage:liva"
+        "onLanguage:liva",
+        "onDebugResolve:liva"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -36,13 +52,142 @@
                 "path": "./syntaxes/liva.tmLanguage.json"
             }
         ],
+        "debuggers": [
+            {
+                "type": "liva",
+                "label": "Liva Debug",
+                "languages": [
+                    "liva"
+                ],
+                "configurationAttributes": {
+                    "launch": {
+                        "required": [
+                            "program"
+                        ],
+                        "properties": {
+                            "program": {
+                                "type": "string",
+                                "description": "Path to the compiled executable to debug."
+                            },
+                            "args": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description": "Command-line arguments for the program.",
+                                "default": []
+                            },
+                            "cwd": {
+                                "type": "string",
+                                "description": "Working directory for the program.",
+                                "default": "${workspaceFolder}"
+                            },
+                            "stopOnEntry": {
+                                "type": "boolean",
+                                "description": "Break on the entry point of the program.",
+                                "default": false
+                            },
+                            "env": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "description": "Environment variables for the program.",
+                                "default": {}
+                            },
+                            "preBuildTask": {
+                                "type": "boolean",
+                                "description": "Automatically run 'livac build -g' before debugging.",
+                                "default": true
+                            }
+                        }
+                    },
+                    "attach": {
+                        "required": [
+                            "pid"
+                        ],
+                        "properties": {
+                            "pid": {
+                                "type": "number",
+                                "description": "Process ID to attach to."
+                            }
+                        }
+                    }
+                },
+                "initialConfigurations": [
+                    {
+                        "type": "liva",
+                        "request": "launch",
+                        "name": "Debug Liva Program",
+                        "program": "${workspaceFolder}/${workspaceFolderBasename}.exe",
+                        "args": [],
+                        "cwd": "${workspaceFolder}",
+                        "stopOnEntry": false,
+                        "preBuildTask": true
+                    }
+                ],
+                "configurationSnippets": [
+                    {
+                        "label": "Liva: Launch",
+                        "description": "Build and debug a Liva program.",
+                        "body": {
+                            "type": "liva",
+                            "request": "launch",
+                            "name": "Debug Liva Program",
+                            "program": "^\"\\${workspaceFolder}/\\${workspaceFolderBasename}.exe\"",
+                            "args": [],
+                            "cwd": "^\"\\${workspaceFolder}\"",
+                            "stopOnEntry": false,
+                            "preBuildTask": true
+                        }
+                    },
+                    {
+                        "label": "Liva: Attach",
+                        "description": "Attach to a running Liva process.",
+                        "body": {
+                            "type": "liva",
+                            "request": "attach",
+                            "name": "Attach to Liva Process",
+                            "pid": 0
+                        }
+                    }
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "command": "liva.restartServer",
+                "title": "Liva: Restart Server",
+                "category": "Liva"
+            }
+        ],
         "configuration": {
             "title": "Liva",
             "properties": {
                 "liva.livacPath": {
                     "type": "string",
                     "default": "livac",
-                    "description": "Path to the livac compiler executable. Used for LSP diagnostics, completions, hover, and go-to-definition."
+                    "description": "Path to the livac compiler executable used by the LSP server."
+                },
+                "liva.enableSemanticTokens": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable semantic token highlighting from the LSP server (provides more accurate coloring than TextMate grammar alone)."
+                },
+                "liva.lldbDapPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the lldb-dap executable for debugging. If empty, the extension searches common locations and PATH."
+                },
+                "liva.trace.server": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Trace communication between VS Code and the Liva language server."
                 }
             }
         }
@@ -57,8 +202,9 @@
         "vscode-languageclient": "^9.0.0"
     },
     "devDependencies": {
+        "@types/node": "^25.2.3",
         "@types/vscode": "^1.85.0",
-        "typescript": "^5.3.0",
-        "esbuild": "^0.19.0"
+        "esbuild": "^0.19.0",
+        "typescript": "^5.3.0"
     }
 }

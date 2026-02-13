@@ -1,10 +1,13 @@
 #include "liva/CodeGen/CodeGen.h"
 
 #ifdef LIVA_HAS_LLVM
+#include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/PGOOptions.h>
+#include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
@@ -133,13 +136,54 @@ bool CodeGen::emitAssembly(llvm::Module &module, const std::string &outputPath) 
     return true;
 }
 
-void CodeGen::optimize(llvm::Module &module, int optLevel) {
+bool CodeGen::emitBitcode(llvm::Module &module, const std::string &outputPath) {
+    // Set target layout/triple before writing bitcode
+    std::string error;
+    auto *target = llvm::TargetRegistry::lookupTarget(target_.triple, error);
+    if (target) {
+        llvm::TargetOptions opt;
+        auto targetMachine = target->createTargetMachine(
+            llvm::Triple(target_.triple), target_.cpu, target_.features, opt,
+            llvm::Reloc::PIC_);
+        module.setDataLayout(targetMachine->createDataLayout());
+        module.setTargetTriple(llvm::Triple(target_.triple));
+    }
+
+    std::error_code ec;
+    llvm::raw_fd_ostream dest(outputPath, ec, llvm::sys::fs::OF_None);
+    if (ec) {
+        std::cerr << "error: cannot open output file '" << outputPath << "': "
+                  << ec.message() << "\n";
+        return false;
+    }
+
+    llvm::WriteBitcodeToFile(module, dest);
+    dest.flush();
+    return true;
+}
+
+void CodeGen::optimize(llvm::Module &module, int optLevel,
+                       const std::string &ltoMode,
+                       const std::string &pgoMode,
+                       const std::string &pgoProfile) {
     llvm::LoopAnalysisManager lam;
     llvm::FunctionAnalysisManager fam;
     llvm::CGSCCAnalysisManager cgam;
     llvm::ModuleAnalysisManager mam;
 
-    llvm::PassBuilder pb;
+    // Build PGO options if requested
+    std::optional<llvm::PGOOptions> pgoOpts;
+    if (pgoMode == "generate") {
+        pgoOpts = llvm::PGOOptions("", "", "", "",
+                                    nullptr,
+                                    llvm::PGOOptions::IRInstr);
+    } else if (pgoMode == "use" && !pgoProfile.empty()) {
+        pgoOpts = llvm::PGOOptions(pgoProfile, "", "", "",
+                                    nullptr,
+                                    llvm::PGOOptions::IRUse);
+    }
+
+    llvm::PassBuilder pb(nullptr, llvm::PipelineTuningOptions(), pgoOpts);
     pb.registerModuleAnalyses(mam);
     pb.registerCGSCCAnalyses(cgam);
     pb.registerFunctionAnalyses(fam);
@@ -165,7 +209,14 @@ void CodeGen::optimize(llvm::Module &module, int optLevel) {
         break;
     }
 
-    auto mpm = pb.buildPerModuleDefaultPipeline(level);
+    llvm::ModulePassManager mpm;
+    if (ltoMode == "thin") {
+        mpm = pb.buildThinLTOPreLinkDefaultPipeline(level);
+    } else if (ltoMode == "full") {
+        mpm = pb.buildLTODefaultPipeline(level, nullptr);
+    } else {
+        mpm = pb.buildPerModuleDefaultPipeline(level);
+    }
     mpm.run(module, mam);
 }
 
@@ -173,15 +224,28 @@ void CodeGen::optimize(llvm::Module &module, int optLevel) {
 
 bool CodeGen::link(const std::vector<std::string> &objectFiles,
                    const std::string &outputPath,
-                   const std::vector<std::string> &extraFlags) {
+                   const std::vector<std::string> &extraFlags,
+                   const std::string &ltoMode,
+                   const std::string &pgoMode) {
     std::string clang = findClang();
     std::string cmd = "\"" + clang + "\" -o \"" + outputPath + "\"";
+
+    // LTO flags
+    if (ltoMode == "thin")
+        cmd += " -flto=thin";
+    else if (ltoMode == "full")
+        cmd += " -flto";
+
+    // PGO flags — generate mode needs profiling runtime linked
+    if (pgoMode == "generate")
+        cmd += " -fprofile-generate";
+
     for (auto &obj : objectFiles)
         cmd += " \"" + obj + "\"";
     for (auto &flag : extraFlags)
         cmd += " " + flag;
 #ifdef _WIN32
-    cmd += " -lmsvcrt";
+    cmd += " -lmsvcrt -Wl,/NODEFAULTLIB:libcmt";
     // Wrap entire command for cmd.exe /c quoting rules
     cmd = "\"" + cmd + "\"";
 #endif

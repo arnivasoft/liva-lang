@@ -175,7 +175,10 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarFileOptionalTypes = varFileOptionalTypes_;
     auto oldVarTupleTypes = varTupleTypes_;
     auto oldMovedVars = movedVars_;
+    auto oldHeapStringVars = heapStringVars_;
+    auto oldTempStrings = tempStrings_;
     auto *oldFuncResultInfo = currentFuncResultInfo_;
+    auto *oldFuncOptInner = currentFuncOptionalInner_;
     bool oldIsAsync = currentIsAsync_;
     auto *oldAsyncRetType = asyncDeclaredRetType_;
     // Save coroutine state
@@ -212,7 +215,17 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varFileOptionalTypes_.clear();
     varTupleTypes_.clear();
     movedVars_.clear();
+    heapStringVars_.clear();
+    tempStrings_.clear();
     currentFuncResultInfo_ = nullptr;
+    currentFuncOptionalInner_ = nullptr;
+
+    // Track Optional return type for return-nil / return-value wrapping
+    if (node->getReturnType() &&
+        node->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
+        auto *opt = static_cast<const OptionalTypeRepr *>(node->getReturnType());
+        currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+    }
 
     // Track Result return type for try expressions (visitFuncDecl)
     if (node->getReturnType() &&
@@ -421,7 +434,10 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varFileOptionalTypes_ = oldVarFileOptionalTypes;
     varTupleTypes_ = oldVarTupleTypes;
     movedVars_ = oldMovedVars;
+    heapStringVars_ = oldHeapStringVars;
+    tempStrings_ = oldTempStrings;
     currentFuncResultInfo_ = oldFuncResultInfo;
+    currentFuncOptionalInner_ = oldFuncOptInner;
     currentIsAsync_ = oldIsAsync;
     asyncDeclaredRetType_ = oldAsyncRetType;
     // Restore coroutine state
@@ -729,6 +745,31 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         }
     }
 
+    // Check if init is a static struct method call: var s = Student.new("Alice")
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::CallExpr) {
+        auto *callExpr = static_cast<CallExpr *>(
+            const_cast<Expr *>(node->getInit()));
+        if (callExpr->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            auto *memberExpr = static_cast<MemberExpr *>(callExpr->getCallee());
+            if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+                auto stIt = structTypes_.find(ident->getName());
+                if (stIt != structTypes_.end()) {
+                    auto *structTy = stIt->second;
+                    auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+                    if (initVal) {
+                        auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+                        builder_->CreateStore(initVal, alloca);
+                        namedValues_[node->getName()] = alloca;
+                        varStructTypes_[node->getName()] = ident->getName();
+                        return alloca;
+                    }
+                }
+            }
+        }
+    }
+
     // Check if init is a payload enum constructor: let s = Shape.Circle(3.14)
     if (node->hasInit() &&
         node->getInit()->getKind() == ASTNode::NodeKind::CallExpr) {
@@ -1026,6 +1067,20 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         if (initVal)
             builder_->CreateStore(initVal, alloca);
         namedValues_[node->getName()] = alloca;
+
+        // Track heap string ownership (explicit String type or inferred from string init)
+        if (initVal && type->isPointerTy()) {
+            bool isString = (node->getType() &&
+                node->getType()->getKind() == TypeRepr::Kind::String);
+            if (!isString && node->getInit() && node->getInit()->getResolvedType() &&
+                node->getInit()->getResolvedType()->getKind() == TypeRepr::Kind::String) {
+                isString = true;
+            }
+            if (isString) {
+                transferStringOwnership(initVal, node->getName());
+            }
+        }
+
         return alloca;
     }
 
@@ -1038,14 +1093,27 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 llvm::Value *IRGen::visitStructDecl(StructDecl *node) {
     std::vector<llvm::Type *> fieldTypes;
     std::vector<std::string> fieldNames;
+    std::vector<const TypeRepr *> fieldTypeReprs;
     for (auto &field : node->getFields()) {
-        fieldTypes.push_back(toLLVMType(field->getType()));
+        auto *typeRepr = field->getType();
+        if (typeRepr && typeRepr->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRepr = static_cast<const ArrayTypeRepr *>(typeRepr);
+            if (arrRepr->isDynamic()) {
+                fieldTypes.push_back(getDynArrayStructTy());
+            } else {
+                fieldTypes.push_back(toLLVMType(typeRepr));
+            }
+        } else {
+            fieldTypes.push_back(toLLVMType(typeRepr));
+        }
         fieldNames.push_back(field->getName());
+        fieldTypeReprs.push_back(typeRepr);
     }
 
     auto *structType = llvm::StructType::create(*context_, fieldTypes, node->getName());
     structTypes_[node->getName()] = structType;
     structFieldNames_[node->getName()] = std::move(fieldNames);
+    structFieldTypeReprs_[node->getName()] = std::move(fieldTypeReprs);
     return nullptr;
 }
 
@@ -1120,6 +1188,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarProtocolTypes = varProtocolTypes_;
         auto oldVarResultTypes = varResultTypes_;
         auto *oldFuncRI = currentFuncResultInfo_;
+        auto *oldFuncOptInner = currentFuncOptionalInner_;
         namedValues_.clear();
         varStructTypes_.clear();
         varEnumTypes_.clear();
@@ -1133,6 +1202,14 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varResultTypes_.clear();
         varFileTypes_.clear();
         currentFuncResultInfo_ = nullptr;
+        currentFuncOptionalInner_ = nullptr;
+
+        // Track Optional return type for methods
+        if (method->getReturnType() &&
+            method->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
+            auto *opt = static_cast<const OptionalTypeRepr *>(method->getReturnType());
+            currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+        }
 
         // Create allocas for parameters
         i = 0;
@@ -1177,6 +1254,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varProtocolTypes_ = oldVarProtocolTypes;
         varResultTypes_ = oldVarResultTypes;
         currentFuncResultInfo_ = oldFuncRI;
+        currentFuncOptionalInner_ = oldFuncOptInner;
     }
 
     // Generate default method implementations from protocol
@@ -1229,6 +1307,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto oldVarProtocolTypes = varProtocolTypes_;
                 auto oldVarResultTypes = varResultTypes_;
                 auto *oldFuncRI = currentFuncResultInfo_;
+                auto *oldFuncOptInner2 = currentFuncOptionalInner_;
                 namedValues_.clear();
                 varStructTypes_.clear();
                 varEnumTypes_.clear();
@@ -1242,6 +1321,14 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varResultTypes_.clear();
                 varFileTypes_.clear();
                 currentFuncResultInfo_ = nullptr;
+                currentFuncOptionalInner_ = nullptr;
+
+                // Track Optional return type for protocol default methods
+                if (protoMethod->getReturnType() &&
+                    protoMethod->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
+                    auto *opt = static_cast<const OptionalTypeRepr *>(protoMethod->getReturnType());
+                    currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+                }
 
                 i = 0;
                 for (auto &arg : func->args()) {
@@ -1277,6 +1364,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varProtocolTypes_ = oldVarProtocolTypes;
                 varResultTypes_ = oldVarResultTypes;
                 currentFuncResultInfo_ = oldFuncRI;
+                currentFuncOptionalInner_ = oldFuncOptInner2;
             }
         }
     }

@@ -138,9 +138,11 @@ add_library(liva_repl STATIC
 target_link_libraries(liva_repl PUBLIC liva_sema liva_parser liva_common)
 liva_set_compiler_flags(liva_repl)
 
-# liva_driver (TOML parser, path utils)
+# liva_driver (TOML parser, path utils, build cache, package manager)
 add_library(liva_driver STATIC
     src/Driver/ProjectConfig.cpp
+    src/Driver/BuildCache.cpp
+    src/Driver/PackageManager.cpp
 )
 target_link_libraries(liva_driver PUBLIC liva_common)
 liva_set_compiler_flags(liva_driver)
@@ -170,3 +172,73 @@ add_subdirectory(tests)
 
 # === Install ===
 install(TARGETS livac DESTINATION bin)
+
+# Runtime library (needed by compiled Liva programs)
+if(LIVA_HAS_LLVM)
+    install(TARGETS liva_runtime DESTINATION lib)
+endif()
+
+# Standard library modules
+install(DIRECTORY stdlib/core/ DESTINATION lib/liva/stdlib/core FILES_MATCHING PATTERN "*.liva")
+install(DIRECTORY stdlib/io/ DESTINATION lib/liva/stdlib/io FILES_MATCHING PATTERN "*.liva")
+install(FILES stdlib/runtime/runtime.h DESTINATION lib/liva/stdlib/runtime)
+
+# Examples
+install(DIRECTORY examples/ DESTINATION share/liva/examples FILES_MATCHING PATTERN "*.liva")
+
+# Documentation
+install(FILES LICENSE DESTINATION share/doc/liva)
+install(DIRECTORY docs/en/ DESTINATION share/doc/liva/en)
+
+# === CPack Configuration ===
+set(CPACK_PACKAGE_NAME "liva")
+set(CPACK_PACKAGE_VENDOR "Liva Contributors")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Liva Programming Language Compiler")
+set(CPACK_PACKAGE_DESCRIPTION
+    "A modern systems programming language with Swift-like syntax and Rust-style ownership.")
+set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/liva-lang/liva-lang")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Liva")
+set(CPACK_PACKAGE_CONTACT "liva-lang@users.noreply.github.com")
+
+# Platform-specific generator defaults
+if(WIN32)
+    set(CPACK_GENERATOR "WIX;ZIP")
+
+    # WiX (.msi) configuration
+    set(CPACK_WIX_UPGRADE_GUID "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
+    set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/packaging/liva.ico")
+    set(CPACK_WIX_UI_BANNER "${CMAKE_SOURCE_DIR}/packaging/banner.png")
+    set(CPACK_WIX_UI_DIALOG "${CMAKE_SOURCE_DIR}/packaging/dialog.png")
+    set(CPACK_WIX_PROGRAM_MENU_FOLDER "Liva")
+    set(CPACK_WIX_PROPERTY_ARPHELPLINK "https://github.com/liva-lang/liva-lang")
+
+    # Add livac to PATH via WiX environment extension
+    set(CPACK_WIX_PATCH_FILE "${CMAKE_SOURCE_DIR}/packaging/wix_path_patch.xml")
+
+elseif(APPLE)
+    set(CPACK_GENERATOR "TGZ")
+
+    # macOS-specific metadata
+    set(CPACK_PACKAGE_FILE_NAME
+        "liva-${PROJECT_VERSION}-macos-${CMAKE_SYSTEM_PROCESSOR}")
+
+else()
+    set(CPACK_GENERATOR "DEB;TGZ")
+
+    # Debian (.deb) configuration
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Liva Contributors <liva-lang@users.noreply.github.com>")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.17)")
+    set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/liva-lang/liva-lang")
+    set(CPACK_DEBIAN_PACKAGE_DESCRIPTION
+        "Liva Programming Language Compiler\n A modern systems programming language with Swift-like syntax,\n Rust-style ownership/borrowing, and LLVM backend.")
+    set(CPACK_PACKAGE_FILE_NAME
+        "liva-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
+include(CPack)
