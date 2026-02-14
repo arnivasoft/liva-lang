@@ -3,9 +3,9 @@
 #include "liva/AST/ASTVisitor.h"
 #include "liva/AST/Decl.h"
 #include "liva/Common/Diagnostics.h"
+#include <deque>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 namespace liva {
 
@@ -92,7 +92,9 @@ private:
     DiagnosticsEngine &diag_;
 
     /// Stack of scopes, each containing variable ownership info
-    std::vector<std::unordered_map<std::string, OwnershipInfo>> scopeStack_;
+    /// Using deque so that emplace_back() never invalidates pointers
+    /// stored in allVariables_ (vector reallocation would dangle them).
+    std::deque<std::unordered_map<std::string, OwnershipInfo>> scopeStack_;
 
     /// All tracked variables (flat lookup)
     std::unordered_map<std::string, OwnershipInfo *> allVariables_;
