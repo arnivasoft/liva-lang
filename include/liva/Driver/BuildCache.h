@@ -7,13 +7,22 @@ namespace liva {
 struct SourceFileEntry {
     std::string path;
     std::string hash; // FNV-1a 64-bit hex
+    std::string objFile; // per-file cached .o name (empty if not cached)
 };
 
 struct BuildCacheManifest {
     std::vector<SourceFileEntry> sources;
     int optLevel = 0;
     bool debugInfo = false;
-    std::string objFile; // cached object file name
+    std::string objFile; // cached object file name (legacy whole-project)
+};
+
+/// Per-file compile status for incremental builds
+struct FileCompileStatus {
+    std::string sourcePath;
+    std::string currentHash;
+    std::string cachedObjPath; // non-empty if cache hit (absolute path)
+    bool needsRecompile;
 };
 
 class BuildCache {
@@ -39,8 +48,20 @@ public:
     /// Remove cache directory
     void clean();
 
+    /// Per-file cache check: returns status for each source file
+    std::vector<FileCompileStatus> checkFilesCache(
+        const std::vector<std::string> &sourceFiles, int optLevel, bool debugInfo);
+
+    /// Store a single file's compiled object in cache
+    bool storeFileObject(const std::string &sourcePath, const std::string &hash,
+                         const std::string &objPath, int optLevel, bool debugInfo);
+
+    /// Generate a unique .o filename for a source path
+    std::string objectPathForSource(const std::string &sourcePath);
+
     // Exposed for testing
     std::string hashFileContent(const std::string &path);
+    const std::string &getCacheDir() const { return cacheDir_; }
 
 private:
     std::string cacheDir_;
@@ -56,6 +77,11 @@ private:
 
     bool loadManifest(BuildCacheManifest &out);
     bool saveManifest(const BuildCacheManifest &manifest);
+
+    /// Per-file manifest (separate from whole-project manifest)
+    std::string perFileManifestPath_;
+    bool loadPerFileManifest(std::vector<SourceFileEntry> &out, int &optLevel, bool &debugInfo);
+    bool savePerFileManifest(const std::vector<SourceFileEntry> &entries, int optLevel, bool debugInfo);
 };
 
 } // namespace liva

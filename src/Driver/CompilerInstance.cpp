@@ -122,6 +122,59 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
     return true;
 }
 
+bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool isEntryFile,
+                                        ModuleLoader *sharedLoader) {
+    auto tu = parseSource();
+    if (!tu || diag_.hasErrors())
+        return false;
+
+    // Use shared or local ModuleLoader
+    ModuleLoader localLoader;
+    ModuleLoader *loader = sharedLoader;
+    if (!loader) {
+        loader = &localLoader;
+        std::string fname(sourceManager_->getFilename());
+        auto pos = fname.find_last_of("/\\");
+        if (pos != std::string::npos)
+            loader->setBasePath(fname.substr(0, pos + 1));
+        for (const auto &sp : searchPaths_)
+            loader->addSearchPath(sp);
+    }
+
+    Sema sema(diag_, loader);
+    if (!sema.analyze(*tu))
+        return false;
+
+#ifdef LIVA_HAS_LLVM
+    IRGen irgen(sourceManager_->getFilename().data(), diag_);
+    irgen.setModuleLoader(loader);
+    irgen.setDebugInfo(debugInfo_);
+    irgen.setSeparateCompilation(true);
+    irgen.setRequireMain(isEntryFile);
+    if (!irgen.generate(*tu))
+        return false;
+
+    auto *module = irgen.getModule();
+    CodeGen codegen(diag_);
+    codegen.optimize(*module, optLevel_, ltoMode_, pgoMode_, pgoProfile_);
+
+    bool useLto = (ltoMode_ == "thin" || ltoMode_ == "full");
+    bool emitOk = useLto ? codegen.emitBitcode(*module, outputObjPath)
+                         : codegen.emitObjectFile(*module, outputObjPath);
+    if (!emitOk) {
+        std::cerr << "error: failed to emit object file '" << outputObjPath << "'\n";
+        return false;
+    }
+
+    return true;
+#else
+    (void)outputObjPath;
+    (void)isEntryFile;
+    std::cerr << "error: LLVM not available, cannot generate code\n";
+    return false;
+#endif
+}
+
 bool CompilerInstance::compile(const std::string &outputPath) {
     auto tu = parseSource();
     if (!tu || diag_.hasErrors())

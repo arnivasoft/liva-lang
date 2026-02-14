@@ -6,6 +6,7 @@
 #include "liva/CodeGen/CodeGen.h"
 #include "liva/LSP/LSPServer.h"
 #include "liva/REPL/REPL.h"
+#include "liva/Sema/ModuleLoader.h"
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -47,6 +48,20 @@ bool Driver::parseArgs(int argc, const char **argv) {
         } else if (std::strcmp(argv[1], "repl") == 0) {
             options_.subcommand = Subcommand::Repl;
             startIdx = 2;
+            return true;
+        } else if (std::strcmp(argv[1], "install") == 0) {
+            options_.subcommand = Subcommand::Install;
+            startIdx = 2;
+            // Next non-flag arg = package name
+            if (argc > 2 && argv[2][0] != '-') {
+                options_.installPkgName = argv[2];
+                startIdx = 3;
+            }
+            // Optional: next non-flag arg = version
+            if (startIdx < argc && argv[startIdx][0] != '-') {
+                options_.installPkgVersion = argv[startIdx];
+                ++startIdx;
+            }
             return true;
         }
     }
@@ -198,10 +213,11 @@ int Driver::execute() {
     case Subcommand::Build:  return executeBuild();
     case Subcommand::Run:    return executeRun();
     case Subcommand::Init:   return executeInit();
-    case Subcommand::Clean:  return executeClean();
-    case Subcommand::Lsp:    return executeLsp();
-    case Subcommand::Repl:   return executeRepl();
-    case Subcommand::None:   return executeLegacy();
+    case Subcommand::Clean:   return executeClean();
+    case Subcommand::Lsp:     return executeLsp();
+    case Subcommand::Repl:    return executeRepl();
+    case Subcommand::Install: return executeInstall();
+    case Subcommand::None:    return executeLegacy();
     }
 
     return 1;
@@ -364,73 +380,136 @@ int Driver::buildProject(bool runAfter) {
 #endif
     }
 
-    // Check if we can skip compilation via build cache
-    // (only for full builds, not emitIR or checkOnly)
-    if (!options_.emitIR && !options_.checkOnly && !options_.emitObj) {
-        BuildCache cache(cfg.projectRoot);
-        auto depFiles = cache.scanDependencies(entryPath, searchPaths);
-        std::string cachedObj = cache.checkCache(depFiles, cfg.optLevel, cfg.debugInfo);
+    // Handle emitIR and checkOnly modes (single-file, no separate compilation)
+    if (options_.emitIR || options_.checkOnly) {
+        CompilerInstance compiler;
+        compiler.setExecutablePath(executablePath_);
+        compiler.setOptLevel(cfg.optLevel);
+        compiler.setDebugInfo(cfg.debugInfo);
+        compiler.setLtoMode(cfg.lto);
+        compiler.setPgoMode(cfg.pgo);
+        compiler.setPgoProfile(cfg.pgoProfile);
+        compiler.setSearchPaths(searchPaths);
 
-        if (!cachedObj.empty()) {
-            // Cache hit — link directly
-            int linkResult = linkCachedObject(cachedObj, output, cfg.debugInfo,
-                                               cfg.lto, cfg.pgo);
-            if (linkResult == 0) {
-                std::cout << "Built " << cfg.name << " -> " << output
-                          << " (cached)\n";
-                if (runAfter) {
-                    std::cout << "Running " << output << "...\n";
-                    return std::system(output.c_str());
-                }
-                return 0;
-            }
-            // Link failed — fall through to full compilation
-        }
-    }
+        if (!compiler.loadFile(entryPath))
+            return 1;
 
-    // Resolve PGO profile path for 'use' mode
-    if (cfg.pgo == "use" && cfg.pgoProfile.empty())
-        cfg.pgoProfile = joinPath(cfg.projectRoot, "default.profdata");
+        if (options_.emitIR)
+            return compiler.emitIR(options_.outputFile) ? 0 : 1;
 
-    // Compile
-    CompilerInstance compiler;
-    compiler.setExecutablePath(executablePath_);
-    compiler.setOptLevel(cfg.optLevel);
-    compiler.setDebugInfo(cfg.debugInfo);
-    compiler.setLtoMode(cfg.lto);
-    compiler.setPgoMode(cfg.pgo);
-    compiler.setPgoProfile(cfg.pgoProfile);
-    compiler.setSearchPaths(searchPaths);
-
-    if (!compiler.loadFile(entryPath))
-        return 1;
-
-    if (options_.emitIR)
-        return compiler.emitIR(options_.outputFile) ? 0 : 1;
-
-    if (options_.checkOnly) {
         bool ok = compiler.checkOnly();
         if (ok)
             std::cout << "Semantic analysis passed.\n";
         return ok ? 0 : 1;
     }
 
-    // Keep object file for caching
-    compiler.setKeepObjectFile(true);
+    // Resolve PGO profile path for 'use' mode
+    if (cfg.pgo == "use" && cfg.pgoProfile.empty())
+        cfg.pgoProfile = joinPath(cfg.projectRoot, "default.profdata");
 
-    if (!compiler.compile(output))
-        return 1;
+    // Scan all source file dependencies
+    BuildCache cache(cfg.projectRoot);
+    auto depFiles = cache.scanDependencies(entryPath, searchPaths);
 
-    // Store compiled object in cache
-    {
-        BuildCache cache(cfg.projectRoot);
-        auto depFiles = cache.scanDependencies(entryPath, searchPaths);
-        cache.storeCache(depFiles, compiler.getObjectFilePath(),
-                         cfg.optLevel, cfg.debugInfo);
+    // Per-file incremental compilation
+    auto fileStatuses = cache.checkFilesCache(depFiles, cfg.optLevel, cfg.debugInfo);
+
+    // Check if all files are cached
+    bool allCached = true;
+    for (const auto &fs : fileStatuses) {
+        if (fs.needsRecompile) {
+            allCached = false;
+            break;
+        }
     }
 
-    // Clean up kept object file
-    std::remove(compiler.getObjectFilePath().c_str());
+    if (allCached) {
+        // All cached — gather .o paths and link
+        std::vector<std::string> objPaths;
+        for (const auto &fs : fileStatuses)
+            objPaths.push_back(fs.cachedObjPath);
+
+        int linkResult = linkObjects(objPaths, output, cfg.debugInfo, cfg.lto, cfg.pgo);
+        if (linkResult == 0) {
+            std::cout << "Built " << cfg.name << " -> " << output << " (cached)\n";
+            if (runAfter) {
+                std::cout << "Running " << output << "...\n";
+                return std::system(output.c_str());
+            }
+            return 0;
+        }
+        // Link failed — fall through to recompile all
+    }
+
+    // Create shared ModuleLoader for cross-file parse cache
+    ModuleLoader sharedLoader;
+    auto entryPos = entryPath.find_last_of("/\\");
+    if (entryPos != std::string::npos)
+        sharedLoader.setBasePath(entryPath.substr(0, entryPos + 1));
+    for (const auto &sp : searchPaths)
+        sharedLoader.addSearchPath(sp);
+
+    // Per-file compilation
+    std::vector<std::string> allObjPaths;
+    bool compileFailed = false;
+
+    for (size_t i = 0; i < depFiles.size(); ++i) {
+        const auto &sourcePath = depFiles[i];
+        const auto &status = fileStatuses[i];
+        bool isEntry = (sourcePath == entryPath);
+
+        if (!status.needsRecompile) {
+            // Use cached .o
+            allObjPaths.push_back(status.cachedObjPath);
+            continue;
+        }
+
+        // Compile this file
+        CompilerInstance compiler;
+        compiler.setExecutablePath(executablePath_);
+        compiler.setOptLevel(cfg.optLevel);
+        compiler.setDebugInfo(cfg.debugInfo);
+        compiler.setLtoMode(cfg.lto);
+        compiler.setPgoMode(cfg.pgo);
+        compiler.setPgoProfile(cfg.pgoProfile);
+        compiler.setSearchPaths(searchPaths);
+
+        if (!compiler.loadFile(sourcePath)) {
+            compileFailed = true;
+            break;
+        }
+
+        // Generate temp .o path in build dir
+        std::string objName = cache.objectPathForSource(sourcePath);
+        std::string objPath = joinPath(buildDir, objName);
+        createDirectories(buildDir);
+
+        if (!compiler.compileToObject(objPath, isEntry, &sharedLoader)) {
+            compileFailed = true;
+            break;
+        }
+
+        // Store in cache
+        cache.storeFileObject(sourcePath, status.currentHash, objPath,
+                              cfg.optLevel, cfg.debugInfo);
+
+        allObjPaths.push_back(objPath);
+    }
+
+    if (compileFailed)
+        return 1;
+
+    // Link all .o files → executable
+    int linkResult = linkObjects(allObjPaths, output, cfg.debugInfo, cfg.lto, cfg.pgo);
+    if (linkResult != 0)
+        return 1;
+
+    // Clean up temp .o files in build dir
+    for (const auto &objPath : allObjPaths) {
+        // Don't remove cached objects (they're in .liva-cache/)
+        if (objPath.find(".liva-cache") == std::string::npos)
+            std::remove(objPath.c_str());
+    }
 
     std::cout << "Built " << cfg.name << " -> " << output << "\n";
 
@@ -607,6 +686,106 @@ int Driver::executeInit() {
     return 0;
 }
 
+int Driver::executeInstall() {
+    if (options_.installPkgName.empty()) {
+        std::cerr << "error: missing package name\n"
+                  << "usage: livac install <package> [version]\n";
+        return 1;
+    }
+
+    std::string cwd = getCurrentDirectory();
+    std::string tomlPath = findProjectFile(cwd);
+
+    if (tomlPath.empty()) {
+        std::cerr << "error: no liva.toml found — run 'livac init' first\n";
+        return 1;
+    }
+
+    // Read TOML to get registryUrl
+    std::ifstream file(tomlPath);
+    if (!file.is_open()) {
+        std::cerr << "error: cannot open " << tomlPath << "\n";
+        return 1;
+    }
+    std::stringstream ss;
+    ss << file.rdbuf();
+    file.close();
+
+    auto parseResult = parseTOML(ss.str());
+    if (!parseResult.success) {
+        std::cerr << tomlPath << ":" << parseResult.errorLine
+                  << ": error: " << parseResult.errorMsg << "\n";
+        return 1;
+    }
+
+    auto cfg = loadProjectConfig(parseResult.doc);
+    cfg.projectRoot = getDirectoryOf(tomlPath);
+
+    // Create PackageManager and install
+    PackageManager pkgMgr(cfg.projectRoot, cfg.registryUrl);
+    auto result = pkgMgr.installSingle(options_.installPkgName,
+                                        options_.installPkgVersion);
+
+    if (!result.success) {
+        std::cerr << "error: " << result.errorMsg << "\n";
+        return 1;
+    }
+
+    // Determine version constraint string for toml
+    std::string versionForToml = result.version.toString();
+    if (!options_.installPkgVersion.empty())
+        versionForToml = options_.installPkgVersion;
+
+    // Add to liva.toml
+    if (!addDependencyToToml(tomlPath, result.name, versionForToml)) {
+        std::cerr << "warning: installed package but could not update "
+                  << tomlPath << "\n";
+    }
+
+    // Update lock file
+    {
+        // Re-read TOML to get all deps (including the newly added one)
+        std::ifstream f2(tomlPath);
+        if (f2.is_open()) {
+            std::stringstream ss2;
+            ss2 << f2.rdbuf();
+            auto pr2 = parseTOML(ss2.str());
+            if (pr2.success) {
+                auto allDeps = parseDependencies(pr2.doc);
+                // Resolve all packages locally for lock file
+                std::string packagesDir = joinPath(cfg.projectRoot, "packages");
+                auto resolution = resolvePackages(allDeps, packagesDir);
+                if (resolution.success) {
+                    std::vector<LockFileEntry> lockEntries;
+                    for (const auto &pkg : resolution.packages) {
+                        LockFileEntry le;
+                        le.name = pkg.name;
+                        le.version = pkg.version.toString();
+                        std::string csPath = joinPath(pkg.path, ".checksum");
+                        std::ifstream csFile(csPath);
+                        if (csFile.is_open()) {
+                            std::string cs;
+                            std::getline(csFile, cs);
+                            le.checksum = cs;
+                        }
+                        lockEntries.push_back(le);
+                    }
+                    std::string lockPath = joinPath(cfg.projectRoot, "liva.lock");
+                    std::string lockContent = generateLockFile(
+                        resolution.packages, lockEntries);
+                    std::ofstream lockFile(lockPath);
+                    if (lockFile.is_open())
+                        lockFile << lockContent;
+                }
+            }
+        }
+    }
+
+    std::cout << "Installed " << result.name << " v"
+              << result.version.toString() << "\n";
+    return 0;
+}
+
 int Driver::executeClean() {
     std::string cwd = getCurrentDirectory();
     std::string tomlPath = findProjectFile(cwd);
@@ -687,6 +866,63 @@ int Driver::linkCachedObject(const std::string &objPath,
 #endif
 }
 
+int Driver::linkObjects(const std::vector<std::string> &objPaths,
+                         const std::string &outputPath, bool debugInfo,
+                         const std::string &ltoMode,
+                         const std::string &pgoMode) {
+#ifdef LIVA_HAS_LLVM
+    // Find runtime library relative to livac executable
+    auto dirOfPath = [](const std::string &path) -> std::string {
+        auto pos = path.find_last_of("/\\");
+        return (pos != std::string::npos) ? path.substr(0, pos) : ".";
+    };
+
+    std::string exeDir = dirOfPath(executablePath_);
+    std::string runtimeLib;
+    std::string candidates[] = {
+        exeDir + "/lib/liva_runtime.lib",
+        exeDir + "/../lib/liva_runtime.lib",
+        exeDir + "/lib/libliva_runtime.a",
+        exeDir + "/../lib/libliva_runtime.a",
+    };
+    for (auto &c : candidates) {
+        std::ifstream f(c);
+        if (f.is_open()) { runtimeLib = c; break; }
+    }
+    if (runtimeLib.empty()) {
+        std::cerr << "error: cannot find runtime library for linking\n";
+        return 1;
+    }
+
+    DiagnosticsEngine diag;
+    CodeGen codegen(diag);
+
+    std::vector<std::string> objects = objPaths;
+    objects.push_back(runtimeLib);
+    std::vector<std::string> flags;
+#ifdef _WIN32
+    flags.push_back("-lwinhttp");
+#endif
+    if (debugInfo)
+        flags.push_back("-g");
+
+    if (!codegen.link(objects, outputPath, flags, ltoMode, pgoMode)) {
+        std::cerr << "error: linking failed for '" << outputPath << "'\n";
+        return 1;
+    }
+
+    return 0;
+#else
+    (void)objPaths;
+    (void)outputPath;
+    (void)debugInfo;
+    (void)ltoMode;
+    (void)pgoMode;
+    std::cerr << "error: LLVM not available, cannot link\n";
+    return 1;
+#endif
+}
+
 void Driver::printVersion() {
     std::cout << "Liva Compiler v" << LIVA_VERSION_STRING << "\n";
 }
@@ -696,6 +932,7 @@ void Driver::printHelp() {
               << "       livac build [--release|--debug] [-o <file>]\n"
               << "       livac run [--release|--debug]\n"
               << "       livac init [name]\n"
+              << "       livac install <pkg> [version]\n"
               << "       livac clean\n"
               << "       livac lsp\n"
               << "\n"
@@ -703,6 +940,7 @@ void Driver::printHelp() {
               << "  build               Build project using liva.toml\n"
               << "  run                 Build and run project\n"
               << "  init [name]         Create a new Liva project\n"
+              << "  install <pkg> [ver] Install a package from registry\n"
               << "  clean               Remove build artifacts\n"
               << "  lsp                 Start Language Server Protocol server\n"
               << "  repl                Start interactive REPL\n"

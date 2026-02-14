@@ -566,6 +566,116 @@ ProjectConfig loadProjectConfig(const TOMLDocument &doc) {
     return cfg;
 }
 
+// === addDependencyToToml ===
+
+bool addDependencyToToml(const std::string &tomlPath,
+                         const std::string &pkgName,
+                         const std::string &versionConstraint) {
+    // Read existing file content
+    std::string content;
+    {
+        std::ifstream f(tomlPath);
+        if (f.is_open()) {
+            std::stringstream ss;
+            ss << f.rdbuf();
+            content = ss.str();
+        }
+    }
+
+    // Build the new entry line
+    std::string entryLine = pkgName + " = \"" + versionConstraint + "\"";
+
+    // Find [dependencies] section
+    std::string sectionHeader = "[dependencies]";
+    size_t secPos = content.find(sectionHeader);
+
+    if (secPos == std::string::npos) {
+        // No [dependencies] section — append one at end
+        if (!content.empty() && content.back() != '\n')
+            content += "\n";
+        content += "\n" + sectionHeader + "\n" + entryLine + "\n";
+    } else {
+        // Found [dependencies] section
+        size_t afterHeader = secPos + sectionHeader.size();
+        // Skip to end of header line
+        if (afterHeader < content.size() && content[afterHeader] == '\r')
+            ++afterHeader;
+        if (afterHeader < content.size() && content[afterHeader] == '\n')
+            ++afterHeader;
+
+        // Check if pkgName already exists in the section
+        // Scan lines from afterHeader until next section or EOF
+        size_t searchPos = afterHeader;
+        size_t existingLineStart = std::string::npos;
+        size_t existingLineEnd = std::string::npos;
+
+        while (searchPos < content.size()) {
+            // Find end of current line
+            size_t lineEnd = content.find('\n', searchPos);
+            if (lineEnd == std::string::npos)
+                lineEnd = content.size();
+
+            std::string line = content.substr(searchPos, lineEnd - searchPos);
+
+            // Trim \r if present
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+
+            // Trim leading whitespace
+            size_t firstNonSpace = line.find_first_not_of(" \t");
+            if (firstNonSpace != std::string::npos)
+                line = line.substr(firstNonSpace);
+
+            // Hit next section?
+            if (!line.empty() && line[0] == '[')
+                break;
+
+            // Skip comments and empty lines
+            if (!line.empty() && line[0] != '#') {
+                // Check if this line starts with pkgName
+                size_t eqPos = line.find('=');
+                if (eqPos != std::string::npos) {
+                    std::string key = line.substr(0, eqPos);
+                    // Trim key
+                    size_t kEnd = key.find_last_not_of(" \t");
+                    if (kEnd != std::string::npos)
+                        key = key.substr(0, kEnd + 1);
+                    size_t kStart = key.find_first_not_of(" \t");
+                    if (kStart != std::string::npos)
+                        key = key.substr(kStart);
+
+                    if (key == pkgName) {
+                        existingLineStart = searchPos;
+                        existingLineEnd = lineEnd;
+                        break;
+                    }
+                }
+            }
+
+            searchPos = (lineEnd < content.size()) ? lineEnd + 1 : content.size();
+        }
+
+        if (existingLineStart != std::string::npos) {
+            // Replace existing line
+            content = content.substr(0, existingLineStart) +
+                      entryLine + "\n" +
+                      ((existingLineEnd < content.size())
+                           ? content.substr(existingLineEnd + 1)
+                           : "");
+        } else {
+            // Insert new entry right after [dependencies] header
+            content.insert(afterHeader, entryLine + "\n");
+        }
+    }
+
+    // Write back
+    std::ofstream f(tomlPath);
+    if (!f.is_open())
+        return false;
+    f << content;
+    return true;
+}
+
 // === Path Utilities ===
 
 std::string getCurrentDirectory() {

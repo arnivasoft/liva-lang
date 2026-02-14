@@ -24,12 +24,20 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
                 genericFuncDecls_[funcDecl->getName()] = funcDecl;
                 continue;
             }
+            if (separateCompilation_) {
+                declareExternFunction(funcDecl);
+                continue;
+            }
         }
 
         if (decl->getKind() == ASTNode::NodeKind::StructDecl) {
             auto *structDecl = static_cast<StructDecl *>(decl.get());
             if (structDecl->isGeneric()) {
                 genericStructDecls_[structDecl->getName()] = structDecl;
+                continue;
+            }
+            if (separateCompilation_) {
+                declareExternStruct(structDecl);
                 continue;
             }
         }
@@ -40,12 +48,105 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
                 genericImplDecls_[implDecl->getTypeName()] = implDecl;
                 continue;
             }
+            if (separateCompilation_) {
+                declareExternImpl(implDecl);
+                continue;
+            }
         }
 
+        // EnumDecl, ProtocolDecl, TypeAliasDecl, ImportDecl: always visit
+        // (they produce only metadata, no code bodies)
         visit(decl.get());
     }
 
     return nullptr;
+}
+
+void IRGen::declareExternFunction(FuncDecl *funcDecl) {
+    // Store for default arg lookup
+    funcDecls_[funcDecl->getName()] = funcDecl;
+
+    // Build function type
+    std::vector<llvm::Type *> paramTypes;
+    for (auto &param : funcDecl->getParams()) {
+        if (param.isVariadic) {
+            paramTypes.push_back(getDynArrayStructTy());
+        } else if (param.isRef) {
+            paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+        } else {
+            paramTypes.push_back(toLLVMType(param.type.get()));
+        }
+    }
+
+    auto *returnType = toLLVMType(funcDecl->getReturnType());
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+    // Async functions return ptr (LivaTask*)
+    if (funcDecl->isAsync()) {
+        asyncFuncNames_.insert(funcDecl->getName());
+        returnType = ptrTy;
+    }
+
+    auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+    // Create declaration only (no body) with ExternalLinkage
+    module_->getOrInsertFunction(funcDecl->getName(), funcType);
+}
+
+void IRGen::declareExternStruct(StructDecl *structDecl) {
+    // Register struct type layout (same as visitStructDecl but no code gen)
+    std::vector<llvm::Type *> fieldTypes;
+    std::vector<std::string> fieldNames;
+    std::vector<const TypeRepr *> fieldTypeReprs;
+    for (auto &field : structDecl->getFields()) {
+        auto *typeRepr = field->getType();
+        if (typeRepr && typeRepr->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRepr = static_cast<const ArrayTypeRepr *>(typeRepr);
+            if (arrRepr->isDynamic()) {
+                fieldTypes.push_back(getDynArrayStructTy());
+            } else {
+                fieldTypes.push_back(toLLVMType(typeRepr));
+            }
+        } else {
+            fieldTypes.push_back(toLLVMType(typeRepr));
+        }
+        fieldNames.push_back(field->getName());
+        fieldTypeReprs.push_back(typeRepr);
+    }
+
+    auto *structType = llvm::StructType::create(*context_, fieldTypes, structDecl->getName());
+    structTypes_[structDecl->getName()] = structType;
+    structFieldNames_[structDecl->getName()] = std::move(fieldNames);
+    structFieldTypeReprs_[structDecl->getName()] = std::move(fieldTypeReprs);
+}
+
+void IRGen::declareExternImpl(ImplDecl *implDecl) {
+    const auto &typeName = implDecl->getTypeName();
+
+    // Record protocol conformance
+    if (implDecl->hasProtocol()) {
+        protocolConformances_[implDecl->getProtocolName()].push_back(typeName);
+        if (implDecl->getProtocolName() == "Drop") {
+            dropImplementors_.insert(typeName);
+        }
+    }
+
+    // Declare each method as extern (no body)
+    for (auto &method : implDecl->getMethods()) {
+        std::string mangledName = typeName + "_" + method->getName();
+
+        std::vector<llvm::Type *> paramTypes;
+        for (auto &param : method->getParams()) {
+            if (param.isSelf) {
+                paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+            } else {
+                paramTypes.push_back(toLLVMType(param.type.get()));
+            }
+        }
+
+        auto *returnType = toLLVMType(method->getReturnType());
+        auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+        module_->getOrInsertFunction(mangledName, funcType);
+    }
 }
 
 llvm::Value *IRGen::visitProtocolDecl(ProtocolDecl *node) {

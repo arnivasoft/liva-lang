@@ -1219,6 +1219,146 @@ TEST_F(BuildCacheTest, PackageManagerMultipleDeps) {
     EXPECT_EQ(result.packages.size(), 2u);
 }
 
+// === Per-File Cache Tests (Separate Compilation) ===
+
+TEST_F(BuildCacheTest, CheckFilesCacheAllMiss) {
+    std::string file1 = liva::joinPath(testDir_, "main.liva");
+    std::string file2 = liva::joinPath(testDir_, "utils.liva");
+    writeFile(file1, "func main() {}\n");
+    writeFile(file2, "func helper() {}\n");
+
+    liva::BuildCache cache(testDir_);
+    auto statuses = cache.checkFilesCache({file1, file2}, 0, false);
+
+    ASSERT_EQ(statuses.size(), 2u);
+    EXPECT_TRUE(statuses[0].needsRecompile);
+    EXPECT_TRUE(statuses[1].needsRecompile);
+    EXPECT_TRUE(statuses[0].cachedObjPath.empty());
+    EXPECT_TRUE(statuses[1].cachedObjPath.empty());
+    EXPECT_FALSE(statuses[0].currentHash.empty());
+    EXPECT_FALSE(statuses[1].currentHash.empty());
+}
+
+TEST_F(BuildCacheTest, CheckFilesCachePartialHit) {
+    std::string file1 = liva::joinPath(testDir_, "main.liva");
+    std::string file2 = liva::joinPath(testDir_, "utils.liva");
+    writeFile(file1, "func main() {}\n");
+    writeFile(file2, "func helper() {}\n");
+
+    liva::BuildCache cache(testDir_);
+
+    // Store file1 in cache
+    std::string hash1 = cache.hashFileContent(file1);
+    std::string tempObj1 = liva::joinPath(testDir_, "main.o");
+    writeFile(tempObj1, "FAKE_OBJ_CONTENT_1");
+    EXPECT_TRUE(cache.storeFileObject(file1, hash1, tempObj1, 0, false));
+
+    // Check: file1 should be cached, file2 should need recompile
+    auto statuses = cache.checkFilesCache({file1, file2}, 0, false);
+
+    ASSERT_EQ(statuses.size(), 2u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+    EXPECT_FALSE(statuses[0].cachedObjPath.empty());
+    EXPECT_TRUE(statuses[1].needsRecompile);
+    EXPECT_TRUE(statuses[1].cachedObjPath.empty());
+}
+
+TEST_F(BuildCacheTest, CheckFilesCacheAllHit) {
+    std::string file1 = liva::joinPath(testDir_, "main.liva");
+    std::string file2 = liva::joinPath(testDir_, "utils.liva");
+    writeFile(file1, "func main() {}\n");
+    writeFile(file2, "func helper() {}\n");
+
+    liva::BuildCache cache(testDir_);
+
+    // Store both files
+    std::string hash1 = cache.hashFileContent(file1);
+    std::string hash2 = cache.hashFileContent(file2);
+    std::string tempObj1 = liva::joinPath(testDir_, "main.o");
+    std::string tempObj2 = liva::joinPath(testDir_, "utils.o");
+    writeFile(tempObj1, "FAKE_OBJ_1");
+    writeFile(tempObj2, "FAKE_OBJ_2");
+    EXPECT_TRUE(cache.storeFileObject(file1, hash1, tempObj1, 0, false));
+    EXPECT_TRUE(cache.storeFileObject(file2, hash2, tempObj2, 0, false));
+
+    // Check: both should be cached
+    auto statuses = cache.checkFilesCache({file1, file2}, 0, false);
+
+    ASSERT_EQ(statuses.size(), 2u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+    EXPECT_FALSE(statuses[1].needsRecompile);
+    EXPECT_FALSE(statuses[0].cachedObjPath.empty());
+    EXPECT_FALSE(statuses[1].cachedObjPath.empty());
+}
+
+TEST_F(BuildCacheTest, StoreFileObjectRoundTrip) {
+    std::string file1 = liva::joinPath(testDir_, "test.liva");
+    writeFile(file1, "func foo() {}\n");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash1 = cache.hashFileContent(file1);
+
+    // Store
+    std::string tempObj = liva::joinPath(testDir_, "test.o");
+    writeFile(tempObj, "FAKE_OBJ_DATA");
+    EXPECT_TRUE(cache.storeFileObject(file1, hash1, tempObj, 2, true));
+
+    // Check round-trip
+    auto statuses = cache.checkFilesCache({file1}, 2, true);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+    EXPECT_FALSE(statuses[0].cachedObjPath.empty());
+
+    // Modify the source file → hash changes → recompile needed
+    writeFile(file1, "func foo() { return 42 }\n");
+    auto statuses2 = cache.checkFilesCache({file1}, 2, true);
+    ASSERT_EQ(statuses2.size(), 1u);
+    EXPECT_TRUE(statuses2[0].needsRecompile);
+}
+
+TEST_F(BuildCacheTest, CacheInvalidationOnOptChange) {
+    std::string file1 = liva::joinPath(testDir_, "main.liva");
+    writeFile(file1, "func main() {}\n");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash1 = cache.hashFileContent(file1);
+    std::string tempObj = liva::joinPath(testDir_, "main.o");
+    writeFile(tempObj, "FAKE_OBJ");
+    EXPECT_TRUE(cache.storeFileObject(file1, hash1, tempObj, 0, false));
+
+    // Same opt → cached
+    auto s1 = cache.checkFilesCache({file1}, 0, false);
+    ASSERT_EQ(s1.size(), 1u);
+    EXPECT_FALSE(s1[0].needsRecompile);
+
+    // Different opt level → invalidated
+    auto s2 = cache.checkFilesCache({file1}, 2, false);
+    ASSERT_EQ(s2.size(), 1u);
+    EXPECT_TRUE(s2[0].needsRecompile);
+}
+
+TEST_F(BuildCacheTest, ObjectPathForSource) {
+    liva::BuildCache cache(testDir_);
+
+    std::string p1 = cache.objectPathForSource("src/main.liva");
+    std::string p2 = cache.objectPathForSource("src/utils.liva");
+    std::string p3 = cache.objectPathForSource("other/main.liva");
+
+    // All should end with .o
+    EXPECT_NE(p1.find(".o"), std::string::npos);
+    EXPECT_NE(p2.find(".o"), std::string::npos);
+    EXPECT_NE(p3.find(".o"), std::string::npos);
+
+    // Different sources → different object names
+    EXPECT_NE(p1, p2);
+    // Same stem, different path → different hash
+    EXPECT_NE(p1, p3);
+
+    // Same source → same object name (deterministic)
+    std::string p1b = cache.objectPathForSource("src/main.liva");
+    EXPECT_EQ(p1, p1b);
+}
+
 // === LTO Configuration Tests ===
 
 TEST(LTOConfig, DefaultLtoModeIsNone) {
@@ -1445,4 +1585,210 @@ TEST(PackagingTest, DocumentationExists) {
     EXPECT_TRUE(f1.is_open()) << "docs/en/README.md missing";
     std::ifstream f2(root + "/docs/en/TUTORIAL.md");
     EXPECT_TRUE(f2.is_open()) << "docs/en/TUTORIAL.md missing";
+}
+
+// === addDependencyToToml Tests ===
+
+class AddDepToTomlTest : public ::testing::Test {
+protected:
+    std::string testDir_;
+    std::string tomlPath_;
+
+    void SetUp() override {
+        testDir_ = "__adddep_test_tmp__";
+        liva::createDirectories(testDir_);
+        tomlPath_ = liva::joinPath(testDir_, "liva.toml");
+    }
+
+    void TearDown() override {
+        liva::removeDirectoryRecursive(testDir_);
+    }
+
+    void writeToml(const std::string &content) {
+        std::ofstream f(tomlPath_);
+        f << content;
+    }
+
+    std::string readToml() {
+        std::ifstream f(tomlPath_);
+        if (!f.is_open()) return "";
+        std::stringstream ss;
+        ss << f.rdbuf();
+        return ss.str();
+    }
+};
+
+TEST_F(AddDepToTomlTest, AddDepToEmptyToml) {
+    writeToml("[project]\nname = \"myapp\"\n");
+    EXPECT_TRUE(liva::addDependencyToToml(tomlPath_, "json", "1.0.0"));
+
+    std::string content = readToml();
+    EXPECT_TRUE(content.find("[dependencies]") != std::string::npos);
+    EXPECT_TRUE(content.find("json = \"1.0.0\"") != std::string::npos);
+    // Original content preserved
+    EXPECT_TRUE(content.find("[project]") != std::string::npos);
+    EXPECT_TRUE(content.find("name = \"myapp\"") != std::string::npos);
+}
+
+TEST_F(AddDepToTomlTest, AddDepToExistingSection) {
+    writeToml("[project]\nname = \"myapp\"\n\n[dependencies]\nhttp = \"2.0.0\"\n");
+    EXPECT_TRUE(liva::addDependencyToToml(tomlPath_, "json", "1.0.0"));
+
+    std::string content = readToml();
+    EXPECT_TRUE(content.find("json = \"1.0.0\"") != std::string::npos);
+    EXPECT_TRUE(content.find("http = \"2.0.0\"") != std::string::npos);
+}
+
+TEST_F(AddDepToTomlTest, UpdateExistingDep) {
+    writeToml("[project]\nname = \"myapp\"\n\n[dependencies]\njson = \"1.0.0\"\n");
+    EXPECT_TRUE(liva::addDependencyToToml(tomlPath_, "json", "2.0.0"));
+
+    std::string content = readToml();
+    EXPECT_TRUE(content.find("json = \"2.0.0\"") != std::string::npos);
+    EXPECT_TRUE(content.find("json = \"1.0.0\"") == std::string::npos);
+}
+
+TEST_F(AddDepToTomlTest, AddDepPreservesContent) {
+    writeToml(
+        "[project]\nname = \"myapp\"\nversion = \"1.0.0\"\n\n"
+        "[build]\nopt-level = 2\n\n"
+        "[dependencies]\nhttp = \"2.0.0\"\n");
+    EXPECT_TRUE(liva::addDependencyToToml(tomlPath_, "json", "1.0.0"));
+
+    std::string content = readToml();
+    // All sections preserved
+    EXPECT_TRUE(content.find("[project]") != std::string::npos);
+    EXPECT_TRUE(content.find("[build]") != std::string::npos);
+    EXPECT_TRUE(content.find("[dependencies]") != std::string::npos);
+    EXPECT_TRUE(content.find("opt-level = 2") != std::string::npos);
+    EXPECT_TRUE(content.find("http = \"2.0.0\"") != std::string::npos);
+    EXPECT_TRUE(content.find("json = \"1.0.0\"") != std::string::npos);
+
+    // Verify parseable
+    auto r = liva::parseTOML(content);
+    ASSERT_TRUE(r.success);
+    auto deps = liva::parseDependencies(r.doc);
+    EXPECT_EQ(deps.size(), 2u);
+}
+
+TEST_F(AddDepToTomlTest, AddDepWithMinimumConstraint) {
+    writeToml("[project]\nname = \"myapp\"\n");
+    EXPECT_TRUE(liva::addDependencyToToml(tomlPath_, "utils", ">=1.0.0"));
+
+    std::string content = readToml();
+    EXPECT_TRUE(content.find("utils = \">=1.0.0\"") != std::string::npos);
+
+    // Verify parseable as valid constraint
+    auto r = liva::parseTOML(content);
+    ASSERT_TRUE(r.success);
+    auto deps = liva::parseDependencies(r.doc);
+    ASSERT_EQ(deps.size(), 1u);
+    EXPECT_EQ(deps[0].name, "utils");
+    EXPECT_EQ(deps[0].constraint.kind, liva::VersionConstraint::Minimum);
+}
+
+// === InstallResult Tests ===
+
+TEST(InstallResult, DefaultValues) {
+    liva::InstallResult r;
+    EXPECT_FALSE(r.success);
+    EXPECT_TRUE(r.name.empty());
+    EXPECT_EQ(r.version.major, 0);
+    EXPECT_EQ(r.version.minor, 0);
+    EXPECT_EQ(r.version.patch, 0);
+    EXPECT_TRUE(r.checksum.empty());
+    EXPECT_TRUE(r.errorMsg.empty());
+}
+
+// === InstallSingle Tests ===
+
+TEST_F(BuildCacheTest, InstallSingleLocalAlreadyInstalled) {
+    // Create a local package
+    std::string pkgDir = liva::joinPath(testDir_, "packages/mylib");
+    std::string srcDir = liva::joinPath(pkgDir, "src");
+    liva::createDirectories(srcDir);
+
+    writeFile(liva::joinPath(pkgDir, "liva.toml"),
+        "[project]\nname = \"mylib\"\nversion = \"1.0.0\"\n");
+    writeFile(liva::joinPath(srcDir, "lib.liva"),
+        "pub func helper() -> i32 { return 42 }\n");
+
+    liva::PackageManager mgr(testDir_, "");
+    auto result = mgr.installSingle("mylib", "1.0.0");
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.name, "mylib");
+    EXPECT_EQ(result.version.major, 1);
+    EXPECT_EQ(result.version.minor, 0);
+    EXPECT_EQ(result.version.patch, 0);
+}
+
+TEST_F(BuildCacheTest, InstallSingleLocalNotFound) {
+    liva::PackageManager mgr(testDir_, "");
+    auto result = mgr.installSingle("nonexistent", "");
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.errorMsg.find("not found") != std::string::npos ||
+                result.errorMsg.find("no registry") != std::string::npos);
+}
+
+TEST_F(BuildCacheTest, InstallSingleVersionConstraint) {
+    // Create package with version 2.1.0
+    std::string pkgDir = liva::joinPath(testDir_, "packages/mathlib");
+    std::string srcDir = liva::joinPath(pkgDir, "src");
+    liva::createDirectories(srcDir);
+
+    writeFile(liva::joinPath(pkgDir, "liva.toml"),
+        "[project]\nname = \"mathlib\"\nversion = \"2.1.0\"\n");
+    writeFile(liva::joinPath(srcDir, "math.liva"), "pub func add() {}\n");
+
+    liva::PackageManager mgr(testDir_, "");
+
+    // Exact match
+    auto r1 = mgr.installSingle("mathlib", "2.1.0");
+    EXPECT_TRUE(r1.success);
+    EXPECT_EQ(r1.version.major, 2);
+    EXPECT_EQ(r1.version.minor, 1);
+
+    // Minimum constraint
+    auto r2 = mgr.installSingle("mathlib", ">=2.0.0");
+    EXPECT_TRUE(r2.success);
+
+    // No version (latest)
+    auto r3 = mgr.installSingle("mathlib", "");
+    EXPECT_TRUE(r3.success);
+    EXPECT_EQ(r3.version.major, 2);
+
+    // Version mismatch
+    auto r4 = mgr.installSingle("mathlib", "3.0.0");
+    EXPECT_FALSE(r4.success);
+}
+
+TEST_F(BuildCacheTest, InstallSingleInvalidVersionConstraint) {
+    liva::PackageManager mgr(testDir_, "");
+    auto result = mgr.installSingle("anylib", "~1.0");
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.errorMsg.find("invalid version constraint") != std::string::npos);
+}
+
+// === VersionConstraint ToString ===
+
+TEST(VersionConstraint, ToStringExact) {
+    liva::VersionConstraint c;
+    c.kind = liva::VersionConstraint::Exact;
+    c.min = liva::SemVer{1, 0, 0};
+    EXPECT_EQ(c.toString(), "1.0.0");
+}
+
+TEST(VersionConstraint, ToStringMinimum) {
+    liva::VersionConstraint c;
+    c.kind = liva::VersionConstraint::Minimum;
+    c.min = liva::SemVer{2, 0, 0};
+    EXPECT_EQ(c.toString(), ">=2.0.0");
+}
+
+TEST(VersionConstraint, ToStringRange) {
+    liva::VersionConstraint c;
+    c.kind = liva::VersionConstraint::Range;
+    c.min = liva::SemVer{1, 0, 0};
+    c.max = liva::SemVer{2, 0, 0};
+    EXPECT_EQ(c.toString(), ">=1.0.0,<2.0.0");
 }

@@ -61,6 +61,7 @@ static std::string getDirectoryOfFile(const std::string &path) {
 BuildCache::BuildCache(const std::string &projectRoot) {
     cacheDir_ = joinPath(projectRoot, ".liva-cache");
     manifestPath_ = joinPath(cacheDir_, "manifest");
+    perFileManifestPath_ = joinPath(cacheDir_, "files_manifest");
 }
 
 std::string BuildCache::hashFileContent(const std::string &path) {
@@ -354,6 +355,211 @@ bool BuildCache::saveManifest(const BuildCacheManifest &manifest) {
 
     for (const auto &entry : manifest.sources) {
         file << "FILE:" << normalizePath(entry.path) << ":" << entry.hash << "\n";
+    }
+
+    return file.good();
+}
+
+std::string BuildCache::objectPathForSource(const std::string &sourcePath) {
+    std::string normalized = normalizePath(sourcePath);
+    // Extract filename stem
+    std::string stem;
+    auto slashPos = normalized.find_last_of('/');
+    std::string filename = (slashPos != std::string::npos)
+                               ? normalized.substr(slashPos + 1)
+                               : normalized;
+    auto dotPos = filename.rfind('.');
+    stem = (dotPos != std::string::npos) ? filename.substr(0, dotPos) : filename;
+
+    // Hash the full normalized path for uniqueness
+    uint64_t pathHash = fnv1a_64(normalized.data(), normalized.size());
+    char hashBuf[9];
+    std::snprintf(hashBuf, sizeof(hashBuf), "%08llx",
+                  static_cast<unsigned long long>(pathHash & 0xFFFFFFFFULL));
+
+    return stem + "_" + std::string(hashBuf) + ".o";
+}
+
+std::vector<FileCompileStatus> BuildCache::checkFilesCache(
+    const std::vector<std::string> &sourceFiles, int optLevel, bool debugInfo) {
+
+    std::vector<FileCompileStatus> result;
+    result.reserve(sourceFiles.size());
+
+    // Load per-file manifest
+    std::vector<SourceFileEntry> cachedEntries;
+    int cachedOpt = -1;
+    bool cachedDebug = false;
+    bool hasManifest = loadPerFileManifest(cachedEntries, cachedOpt, cachedDebug);
+
+    // Build lookup map: normalized path -> SourceFileEntry
+    std::unordered_map<std::string, const SourceFileEntry *> cachedMap;
+    if (hasManifest) {
+        for (const auto &entry : cachedEntries) {
+            cachedMap[normalizePath(entry.path)] = &entry;
+        }
+    }
+
+    for (const auto &path : sourceFiles) {
+        FileCompileStatus status;
+        status.sourcePath = path;
+        status.currentHash = hashFileContent(path);
+        status.needsRecompile = true;
+
+        if (status.currentHash.empty()) {
+            // Can't read file — must recompile
+            result.push_back(status);
+            continue;
+        }
+
+        // Check if build config changed
+        if (!hasManifest || cachedOpt != optLevel || cachedDebug != debugInfo) {
+            result.push_back(status);
+            continue;
+        }
+
+        // Look up cached entry
+        std::string normalizedPath = normalizePath(path);
+        auto it = cachedMap.find(normalizedPath);
+        if (it == cachedMap.end()) {
+            result.push_back(status);
+            continue;
+        }
+
+        const auto &cached = *it->second;
+        if (cached.hash != status.currentHash || cached.objFile.empty()) {
+            result.push_back(status);
+            continue;
+        }
+
+        // Verify cached .o file exists
+        std::string cachedObjPath = joinPath(cacheDir_, cached.objFile);
+        if (!fileExists(cachedObjPath)) {
+            result.push_back(status);
+            continue;
+        }
+
+        // Cache hit
+        status.cachedObjPath = cachedObjPath;
+        status.needsRecompile = false;
+        result.push_back(status);
+    }
+
+    return result;
+}
+
+bool BuildCache::storeFileObject(const std::string &sourcePath, const std::string &hash,
+                                  const std::string &objPath, int optLevel, bool debugInfo) {
+    if (!createDirectories(cacheDir_))
+        return false;
+
+    std::string objName = objectPathForSource(sourcePath);
+    std::string destPath = joinPath(cacheDir_, objName);
+
+    // Copy object file to cache
+    {
+        std::ifstream src(objPath, std::ios::binary);
+        if (!src.is_open())
+            return false;
+        std::ofstream dst(destPath, std::ios::binary);
+        if (!dst.is_open())
+            return false;
+        dst << src.rdbuf();
+        if (!dst.good())
+            return false;
+    }
+
+    // Load existing per-file manifest, update entry, save
+    std::vector<SourceFileEntry> entries;
+    int existingOpt = optLevel;
+    bool existingDebug = debugInfo;
+    loadPerFileManifest(entries, existingOpt, existingDebug);
+
+    // If build config changed, clear old entries
+    if (existingOpt != optLevel || existingDebug != debugInfo)
+        entries.clear();
+
+    // Update or add entry for this source
+    std::string normalizedPath = normalizePath(sourcePath);
+    bool found = false;
+    for (auto &entry : entries) {
+        if (normalizePath(entry.path) == normalizedPath) {
+            entry.hash = hash;
+            entry.objFile = objName;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        SourceFileEntry entry;
+        entry.path = sourcePath;
+        entry.hash = hash;
+        entry.objFile = objName;
+        entries.push_back(entry);
+    }
+
+    return savePerFileManifest(entries, optLevel, debugInfo);
+}
+
+bool BuildCache::loadPerFileManifest(std::vector<SourceFileEntry> &out,
+                                      int &optLevel, bool &debugInfo) {
+    std::ifstream file(perFileManifestPath_);
+    if (!file.is_open())
+        return false;
+
+    out.clear();
+    std::string line;
+    while (std::getline(file, line)) {
+        std::string trimmed = trim(line);
+        if (trimmed.empty())
+            continue;
+
+        if (startsWith(trimmed, "OPT:")) {
+            long val = strtol(trimmed.c_str() + 4, nullptr, 10);
+            optLevel = static_cast<int>(val);
+        } else if (startsWith(trimmed, "DEBUG:")) {
+            debugInfo = (trimmed.substr(6) == "1");
+        } else if (startsWith(trimmed, "FILE:")) {
+            // FILE:path:hash:objfile (3 colon-separated fields after FILE:)
+            std::string rest = trimmed.substr(5);
+            // Find last two colons
+            auto lastColon = rest.rfind(':');
+            if (lastColon == std::string::npos || lastColon == 0)
+                continue;
+            std::string objFile = rest.substr(lastColon + 1);
+            std::string remainder = rest.substr(0, lastColon);
+
+            auto secondLastColon = remainder.rfind(':');
+            if (secondLastColon == std::string::npos || secondLastColon == 0)
+                continue;
+
+            SourceFileEntry entry;
+            entry.path = remainder.substr(0, secondLastColon);
+            entry.hash = remainder.substr(secondLastColon + 1);
+            entry.objFile = objFile;
+            out.push_back(entry);
+        }
+    }
+
+    return true;
+}
+
+bool BuildCache::savePerFileManifest(const std::vector<SourceFileEntry> &entries,
+                                      int optLevel, bool debugInfo) {
+    if (!createDirectories(cacheDir_))
+        return false;
+
+    std::ofstream file(perFileManifestPath_);
+    if (!file.is_open())
+        return false;
+
+    file << "OPT:" << optLevel << "\n";
+    file << "DEBUG:" << (debugInfo ? "1" : "0") << "\n";
+
+    for (const auto &entry : entries) {
+        file << "FILE:" << normalizePath(entry.path)
+             << ":" << entry.hash
+             << ":" << entry.objFile << "\n";
     }
 
     return file.good();

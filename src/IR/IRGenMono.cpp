@@ -54,7 +54,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto *returnType = toLLVMType(funcDecl->getReturnType());
     auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
     auto *func = llvm::Function::Create(
-        funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
+        funcType, llvm::Function::LinkOnceODRLinkage, mangledName, *module_);
 
     // Set parameter names
     size_t idx = 0;
@@ -262,7 +262,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto *returnType = toLLVMType(methodDecl->getReturnType());
     auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
     auto *func = llvm::Function::Create(
-        funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
+        funcType, llvm::Function::LinkOnceODRLinkage, mangledName, *module_);
 
     // Set parameter names
     size_t idx = 0;

@@ -106,8 +106,8 @@ bool IRGen::generate(TranslationUnit &tu) {
 
     finalizeDebugInfo();
 
-    // Check for main function
-    if (!module_->getFunction("main")) {
+    // Check for main function (skip if not required, e.g. non-entry separate compilation)
+    if (requireMain_ && !module_->getFunction("main")) {
         diag_.report(SourceLocation{}, DiagID::err_main_not_found);
         return false;
     }
@@ -731,7 +731,7 @@ llvm::GlobalVariable *IRGen::getOrCreateVtable(const std::string &protocolName,
     auto *arrayTy = llvm::ArrayType::get(ptrTy, funcs.size());
     auto *init = llvm::ConstantArray::get(arrayTy, funcs);
     auto *gv = new llvm::GlobalVariable(*module_, arrayTy, true,
-                                          llvm::GlobalValue::PrivateLinkage, init, vtableName);
+                                          llvm::GlobalValue::LinkOnceODRLinkage, init, vtableName);
     vtableGlobals_[vtableName] = gv;
     return gv;
 }

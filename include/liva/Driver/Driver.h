@@ -6,7 +6,7 @@
 
 namespace liva {
 
-enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean };
+enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean, Install };
 
 /// Command-line options
 struct DriverOptions {
@@ -28,6 +28,8 @@ struct DriverOptions {
     bool showHelp = false;
     bool showVersion = false;
     std::string initName;
+    std::string installPkgName;      // package name to install
+    std::string installPkgVersion;   // optional version constraint (default: latest)
     bool hasOptLevelOverride = false;
     bool hasDebugOverride = false;
 };
@@ -56,6 +58,7 @@ private:
     int executeLsp();
     int executeRepl();
     int executeClean();
+    int executeInstall();
     int executeLegacy();
 
     int buildProject(bool runAfter);
@@ -63,6 +66,10 @@ private:
                          const std::string &outputPath, bool debugInfo,
                          const std::string &ltoMode = "none",
                          const std::string &pgoMode = "none");
+    int linkObjects(const std::vector<std::string> &objPaths,
+                    const std::string &outputPath, bool debugInfo,
+                    const std::string &ltoMode = "none",
+                    const std::string &pgoMode = "none");
 
     DriverOptions options_;
     std::string executablePath_;

@@ -16,6 +16,15 @@ struct RegistryEntry {
     std::vector<PackageDep> dependencies; // transitive deps
 };
 
+/// Result of installing a single package
+struct InstallResult {
+    bool success = false;
+    std::string name;
+    SemVer version;
+    std::string checksum;       // "sha256:..." (downloaded package's hash)
+    std::string errorMsg;
+};
+
 /// Package manager: local + remote resolution, dependency tree, checksum
 class PackageManager {
 public:
@@ -26,6 +35,11 @@ public:
     /// Downloads and installs missing packages. Resolves transitive deps.
     PackageResolutionResult resolveAndInstall(
         const std::vector<PackageDep> &deps);
+
+    /// Install a single package by name and optional version constraint.
+    /// Downloads from registry if not locally available.
+    InstallResult installSingle(const std::string &pkgName,
+                                const std::string &versionStr);
 
     // --- Testable helpers ---
 

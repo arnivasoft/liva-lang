@@ -559,6 +559,102 @@ bool PackageManager::resolveDependencyTree(
     return true;
 }
 
+InstallResult PackageManager::installSingle(const std::string &pkgName,
+                                             const std::string &versionStr) {
+    InstallResult result;
+    result.name = pkgName;
+
+    // Build version constraint
+    VersionConstraint constraint;
+    if (versionStr.empty()) {
+        // Default: accept any version (latest)
+        constraint.kind = VersionConstraint::Minimum;
+        constraint.min = SemVer{0, 0, 0};
+    } else {
+        auto cr = parseVersionConstraint(versionStr);
+        if (!cr.success) {
+            result.errorMsg = "invalid version constraint: " + cr.errorMsg;
+            return result;
+        }
+        constraint = cr.constraint;
+    }
+
+    PackageDep dep;
+    dep.name = pkgName;
+    dep.constraint = constraint;
+
+    // 1. Try local resolution first
+    ResolvedPackage pkg;
+    if (resolveLocal(dep, pkg)) {
+        result.success = true;
+        result.version = pkg.version;
+        // Read checksum if available
+        std::string csPath = pkg.path + "/.checksum";
+        std::ifstream csFile(csPath);
+        if (csFile.is_open()) {
+            std::string cs;
+            std::getline(csFile, cs);
+            result.checksum = cs;
+        }
+        return result;
+    }
+
+    // 2. Query registry
+    if (registryUrl_.empty()) {
+        result.errorMsg = "package '" + pkgName +
+            "' not found locally and no registry configured"
+            " — set [registry] url in liva.toml or LIVA_REGISTRY_URL env";
+        return result;
+    }
+
+    RegistryEntry regEntry;
+    if (!queryRegistry(dep, regEntry)) {
+        result.errorMsg = "package '" + pkgName + "' not found in registry";
+        return result;
+    }
+
+    // 3. Download and install
+    std::string installError;
+    if (!installPackage(regEntry, installError)) {
+        result.errorMsg = installError;
+        return result;
+    }
+
+    // 4. Write checksum file
+    if (!regEntry.checksum.empty()) {
+        std::string csPath = packagesDir_ + "/" + pkgName + "/.checksum";
+        std::ofstream csFile(csPath);
+        if (csFile.is_open())
+            csFile << regEntry.checksum;
+    }
+
+    // 5. Verify installation via local resolve
+    if (!resolveLocal(dep, pkg)) {
+        result.errorMsg = "package '" + pkgName +
+                          "' installed but cannot resolve locally";
+        return result;
+    }
+
+    // 6. Resolve transitive dependencies
+    if (!regEntry.dependencies.empty()) {
+        std::vector<ResolvedPackage> resolved;
+        resolved.push_back(pkg);
+        std::unordered_set<std::string> resolving;
+        resolving.insert(pkgName);
+        std::string treeError;
+        if (!resolveDependencyTree(regEntry.dependencies, resolved,
+                                    resolving, treeError)) {
+            result.errorMsg = "transitive dependency error: " + treeError;
+            return result;
+        }
+    }
+
+    result.success = true;
+    result.version = pkg.version;
+    result.checksum = regEntry.checksum;
+    return result;
+}
+
 PackageResolutionResult PackageManager::resolveAndInstall(
     const std::vector<PackageDep> &deps) {
 

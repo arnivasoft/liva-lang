@@ -139,6 +139,12 @@ struct ProjectConfig {
 
 ProjectConfig loadProjectConfig(const TOMLDocument &doc);
 
+/// Add or update a dependency in liva.toml file.
+/// Preserves existing content, only modifies [dependencies] section.
+bool addDependencyToToml(const std::string &tomlPath,
+                         const std::string &pkgName,
+                         const std::string &versionConstraint);
+
 // --- Path Utils ---
 std::string findProjectFile(const std::string &startDir);
 std::string getCurrentDirectory();

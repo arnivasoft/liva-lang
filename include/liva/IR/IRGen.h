@@ -39,6 +39,12 @@ public:
     /// Enable/disable debug info emission (DWARF/CodeView)
     void setDebugInfo(bool enable) { emitDebugInfo_ = enable; }
 
+    /// Enable separate compilation mode (extern declarations for imports)
+    void setSeparateCompilation(bool enable) { separateCompilation_ = enable; }
+
+    /// Control whether main() is required
+    void setRequireMain(bool require) { requireMain_ = require; }
+
     /// Generate IR for a translation unit
     bool generate(TranslationUnit &tu);
 
@@ -137,7 +143,14 @@ private:
 
     DiagnosticsEngine &diag_;
     ModuleLoader *moduleLoader_ = nullptr;
+    bool separateCompilation_ = false;
+    bool requireMain_ = true;
     std::set<std::string> processedModules_;
+
+    /// Extern declaration helpers for separate compilation
+    void declareExternFunction(FuncDecl *funcDecl);
+    void declareExternStruct(StructDecl *structDecl);
+    void declareExternImpl(ImplDecl *implDecl);
     std::unique_ptr<llvm::LLVMContext> context_;
     std::unique_ptr<llvm::Module> module_;
     std::unique_ptr<llvm::IRBuilder<>> builder_;
@@ -446,6 +459,8 @@ public:
 
     void setModuleLoader(ModuleLoader *) {}
     void setDebugInfo(bool) {}
+    void setSeparateCompilation(bool) {}
+    void setRequireMain(bool) {}
 
     bool generate(TranslationUnit &) {
         diag_.report(SourceLocation{}, DiagID::err_main_not_found);

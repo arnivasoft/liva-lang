@@ -9,6 +9,7 @@
 namespace liva {
 
 class TranslationUnit;
+class ModuleLoader;
 
 /// Manages a single compilation
 class CompilerInstance {
@@ -55,6 +56,12 @@ public:
 
     /// Full compilation pipeline
     bool compile(const std::string &outputPath);
+
+    /// Compile a single file to an object file (for separate compilation)
+    /// isEntryFile: if true, requires main(); if false, skips main check
+    /// sharedLoader: optional shared ModuleLoader for cross-file parse cache
+    bool compileToObject(const std::string &outputObjPath, bool isEntryFile,
+                         ModuleLoader *sharedLoader = nullptr);
 
     /// Emit LLVM IR
     bool emitIR(const std::string &outputPath);
