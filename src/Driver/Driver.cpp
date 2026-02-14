@@ -10,11 +10,14 @@
 #include "liva/Parser/Parser.h"
 #include "liva/REPL/REPL.h"
 #include "liva/Sema/ModuleLoader.h"
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 namespace liva {
 
@@ -205,6 +208,22 @@ bool Driver::parseArgs(int argc, const char **argv) {
             continue;
         }
 
+        if (std::strcmp(arg, "-j") == 0) {
+            if (i + 1 < argc) {
+                long val = strtol(argv[++i], nullptr, 10);
+                options_.jobs = (val > 0) ? static_cast<int>(val) : 0;
+                options_.hasJobsOverride = true;
+            }
+            continue;
+        }
+        // Handle -jN (no space)
+        if (std::strncmp(arg, "-j", 2) == 0 && arg[2] != '\0') {
+            long val = strtol(arg + 2, nullptr, 10);
+            options_.jobs = (val > 0) ? static_cast<int>(val) : 0;
+            options_.hasJobsOverride = true;
+            continue;
+        }
+
         // If starts with -, unknown flag
         if (arg[0] == '-') {
             std::cerr << "error: unknown option '" << arg << "'\n";
@@ -344,6 +363,8 @@ int Driver::buildProject(bool runAfter) {
         cfg.pgo = options_.pgo;
     if (!options_.pgoProfile.empty())
         cfg.pgoProfile = options_.pgoProfile;
+    if (options_.hasJobsOverride)
+        cfg.jobs = options_.jobs;
 
     // Resolve entry file
     std::string entryPath = joinPath(cfg.projectRoot, cfg.entry);
@@ -472,64 +493,139 @@ int Driver::buildProject(bool runAfter) {
         // Link failed — fall through to recompile all
     }
 
-    // Create shared ModuleLoader for cross-file parse cache
-    ModuleLoader sharedLoader;
+    // Collect indices of files needing recompilation
+    std::vector<std::string> allObjPaths(depFiles.size());
+    std::vector<size_t> toCompile;
+    for (size_t i = 0; i < depFiles.size(); ++i) {
+        if (!fileStatuses[i].needsRecompile && !semaStatuses[i].needsResema)
+            allObjPaths[i] = fileStatuses[i].cachedObjPath;
+        else
+            toCompile.push_back(i);
+    }
+
+    // Compute base path for module loaders
+    std::string loaderBasePath;
     auto entryPos = entryPath.find_last_of("/\\");
     if (entryPos != std::string::npos)
-        sharedLoader.setBasePath(entryPath.substr(0, entryPos + 1));
-    for (const auto &sp : searchPaths)
-        sharedLoader.addSearchPath(sp);
+        loaderBasePath = entryPath.substr(0, entryPos + 1);
 
-    // Per-file compilation
-    std::vector<std::string> allObjPaths;
+    createDirectories(buildDir);
+
     bool compileFailed = false;
 
-    for (size_t i = 0; i < depFiles.size(); ++i) {
-        const auto &sourcePath = depFiles[i];
-        const auto &status = fileStatuses[i];
-        bool isEntry = (sourcePath == entryPath);
+    // Determine thread count
+    unsigned maxJobs = (cfg.jobs > 0) ? static_cast<unsigned>(cfg.jobs)
+                       : std::thread::hardware_concurrency();
+    if (maxJobs == 0) maxJobs = 1;
+    unsigned numThreads = std::min(maxJobs, static_cast<unsigned>(toCompile.size()));
+    if (numThreads == 0) numThreads = 1;
 
-        // Source hash unchanged AND sema cache hit AND .o cached → skip entirely
-        if (!status.needsRecompile && !semaStatuses[i].needsResema) {
-            allObjPaths.push_back(status.cachedObjPath);
-            continue;
+    if (numThreads <= 1 || toCompile.size() <= 1) {
+        // Sequential path — avoids thread overhead for single files
+        for (size_t wi = 0; wi < toCompile.size(); ++wi) {
+            size_t fileIdx = toCompile[wi];
+            const auto &sourcePath = depFiles[fileIdx];
+            const auto &status = fileStatuses[fileIdx];
+            bool isEntry = (sourcePath == entryPath);
+
+            ModuleLoader threadLoader;
+            threadLoader.setBasePath(loaderBasePath);
+            for (const auto &sp : searchPaths)
+                threadLoader.addSearchPath(sp);
+
+            CompilerInstance compiler;
+            compiler.setExecutablePath(executablePath_);
+            compiler.setOptLevel(cfg.optLevel);
+            compiler.setDebugInfo(cfg.debugInfo);
+            compiler.setLtoMode(cfg.lto);
+            compiler.setPgoMode(cfg.pgo);
+            compiler.setPgoProfile(cfg.pgoProfile);
+            compiler.setSearchPaths(searchPaths);
+
+            if (!compiler.loadFile(sourcePath)) {
+                compileFailed = true;
+                break;
+            }
+
+            std::string objName = cache.objectPathForSource(sourcePath);
+            std::string objPath = joinPath(buildDir, objName);
+
+            auto compileResult = compiler.compileToObjectWithMeta(objPath, isEntry, &threadLoader);
+            if (!compileResult.success) {
+                compileFailed = true;
+                break;
+            }
+
+            cache.storeFileObject(sourcePath, status.currentHash, objPath,
+                                  cfg.optLevel, cfg.debugInfo);
+            semaCache.store(sourcePath, status.currentHash,
+                            compileResult.interfaceHash, compileResult.imports);
+            allObjPaths[fileIdx] = objPath;
         }
+    } else {
+        // Parallel compilation
+        std::mutex resultMutex;
+        std::atomic<bool> failed{false};
+        std::atomic<size_t> nextWork{0};
 
-        // Compile this file with sema metadata
-        CompilerInstance compiler;
-        compiler.setExecutablePath(executablePath_);
-        compiler.setOptLevel(cfg.optLevel);
-        compiler.setDebugInfo(cfg.debugInfo);
-        compiler.setLtoMode(cfg.lto);
-        compiler.setPgoMode(cfg.pgo);
-        compiler.setPgoProfile(cfg.pgoProfile);
-        compiler.setSearchPaths(searchPaths);
+        auto worker = [&]() {
+            // Per-thread ModuleLoader (not thread-safe, so each thread gets its own)
+            ModuleLoader threadLoader;
+            threadLoader.setBasePath(loaderBasePath);
+            for (const auto &sp : searchPaths)
+                threadLoader.addSearchPath(sp);
 
-        if (!compiler.loadFile(sourcePath)) {
-            compileFailed = true;
-            break;
-        }
+            while (!failed.load()) {
+                size_t workIdx = nextWork.fetch_add(1);
+                if (workIdx >= toCompile.size()) break;
+                size_t fileIdx = toCompile[workIdx];
 
-        // Generate temp .o path in build dir
-        std::string objName = cache.objectPathForSource(sourcePath);
-        std::string objPath = joinPath(buildDir, objName);
-        createDirectories(buildDir);
+                const auto &sourcePath = depFiles[fileIdx];
+                const auto &status = fileStatuses[fileIdx];
+                bool isEntry = (sourcePath == entryPath);
 
-        auto compileResult = compiler.compileToObjectWithMeta(objPath, isEntry, &sharedLoader);
-        if (!compileResult.success) {
-            compileFailed = true;
-            break;
-        }
+                CompilerInstance compiler;
+                compiler.setExecutablePath(executablePath_);
+                compiler.setOptLevel(cfg.optLevel);
+                compiler.setDebugInfo(cfg.debugInfo);
+                compiler.setLtoMode(cfg.lto);
+                compiler.setPgoMode(cfg.pgo);
+                compiler.setPgoProfile(cfg.pgoProfile);
+                compiler.setSearchPaths(searchPaths);
 
-        // Store in build cache
-        cache.storeFileObject(sourcePath, status.currentHash, objPath,
-                              cfg.optLevel, cfg.debugInfo);
+                if (!compiler.loadFile(sourcePath)) {
+                    failed.store(true);
+                    return;
+                }
 
-        // Store sema metadata (interface hash + imports) for dependency tracking
-        semaCache.store(sourcePath, status.currentHash,
-                        compileResult.interfaceHash, compileResult.imports);
+                std::string objName = cache.objectPathForSource(sourcePath);
+                std::string objPath = joinPath(buildDir, objName);
 
-        allObjPaths.push_back(objPath);
+                auto compileResult = compiler.compileToObjectWithMeta(
+                    objPath, isEntry, &threadLoader);
+                if (!compileResult.success) {
+                    failed.store(true);
+                    return;
+                }
+
+                // Lock for shared state updates
+                std::lock_guard<std::mutex> lock(resultMutex);
+                cache.storeFileObject(sourcePath, status.currentHash, objPath,
+                                      cfg.optLevel, cfg.debugInfo);
+                semaCache.store(sourcePath, status.currentHash,
+                                compileResult.interfaceHash,
+                                compileResult.imports);
+                allObjPaths[fileIdx] = objPath;
+            }
+        };
+
+        std::vector<std::thread> threads;
+        for (unsigned t = 0; t < numThreads; ++t)
+            threads.emplace_back(worker);
+        for (auto &t : threads)
+            t.join();
+
+        compileFailed = failed.load();
     }
 
     // Save sema manifest
@@ -1074,7 +1170,8 @@ void Driver::printHelp() {
               << "  --lto[=thin|full]   Enable link-time optimization\n"
               << "  --pgo=generate      Build with PGO instrumentation\n"
               << "  --pgo=use           Build with PGO profile data\n"
-              << "  --pgo-profile=PATH  Profile data path (default: default.profdata)\n";
+              << "  --pgo-profile=PATH  Profile data path (default: default.profdata)\n"
+              << "  -j N                Number of parallel compilation jobs (default: auto)\n";
 }
 
 } // namespace liva

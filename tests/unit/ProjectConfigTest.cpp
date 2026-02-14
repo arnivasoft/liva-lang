@@ -1,4 +1,5 @@
 #include "liva/Driver/BuildCache.h"
+#include "liva/Driver/Driver.h"
 #include "liva/Driver/PackageManager.h"
 #include "liva/Driver/ProjectConfig.h"
 #include "liva/Driver/SemaCache.h"
@@ -2051,4 +2052,68 @@ TEST_F(SemaCacheTest, CheckNoManifest) {
     ASSERT_EQ(results.size(), 2u);
     EXPECT_TRUE(results[0].needsResema);
     EXPECT_TRUE(results[1].needsResema);
+}
+
+// === Parallel Compilation Tests ===
+
+TEST(ParallelCompile, TOMLJobsConfig) {
+    auto r = liva::parseTOML(
+        "[project]\nname = \"test\"\n[build]\njobs = 8\n");
+    ASSERT_TRUE(r.success);
+    auto cfg = liva::loadProjectConfig(r.doc);
+    EXPECT_EQ(cfg.jobs, 8);
+}
+
+TEST(ParallelCompile, TOMLJobsDefault) {
+    auto r = liva::parseTOML(
+        "[project]\nname = \"test\"\n[build]\nopt-level = 2\n");
+    ASSERT_TRUE(r.success);
+    auto cfg = liva::loadProjectConfig(r.doc);
+    EXPECT_EQ(cfg.jobs, 0);
+}
+
+TEST(ParallelCompile, JobsOverridesToml) {
+    // TOML has jobs=2
+    auto r = liva::parseTOML(
+        "[project]\nname = \"test\"\n[build]\njobs = 2\n");
+    ASSERT_TRUE(r.success);
+    auto cfg = liva::loadProjectConfig(r.doc);
+    EXPECT_EQ(cfg.jobs, 2);
+
+    // Simulate CLI override (as Driver does)
+    cfg.jobs = 4;
+    EXPECT_EQ(cfg.jobs, 4);
+}
+
+TEST(ParallelCompile, ProjectConfigDefaultJobs) {
+    liva::ProjectConfig cfg;
+    EXPECT_EQ(cfg.jobs, 0);
+}
+
+TEST(ParallelCompile, TOMLJobsSingleThread) {
+    auto r = liva::parseTOML(
+        "[project]\nname = \"test\"\n[build]\njobs = 1\n");
+    ASSERT_TRUE(r.success);
+    auto cfg = liva::loadProjectConfig(r.doc);
+    EXPECT_EQ(cfg.jobs, 1);
+}
+
+TEST(ParallelCompile, TOMLJobsWithOtherBuildOptions) {
+    auto r = liva::parseTOML(
+        "[project]\nname = \"parallel\"\nversion = \"1.0.0\"\n"
+        "[build]\nopt-level = 3\ndebug-info = false\n"
+        "lto = \"thin\"\njobs = 4\n");
+    ASSERT_TRUE(r.success);
+    auto cfg = liva::loadProjectConfig(r.doc);
+    EXPECT_EQ(cfg.name, "parallel");
+    EXPECT_EQ(cfg.optLevel, 3);
+    EXPECT_FALSE(cfg.debugInfo);
+    EXPECT_EQ(cfg.lto, "thin");
+    EXPECT_EQ(cfg.jobs, 4);
+}
+
+TEST(ParallelCompile, DriverOptionsDefaultJobs) {
+    liva::DriverOptions opts;
+    EXPECT_EQ(opts.jobs, 0);
+    EXPECT_FALSE(opts.hasJobsOverride);
 }

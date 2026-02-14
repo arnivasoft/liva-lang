@@ -1778,3 +1778,4 @@ TEST_F(IntegrationTest, LintSelfComparison) {
     }
     EXPECT_TRUE(found) << "Expected self-comparison warning";
 }
+

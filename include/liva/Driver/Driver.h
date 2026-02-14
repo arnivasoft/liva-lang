@@ -35,6 +35,8 @@ struct DriverOptions {
     bool fmtCheck = false;
     bool hasOptLevelOverride = false;
     bool hasDebugOverride = false;
+    int jobs = 0;  // 0 = auto (hardware_concurrency), 1 = sequential
+    bool hasJobsOverride = false;
 };
 
 /// Parses command-line arguments and drives compilation

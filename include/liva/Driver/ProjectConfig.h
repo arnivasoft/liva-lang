@@ -135,6 +135,7 @@ struct ProjectConfig {
     std::string projectRoot;
     std::vector<PackageDep> dependencies;
     std::string registryUrl; // from [registry] url or LIVA_REGISTRY_URL env
+    int jobs = 0;  // [build] jobs = N (0 = auto)
 };
 
 ProjectConfig loadProjectConfig(const TOMLDocument &doc);

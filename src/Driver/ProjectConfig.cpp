@@ -553,6 +553,7 @@ ProjectConfig loadProjectConfig(const TOMLDocument &doc) {
     cfg.lto = doc.getString("build", "lto", "none");
     cfg.pgo = doc.getString("build", "pgo", "none");
     cfg.pgoProfile = doc.getString("build", "pgo-profile", "");
+    cfg.jobs = (int)doc.getInt("build", "jobs", 0);
     cfg.modulePaths = doc.getStringArray("paths", "modules");
     cfg.dependencies = parseDependencies(doc);
 
