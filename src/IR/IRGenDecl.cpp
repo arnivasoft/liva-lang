@@ -1344,6 +1344,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarResultTypes = varResultTypes_;
         auto *oldFuncRI = currentFuncResultInfo_;
         auto *oldFuncOptInner = currentFuncOptionalInner_;
+        auto oldMovedVars = movedVars_;
+        auto oldHeapStringVars = heapStringVars_;
+        auto oldTempStrings = tempStrings_;
         namedValues_.clear();
         varStructTypes_.clear();
         varEnumTypes_.clear();
@@ -1358,6 +1361,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varFileTypes_.clear();
         currentFuncResultInfo_ = nullptr;
         currentFuncOptionalInner_ = nullptr;
+        movedVars_.clear();
+        heapStringVars_.clear();
+        tempStrings_.clear();
 
         // Track Optional return type for methods
         if (method->getReturnType() &&
@@ -1389,6 +1395,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
 
         // Add implicit return if needed
         if (!builder_->GetInsertBlock()->getTerminator()) {
+            emitScopeCleanup();
             if (returnType->isVoidTy()) {
                 builder_->CreateRetVoid();
             } else {
@@ -1410,6 +1417,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varResultTypes_ = oldVarResultTypes;
         currentFuncResultInfo_ = oldFuncRI;
         currentFuncOptionalInner_ = oldFuncOptInner;
+        movedVars_ = oldMovedVars;
+        heapStringVars_ = oldHeapStringVars;
+        tempStrings_ = oldTempStrings;
     }
 
     // Generate default method implementations from protocol
@@ -1463,6 +1473,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto oldVarResultTypes = varResultTypes_;
                 auto *oldFuncRI = currentFuncResultInfo_;
                 auto *oldFuncOptInner2 = currentFuncOptionalInner_;
+                auto oldMovedVars2 = movedVars_;
+                auto oldHeapStringVars2 = heapStringVars_;
+                auto oldTempStrings2 = tempStrings_;
                 namedValues_.clear();
                 varStructTypes_.clear();
                 varEnumTypes_.clear();
@@ -1477,6 +1490,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varFileTypes_.clear();
                 currentFuncResultInfo_ = nullptr;
                 currentFuncOptionalInner_ = nullptr;
+                movedVars_.clear();
+                heapStringVars_.clear();
+                tempStrings_.clear();
 
                 // Track Optional return type for protocol default methods
                 if (protoMethod->getReturnType() &&
@@ -1500,6 +1516,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 visitBlockStmt(const_cast<BlockStmt *>(protoMethod->getBody()));
 
                 if (!builder_->GetInsertBlock()->getTerminator()) {
+                    emitScopeCleanup();
                     if (returnType->isVoidTy()) {
                         builder_->CreateRetVoid();
                     } else {
@@ -1520,6 +1537,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varResultTypes_ = oldVarResultTypes;
                 currentFuncResultInfo_ = oldFuncRI;
                 currentFuncOptionalInner_ = oldFuncOptInner2;
+                movedVars_ = oldMovedVars2;
+                heapStringVars_ = oldHeapStringVars2;
+                tempStrings_ = oldTempStrings2;
             }
         }
     }

@@ -66,18 +66,23 @@ void IRGen::emitScopeCleanup() {
         builder_->CreateCall(getOrPanic("liva_set_free"), {entriesPtr});
     }
 
-    // Call drop() for struct variables implementing Drop protocol
+    // Call drop() for struct variables implementing Drop protocol,
+    // or auto-cleanup heap fields for structs without Drop
     for (auto &[name, structTypeName] : varStructTypes_) {
         if (movedVars_.count(name)) continue;
-        if (!dropImplementors_.count(structTypeName)) continue;
-        auto it = namedValues_.find(name);
-        if (it == namedValues_.end()) continue;
+        if (dropImplementors_.count(structTypeName)) {
+            auto it = namedValues_.find(name);
+            if (it == namedValues_.end()) continue;
 
-        std::string dropFnName = structTypeName + "_drop";
-        auto *dropFn = module_->getFunction(dropFnName);
-        if (!dropFn) continue;
+            std::string dropFnName = structTypeName + "_drop";
+            auto *dropFn = module_->getFunction(dropFnName);
+            if (!dropFn) continue;
 
-        builder_->CreateCall(dropFn, {it->second});
+            builder_->CreateCall(dropFn, {it->second});
+        } else {
+            // Auto-cleanup heap fields for structs without Drop
+            emitStructFieldCleanup(name, structTypeName);
+        }
     }
 
     // Free heap-allocated string variables
@@ -89,6 +94,60 @@ void IRGen::emitScopeCleanup() {
             if (it == namedValues_.end()) continue;
             auto *strPtr = builder_->CreateLoad(ptrTy, it->second, name + ".str.drop");
             builder_->CreateCall(freeFn, {strPtr});
+        }
+    }
+}
+
+void IRGen::emitStructFieldCleanup(const std::string &varName,
+                                    const std::string &structTypeName) {
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+    auto ftrIt = structFieldTypeReprs_.find(structTypeName);
+    if (ftrIt == structFieldTypeReprs_.end()) return;
+    auto fnIt = structFieldNames_.find(structTypeName);
+    if (fnIt == structFieldNames_.end()) return;
+    auto stIt = structTypes_.find(structTypeName);
+    if (stIt == structTypes_.end()) return;
+    auto namedIt = namedValues_.find(varName);
+    if (namedIt == namedValues_.end()) return;
+
+    auto *structAlloca = namedIt->second;
+    auto *structTy = stIt->second;
+    const auto &fieldTypeReprs = ftrIt->second;
+    const auto &fieldNames = fnIt->second;
+
+    for (size_t i = 0; i < fieldTypeReprs.size(); ++i) {
+        const TypeRepr *ft = fieldTypeReprs[i];
+        if (!ft) continue;
+
+        if (ft->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRepr = static_cast<const ArrayTypeRepr *>(ft);
+            if (arrRepr->isDynamic()) {
+                // DynArray field -> liva_array_free(data_ptr)
+                auto *fieldGEP = builder_->CreateStructGEP(structTy, structAlloca, i);
+                auto *dataGEP = builder_->CreateStructGEP(getDynArrayStructTy(), fieldGEP, 0);
+                auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP);
+                builder_->CreateCall(getOrPanic("liva_array_free"), {dataPtr});
+            }
+        } else if (ft->getKind() == TypeRepr::Kind::String) {
+            // String field -> free(str_ptr)
+            auto *fieldGEP = builder_->CreateStructGEP(structTy, structAlloca, i);
+            auto *strPtr = builder_->CreateLoad(ptrTy, fieldGEP);
+            auto *freeFn = module_->getFunction("free");
+            if (freeFn) builder_->CreateCall(freeFn, {strPtr});
+        } else if (ft->getKind() == TypeRepr::Kind::Named) {
+            auto *named = static_cast<const NamedTypeRepr *>(ft);
+            if (named->getName() == "Map") {
+                auto *fieldGEP = builder_->CreateStructGEP(structTy, structAlloca, i);
+                auto *entriesGEP = builder_->CreateStructGEP(getMapStructTy(), fieldGEP, 0);
+                auto *entriesPtr = builder_->CreateLoad(ptrTy, entriesGEP);
+                builder_->CreateCall(getOrPanic("liva_map_free"), {entriesPtr});
+            } else if (named->getName() == "Set") {
+                auto *fieldGEP = builder_->CreateStructGEP(structTy, structAlloca, i);
+                auto *entriesGEP = builder_->CreateStructGEP(getMapStructTy(), fieldGEP, 0);
+                auto *entriesPtr = builder_->CreateLoad(ptrTy, entriesGEP);
+                builder_->CreateCall(getOrPanic("liva_set_free"), {entriesPtr});
+            }
         }
     }
 }

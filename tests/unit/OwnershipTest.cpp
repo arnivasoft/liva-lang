@@ -1447,3 +1447,143 @@ TEST_F(OwnershipTest, UseAfterDrop_NoRefSuggest) {
     EXPECT_TRUE(result.passed);
     EXPECT_FALSE(hasDiag(result, DiagID::note_consider_ref));
 }
+
+// ============================================================
+// K3: Memory Management Tests
+// ============================================================
+
+TEST_F(OwnershipTest, StructWithDropProtocol) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Resource {
+            var id: i32
+        }
+        impl Resource: Drop {
+            func drop(mut self) {
+                println(self.id)
+            }
+        }
+        func main() {
+            var r: Resource = Resource { id: 1 }
+            println(r.id)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, StructWithDynArrayField) {
+    auto result = check(R"--(
+        struct Container {
+            var items: [i32]
+        }
+        func main() {
+            var c: Container = Container { items: [1, 2, 3] }
+            println(c.items[0])
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, MethodBodyMoveSemantics) {
+    // Double move inside a regular function should be detected
+    auto result = check(R"--(
+        struct Point {
+            var x: i32
+            var y: i32
+        }
+        func consume(p: Point) {
+            println(p.x)
+        }
+        func main() {
+            var q: Point = Point { x: 1, y: 2 }
+            consume(q)
+            consume(q)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    bool hasMove = hasDiag(result, DiagID::err_use_after_move) ||
+                   hasDiag(result, DiagID::err_double_move);
+    EXPECT_TRUE(hasMove);
+}
+
+TEST_F(OwnershipTest, MethodBodyScopeCleanup) {
+    auto result = check(R"--(
+        struct Data {
+            var value: i32
+        }
+        impl Data {
+            func process(self) {
+                var temp: Data = Data { value: 42 }
+                println(temp.value)
+            }
+        }
+        func main() {
+            var d: Data = Data { value: 1 }
+            d.process()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, NestedScopeDropOrder) {
+    auto result = check(R"--(
+        struct Outer {
+            var id: i32
+        }
+        func main() {
+            var a: Outer = Outer { id: 1 }
+            {
+                var b: Outer = Outer { id: 2 }
+                println(b.id)
+            }
+            println(a.id)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, DropBeforeReturn) {
+    auto result = check(R"--(
+        struct Wrapper {
+            var value: i32
+        }
+        func getVal() -> i32 {
+            var w: Wrapper = Wrapper { value: 99 }
+            return w.value
+        }
+        func main() {
+            let v = getVal()
+            println(v)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, MoveInMethodDoesNotAffectNext) {
+    auto result = check(R"--(
+        struct Item {
+            var id: i32
+        }
+        func consume(item: Item) {
+            println(item.id)
+        }
+        impl Item {
+            func method1(self) {
+                var x: Item = Item { id: 1 }
+                consume(x)
+            }
+            func method2(self) {
+                var x: Item = Item { id: 2 }
+                consume(x)
+            }
+        }
+        func main() {
+            var it: Item = Item { id: 0 }
+            it.method1()
+            it.method2()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

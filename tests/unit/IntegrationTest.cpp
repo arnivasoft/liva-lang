@@ -1779,3 +1779,98 @@ TEST_F(IntegrationTest, LintSelfComparison) {
     EXPECT_TRUE(found) << "Expected self-comparison warning";
 }
 
+// ============================================================
+// K3: Memory Management Integration Tests
+// ============================================================
+
+TEST_F(IntegrationTest, DropProtocolBasic) {
+    std::string source = R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Resource {
+            var id: i32
+        }
+        impl Resource: Drop {
+            func drop(mut self) {
+                println(self.id)
+            }
+        }
+        func main() {
+            var r: Resource = Resource { id: 42 }
+            println(r.id)
+        }
+    )--";
+    auto result = runPipeline("drop_basic.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+}
+
+TEST_F(IntegrationTest, StructWithHeapFields) {
+    std::string source = R"--(
+        struct Container {
+            var items: [i32]
+            var name: string
+        }
+        func main() {
+            var c: Container = Container { items: [1, 2, 3], name: "test" }
+            println(c.name)
+        }
+    )--";
+    auto result = runPipeline("struct_heap_fields.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+}
+
+TEST_F(IntegrationTest, MethodBodyCleanup) {
+    std::string source = R"--(
+        struct Data {
+            var value: i32
+        }
+        impl Data {
+            func process(self) {
+                var items: [i32] = [1, 2, 3]
+                println(items[0])
+            }
+        }
+        func main() {
+            var d: Data = Data { value: 1 }
+            d.process()
+        }
+    )--";
+    auto result = runPipeline("method_body_cleanup.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+}
+
+TEST_F(IntegrationTest, GenericFunctionCleanup) {
+    std::string source = R"--(
+        func identity<T>(x: T) -> T {
+            return x
+        }
+        func main() {
+            let a = identity(42)
+            println(a)
+        }
+    )--";
+    auto result = runPipeline("generic_func_cleanup.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+}
+
+TEST_F(IntegrationTest, NestedScopeCleanup) {
+    std::string source = R"--(
+        func main() {
+            var outer: [i32] = [1, 2]
+            {
+                var inner: [i32] = [3, 4]
+                println(inner[0])
+            }
+            println(outer[0])
+        }
+    )--";
+    auto result = runPipeline("nested_scope_cleanup.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+}
+

@@ -38,6 +38,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarResultTypes = varResultTypes_;
     auto *savedFuncRI = currentFuncResultInfo_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
+    auto savedMovedVars = movedVars_;
+    auto savedHeapStringVars = heapStringVars_;
+    auto savedTempStrings = tempStrings_;
 
     // Set up type substitution map: T -> i32, U -> f64, ...
     currentTypeSubst_.clear();
@@ -80,6 +83,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varFileTypes_.clear();
     varFileOptionalTypes_.clear();
     currentFuncResultInfo_ = nullptr;
+    movedVars_.clear();
+    heapStringVars_.clear();
+    tempStrings_.clear();
 
     // Create parameter allocas
     idx = 0;
@@ -95,6 +101,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
 
     // Add missing terminator
     if (!builder_->GetInsertBlock()->getTerminator()) {
+        emitScopeCleanup();
         if (returnType->isVoidTy())
             builder_->CreateRetVoid();
         else
@@ -118,6 +125,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varProtocolTypes_ = savedVarProtocolTypes;
     varResultTypes_ = savedVarResultTypes;
     currentFuncResultInfo_ = savedFuncRI;
+    movedVars_ = savedMovedVars;
+    heapStringVars_ = savedHeapStringVars;
+    tempStrings_ = savedTempStrings;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 
@@ -242,6 +252,9 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto savedVarResultTypes2 = varResultTypes_;
     auto *savedFuncRI2 = currentFuncResultInfo_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
+    auto savedMovedVars2 = movedVars_;
+    auto savedHeapStringVars2 = heapStringVars_;
+    auto savedTempStrings2 = tempStrings_;
 
     // Set up type substitution from impl's type params
     currentTypeSubst_.clear();
@@ -288,6 +301,9 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varFileTypes_.clear();
     varFileOptionalTypes_.clear();
     currentFuncResultInfo_ = nullptr;
+    movedVars_.clear();
+    heapStringVars_.clear();
+    tempStrings_.clear();
 
     // Create parameter allocas
     idx = 0;
@@ -306,6 +322,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
 
     // Add missing terminator
     if (!builder_->GetInsertBlock()->getTerminator()) {
+        emitScopeCleanup();
         if (returnType->isVoidTy())
             builder_->CreateRetVoid();
         else
@@ -329,6 +346,9 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varProtocolTypes_ = savedVarProtocolTypes2;
     varResultTypes_ = savedVarResultTypes2;
     currentFuncResultInfo_ = savedFuncRI2;
+    movedVars_ = savedMovedVars2;
+    heapStringVars_ = savedHeapStringVars2;
+    tempStrings_ = savedTempStrings2;
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 

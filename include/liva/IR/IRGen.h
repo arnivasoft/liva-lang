@@ -390,6 +390,10 @@ private:
     /// Emit cleanup calls for heap-allocated resources before scope exit
     void emitScopeCleanup();
 
+    /// Emit cleanup for struct fields that are heap-allocated (DynArray, Map, Set, string)
+    /// Called when a struct var goes out of scope without implementing Drop
+    void emitStructFieldCleanup(const std::string &varName, const std::string &structTypeName);
+
     /// Track File-typed variables (opaque ptr = FILE*)
     std::set<std::string> varFileTypes_;
 
