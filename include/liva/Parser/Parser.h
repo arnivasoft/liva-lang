@@ -84,6 +84,9 @@ private:
     /// Advance tokens until a synchronization point (statement/declaration boundary)
     void synchronize();
 
+    /// Advance tokens until a member-declaration boundary inside a body (struct/enum/impl/protocol)
+    void synchronizeBody();
+
     /// Create a source range from start to current position
     SourceRange rangeFrom(SourceLocation start) const;
 

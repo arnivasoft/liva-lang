@@ -66,6 +66,34 @@ void Parser::synchronize() {
     }
 }
 
+void Parser::synchronizeBody() {
+    while (current_.getKind() != TokenKind::eof) {
+        if (current_.getKind() == TokenKind::r_brace)
+            return;
+        if (current_.getKind() == TokenKind::semicolon) {
+            advance();
+            continue;
+        }
+        switch (current_.getKind()) {
+            case TokenKind::kw_var:
+            case TokenKind::kw_let:
+            case TokenKind::kw_func:
+            case TokenKind::kw_case:
+            case TokenKind::kw_type:
+            case TokenKind::kw_pub:
+            case TokenKind::kw_async:
+            case TokenKind::kw_struct:
+            case TokenKind::kw_enum:
+            case TokenKind::kw_impl:
+            case TokenKind::kw_protocol:
+            case TokenKind::kw_mut:
+                return;
+            default:
+                advance();
+        }
+    }
+}
+
 std::unique_ptr<TranslationUnit> Parser::parseTranslationUnit() {
     auto tu = std::make_unique<TranslationUnit>();
 

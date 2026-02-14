@@ -1247,3 +1247,84 @@ TEST_F(ParserTest, DocCommentOnPublicFunc) {
     EXPECT_TRUE(fn->hasDocComment());
     EXPECT_EQ(fn->getDocComment(), "Public function");
 }
+
+// ===== Error Recovery Tests =====
+
+TEST_F(ParserTest, StructInlineSemicolons) {
+    auto result = parse("struct Pt {\n    var x: i32; var y: i32\n}");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *sd = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(sd, nullptr);
+    EXPECT_EQ(sd->getName(), "Pt");
+    ASSERT_EQ(sd->getFields().size(), 2);
+    EXPECT_EQ(sd->getFields()[0]->getName(), "x");
+    EXPECT_EQ(sd->getFields()[1]->getName(), "y");
+}
+
+TEST_F(ParserTest, StructMultipleSemicolons) {
+    auto result = parse("struct Pt {\n    var x: i32;; var y: i32;\n}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *sd = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(sd, nullptr);
+    ASSERT_EQ(sd->getFields().size(), 2);
+    EXPECT_EQ(sd->getFields()[0]->getName(), "x");
+    EXPECT_EQ(sd->getFields()[1]->getName(), "y");
+}
+
+TEST_F(ParserTest, StructBadFieldRecovery) {
+    auto result = parse("struct Pt {\n    123\n    var x: i32\n}");
+    EXPECT_TRUE(result.hasErrors);
+    auto *sd = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(sd, nullptr);
+    EXPECT_EQ(sd->getFields().size(), 1);
+    EXPECT_EQ(sd->getFields()[0]->getName(), "x");
+}
+
+TEST_F(ParserTest, EnumSemicolonRecovery) {
+    auto result = parse("enum Color {\n    case Red; case Green; case Blue\n}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *ed = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(ed, nullptr);
+    ASSERT_EQ(ed->getCases().size(), 3);
+    EXPECT_EQ(ed->getCases()[0]->getName(), "Red");
+    EXPECT_EQ(ed->getCases()[1]->getName(), "Green");
+    EXPECT_EQ(ed->getCases()[2]->getName(), "Blue");
+}
+
+TEST_F(ParserTest, ImplSemicolonRecovery) {
+    auto result = parse("struct Foo {\n    var x: i32\n}\nimpl Foo {\n    func a() {}; func b() {}\n}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *id = dynamic_cast<ImplDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(id, nullptr);
+    ASSERT_EQ(id->getMethods().size(), 2);
+    EXPECT_EQ(id->getMethods()[0]->getName(), "a");
+    EXPECT_EQ(id->getMethods()[1]->getName(), "b");
+}
+
+TEST_F(ParserTest, ProtocolSemicolonRecovery) {
+    auto result = parse("protocol P {\n    func a(); func b()\n}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *pd = dynamic_cast<ProtocolDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(pd, nullptr);
+    ASSERT_EQ(pd->getMethods().size(), 2);
+    EXPECT_EQ(pd->getMethods()[0]->getName(), "a");
+    EXPECT_EQ(pd->getMethods()[1]->getName(), "b");
+}
+
+TEST_F(ParserTest, StructEmptyWithSemicolons) {
+    auto result = parse("struct Empty {\n    ;;\n}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *sd = dynamic_cast<StructDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(sd, nullptr);
+    EXPECT_EQ(sd->getFields().size(), 0);
+}
+
+TEST_F(ParserTest, EnumBadCaseRecovery) {
+    auto result = parse("enum E {\n    123\n    case A\n}");
+    EXPECT_TRUE(result.hasErrors);
+    auto *ed = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(ed, nullptr);
+    EXPECT_EQ(ed->getCases().size(), 1);
+    EXPECT_EQ(ed->getCases()[0]->getName(), "A");
+}

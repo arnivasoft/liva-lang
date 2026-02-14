@@ -199,6 +199,11 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
     std::vector<std::unique_ptr<FieldDecl>> fields;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         if (diag_.hasMaxErrors()) break;
+
+        // Skip stray semicolons between fields
+        while (match(TokenKind::semicolon)) {}
+        if (check(TokenKind::r_brace) || check(TokenKind::eof)) break;
+
         auto fieldStart = current_.getLocation();
         bool fieldMutable = false;
 
@@ -210,8 +215,21 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
         }
 
         auto fieldName = expect(TokenKind::identifier);
-        expect(TokenKind::colon);
+        if (fieldName.is(TokenKind::eof)) {
+            synchronizeBody();
+            continue;
+        }
+        if (!match(TokenKind::colon)) {
+            diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                         ":", std::string(current_.getText()));
+            synchronizeBody();
+            continue;
+        }
         auto fieldType = parseType();
+        if (!fieldType) {
+            synchronizeBody();
+            continue;
+        }
 
         fields.push_back(std::make_unique<FieldDecl>(
             std::string(fieldName.getText()), std::move(fieldType), fieldMutable,
@@ -243,9 +261,18 @@ std::unique_ptr<EnumDecl> Parser::parseEnumDecl(bool isPublic) {
     std::vector<std::unique_ptr<EnumCaseDecl>> cases;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         if (diag_.hasMaxErrors()) break;
-        expect(TokenKind::kw_case);
+        while (match(TokenKind::semicolon)) {}
+        if (check(TokenKind::r_brace) || check(TokenKind::eof)) break;
+
+        if (!match(TokenKind::kw_case)) {
+            diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                         "case", std::string(current_.getText()));
+            synchronizeBody();
+            continue;
+        }
         auto caseStart = current_.getLocation();
         auto caseName = expect(TokenKind::identifier);
+        if (caseName.is(TokenKind::eof)) { synchronizeBody(); continue; }
 
         std::vector<std::unique_ptr<TypeRepr>> associatedTypes;
         if (match(TokenKind::l_paren)) {
@@ -319,9 +346,13 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
     std::unordered_map<std::string, std::string> associatedTypes;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         if (diag_.hasMaxErrors()) break;
+        while (match(TokenKind::semicolon)) {}
+        if (check(TokenKind::r_brace) || check(TokenKind::eof)) break;
+
         if (check(TokenKind::kw_type)) {
             advance();  // consume 'type'
             auto assocName = expect(TokenKind::identifier);
+            if (assocName.is(TokenKind::eof)) { synchronizeBody(); continue; }
             expect(TokenKind::equal);
             auto targetType = parseType();
             associatedTypes[std::string(assocName.getText())] = targetType->toString();
@@ -330,7 +361,17 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
             if (match(TokenKind::kw_pub)) {
                 isPublic = true;
             }
-            methods.push_back(parseFuncDecl(isPublic));
+            bool isAsync = false;
+            if (match(TokenKind::kw_async)) {
+                isAsync = true;
+            }
+            if (!check(TokenKind::kw_func)) {
+                diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                             "func", std::string(current_.getText()));
+                synchronizeBody();
+                continue;
+            }
+            methods.push_back(parseFuncDecl(isPublic, isAsync));
         }
     }
 
@@ -360,12 +401,21 @@ std::unique_ptr<ProtocolDecl> Parser::parseProtocolDecl(bool isPublic) {
     std::vector<std::string> associatedTypes;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         if (diag_.hasMaxErrors()) break;
+        while (match(TokenKind::semicolon)) {}
+        if (check(TokenKind::r_brace) || check(TokenKind::eof)) break;
+
         if (check(TokenKind::kw_type)) {
             advance();  // consume 'type'
             auto typeName = expect(TokenKind::identifier);
+            if (typeName.is(TokenKind::eof)) { synchronizeBody(); continue; }
             associatedTypes.push_back(std::string(typeName.getText()));
-        } else {
+        } else if (check(TokenKind::kw_func) || check(TokenKind::kw_async)) {
             methods.push_back(parseFuncDecl(false));
+        } else {
+            diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                         "func", std::string(current_.getText()));
+            synchronizeBody();
+            continue;
         }
     }
 
