@@ -35,9 +35,34 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         return parseTypeAliasDecl(isPublic);
     case TokenKind::kw_macro:
         return parseMacroDecl(isPublic);
-    default:
+    default: {
+        // Detect foreign language keywords used as identifiers
+        if (current_.getKind() == TokenKind::identifier) {
+            auto text = current_.getText();
+            if (text == "fn" || text == "def" || text == "function") {
+                diag_.report(current_.getLocation(), DiagID::err_foreign_keyword,
+                             std::string(text), "func");
+                diag_.report(current_.getLocation(), DiagID::note_use_func_keyword);
+                advance(); // skip the foreign keyword
+                return parseFuncDecl(isPublic);
+            }
+            if (text == "class") {
+                diag_.report(current_.getLocation(), DiagID::err_foreign_keyword,
+                             std::string(text), "struct");
+                diag_.report(current_.getLocation(), DiagID::note_use_struct_keyword);
+                advance();
+                return parseStructDecl(isPublic);
+            }
+            if (text == "interface" || text == "trait") {
+                diag_.report(current_.getLocation(), DiagID::err_foreign_keyword,
+                             std::string(text), "protocol");
+                advance();
+                return parseProtocolDecl(isPublic);
+            }
+        }
         diag_.report(current_.getLocation(), DiagID::err_expected_declaration);
         return nullptr;
+    }
     }
 }
 
@@ -120,6 +145,13 @@ std::unique_ptr<VarDecl> Parser::parseVarDecl() {
     auto startLoc = current_.getLocation();
     bool isMutable = current_.is(TokenKind::kw_var);
     advance(); // consume let/var
+
+    // Detect Rust-style "let mut" and suggest "var"
+    if (!isMutable && current_.is(TokenKind::kw_mut)) {
+        diag_.report(startLoc, DiagID::err_let_mut_not_supported);
+        advance(); // consume 'mut', continue parsing as mutable variable
+        isMutable = true;
+    }
 
     // Tuple destructuring: let (x, y) = expr
     if (check(TokenKind::l_paren)) {

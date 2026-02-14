@@ -125,4 +125,14 @@ DIAG(note_moved_here,                note,    "'%0' was moved here")
 DIAG(note_borrowed_here,             note,    "'%0' was borrowed here")
 DIAG(note_did_you_mean,              note,    "did you mean '%0'?")
 
+// === Notes - Actionable suggestions ===
+DIAG(note_use_func_keyword,          note,    "Liva uses 'func' to declare functions")
+DIAG(note_use_struct_keyword,        note,    "Liva uses 'struct' to declare types")
+DIAG(note_use_var_for_mutable,       note,    "declare with 'var' instead of 'let' to make it mutable")
+DIAG(note_consider_ref,              note,    "consider passing by reference with 'ref %0' to avoid move")
+
+// === Parser - Better error messages ===
+DIAG(err_foreign_keyword,            error,   "unknown keyword '%0'; did you mean '%1'?")
+DIAG(err_let_mut_not_supported,      error,   "'let mut' is not supported; use 'var' for mutable variables")
+
 #undef DIAG

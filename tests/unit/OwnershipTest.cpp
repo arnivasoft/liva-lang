@@ -1376,3 +1376,74 @@ TEST_F(OwnershipTest, RefToFunctionParamValid) {
     )");
     EXPECT_TRUE(result.passed);
 }
+
+// =============================================================================
+// Actionable Suggestion Tests
+// =============================================================================
+
+TEST_F(OwnershipTest, ImmutableAssign_SuggestsVar) {
+    auto result = check(R"(
+        func main() {
+            let x: i32 = 5
+            x = 10
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_use_var_for_mutable));
+}
+
+TEST_F(OwnershipTest, MutRefToImmutable_SuggestsVar) {
+    auto result = check(R"(
+        func main() {
+            let y: i32 = 42
+            let r = ref mut y
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_mut_ref_to_immutable));
+    EXPECT_TRUE(hasDiag(result, DiagID::note_use_var_for_mutable));
+}
+
+TEST_F(OwnershipTest, UseAfterMove_SuggestsRef) {
+    auto result = check(R"--(
+        struct Payload {
+            var data: i32
+        }
+        func send(p: Payload) {
+            println(p.data)
+        }
+        func main() {
+            var p: Payload = Payload { data: 100 }
+            send(p)
+            send(p)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    bool hasMove = hasDiag(result, DiagID::err_use_after_move) ||
+                   hasDiag(result, DiagID::err_double_move);
+    EXPECT_TRUE(hasMove);
+    EXPECT_TRUE(hasDiag(result, DiagID::note_consider_ref));
+}
+
+TEST_F(OwnershipTest, UseAfterDrop_NoRefSuggest) {
+    // When a variable is dropped (scope exit), the note_consider_ref
+    // should NOT appear (drop path doesn't set lastMoveLocation)
+    auto result = check(R"--(
+        struct Token {
+            var kind: i32
+        }
+        func main() {
+            var t: Token = Token { kind: 1 }
+            {
+                // t is not explicitly moved here, just used
+                println(t.kind)
+            }
+            // t is still alive and usable
+            println(t.kind)
+        }
+    )--");
+    // This should pass — no drop-related error
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::note_consider_ref));
+}

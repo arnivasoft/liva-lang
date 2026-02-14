@@ -399,6 +399,9 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
             if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
                 diag_.report(param.location, DiagID::err_undefined_protocol,
                              dynType->getProtocolName());
+                std::vector<std::string> protoCandidates;
+                scopes_.collectNames(Symbol::Kind::ProtocolType, protoCandidates);
+                suggestSimilar(param.location, dynType->getProtocolName(), protoCandidates);
             }
         }
     }
@@ -574,6 +577,9 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                 } else {
                     diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol,
                                  dynType->getProtocolName());
+                    std::vector<std::string> protoCandidates;
+                    scopes_.collectNames(Symbol::Kind::ProtocolType, protoCandidates);
+                    suggestSimilar(node->getStartLoc(), dynType->getProtocolName(), protoCandidates);
                     compat = true;
                 }
             }
@@ -1910,6 +1916,7 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
         if (sym && !sym->isMutable) {
             diag_.report(node->getStartLoc(), DiagID::err_assign_to_immutable,
                          ident->getName());
+            diag_.report(node->getStartLoc(), DiagID::note_use_var_for_mutable);
         }
     }
 }

@@ -149,6 +149,7 @@ void OwnershipChecker::visitRefExpr(RefExpr *node) {
             if (info && !info->isMutable) {
                 diag_.report(node->getStartLoc(), DiagID::err_mut_ref_to_immutable,
                              ident->getName());
+                diag_.report(node->getStartLoc(), DiagID::note_use_var_for_mutable);
             }
         }
     }
@@ -204,6 +205,7 @@ bool OwnershipChecker::checkUse(const std::string &name, SourceLocation loc) {
     if (info->state == OwnershipState::Moved) {
         diag_.report(loc, DiagID::err_use_after_move, name);
         diag_.report(info->lastMoveLocation, DiagID::note_moved_here, name);
+        diag_.report(loc, DiagID::note_consider_ref, name);
         return false;
     }
 
@@ -222,6 +224,7 @@ bool OwnershipChecker::checkMutation(const std::string &name, SourceLocation loc
 
     if (!info->isMutable) {
         diag_.report(loc, DiagID::err_assign_to_immutable, name);
+        diag_.report(loc, DiagID::note_use_var_for_mutable);
         return false;
     }
 

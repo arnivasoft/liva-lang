@@ -1328,3 +1328,121 @@ TEST_F(ParserTest, EnumBadCaseRecovery) {
     EXPECT_EQ(ed->getCases().size(), 1);
     EXPECT_EQ(ed->getCases()[0]->getName(), "A");
 }
+
+// =============================================================================
+// Foreign Keyword Detection Tests
+// =============================================================================
+
+TEST_F(ParserTest, ForeignKeyword_Fn) {
+    auto result = parse("fn foo() {}");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_foreign_keyword)
+            found = true;
+    }
+    EXPECT_TRUE(found);
+    // Should also emit note_use_func_keyword
+    bool foundNote = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::note_use_func_keyword)
+            foundNote = true;
+    }
+    EXPECT_TRUE(foundNote);
+}
+
+TEST_F(ParserTest, ForeignKeyword_Def) {
+    auto result = parse("def bar() {}");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_foreign_keyword)
+            found = true;
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(ParserTest, ForeignKeyword_Function) {
+    auto result = parse("function baz() {}");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_foreign_keyword)
+            found = true;
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(ParserTest, ForeignKeyword_Class) {
+    auto result = parse("class Foo {}");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_foreign_keyword &&
+            d.message.find("class") != std::string::npos &&
+            d.message.find("struct") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found);
+    bool foundNote = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::note_use_struct_keyword)
+            foundNote = true;
+    }
+    EXPECT_TRUE(foundNote);
+}
+
+TEST_F(ParserTest, ForeignKeyword_Trait) {
+    auto result = parse("trait Foo {}");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_foreign_keyword &&
+            d.message.find("trait") != std::string::npos &&
+            d.message.find("protocol") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(ParserTest, ForeignKeyword_Interface) {
+    auto result = parse("interface Foo {}");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_foreign_keyword &&
+            d.message.find("interface") != std::string::npos &&
+            d.message.find("protocol") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(ParserTest, LetMut) {
+    auto result = parse("let mut x = 5");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_let_mut_not_supported)
+            found = true;
+    }
+    EXPECT_TRUE(found);
+    // Should still parse as a mutable variable
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1);
+    auto *var = dynamic_cast<VarDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(var, nullptr);
+    EXPECT_TRUE(var->isMutable());
+    EXPECT_EQ(var->getName(), "x");
+}
+
+TEST_F(ParserTest, ForeignKeyword_RecoveryParsesBody) {
+    auto result = parse("fn add(a: i32, b: i32) -> i32 {\n    return a + b\n}");
+    EXPECT_TRUE(result.hasErrors);
+    // Despite the error, the parser should recover and parse the function body
+    ASSERT_GE(result.tu->getDeclarations().size(), 1u);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "add");
+    EXPECT_EQ(func->getParams().size(), 2);
+    EXPECT_TRUE(func->hasBody());
+}
