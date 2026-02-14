@@ -1,4 +1,6 @@
 #include "liva/Sema/TypeChecker.h"
+#include "liva/Lexer/Lexer.h"
+#include "liva/Parser/Parser.h"
 #include "liva/Sema/ModuleLoader.h"
 #include <set>
 
@@ -286,6 +288,17 @@ void TypeChecker::check(TranslationUnit &tu) {
                              aliasDecl->getName());
             }
             typeAliases_[aliasDecl->getName()] = aliasDecl->getTargetType();
+        } else if (decl->getKind() == ASTNode::NodeKind::MacroDecl) {
+            auto *macroDecl = static_cast<MacroDecl *>(decl.get());
+            if (macroExpander_.hasMacro(macroDecl->getName())) {
+                diag_.report(decl->getStartLoc(), DiagID::err_macro_redefinition,
+                             macroDecl->getName());
+            } else {
+                auto def = MacroExpander::parseMacroDef(
+                    macroDecl->getName(), macroDecl->isPublic(),
+                    macroDecl->getRawSource(), macroDecl->getRange());
+                macroExpander_.registerMacro(def);
+            }
         }
     }
 
@@ -2640,6 +2653,59 @@ std::optional<TypeChecker::ConstValue> TypeChecker::evaluateConstExpr(const Expr
     default:
         return std::nullopt;
     }
+}
+
+// === Macro Support ===
+
+void TypeChecker::visitMacroDecl(MacroDecl *) {
+    // Already registered in pass 1; nothing to do in pass 2
+}
+
+void TypeChecker::visitMacroInvokeExpr(MacroInvokeExpr *node) {
+    // Expand the macro on first visit
+    if (!node->getExpanded()) {
+        std::string expanded = macroExpander_.expand(
+            node->getName(), node->getArgTokens(), diag_, node->getStartLoc());
+        if (expanded.empty())
+            return;
+
+        // Re-lex and re-parse the expanded source as an expression
+        SourceManager sm("<macro-expansion>", expanded);
+        DiagnosticsEngine tempDiag(&sm);
+        Lexer lexer(sm, tempDiag);
+        Parser parser(lexer, tempDiag);
+
+        auto expandedExpr = parser.parseExpression();
+        if (expandedExpr && !tempDiag.hasErrors()) {
+            node->setExpanded(std::move(expandedExpr));
+        } else {
+            std::string detail = "parse error in expanded code: " + expanded;
+            diag_.report(node->getStartLoc(), DiagID::err_macro_expansion_failed,
+                         node->getName(), detail);
+            return;
+        }
+    }
+
+    // Visit the expanded expression for type checking
+    if (node->getExpanded()) {
+        visit(node->getExpanded());
+        if (node->getExpanded()->getResolvedType()) {
+            node->setResolvedType(
+                std::make_unique<TypeRepr>(node->getExpanded()->getResolvedType()->getKind()));
+        }
+    }
+}
+
+void TypeChecker::expandMacros(TranslationUnit &) {
+    // Expansion now happens lazily in visitMacroInvokeExpr
+}
+
+void TypeChecker::expandMacrosInExpr(std::unique_ptr<Expr> &) {
+    // Expansion now happens lazily in visitMacroInvokeExpr
+}
+
+void TypeChecker::expandMacrosInStmt(ASTNode *) {
+    // Expansion now happens lazily in visitMacroInvokeExpr
 }
 
 } // namespace liva

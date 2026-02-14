@@ -49,6 +49,11 @@ liva_add_test(dap_test
 )
 target_link_libraries(dap_test PRIVATE liva_dap liva_sema liva_parser)
 
+liva_add_test(macro_test
+    unit/MacroTest.cpp
+)
+target_link_libraries(macro_test PRIVATE liva_macro liva_sema liva_parser)
+
 # Performance regression tests
 liva_add_test(benchmark_test
     unit/BenchmarkTest.cpp

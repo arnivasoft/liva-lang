@@ -33,6 +33,8 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         return parseImportDecl();
     case TokenKind::kw_type:
         return parseTypeAliasDecl(isPublic);
+    case TokenKind::kw_macro:
+        return parseMacroDecl(isPublic);
     default:
         diag_.report(current_.getLocation(), DiagID::err_expected_declaration);
         return nullptr;
@@ -481,6 +483,47 @@ std::unique_ptr<VarDecl> Parser::parseConstDecl() {
     return std::make_unique<VarDecl>(std::move(name), std::move(type),
                                       std::move(init), /*isMutable=*/false,
                                       rangeFrom(startLoc), /*isConst=*/true);
+}
+
+std::unique_ptr<MacroDecl> Parser::parseMacroDecl(bool isPublic) {
+    auto startLoc = current_.getLocation();
+    expect(TokenKind::kw_macro);
+
+    auto nameTok = expect(TokenKind::identifier);
+    std::string name(nameTok.getText());
+
+    expect(TokenKind::l_brace);
+
+    // Collect raw source between { and matching }
+    std::string rawSource;
+    int braceDepth = 1;
+    while (!check(TokenKind::eof) && braceDepth > 0) {
+        if (check(TokenKind::l_brace))
+            ++braceDepth;
+        else if (check(TokenKind::r_brace)) {
+            --braceDepth;
+            if (braceDepth == 0)
+                break;
+        }
+        // Reconstruct source text from tokens
+        auto tok = current_;
+        auto k = tok.getKind();
+        if (k == TokenKind::string_literal) {
+            rawSource += "\"";
+            rawSource += std::string(tok.getStringValue());
+            rawSource += "\"";
+        } else {
+            rawSource += std::string(tok.getText());
+        }
+        rawSource += " ";
+        advance();
+    }
+
+    expect(TokenKind::r_brace);
+
+    auto decl = std::make_unique<MacroDecl>(std::move(name), isPublic, rangeFrom(startLoc));
+    decl->setRawSource(std::move(rawSource));
+    return decl;
 }
 
 } // namespace liva

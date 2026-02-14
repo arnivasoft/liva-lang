@@ -3,6 +3,7 @@
 #include "liva/AST/ASTVisitor.h"
 #include "liva/AST/Decl.h"
 #include "liva/Common/Diagnostics.h"
+#include "liva/Macro/MacroExpander.h"
 #include "liva/Sema/Scope.h"
 #include <memory>
 #include <optional>
@@ -69,6 +70,8 @@ public:
     void visitTernaryExpr(TernaryExpr *node);
     void visitAwaitExpr(AwaitExpr *node);
     void visitComptimeExpr(ComptimeExpr *node);
+    void visitMacroDecl(MacroDecl *node);
+    void visitMacroInvokeExpr(MacroInvokeExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
@@ -152,6 +155,12 @@ private:
     std::optional<ConstValue> evaluateComptimeBlock(const BlockStmt *block);
     std::unordered_map<std::string, ConstValue> constValues_;
     std::unordered_map<std::string, ConstValue> comptimeLocals_;
+
+    /// Macro expander
+    MacroExpander macroExpander_;
+    void expandMacros(TranslationUnit &tu);
+    void expandMacrosInExpr(std::unique_ptr<Expr> &expr);
+    void expandMacrosInStmt(ASTNode *node);
 
     /// Unused variable tracking (per function)
     std::set<std::string> usedSymbols_;

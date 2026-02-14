@@ -20,6 +20,7 @@ public:
         ProtocolDecl,
         ImportDecl,
         TypeAliasDecl,
+        MacroDecl,
 
         // Statements
         ExprStmt,
@@ -60,6 +61,7 @@ public:
         TernaryExpr, // condition ? then : else
         AwaitExpr,   // await expr
         ComptimeExpr, // comptime { ... }
+        MacroInvokeExpr, // name!(args)
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())

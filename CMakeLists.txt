@@ -62,6 +62,13 @@ add_library(liva_parser STATIC
 target_link_libraries(liva_parser PUBLIC liva_lexer liva_ast)
 liva_set_compiler_flags(liva_parser)
 
+# liva_macro
+add_library(liva_macro STATIC
+    src/Macro/MacroExpander.cpp
+)
+target_link_libraries(liva_macro PUBLIC liva_common liva_lexer)
+liva_set_compiler_flags(liva_macro)
+
 # liva_sema
 add_library(liva_sema STATIC
     src/Sema/Sema.cpp
@@ -71,7 +78,7 @@ add_library(liva_sema STATIC
     src/Sema/Scope.cpp
     src/Sema/ModuleLoader.cpp
 )
-target_link_libraries(liva_sema PUBLIC liva_parser liva_ast liva_common)
+target_link_libraries(liva_sema PUBLIC liva_parser liva_ast liva_common liva_macro)
 liva_set_compiler_flags(liva_sema)
 
 # liva_irgen (only if LLVM is available)

@@ -188,6 +188,8 @@ Token Lexer::nextToken() {
         return makeToken(TokenKind::question, startOffset);
     case '~':
         return makeToken(TokenKind::tilde, startOffset);
+    case '$':
+        return makeToken(TokenKind::dollar, startOffset);
 
     case ':':
         if (match(':'))

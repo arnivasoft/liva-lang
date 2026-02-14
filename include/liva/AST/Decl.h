@@ -23,7 +23,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::FuncDecl &&
-               node->getKind() <= NodeKind::TypeAliasDecl;
+               node->getKind() <= NodeKind::MacroDecl;
     }
 
 private:
@@ -357,6 +357,28 @@ private:
     std::string name_;
     std::unique_ptr<TypeRepr> targetType_;
     bool isPublic_;
+};
+
+/// Macro declaration: macro name { (pattern) => { expansion } }
+class MacroDecl : public Decl {
+public:
+    MacroDecl(std::string name, bool isPublic, SourceRange range)
+        : Decl(NodeKind::MacroDecl, range), name_(std::move(name)), isPublic_(isPublic) {}
+
+    const std::string &getName() const { return name_; }
+    bool isPublic() const { return isPublic_; }
+
+    void setRawSource(std::string src) { rawSource_ = std::move(src); }
+    const std::string &getRawSource() const { return rawSource_; }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::MacroDecl;
+    }
+
+private:
+    std::string name_;
+    bool isPublic_;
+    std::string rawSource_;
 };
 
 /// Translation unit - the top-level node representing an entire file

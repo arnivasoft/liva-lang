@@ -39,6 +39,9 @@ public:
         case ASTNode::NodeKind::TypeAliasDecl:
             return static_cast<Derived *>(this)->visitTypeAliasDecl(
                 static_cast<TypeAliasDecl *>(node));
+        case ASTNode::NodeKind::MacroDecl:
+            return static_cast<Derived *>(this)->visitMacroDecl(
+                static_cast<MacroDecl *>(node));
 
         // Statements
         case ASTNode::NodeKind::ExprStmt:
@@ -145,6 +148,9 @@ public:
         case ASTNode::NodeKind::ComptimeExpr:
             return static_cast<Derived *>(this)->visitComptimeExpr(
                 static_cast<ComptimeExpr *>(node));
+        case ASTNode::NodeKind::MacroInvokeExpr:
+            return static_cast<Derived *>(this)->visitMacroInvokeExpr(
+                static_cast<MacroInvokeExpr *>(node));
         }
         return RetTy();
     }
@@ -160,6 +166,7 @@ public:
     RetTy visitProtocolDecl(ProtocolDecl *) { return RetTy(); }
     RetTy visitImportDecl(ImportDecl *) { return RetTy(); }
     RetTy visitTypeAliasDecl(TypeAliasDecl *) { return RetTy(); }
+    RetTy visitMacroDecl(MacroDecl *) { return RetTy(); }
 
     RetTy visitExprStmt(ExprStmt *) { return RetTy(); }
     RetTy visitReturnStmt(ReturnStmt *) { return RetTy(); }
@@ -198,6 +205,7 @@ public:
     RetTy visitTernaryExpr(TernaryExpr *) { return RetTy(); }
     RetTy visitAwaitExpr(AwaitExpr *) { return RetTy(); }
     RetTy visitComptimeExpr(ComptimeExpr *) { return RetTy(); }
+    RetTy visitMacroInvokeExpr(MacroInvokeExpr *) { return RetTy(); }
 };
 
 } // namespace liva

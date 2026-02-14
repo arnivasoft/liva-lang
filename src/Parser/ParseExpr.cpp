@@ -240,6 +240,11 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
         advance();
         auto range = rangeFrom(startLoc);
 
+        // Check for macro invocation: name!(args)
+        if (check(TokenKind::bang) && peek().is(TokenKind::l_paren)) {
+            return parseMacroInvokeExpr(std::move(name), startLoc);
+        }
+
         // Check for struct literal: Name { field: value, ... }
         // Convention: struct names start with uppercase letter
         if (check(TokenKind::l_brace) && !name.empty() &&
@@ -514,6 +519,42 @@ std::unique_ptr<Expr> Parser::parseComptimeExpr() {
     auto body = parseBlock();
     if (!body) return nullptr;
     return std::make_unique<ComptimeExpr>(std::move(body), rangeFrom(startLoc));
+}
+
+std::vector<Token> Parser::collectBalancedTokens() {
+    std::vector<Token> tokens;
+    int parenDepth = 0;
+    int braceDepth = 0;
+    int bracketDepth = 0;
+
+    while (!check(TokenKind::eof)) {
+        if (check(TokenKind::l_paren)) ++parenDepth;
+        else if (check(TokenKind::r_paren)) {
+            if (parenDepth == 0) break;
+            --parenDepth;
+        }
+        else if (check(TokenKind::l_brace)) ++braceDepth;
+        else if (check(TokenKind::r_brace)) --braceDepth;
+        else if (check(TokenKind::l_bracket)) ++bracketDepth;
+        else if (check(TokenKind::r_bracket)) --bracketDepth;
+
+        tokens.push_back(current_);
+        advance();
+    }
+
+    return tokens;
+}
+
+std::unique_ptr<Expr> Parser::parseMacroInvokeExpr(std::string name, SourceLocation startLoc) {
+    advance(); // consume '!'
+    expect(TokenKind::l_paren);
+
+    auto argTokens = collectBalancedTokens();
+
+    expect(TokenKind::r_paren);
+
+    return std::make_unique<MacroInvokeExpr>(std::move(name), std::move(argTokens),
+                                              rangeFrom(startLoc));
 }
 
 } // namespace liva

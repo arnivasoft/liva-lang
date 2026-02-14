@@ -96,6 +96,12 @@ DIAG(err_const_init_not_constant,  error, "'const' initializer must be a compile
 DIAG(err_comptime_not_constant,   error, "expression in comptime block must be evaluable at compile time")
 DIAG(err_comptime_loop_limit,     error, "comptime while loop exceeded maximum iteration limit")
 
+// === Sema - Macros ===
+DIAG(err_macro_undefined,          error, "undefined macro '%0'")
+DIAG(err_macro_no_matching_arm,    error, "no matching arm for macro '%0' invocation")
+DIAG(err_macro_expansion_failed,   error, "macro expansion failed for '%0': %1")
+DIAG(err_macro_redefinition,       error, "redefinition of macro '%0'")
+
 // === Parser - Error Recovery ===
 DIAG(err_too_many_errors,            error,   "too many errors emitted, stopping now")
 

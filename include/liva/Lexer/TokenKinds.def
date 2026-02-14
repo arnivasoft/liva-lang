@@ -62,6 +62,7 @@ KEYWORD(async,      "async")
 KEYWORD(await,      "await")
 KEYWORD(const,      "const")
 KEYWORD(comptime,   "comptime")
+KEYWORD(macro,      "macro")
 KEYWORD(try,        "try")
 KEYWORD(type,       "type")
 KEYWORD(dyn,        "dyn")
@@ -141,6 +142,7 @@ PUNCTUATOR(question,    "?")
 PUNCTUATOR(question_question, "??")
 PUNCTUATOR(question_dot, "?.")
 PUNCTUATOR(underscore,  "_")
+PUNCTUATOR(dollar,      "$")
 
 #undef PUNCTUATOR
 #undef KEYWORD

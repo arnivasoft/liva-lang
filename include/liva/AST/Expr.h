@@ -2,6 +2,7 @@
 
 #include "liva/AST/ASTNode.h"
 #include "liva/AST/Type.h"
+#include "liva/Lexer/Token.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,7 +22,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::IntegerLiteralExpr &&
-               node->getKind() <= NodeKind::ComptimeExpr;
+               node->getKind() <= NodeKind::MacroInvokeExpr;
     }
 
 protected:
@@ -547,6 +548,30 @@ public:
     static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::ComptimeExpr; }
 private:
     std::unique_ptr<BlockStmt> body_;
+};
+
+/// Macro invocation expression: name!(args)
+class MacroInvokeExpr : public Expr {
+public:
+    MacroInvokeExpr(std::string name, std::vector<Token> argTokens, SourceRange range)
+        : Expr(NodeKind::MacroInvokeExpr, range),
+          name_(std::move(name)), argTokens_(std::move(argTokens)) {}
+
+    const std::string &getName() const { return name_; }
+    const std::vector<Token> &getArgTokens() const { return argTokens_; }
+
+    void setExpanded(std::unique_ptr<Expr> expr) { expanded_ = std::move(expr); }
+    Expr *getExpanded() { return expanded_.get(); }
+    const Expr *getExpanded() const { return expanded_.get(); }
+
+    static bool classof(const ASTNode *n) {
+        return n->getKind() == NodeKind::MacroInvokeExpr;
+    }
+
+private:
+    std::string name_;
+    std::vector<Token> argTokens_;
+    std::unique_ptr<Expr> expanded_;
 };
 
 } // namespace liva

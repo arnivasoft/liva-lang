@@ -30,6 +30,7 @@ public:
     std::unique_ptr<ProtocolDecl> parseProtocolDecl(bool isPublic = false);
     std::unique_ptr<ImportDecl> parseImportDecl();
     std::unique_ptr<TypeAliasDecl> parseTypeAliasDecl(bool isPublic = false);
+    std::unique_ptr<MacroDecl> parseMacroDecl(bool isPublic = false);
 
     // Statement parsing (ParseStmt.cpp)
     std::unique_ptr<ASTNode> parseStatement();
@@ -55,6 +56,8 @@ public:
     std::unique_ptr<Expr> parseMatchExpr();
     std::unique_ptr<Expr> parseClosureExpr();
     std::unique_ptr<Expr> parseComptimeExpr();
+    std::unique_ptr<Expr> parseMacroInvokeExpr(std::string name, SourceLocation startLoc);
+    std::vector<Token> collectBalancedTokens();
 
     // Type parsing (ParseType.cpp)
     std::unique_ptr<TypeRepr> parseType();
