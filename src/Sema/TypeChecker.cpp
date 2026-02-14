@@ -63,7 +63,7 @@ void TypeChecker::registerBuiltins() {
 
     // Stdlib: Random, Process/Env, Date/Time, Regex, Networking
     for (auto &name : {"randInt", "randFloat", "env", "exit", "args",
-                        "clock", "clockMs", "sleep",
+                        "clock", "clockMs", "sleep", "isCancelled",
                         "regexMatch", "regexFind", "regexFindAll", "regexReplace",
                         "regexFindGroups",
                         "regexCompile", "regexTest", "regexExec",
@@ -1419,6 +1419,11 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "sleep") {
             // void — no resolved type needed
+        } else if (ident->getName() == "isCancelled") {
+            if (!currentIsAsync_) {
+                diag_.report(node->getStartLoc(), DiagID::err_is_cancelled_outside_async);
+            }
+            node->setResolvedType(makeBoolType());
         // Stdlib: Regex
         } else if (ident->getName() == "regexMatch") {
             node->setResolvedType(makeBoolType());

@@ -755,6 +755,13 @@ void IRGen::declareAsyncRuntimeFuncs() {
     // void liva_async_sleep(LivaTask *task, int64_t ms)
     auto *asyncSleepTy = llvm::FunctionType::get(voidTy, {ptrTy, builder_->getInt64Ty()}, false);
     module_->getOrInsertFunction("liva_async_sleep", asyncSleepTy);
+
+    // void liva_task_cancel(LivaTask *task)
+    module_->getOrInsertFunction("liva_task_cancel", voidPtrTy);
+
+    // int8_t liva_task_is_cancelled(LivaTask *task)
+    auto *isCancelledTy = llvm::FunctionType::get(i8Ty, {ptrTy}, false);
+    module_->getOrInsertFunction("liva_task_is_cancelled", isCancelledTy);
 }
 
 llvm::StructType *IRGen::getResultType(llvm::Type *okType, llvm::Type *errType) {

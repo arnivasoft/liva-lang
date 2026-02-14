@@ -1564,6 +1564,91 @@ async func main() {
     EXPECT_TRUE(result.errors.empty());
 }
 
+// === K4: Async Error Propagation + Cancellation Integration Tests ===
+
+TEST_F(IntegrationTest, AsyncResultReturn) {
+    std::string source = R"--(
+async func fetch() -> Result<i32, string> {
+    return Result.ok(42)
+}
+async func main() {
+    let r = await fetch()
+    println(r)
+}
+)--";
+    auto result = runPipeline("async_result_return.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for async_result_return.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for async_result_return.liva";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, AsyncTryAwait) {
+    std::string source = R"--(
+async func fetch() -> Result<i32, string> {
+    return Result.ok(100)
+}
+async func main() {
+    let val = try await fetch()
+    println(val)
+}
+)--";
+    auto result = runPipeline("async_try_await.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for async_try_await.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for async_try_await.liva";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, AsyncDeepChain) {
+    std::string source = R"--(
+async func f5() -> i32 { return 5 }
+async func f4() -> i32 { return await f5() }
+async func f3() -> i32 { return await f4() }
+async func f2() -> i32 { return await f3() }
+async func f1() -> i32 { return await f2() }
+async func f0() -> i32 { return await f1() }
+async func main() {
+    let val = await f0()
+    println(val)
+}
+)--";
+    auto result = runPipeline("async_deep_chain.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for async_deep_chain.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for async_deep_chain.liva";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, AsyncIsCancelledValid) {
+    std::string source = R"--(
+async func work() -> i32 {
+    if isCancelled() {
+        return -1
+    }
+    return 42
+}
+async func main() {
+    let r = await work()
+    println(r)
+}
+)--";
+    auto result = runPipeline("async_is_cancelled.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for async_is_cancelled.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for async_is_cancelled.liva";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ErrorIsCancelledOutsideAsync) {
+    std::string source = R"--(
+func main() {
+    let c = isCancelled()
+    println(c)
+}
+)--";
+    auto result = runPipeline("error_is_cancelled.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for error_is_cancelled.liva";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail for isCancelled outside async";
+    EXPECT_FALSE(result.errors.empty());
+}
+
 TEST_F(IntegrationTest, StringInterpolationCleanup) {
     std::string source = R"--(
 func main() {

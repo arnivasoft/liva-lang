@@ -3236,6 +3236,263 @@ TEST_F(SemaTest, PubAsyncFunc) {
     EXPECT_TRUE(result.passed);
 }
 
+// === K4: Async Error Propagation Tests ===
+
+TEST_F(SemaTest, AsyncReturnsResult) {
+    auto result = check(R"--(
+        async func fetch() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        async func main() {
+            let r = await fetch()
+            println(r)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncTryAwaitCombo) {
+    auto result = check(R"--(
+        async func fetch() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        async func main() {
+            let val = try await fetch()
+            println(val)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncTryAwaitOnNonResult) {
+    auto result = check(R"--(
+        async func fetch() -> i32 {
+            return 42
+        }
+        async func main() {
+            let val = try await fetch()
+            println(val)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_try_on_non_result));
+}
+
+TEST_F(SemaTest, AsyncResultErrPath) {
+    auto result = check(R"--(
+        async func fetch() -> Result<i32, string> {
+            return Result.err("failed")
+        }
+        async func main() {
+            let r = await fetch()
+            println(r)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncResultInLoop) {
+    auto result = check(R"--(
+        async func fetch(x: i32) -> Result<i32, string> {
+            return Result.ok(x)
+        }
+        async func main() {
+            var i: i32 = 0
+            while i < 3 {
+                let r = await fetch(i)
+                println(r)
+                i = i + 1
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncResultChained) {
+    auto result = check(R"--(
+        async func step1() -> Result<i32, string> {
+            return Result.ok(1)
+        }
+        async func step2() -> Result<i32, string> {
+            let v = try await step1()
+            return Result.ok(v + 1)
+        }
+        async func step3() -> Result<i32, string> {
+            let v = try await step2()
+            return Result.ok(v + 1)
+        }
+        async func main() {
+            let r = await step3()
+            println(r)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncResultConditional) {
+    auto result = check(R"--(
+        async func fetch(flag: bool) -> Result<i32, string> {
+            if flag {
+                return Result.ok(42)
+            } else {
+                return Result.err("nope")
+            }
+        }
+        async func main() {
+            let r = await fetch(true)
+            println(r)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === K4: Cancellation Tests ===
+
+TEST_F(SemaTest, IsCancelledInAsync) {
+    auto result = check(R"--(
+        async func work() {
+            if isCancelled() {
+                return
+            }
+            println("working")
+        }
+        async func main() {
+            await work()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, IsCancelledOutsideAsync) {
+    auto result = check(R"--(
+        func main() {
+            let c = isCancelled()
+            println(c)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_is_cancelled_outside_async));
+}
+
+TEST_F(SemaTest, IsCancelledReturnsBool) {
+    auto result = check(R"--(
+        async func work() -> bool {
+            return isCancelled()
+        }
+        async func main() {
+            let b = await work()
+            println(b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === K4: Async Stress Tests ===
+
+TEST_F(SemaTest, AsyncDeepCallChain10) {
+    auto result = check(R"--(
+        async func f9() -> i32 { return 9 }
+        async func f8() -> i32 { return await f9() }
+        async func f7() -> i32 { return await f8() }
+        async func f6() -> i32 { return await f7() }
+        async func f5() -> i32 { return await f6() }
+        async func f4() -> i32 { return await f5() }
+        async func f3() -> i32 { return await f4() }
+        async func f2() -> i32 { return await f3() }
+        async func f1() -> i32 { return await f2() }
+        async func f0() -> i32 { return await f1() }
+        async func main() {
+            let val = await f0()
+            println(val)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncWhileMultipleAwaits) {
+    auto result = check(R"--(
+        async func getA() -> i32 { return 1 }
+        async func getB() -> i32 { return 2 }
+        async func main() {
+            var sum: i32 = 0
+            var i: i32 = 0
+            while i < 5 {
+                let a = await getA()
+                let b = await getB()
+                sum = sum + a + b
+                i = i + 1
+            }
+            println(sum)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncConditionalAwaitPaths) {
+    auto result = check(R"--(
+        async func pathA() -> i32 { return 10 }
+        async func pathB() -> i32 { return 20 }
+        async func choose(flag: bool) -> i32 {
+            if flag {
+                return await pathA()
+            } else {
+                return await pathB()
+            }
+        }
+        async func main() {
+            let v = await choose(true)
+            println(v)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncMixedSyncAsync) {
+    auto result = check(R"--(
+        func syncAdd(a: i32, b: i32) -> i32 { return a + b }
+        async func asyncGet() -> i32 { return 5 }
+        async func main() {
+            let x = await asyncGet()
+            let y = syncAdd(x, 10)
+            println(y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncVoidChained) {
+    auto result = check(R"--(
+        async func d() { println("d") }
+        async func c() { await d() }
+        async func b() { await c() }
+        async func a() { await b() }
+        async func main() {
+            await a()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncCancelCheckInLoop) {
+    auto result = check(R"--(
+        async func work() -> i32 {
+            var i: i32 = 0
+            while i < 100 {
+                if isCancelled() {
+                    return -1
+                }
+                i = i + 1
+            }
+            return i
+        }
+        async func main() {
+            let r = await work()
+            println(r)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 // === M35: Const Declaration Tests ===
 
 TEST_F(SemaTest, ConstDeclValid) {

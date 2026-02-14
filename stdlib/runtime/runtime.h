@@ -409,6 +409,7 @@ typedef struct LivaTask {
     void *handle;            // Coroutine frame pointer
     struct LivaTask *parent; // Parent task waiting on us (or NULL)
     int8_t done;             // 1 = completed
+    int8_t cancelled;        // 1 = cancelled (cooperative)
 } LivaTask;
 
 LivaTask *liva_task_create(void *coro_handle);
@@ -417,6 +418,8 @@ int8_t liva_task_is_done(LivaTask *task);
 void *liva_task_get_handle(LivaTask *task);
 void liva_task_set_parent(LivaTask *child, LivaTask *parent);
 void liva_task_destroy(LivaTask *task);
+void liva_task_cancel(LivaTask *task);
+int8_t liva_task_is_cancelled(LivaTask *task);
 void liva_coro_resume(void *handle);
 void liva_coro_destroy(void *handle);
 void liva_scheduler_run(LivaTask *root);

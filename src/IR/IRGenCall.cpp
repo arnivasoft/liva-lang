@@ -1341,6 +1341,14 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return nullptr;
     }
 
+    if (funcName == "isCancelled" && currentIsAsync_ && currentCoroTask_) {
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curTask = builder_->CreateLoad(ptrTy, currentCoroTask_, "cancel.task");
+        auto *isCancelledFn = getOrPanic("liva_task_is_cancelled");
+        auto *cancelledI8 = builder_->CreateCall(isCancelledFn, {curTask}, "cancelled.i8");
+        return builder_->CreateICmpNE(cancelledI8, builder_->getInt8(0), "is.cancelled");
+    }
+
     // === Stdlib: Regex ===
     if (funcName == "regexMatch" && node->getArgs().size() >= 2) {
         auto *strArg = visit(node->getArgs()[0].get());

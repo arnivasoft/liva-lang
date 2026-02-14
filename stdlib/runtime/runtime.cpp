@@ -2359,6 +2359,7 @@ LivaTask *liva_task_create(void *coro_handle) {
     task->handle = coro_handle;
     task->parent = nullptr;
     task->done = 0;
+    task->cancelled = 0;
     return task;
 }
 
@@ -2384,6 +2385,14 @@ void liva_task_set_parent(LivaTask *child, LivaTask *parent) {
 
 void liva_task_destroy(LivaTask *task) {
     free(task);
+}
+
+void liva_task_cancel(LivaTask *task) {
+    task->cancelled = 1;
+}
+
+int8_t liva_task_is_cancelled(LivaTask *task) {
+    return task->cancelled;
 }
 
 void liva_coro_resume(void *handle) {
@@ -2415,6 +2424,13 @@ void liva_scheduler_run(LivaTask *root) {
 
         LivaTask *task = ready_pop();
         if (task) {
+            if (task->cancelled) {
+                task->done = 1;
+                if (task->parent) {
+                    ready_push(task->parent);
+                }
+                continue;
+            }
             if (!task->done) {
                 liva_coro_resume(task->handle);
             }
