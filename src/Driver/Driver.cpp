@@ -3,6 +3,7 @@
 #include "liva/Driver/BuildCache.h"
 #include "liva/Driver/CompilerInstance.h"
 #include "liva/Driver/PackageManager.h"
+#include "liva/Driver/SemaCache.h"
 #include "liva/CodeGen/CodeGen.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/LSP/LSPServer.h"
@@ -440,10 +441,14 @@ int Driver::buildProject(bool runAfter) {
     // Per-file incremental compilation
     auto fileStatuses = cache.checkFilesCache(depFiles, cfg.optLevel, cfg.debugInfo);
 
-    // Check if all files are cached
+    // Dependency-aware sema cache check
+    SemaCache semaCache(cfg.projectRoot);
+    auto semaStatuses = semaCache.check(depFiles, fileStatuses);
+
+    // Check if all files are cached (both build cache and sema cache)
     bool allCached = true;
-    for (const auto &fs : fileStatuses) {
-        if (fs.needsRecompile) {
+    for (size_t i = 0; i < depFiles.size(); ++i) {
+        if (fileStatuses[i].needsRecompile || semaStatuses[i].needsResema) {
             allCached = false;
             break;
         }
@@ -484,13 +489,13 @@ int Driver::buildProject(bool runAfter) {
         const auto &status = fileStatuses[i];
         bool isEntry = (sourcePath == entryPath);
 
-        if (!status.needsRecompile) {
-            // Use cached .o
+        // Source hash unchanged AND sema cache hit AND .o cached → skip entirely
+        if (!status.needsRecompile && !semaStatuses[i].needsResema) {
             allObjPaths.push_back(status.cachedObjPath);
             continue;
         }
 
-        // Compile this file
+        // Compile this file with sema metadata
         CompilerInstance compiler;
         compiler.setExecutablePath(executablePath_);
         compiler.setOptLevel(cfg.optLevel);
@@ -510,17 +515,25 @@ int Driver::buildProject(bool runAfter) {
         std::string objPath = joinPath(buildDir, objName);
         createDirectories(buildDir);
 
-        if (!compiler.compileToObject(objPath, isEntry, &sharedLoader)) {
+        auto compileResult = compiler.compileToObjectWithMeta(objPath, isEntry, &sharedLoader);
+        if (!compileResult.success) {
             compileFailed = true;
             break;
         }
 
-        // Store in cache
+        // Store in build cache
         cache.storeFileObject(sourcePath, status.currentHash, objPath,
                               cfg.optLevel, cfg.debugInfo);
 
+        // Store sema metadata (interface hash + imports) for dependency tracking
+        semaCache.store(sourcePath, status.currentHash,
+                        compileResult.interfaceHash, compileResult.imports);
+
         allObjPaths.push_back(objPath);
     }
+
+    // Save sema manifest
+    semaCache.saveManifest();
 
     if (compileFailed)
         return 1;

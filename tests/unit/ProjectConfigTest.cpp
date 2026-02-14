@@ -1,6 +1,9 @@
 #include "liva/Driver/BuildCache.h"
 #include "liva/Driver/PackageManager.h"
 #include "liva/Driver/ProjectConfig.h"
+#include "liva/Driver/SemaCache.h"
+#include "liva/AST/Decl.h"
+#include "liva/AST/Type.h"
 #include "liva/Common/Version.h"
 #include <cstdio>
 #include <fstream>
@@ -1791,4 +1794,261 @@ TEST(VersionConstraint, ToStringRange) {
     c.min = liva::SemVer{1, 0, 0};
     c.max = liva::SemVer{2, 0, 0};
     EXPECT_EQ(c.toString(), ">=1.0.0,<2.0.0");
+}
+
+// === SemaCache Tests ===
+
+// Helper: create a TranslationUnit with a pub func
+static std::unique_ptr<liva::TranslationUnit> makeTU_PubFunc(
+    const std::string &name, const std::string &retType) {
+    auto tu = std::make_unique<liva::TranslationUnit>();
+    std::unique_ptr<liva::TypeRepr> ret;
+    if (retType == "i32")
+        ret = liva::makeI32Type();
+    else if (retType == "i64")
+        ret = liva::makeI64Type();
+    else if (retType == "void")
+        ret = liva::makeVoidType();
+    else
+        ret = liva::makeStringType();
+    std::vector<liva::ParamDecl> params;
+    auto func = std::make_unique<liva::FuncDecl>(
+        name, std::move(params), std::move(ret), nullptr,
+        /*isPublic=*/true, liva::SourceRange::invalid());
+    tu->addDeclaration(std::move(func));
+    return tu;
+}
+
+// Helper: create a TU with a private func
+static std::unique_ptr<liva::TranslationUnit> makeTU_PrivFunc(
+    const std::string &name) {
+    auto tu = std::make_unique<liva::TranslationUnit>();
+    auto ret = liva::makeVoidType();
+    std::vector<liva::ParamDecl> params;
+    auto func = std::make_unique<liva::FuncDecl>(
+        name, std::move(params), std::move(ret), nullptr,
+        /*isPublic=*/false, liva::SourceRange::invalid());
+    tu->addDeclaration(std::move(func));
+    return tu;
+}
+
+// Helper: create a TU with a pub struct
+static std::unique_ptr<liva::TranslationUnit> makeTU_PubStruct(
+    const std::string &name,
+    const std::vector<std::pair<std::string, std::string>> &fields) {
+    auto tu = std::make_unique<liva::TranslationUnit>();
+    std::vector<std::unique_ptr<liva::FieldDecl>> fieldDecls;
+    for (const auto &f : fields) {
+        std::unique_ptr<liva::TypeRepr> ftype;
+        if (f.second == "i32")
+            ftype = liva::makeI32Type();
+        else
+            ftype = liva::makeStringType();
+        fieldDecls.push_back(std::make_unique<liva::FieldDecl>(
+            f.first, std::move(ftype), true, liva::SourceRange::invalid()));
+    }
+    auto s = std::make_unique<liva::StructDecl>(
+        name, std::move(fieldDecls), /*isPublic=*/true,
+        liva::SourceRange::invalid());
+    tu->addDeclaration(std::move(s));
+    return tu;
+}
+
+TEST(SemaCache, ComputeInterfaceHash) {
+    auto tu = makeTU_PubFunc("foo", "i32");
+    std::string hash = liva::SemaCache::computeInterfaceHash(*tu);
+    EXPECT_FALSE(hash.empty());
+    EXPECT_EQ(hash.size(), 16u); // 64-bit hex
+
+    // Same TU should produce same hash
+    auto tu2 = makeTU_PubFunc("foo", "i32");
+    std::string hash2 = liva::SemaCache::computeInterfaceHash(*tu2);
+    EXPECT_EQ(hash, hash2);
+}
+
+TEST(SemaCache, InterfaceHashChanges) {
+    auto tu1 = makeTU_PubFunc("foo", "i32");
+    auto tu2 = makeTU_PubFunc("foo", "i64"); // different return type
+
+    std::string hash1 = liva::SemaCache::computeInterfaceHash(*tu1);
+    std::string hash2 = liva::SemaCache::computeInterfaceHash(*tu2);
+    EXPECT_NE(hash1, hash2);
+
+    // Different name, same signature
+    auto tu3 = makeTU_PubFunc("bar", "i32");
+    std::string hash3 = liva::SemaCache::computeInterfaceHash(*tu3);
+    EXPECT_NE(hash1, hash3);
+}
+
+TEST(SemaCache, InterfaceHashPrivateIgnored) {
+    // Only pub declarations affect interface hash
+    auto tu1 = makeTU_PrivFunc("helper");
+    auto tu2 = makeTU_PrivFunc("differentHelper");
+
+    std::string hash1 = liva::SemaCache::computeInterfaceHash(*tu1);
+    std::string hash2 = liva::SemaCache::computeInterfaceHash(*tu2);
+    // Both have zero public API → same hash
+    EXPECT_EQ(hash1, hash2);
+}
+
+TEST(SemaCache, InterfaceHashStruct) {
+    auto tu1 = makeTU_PubStruct("Point", {{"x", "i32"}, {"y", "i32"}});
+    auto tu2 = makeTU_PubStruct("Point", {{"x", "i32"}, {"y", "i32"}});
+    auto tu3 = makeTU_PubStruct("Point", {{"x", "i32"}, {"z", "i32"}}); // field name differs
+
+    std::string h1 = liva::SemaCache::computeInterfaceHash(*tu1);
+    std::string h2 = liva::SemaCache::computeInterfaceHash(*tu2);
+    std::string h3 = liva::SemaCache::computeInterfaceHash(*tu3);
+    EXPECT_EQ(h1, h2);
+    EXPECT_NE(h1, h3);
+}
+
+// SemaCache check/store tests use a temp directory
+class SemaCacheTest : public ::testing::Test {
+protected:
+    std::string testDir_;
+
+    void SetUp() override {
+        testDir_ = std::string(LIVA_PROJECT_ROOT) + "/build/test_sema_cache_tmp";
+        liva::createDirectories(testDir_);
+        // Create .liva-cache subdir
+        liva::createDirectories(liva::joinPath(testDir_, ".liva-cache"));
+    }
+
+    void TearDown() override {
+        liva::removeDirectoryRecursive(testDir_);
+    }
+};
+
+TEST_F(SemaCacheTest, CheckAllClean) {
+    liva::SemaCache cache(testDir_);
+
+    // Store two files with known hashes
+    cache.store("a.liva", "hashA", "ifaceA", {});
+    cache.store("b.liva", "hashB", "ifaceB", {});
+    cache.saveManifest();
+
+    // Re-create cache (simulates new build)
+    liva::SemaCache cache2(testDir_);
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
+    liva::FileCompileStatus statusB{"b.liva", "hashB", "", false};
+
+    auto results = cache2.check({"a.liva", "b.liva"}, {statusA, statusB});
+    ASSERT_EQ(results.size(), 2u);
+    EXPECT_FALSE(results[0].needsResema);
+    EXPECT_FALSE(results[1].needsResema);
+}
+
+TEST_F(SemaCacheTest, CheckSourceChanged) {
+    liva::SemaCache cache(testDir_);
+    cache.store("a.liva", "oldHash", "ifaceA", {});
+    cache.saveManifest();
+
+    liva::SemaCache cache2(testDir_);
+    liva::FileCompileStatus statusA{"a.liva", "newHash", "", true};
+
+    auto results = cache2.check({"a.liva"}, {statusA});
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_TRUE(results[0].needsResema);
+}
+
+TEST_F(SemaCacheTest, CheckDepInterfaceChanged) {
+    liva::SemaCache cache(testDir_);
+
+    // B compiled first with interfaceHash "ifaceB_v1"
+    cache.store("b.liva", "hashB", "ifaceB_v1", {});
+    // A compiled importing B — snapshots B's interface as "ifaceB_v1"
+    cache.store("a.liva", "hashA", "ifaceA", {"b.liva"});
+    cache.saveManifest();
+
+    // Simulate B being recompiled with different interface
+    liva::SemaCache cache2(testDir_);
+    // Manually update B's interface hash in manifest
+    // First load, then update
+    liva::FileCompileStatus statusB{"b.liva", "hashB_new", "", true};
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
+
+    // B has source changes → B needs resema
+    // A imports B → cascade → A also needs resema
+    auto results = cache2.check({"a.liva", "b.liva"}, {statusA, statusB});
+    ASSERT_EQ(results.size(), 2u);
+    EXPECT_TRUE(results[0].needsResema);  // A: cascade from B
+    EXPECT_TRUE(results[1].needsResema);  // B: source changed
+}
+
+TEST_F(SemaCacheTest, CheckDepBodyOnlyChanged) {
+    liva::SemaCache cache(testDir_);
+
+    // B compiled with interfaceHash "ifaceB"
+    cache.store("b.liva", "hashB_v1", "ifaceB", {});
+    // A compiled importing B — snapshots B's interface as "ifaceB"
+    cache.store("a.liva", "hashA", "ifaceA", {"b.liva"});
+
+    // Now B body changed, was recompiled with SAME interface hash
+    cache.store("b.liva", "hashB_v2", "ifaceB", {}); // interface unchanged!
+    cache.saveManifest();
+
+    // New build: both source hashes match current manifest
+    liva::SemaCache cache2(testDir_);
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
+    liva::FileCompileStatus statusB{"b.liva", "hashB_v2", "", false};
+
+    auto results = cache2.check({"a.liva", "b.liva"}, {statusA, statusB});
+    ASSERT_EQ(results.size(), 2u);
+    EXPECT_FALSE(results[0].needsResema); // A: B's interface same → cache hit
+    EXPECT_FALSE(results[1].needsResema); // B: source unchanged
+}
+
+TEST_F(SemaCacheTest, CascadeInvalidation) {
+    liva::SemaCache cache(testDir_);
+
+    // C → B → A dependency chain
+    cache.store("c.liva", "hashC", "ifaceC", {});
+    cache.store("b.liva", "hashB", "ifaceB", {"c.liva"});
+    cache.store("a.liva", "hashA", "ifaceA", {"b.liva"});
+    cache.saveManifest();
+
+    // C source changed → cascades to B (imports C) → cascades to A (imports B)
+    liva::SemaCache cache2(testDir_);
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
+    liva::FileCompileStatus statusB{"b.liva", "hashB", "", false};
+    liva::FileCompileStatus statusC{"c.liva", "newHashC", "", true};
+
+    auto results = cache2.check(
+        {"a.liva", "b.liva", "c.liva"},
+        {statusA, statusB, statusC});
+    ASSERT_EQ(results.size(), 3u);
+    EXPECT_TRUE(results[0].needsResema);  // A: cascaded from B
+    EXPECT_TRUE(results[1].needsResema);  // B: cascaded from C
+    EXPECT_TRUE(results[2].needsResema);  // C: source changed
+}
+
+TEST_F(SemaCacheTest, ManifestRoundTrip) {
+    liva::SemaCache cache(testDir_);
+    cache.store("lib.liva", "hash1", "iface1", {});
+    cache.store("main.liva", "hash2", "iface2", {"lib.liva"});
+    EXPECT_TRUE(cache.saveManifest());
+
+    // Load into new cache
+    liva::SemaCache cache2(testDir_);
+    liva::FileCompileStatus s1{"lib.liva", "hash1", "", false};
+    liva::FileCompileStatus s2{"main.liva", "hash2", "", false};
+    auto results = cache2.check({"lib.liva", "main.liva"}, {s1, s2});
+    ASSERT_EQ(results.size(), 2u);
+    EXPECT_FALSE(results[0].needsResema);
+    EXPECT_FALSE(results[1].needsResema);
+    EXPECT_EQ(results[0].cachedInterfaceHash, "iface1");
+    EXPECT_EQ(results[1].cachedInterfaceHash, "iface2");
+}
+
+TEST_F(SemaCacheTest, CheckNoManifest) {
+    // No manifest file → all files need resema
+    liva::SemaCache cache(testDir_);
+    liva::FileCompileStatus s1{"a.liva", "hashA", "", false};
+    liva::FileCompileStatus s2{"b.liva", "hashB", "", false};
+
+    auto results = cache.check({"a.liva", "b.liva"}, {s1, s2});
+    ASSERT_EQ(results.size(), 2u);
+    EXPECT_TRUE(results[0].needsResema);
+    EXPECT_TRUE(results[1].needsResema);
 }

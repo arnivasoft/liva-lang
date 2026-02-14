@@ -3,6 +3,7 @@
 #include "liva/AST/Decl.h"
 #include "liva/CodeGen/CodeGen.h"
 #include "liva/CodeGen/TargetInfo.h"
+#include "liva/Driver/SemaCache.h"
 #include "liva/IR/IRGen.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
@@ -172,6 +173,76 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
     (void)isEntryFile;
     std::cerr << "error: LLVM not available, cannot generate code\n";
     return false;
+#endif
+}
+
+CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
+    const std::string &outputObjPath, bool isEntryFile,
+    ModuleLoader *sharedLoader) {
+
+    CompileResult result;
+    result.success = false;
+
+    auto tu = parseSource();
+    if (!tu || diag_.hasErrors())
+        return result;
+
+    // Use shared or local ModuleLoader
+    ModuleLoader localLoader;
+    ModuleLoader *loader = sharedLoader;
+    if (!loader) {
+        loader = &localLoader;
+        std::string fname(sourceManager_->getFilename());
+        auto pos = fname.find_last_of("/\\");
+        if (pos != std::string::npos)
+            loader->setBasePath(fname.substr(0, pos + 1));
+        for (const auto &sp : searchPaths_)
+            loader->addSearchPath(sp);
+    }
+
+    Sema sema(diag_, loader);
+    if (!sema.analyze(*tu))
+        return result;
+
+    // Compute interface hash from parsed+checked AST
+    result.interfaceHash = SemaCache::computeInterfaceHash(*tu);
+
+    // Extract import file paths from ImportDecl nodes
+    for (const auto &decl : tu->getDeclarations()) {
+        if (decl->getKind() == ASTNode::NodeKind::ImportDecl) {
+            auto *importDecl = static_cast<const ImportDecl *>(decl.get());
+            result.imports.push_back(importDecl->getPathString());
+        }
+    }
+
+#ifdef LIVA_HAS_LLVM
+    IRGen irgen(sourceManager_->getFilename().data(), diag_);
+    irgen.setModuleLoader(loader);
+    irgen.setDebugInfo(debugInfo_);
+    irgen.setSeparateCompilation(true);
+    irgen.setRequireMain(isEntryFile);
+    if (!irgen.generate(*tu))
+        return result;
+
+    auto *module = irgen.getModule();
+    CodeGen codegen(diag_);
+    codegen.optimize(*module, optLevel_, ltoMode_, pgoMode_, pgoProfile_);
+
+    bool useLto = (ltoMode_ == "thin" || ltoMode_ == "full");
+    bool emitOk = useLto ? codegen.emitBitcode(*module, outputObjPath)
+                         : codegen.emitObjectFile(*module, outputObjPath);
+    if (!emitOk) {
+        std::cerr << "error: failed to emit object file '" << outputObjPath << "'\n";
+        return result;
+    }
+
+    result.success = true;
+    return result;
+#else
+    (void)outputObjPath;
+    (void)isEntryFile;
+    std::cerr << "error: LLVM not available, cannot generate code\n";
+    return result;
 #endif
 }
 

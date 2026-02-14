@@ -138,10 +138,11 @@ add_library(liva_repl STATIC
 target_link_libraries(liva_repl PUBLIC liva_sema liva_parser liva_common)
 liva_set_compiler_flags(liva_repl)
 
-# liva_driver (TOML parser, path utils, build cache, package manager)
+# liva_driver (TOML parser, path utils, build cache, sema cache, package manager)
 add_library(liva_driver STATIC
     src/Driver/ProjectConfig.cpp
     src/Driver/BuildCache.cpp
+    src/Driver/SemaCache.cpp
     src/Driver/PackageManager.cpp
     src/Driver/Formatter.cpp
     src/Driver/Linter.cpp

@@ -63,6 +63,15 @@ public:
     bool compileToObject(const std::string &outputObjPath, bool isEntryFile,
                          ModuleLoader *sharedLoader = nullptr);
 
+    /// Compile to object, returning sema metadata for caching
+    struct CompileResult {
+        bool success;
+        std::string interfaceHash;
+        std::vector<std::string> imports;  // resolved import file paths
+    };
+    CompileResult compileToObjectWithMeta(const std::string &outputObjPath, bool isEntryFile,
+                                          ModuleLoader *sharedLoader = nullptr);
+
     /// Emit LLVM IR
     bool emitIR(const std::string &outputPath);
 
