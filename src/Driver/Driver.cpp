@@ -8,6 +8,7 @@
 #include "liva/Lexer/Lexer.h"
 #include "liva/LSP/LSPServer.h"
 #include "liva/Parser/Parser.h"
+#include "liva/DAP/DAPServer.h"
 #include "liva/REPL/REPL.h"
 #include "liva/Sema/ModuleLoader.h"
 #include <atomic>
@@ -53,6 +54,10 @@ bool Driver::parseArgs(int argc, const char **argv) {
             return true;
         } else if (std::strcmp(argv[1], "repl") == 0) {
             options_.subcommand = Subcommand::Repl;
+            startIdx = 2;
+            return true;
+        } else if (std::strcmp(argv[1], "dap") == 0) {
+            options_.subcommand = Subcommand::Dap;
             startIdx = 2;
             return true;
         } else if (std::strcmp(argv[1], "fmt") == 0) {
@@ -263,6 +268,7 @@ int Driver::execute() {
     case Subcommand::Install: return executeInstall();
     case Subcommand::Fmt:     return executeFmt();
     case Subcommand::Lint:    return executeLint();
+    case Subcommand::Dap:     return executeDap();
     case Subcommand::None:    return executeLegacy();
     }
 
@@ -658,6 +664,11 @@ int Driver::buildProject(bool runAfter) {
 
 int Driver::executeLsp() {
     LSPServer server;
+    return server.run();
+}
+
+int Driver::executeDap() {
+    DAPServer server;
     return server.run();
 }
 
@@ -1142,6 +1153,7 @@ void Driver::printHelp() {
               << "       livac fmt [--check] <files...>\n"
               << "       livac lint <files...>\n"
               << "       livac lsp\n"
+              << "       livac dap\n"
               << "\n"
               << "Subcommands:\n"
               << "  build               Build project using liva.toml\n"
@@ -1152,6 +1164,7 @@ void Driver::printHelp() {
               << "  fmt [--check]       Format Liva source files\n"
               << "  lint                Lint Liva source files\n"
               << "  lsp                 Start Language Server Protocol server\n"
+              << "  dap                 Start Debug Adapter Protocol server\n"
               << "  repl                Start interactive REPL\n"
               << "\n"
               << "Options:\n"

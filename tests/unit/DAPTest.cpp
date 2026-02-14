@@ -1,0 +1,818 @@
+#include "liva/DAP/DAPServer.h"
+#include <gtest/gtest.h>
+
+using namespace liva;
+
+// ============================================================
+// DAP Test Fixture
+// ============================================================
+
+class DAPTest : public ::testing::Test {
+protected:
+    DAPServer server;
+
+    static std::string escapeForJSON(const std::string &s) {
+        std::string result;
+        for (char c : s) {
+            switch (c) {
+            case '"':  result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:   result += c; break;
+            }
+        }
+        return result;
+    }
+
+    std::string initRequest(int seq = 1) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"initialize","arguments":{}})";
+    }
+
+    std::string launchRequest(const std::string &source, int seq = 2) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"launch","arguments":{)"
+               R"("program":"test.liva","source":")" +
+               escapeForJSON(source) + R"("}})";
+    }
+
+    std::string setBreakpointsRequest(const std::string &path,
+                                       const std::vector<int> &lines,
+                                       int seq = 3) {
+        std::string bps = "[";
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (i > 0) bps += ",";
+            bps += R"({"line":)" + std::to_string(lines[i]) + "}";
+        }
+        bps += "]";
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"setBreakpoints","arguments":{)"
+               R"("source":{"path":")" + escapeForJSON(path) +
+               R"("},"breakpoints":)" + bps + "}}";
+    }
+
+    std::string configDoneRequest(int seq = 4) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"configurationDone","arguments":{}})";
+    }
+
+    std::string continueRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"continue","arguments":{"threadId":1}})";
+    }
+
+    std::string nextRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"next","arguments":{"threadId":1}})";
+    }
+
+    std::string stepInRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"stepIn","arguments":{"threadId":1}})";
+    }
+
+    std::string stepOutRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"stepOut","arguments":{"threadId":1}})";
+    }
+
+    std::string threadsRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"threads","arguments":{}})";
+    }
+
+    std::string stackTraceRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"stackTrace","arguments":{"threadId":1}})";
+    }
+
+    std::string scopesRequest(int frameId, int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"scopes","arguments":{"frameId":)" +
+               std::to_string(frameId) + "}}";
+    }
+
+    std::string variablesRequest(int varRef, int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"variables","arguments":{"variablesReference":)" +
+               std::to_string(varRef) + "}}";
+    }
+
+    std::string disconnectRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"disconnect","arguments":{}})";
+    }
+
+    std::string setExceptionBreakpointsRequest(int seq) {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"setExceptionBreakpoints","arguments":{"filters":[]}})";
+    }
+
+    JSONValue parseResponse(const std::string &resp) {
+        auto r = parseJSON(resp);
+        return r.success ? std::move(r.value) : JSONValue();
+    }
+
+    JSONValue parseEvent(const std::string &ev) {
+        auto r = parseJSON(ev);
+        return r.success ? std::move(r.value) : JSONValue();
+    }
+
+    // Helper: full init + launch + configDone (runs to first breakpoint or end)
+    void initAndLaunch(const std::string &source,
+                       const std::string &bpPath = "",
+                       const std::vector<int> &bpLines = {}) {
+        server.handleMessage(initRequest());
+        server.takeEvents(); // initialized event
+        server.handleMessage(launchRequest(source));
+        server.takeEvents();
+        if (!bpPath.empty()) {
+            server.handleMessage(setBreakpointsRequest(bpPath, bpLines));
+            server.takeEvents();
+        }
+        server.handleMessage(setExceptionBreakpointsRequest(5));
+        server.takeEvents();
+    }
+};
+
+// ============================================================
+// Protocol Tests
+// ============================================================
+
+TEST_F(DAPTest, InitializeResponse) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    EXPECT_EQ(resp["type"].getString(), "response");
+    EXPECT_EQ(resp["command"].getString(), "initialize");
+    EXPECT_TRUE(resp["success"].getBool());
+    EXPECT_TRUE(resp["body"]["supportsConfigurationDoneRequest"].getBool());
+}
+
+TEST_F(DAPTest, InitializedEvent) {
+    server.handleMessage(initRequest());
+    auto events = server.takeEvents();
+    ASSERT_GE(events.size(), 1u);
+    auto ev = parseEvent(events[0]);
+    EXPECT_EQ(ev["type"].getString(), "event");
+    EXPECT_EQ(ev["event"].getString(), "initialized");
+}
+
+TEST_F(DAPTest, LaunchValid) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    auto resp = parseResponse(server.handleMessage(
+        launchRequest("func main() {\n    let x: i32 = 42\n}\n")));
+    EXPECT_TRUE(resp["success"].getBool());
+    EXPECT_EQ(resp["command"].getString(), "launch");
+}
+
+TEST_F(DAPTest, LaunchInvalid) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    auto resp = parseResponse(server.handleMessage(
+        launchRequest("func main( {\n")));
+    EXPECT_FALSE(resp["success"].getBool());
+}
+
+TEST_F(DAPTest, Disconnect) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    auto resp = parseResponse(server.handleMessage(disconnectRequest(2)));
+    EXPECT_TRUE(resp["success"].getBool());
+    EXPECT_EQ(resp["command"].getString(), "disconnect");
+}
+
+TEST_F(DAPTest, Threads) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    auto resp = parseResponse(server.handleMessage(threadsRequest(2)));
+    EXPECT_TRUE(resp["success"].getBool());
+    const auto &threads = resp["body"]["threads"].getArray();
+    ASSERT_EQ(threads.size(), 1u);
+    EXPECT_EQ(threads[0]["id"].getInteger(), 1);
+    EXPECT_EQ(threads[0]["name"].getString(), "main");
+}
+
+// ============================================================
+// Breakpoint Tests
+// ============================================================
+
+TEST_F(DAPTest, SetBreakpointsBasic) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    auto resp = parseResponse(server.handleMessage(
+        setBreakpointsRequest("test.liva", {3, 5})));
+    EXPECT_TRUE(resp["success"].getBool());
+    const auto &bps = resp["body"]["breakpoints"].getArray();
+    ASSERT_EQ(bps.size(), 2u);
+    EXPECT_TRUE(bps[0]["verified"].getBool());
+    EXPECT_EQ(bps[0]["line"].getInteger(), 3);
+    EXPECT_TRUE(bps[1]["verified"].getBool());
+    EXPECT_EQ(bps[1]["line"].getInteger(), 5);
+}
+
+TEST_F(DAPTest, BreakpointHit) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 10\n"
+                      "    let y: i32 = 20\n"
+                      "    let z: i32 = 30\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+    // Should get a "stopped" event with reason "breakpoint"
+    bool foundStopped = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "stopped") {
+            EXPECT_EQ(ev["body"]["reason"].getString(), "breakpoint");
+            foundStopped = true;
+        }
+    }
+    EXPECT_TRUE(foundStopped);
+}
+
+TEST_F(DAPTest, MultipleBreakpoints) {
+    std::string src = "func main() {\n"
+                      "    let a: i32 = 1\n"
+                      "    let b: i32 = 2\n"
+                      "    let c: i32 = 3\n"
+                      "    let d: i32 = 4\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3, 5});
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+    // First breakpoint hit
+    bool hit1 = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "stopped") hit1 = true;
+    }
+    EXPECT_TRUE(hit1);
+
+    // Continue to second breakpoint
+    server.handleMessage(continueRequest(10));
+    auto events2 = server.takeEvents();
+    bool hit2 = false;
+    for (const auto &e : events2) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "stopped") hit2 = true;
+    }
+    EXPECT_TRUE(hit2);
+}
+
+TEST_F(DAPTest, ClearBreakpoints) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    // Set then clear breakpoints
+    server.handleMessage(setBreakpointsRequest("test.liva", {3, 5}));
+    auto resp = parseResponse(server.handleMessage(
+        setBreakpointsRequest("test.liva", {})));
+    EXPECT_TRUE(resp["success"].getBool());
+    const auto &bps = resp["body"]["breakpoints"].getArray();
+    EXPECT_EQ(bps.size(), 0u);
+}
+
+// ============================================================
+// Execution Tests
+// ============================================================
+
+TEST_F(DAPTest, ContinueToEnd) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 42\n"
+                      "}\n";
+    initAndLaunch(src);
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+    // Should terminate without stopping
+    bool terminated = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "terminated") terminated = true;
+    }
+    EXPECT_TRUE(terminated);
+}
+
+TEST_F(DAPTest, StepNext) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 10\n"
+                      "    let y: i32 = 20\n"
+                      "    let z: i32 = 30\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {2});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents(); // stopped at line 2
+
+    // Step next
+    server.handleMessage(nextRequest(10));
+    auto events = server.takeEvents();
+    bool stepped = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "stopped" &&
+            ev["body"]["reason"].getString() == "step") {
+            stepped = true;
+        }
+    }
+    EXPECT_TRUE(stepped);
+}
+
+TEST_F(DAPTest, StepIn) {
+    std::string src = "func add(a: i32, b: i32) -> i32 {\n"
+                      "    return a + b\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    let result: i32 = add(1, 2)\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {5});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents(); // stopped at line 5
+
+    // Step in should enter the function
+    server.handleMessage(stepInRequest(10));
+    auto events = server.takeEvents();
+    bool steppedIn = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "stopped") {
+            steppedIn = true;
+        }
+    }
+    EXPECT_TRUE(steppedIn);
+}
+
+TEST_F(DAPTest, StepOut) {
+    std::string src = "func helper() -> i32 {\n"
+                      "    let x: i32 = 42\n"
+                      "    return x\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    let r: i32 = helper()\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {2});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents(); // stopped inside helper at line 2
+
+    // Step out should return to main
+    server.handleMessage(stepOutRequest(10));
+    auto events = server.takeEvents();
+    bool steppedOut = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "stopped" ||
+            ev["event"].getString() == "terminated") {
+            steppedOut = true;
+        }
+    }
+    EXPECT_TRUE(steppedOut);
+}
+
+// ============================================================
+// Stack Tests
+// ============================================================
+
+TEST_F(DAPTest, StackTraceAtBreakpoint) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 42\n"
+                      "    let y: i32 = 10\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {2});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents(); // stopped
+
+    auto resp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    EXPECT_TRUE(resp["success"].getBool());
+    const auto &frames = resp["body"]["stackFrames"].getArray();
+    ASSERT_GE(frames.size(), 1u);
+    EXPECT_EQ(frames[0]["name"].getString(), "main");
+}
+
+TEST_F(DAPTest, StackTraceNested) {
+    std::string src = "func inner() -> i32 {\n"
+                      "    let v: i32 = 99\n"
+                      "    return v\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    let r: i32 = inner()\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {2});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents(); // stopped in inner()
+
+    auto resp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    EXPECT_TRUE(resp["success"].getBool());
+    const auto &frames = resp["body"]["stackFrames"].getArray();
+    ASSERT_GE(frames.size(), 2u);
+    // Top frame should be inner
+    EXPECT_EQ(frames[0]["name"].getString(), "inner");
+    EXPECT_EQ(frames[1]["name"].getString(), "main");
+}
+
+// ============================================================
+// Variable Tests
+// ============================================================
+
+TEST_F(DAPTest, LocalVariables) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 42\n"
+                      "    let y: i32 = 10\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents(); // stopped at line 3
+
+    // Get stack trace to find frame id
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+
+    // Get scopes
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    EXPECT_TRUE(scResp["success"].getBool());
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+
+    // Get variables
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+    EXPECT_TRUE(varResp["success"].getBool());
+    const auto &vars = varResp["body"]["variables"].getArray();
+    // Should have x=42 (y not yet declared at line 3 breakpoint)
+    bool foundX = false;
+    for (const auto &v : vars) {
+        if (v["name"].getString() == "x") {
+            EXPECT_EQ(v["value"].getString(), "42");
+            foundX = true;
+        }
+    }
+    EXPECT_TRUE(foundX);
+}
+
+TEST_F(DAPTest, IntegerVariable) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 123\n"
+                      "    let y: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "x") {
+            EXPECT_EQ(v["value"].getString(), "123");
+            EXPECT_EQ(v["type"].getString(), "i64");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, StringVariable) {
+    std::string src = "func main() {\n"
+                      "    let s = \"hello\"\n"
+                      "    let x: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    const auto &frames = stResp["body"]["stackFrames"].getArray();
+    ASSERT_GE(frames.size(), 1u);
+    auto frameId = static_cast<int>(frames[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "s") {
+            EXPECT_EQ(v["value"].getString(), "\"hello\"");
+            EXPECT_EQ(v["type"].getString(), "String");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, BoolVariable) {
+    std::string src = "func main() {\n"
+                      "    let b = true\n"
+                      "    let x: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    const auto &frames = stResp["body"]["stackFrames"].getArray();
+    ASSERT_GE(frames.size(), 1u);
+    auto frameId = static_cast<int>(frames[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "b") {
+            EXPECT_EQ(v["value"].getString(), "true");
+            EXPECT_EQ(v["type"].getString(), "Bool");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, StructVariable) {
+    std::string src = "struct Point { var x: i32; var y: i32 }\n"
+                      "func main() {\n"
+                      "    let p: Point = Point { x: 10, y: 20 }\n"
+                      "    let z: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {4});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "p") {
+            EXPECT_EQ(v["type"].getString(), "Point");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, ArrayVariable) {
+    std::string src = "func main() {\n"
+                      "    let arr: [i32] = [1, 2, 3]\n"
+                      "    let x: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "arr") {
+            EXPECT_EQ(v["type"].getString(), "Array");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, VariableAfterAssignment) {
+    std::string src = "func main() {\n"
+                      "    var x: i32 = 10\n"
+                      "    x = 20\n"
+                      "    let y: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {4});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "x") {
+            EXPECT_EQ(v["value"].getString(), "20");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// ============================================================
+// Interpreter Tests
+// ============================================================
+
+TEST_F(DAPTest, WhileLoop) {
+    std::string src = "func main() {\n"
+                      "    var i: i32 = 0\n"
+                      "    while i < 3 {\n"
+                      "        i = i + 1\n"
+                      "    }\n"
+                      "    let done: i32 = i\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {6});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "i") {
+            EXPECT_EQ(v["value"].getString(), "3");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, IfElse) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 10\n"
+                      "    var result: i32 = 0\n"
+                      "    if x > 5 {\n"
+                      "        result = 1\n"
+                      "    } else {\n"
+                      "        result = 2\n"
+                      "    }\n"
+                      "    let done: i32 = result\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {9});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "result") {
+            EXPECT_EQ(v["value"].getString(), "1");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, FunctionCall) {
+    std::string src = "func double(n: i32) -> i32 {\n"
+                      "    return n * 2\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    let r: i32 = double(21)\n"
+                      "    let done: i32 = r\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {6});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "r") {
+            EXPECT_EQ(v["value"].getString(), "42");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(DAPTest, BuiltinPrintln) {
+    std::string src = "func main() {\n"
+                      "    println(\"hello world\")\n"
+                      "}\n";
+    initAndLaunch(src);
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+    // Program runs to end; check no crash
+    // The output buffer would contain "hello world\n"
+    // We can't directly access it from server, but the program should terminate cleanly
+}
+
+TEST_F(DAPTest, ReturnValue) {
+    std::string src = "func add(a: i32, b: i32) -> i32 {\n"
+                      "    return a + b\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    let sum: i32 = add(3, 4)\n"
+                      "    let done: i32 = sum\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {6});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool found = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "sum") {
+            EXPECT_EQ(v["value"].getString(), "7");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// ============================================================
+// Event Tests
+// ============================================================
+
+TEST_F(DAPTest, StoppedEvent) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 42\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {2});
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+
+    bool foundStopped = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "stopped") {
+            EXPECT_EQ(ev["body"]["threadId"].getInteger(), 1);
+            EXPECT_FALSE(ev["body"]["reason"].getString().empty());
+            foundStopped = true;
+        }
+    }
+    EXPECT_TRUE(foundStopped);
+}
+
+TEST_F(DAPTest, TerminatedEvent) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 42\n"
+                      "}\n";
+    initAndLaunch(src);
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+
+    bool foundTerminated = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "terminated") {
+            foundTerminated = true;
+        }
+    }
+    EXPECT_TRUE(foundTerminated);
+}
+
+TEST_F(DAPTest, ExitedEvent) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 42\n"
+                      "}\n";
+    initAndLaunch(src);
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+
+    bool foundExited = false;
+    for (const auto &e : events) {
+        auto ev = parseEvent(e);
+        if (ev["event"].getString() == "exited") {
+            EXPECT_EQ(ev["body"]["exitCode"].getInteger(), 0);
+            foundExited = true;
+        }
+    }
+    EXPECT_TRUE(foundExited);
+}
