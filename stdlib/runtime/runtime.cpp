@@ -3213,6 +3213,244 @@ void liva_atomic_free(int64_t handle) {
     delete val;
 }
 
+// === String Utility Functions (std::string) ===
+
+char *liva_str_repeat(const char *s, int64_t n) {
+    if (!s || n <= 0) return strdup_safe("");
+    size_t slen = strlen(s);
+    size_t total = slen * (size_t)n;
+    char *result = (char *)malloc(total + 1);
+    if (!result) return nullptr;
+    for (int64_t i = 0; i < n; i++)
+        memcpy(result + i * slen, s, slen);
+    result[total] = '\0';
+    return result;
+}
+
+char *liva_str_pad_left(const char *s, int64_t width, const char *fill) {
+    if (!s) return strdup_safe("");
+    size_t slen = strlen(s);
+    if ((int64_t)slen >= width) return strdup_safe(s);
+    char fc = (fill && fill[0]) ? fill[0] : ' ';
+    size_t pad = (size_t)(width - (int64_t)slen);
+    char *result = (char *)malloc((size_t)width + 1);
+    if (!result) return nullptr;
+    memset(result, fc, pad);
+    memcpy(result + pad, s, slen);
+    result[width] = '\0';
+    return result;
+}
+
+char *liva_str_pad_right(const char *s, int64_t width, const char *fill) {
+    if (!s) return strdup_safe("");
+    size_t slen = strlen(s);
+    if ((int64_t)slen >= width) return strdup_safe(s);
+    char fc = (fill && fill[0]) ? fill[0] : ' ';
+    size_t pad = (size_t)(width - (int64_t)slen);
+    char *result = (char *)malloc((size_t)width + 1);
+    if (!result) return nullptr;
+    memcpy(result, s, slen);
+    memset(result + slen, fc, pad);
+    result[width] = '\0';
+    return result;
+}
+
+char *liva_str_join(const char **strings, int64_t count, const char *sep) {
+    if (!strings || count <= 0) return strdup_safe("");
+    if (!sep) sep = "";
+    size_t sepLen = strlen(sep);
+    size_t total = 0;
+    for (int64_t i = 0; i < count; i++) {
+        total += strings[i] ? strlen(strings[i]) : 0;
+        if (i > 0) total += sepLen;
+    }
+    char *result = (char *)malloc(total + 1);
+    if (!result) return nullptr;
+    char *p = result;
+    for (int64_t i = 0; i < count; i++) {
+        if (i > 0 && sepLen > 0) {
+            memcpy(p, sep, sepLen);
+            p += sepLen;
+        }
+        if (strings[i]) {
+            size_t len = strlen(strings[i]);
+            memcpy(p, strings[i], len);
+            p += len;
+        }
+    }
+    *p = '\0';
+    return result;
+}
+
+char *liva_str_trim_left(const char *s) {
+    if (!s) return strdup_safe("");
+    while (*s && (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r'))
+        s++;
+    return strdup_safe(s);
+}
+
+char *liva_str_trim_right(const char *s) {
+    if (!s) return strdup_safe("");
+    size_t len = strlen(s);
+    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' ||
+                       s[len - 1] == '\n' || s[len - 1] == '\r'))
+        len--;
+    char *result = (char *)malloc(len + 1);
+    if (!result) return nullptr;
+    memcpy(result, s, len);
+    result[len] = '\0';
+    return result;
+}
+
+char *liva_str_reverse(const char *s) {
+    if (!s) return strdup_safe("");
+    size_t len = strlen(s);
+    // Collect UTF-8 character boundaries
+    std::vector<std::pair<size_t, size_t>> chars; // (offset, length)
+    size_t i = 0;
+    while (i < len) {
+        int clen = utf8_char_len((unsigned char)s[i]);
+        if (i + clen > len) clen = (int)(len - i);
+        chars.push_back({i, (size_t)clen});
+        i += clen;
+    }
+    char *result = (char *)malloc(len + 1);
+    if (!result) return nullptr;
+    char *p = result;
+    for (auto it = chars.rbegin(); it != chars.rend(); ++it) {
+        memcpy(p, s + it->first, it->second);
+        p += it->second;
+    }
+    *p = '\0';
+    return result;
+}
+
+char **liva_str_chars(const char *s, int64_t *count) {
+    if (!s || !count) {
+        if (count) *count = 0;
+        return nullptr;
+    }
+    size_t len = strlen(s);
+    // Count UTF-8 characters
+    std::vector<std::pair<size_t, size_t>> chars;
+    size_t i = 0;
+    while (i < len) {
+        int clen = utf8_char_len((unsigned char)s[i]);
+        if (i + clen > len) clen = (int)(len - i);
+        chars.push_back({i, (size_t)clen});
+        i += clen;
+    }
+    *count = (int64_t)chars.size();
+    char **result = (char **)malloc(sizeof(char *) * chars.size());
+    if (!result) { *count = 0; return nullptr; }
+    for (size_t j = 0; j < chars.size(); j++) {
+        result[j] = (char *)malloc(chars[j].second + 1);
+        memcpy(result[j], s + chars[j].first, chars[j].second);
+        result[j][chars[j].second] = '\0';
+    }
+    return result;
+}
+
+char **liva_str_lines(const char *s, int64_t *count) {
+    if (!s || !count) {
+        if (count) *count = 0;
+        return nullptr;
+    }
+    std::vector<std::string> lines;
+    const char *p = s;
+    const char *start = s;
+    while (*p) {
+        if (*p == '\n') {
+            lines.emplace_back(start, p);
+            start = p + 1;
+        }
+        p++;
+    }
+    if (start <= p) // last line (may be empty)
+        lines.emplace_back(start, p);
+    *count = (int64_t)lines.size();
+    char **result = (char **)malloc(sizeof(char *) * lines.size());
+    if (!result) { *count = 0; return nullptr; }
+    for (size_t i = 0; i < lines.size(); i++)
+        result[i] = strdup_safe(lines[i].c_str());
+    return result;
+}
+
+// === Collection Utility Functions (std::collections) ===
+
+void liva_array_reversed(const void *data, int64_t len, int64_t elem_size,
+                          void **out_data, int64_t *out_len, int64_t *out_cap) {
+    if (!data || len <= 0 || !out_data || !out_len || !out_cap) {
+        if (out_data) *out_data = nullptr;
+        if (out_len) *out_len = 0;
+        if (out_cap) *out_cap = 0;
+        return;
+    }
+    void *result = malloc((size_t)len * (size_t)elem_size);
+    if (!result) { *out_data = nullptr; *out_len = 0; *out_cap = 0; return; }
+    const char *src = (const char *)data;
+    char *dst = (char *)result;
+    for (int64_t i = 0; i < len; i++)
+        memcpy(dst + i * elem_size, src + (len - 1 - i) * elem_size, (size_t)elem_size);
+    *out_data = result;
+    *out_len = len;
+    *out_cap = len;
+}
+
+void liva_array_sorted(const void *data, int64_t len, int64_t elem_size,
+                        int (*cmp)(const void *, const void *),
+                        void **out_data, int64_t *out_len, int64_t *out_cap) {
+    if (!data || len <= 0 || !out_data || !out_len || !out_cap) {
+        if (out_data) *out_data = nullptr;
+        if (out_len) *out_len = 0;
+        if (out_cap) *out_cap = 0;
+        return;
+    }
+    size_t total = (size_t)len * (size_t)elem_size;
+    void *result = malloc(total);
+    if (!result) { *out_data = nullptr; *out_len = 0; *out_cap = 0; return; }
+    memcpy(result, data, total);
+    if (cmp)
+        qsort(result, (size_t)len, (size_t)elem_size, cmp);
+    *out_data = result;
+    *out_len = len;
+    *out_cap = len;
+}
+
+int8_t liva_array_any(const void *data, int64_t len, int64_t elem_size,
+                       int8_t (*pred)(const void *)) {
+    if (!data || !pred || len <= 0) return 0;
+    const char *p = (const char *)data;
+    for (int64_t i = 0; i < len; i++) {
+        if (pred(p + i * elem_size))
+            return 1;
+    }
+    return 0;
+}
+
+int8_t liva_array_all(const void *data, int64_t len, int64_t elem_size,
+                       int8_t (*pred)(const void *)) {
+    if (!data || !pred || len <= 0) return 1;
+    const char *p = (const char *)data;
+    for (int64_t i = 0; i < len; i++) {
+        if (!pred(p + i * elem_size))
+            return 0;
+    }
+    return 1;
+}
+
+int64_t liva_array_count(const void *data, int64_t len, int64_t elem_size,
+                          int8_t (*pred)(const void *)) {
+    if (!data || !pred || len <= 0) return 0;
+    const char *p = (const char *)data;
+    int64_t n = 0;
+    for (int64_t i = 0; i < len; i++) {
+        if (pred(p + i * elem_size))
+            n++;
+    }
+    return n;
+}
+
 // === Panic ===
 
 void liva_panic(const char *message) {

@@ -1,0 +1,33 @@
+// std::strings — String utility functions
+//
+// Built-in string methods: contains, startsWith, endsWith,
+//   indexOf, substring, trim, toUpper, toLower, replace, split,
+//   length, byteLength
+//
+// Top-level utility functions:
+//   strRepeat(s, n)           -> string    — repeat s n times
+//   strPadLeft(s, width, ch)  -> string    — left-pad to width
+//   strPadRight(s, width, ch) -> string    — right-pad to width
+//   strJoin(arr, sep)         -> string    — join array with separator
+//   strTrim(s)                -> string    — trim both sides
+//   strTrimLeft(s)            -> string    — trim leading whitespace
+//   strTrimRight(s)           -> string    — trim trailing whitespace
+//   strReverse(s)             -> string    — reverse (UTF-8 aware)
+//   strChars(s)               -> [string]  — split into characters
+//   strLines(s)               -> [string]  — split into lines
+//   strContains(s, sub)       -> bool      — contains substring
+//   strStartsWith(s, pre)     -> bool      — starts with prefix
+//   strEndsWith(s, suf)       -> bool      — ends with suffix
+//   strReplace(s, old, new)   -> string    — replace all occurrences
+//   strSplit(s, delim)        -> [string]  — split by delimiter
+//   strToUpper(s)             -> string    — uppercase
+//   strToLower(s)             -> string    — lowercase
+//
+// Usage:
+//   import std::string
+//
+//   let s = strRepeat("ab", 3)       // "ababab"
+//   let p = strPadLeft("42", 5, "0") // "00042"
+//   let t = strTrimLeft("  hello")   // "hello"
+//   let r = strReverse("hello")      // "olleh"
+//   let c = strContains("hello", "ell") // true

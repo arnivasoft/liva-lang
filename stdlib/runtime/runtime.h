@@ -555,6 +555,58 @@ int8_t liva_atomic_cas(int64_t handle, int64_t expected, int64_t desired);
 /// Free an atomic handle
 void liva_atomic_free(int64_t handle);
 
+// === String Utility Functions (std::string) ===
+
+/// Repeat string n times, returns malloc'd result
+char *liva_str_repeat(const char *s, int64_t n);
+
+/// Pad string to width with fill character on the left, returns malloc'd result
+char *liva_str_pad_left(const char *s, int64_t width, const char *fill);
+
+/// Pad string to width with fill character on the right, returns malloc'd result
+char *liva_str_pad_right(const char *s, int64_t width, const char *fill);
+
+/// Join array of strings with separator, returns malloc'd result
+char *liva_str_join(const char **strings, int64_t count, const char *sep);
+
+/// Trim leading whitespace, returns malloc'd result
+char *liva_str_trim_left(const char *s);
+
+/// Trim trailing whitespace, returns malloc'd result
+char *liva_str_trim_right(const char *s);
+
+/// Reverse string (UTF-8 aware), returns malloc'd result
+char *liva_str_reverse(const char *s);
+
+/// Split string into individual UTF-8 characters, returns malloc'd array
+char **liva_str_chars(const char *s, int64_t *count);
+
+/// Split string into lines by '\n', returns malloc'd array
+char **liva_str_lines(const char *s, int64_t *count);
+
+// === Collection Utility Functions (std::collections) ===
+
+/// Reverse a copy of array, returns malloc'd data
+void liva_array_reversed(const void *data, int64_t len, int64_t elem_size,
+                          void **out_data, int64_t *out_len, int64_t *out_cap);
+
+/// Sort a copy of array using comparison callback, returns malloc'd data
+void liva_array_sorted(const void *data, int64_t len, int64_t elem_size,
+                        int (*cmp)(const void *, const void *),
+                        void **out_data, int64_t *out_len, int64_t *out_cap);
+
+/// Check if any element matches predicate
+int8_t liva_array_any(const void *data, int64_t len, int64_t elem_size,
+                       int8_t (*pred)(const void *));
+
+/// Check if all elements match predicate
+int8_t liva_array_all(const void *data, int64_t len, int64_t elem_size,
+                       int8_t (*pred)(const void *));
+
+/// Count elements matching predicate
+int64_t liva_array_count(const void *data, int64_t len, int64_t elem_size,
+                          int8_t (*pred)(const void *));
+
 // === Panic ===
 
 /// Called when an unrecoverable error occurs

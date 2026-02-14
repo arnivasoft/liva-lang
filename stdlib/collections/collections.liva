@@ -1,0 +1,30 @@
+// std::collections — Collection types and utility functions
+//
+// Built-in types: Map<K, V>, Set<T>, [T] (DynArray)
+//
+// Array methods:  push, pop, contains, indexOf, reverse, length
+//                 map, filter, forEach, reduce
+//
+// Map methods:    insert, get, contains, remove, size
+// Set methods:    insert, contains, remove, size
+//
+// Top-level utility functions:
+//   forEach(arr, fn)    -> void          — apply fn to each element
+//   enumerate(arr)      -> [(i64, T)]    — index-value pairs
+//   zip(a, b)           -> [(A, B)]      — combine two arrays
+//   sorted(arr)         -> [T]           — sorted copy
+//   reversed(arr)       -> [T]           — reversed copy
+//   flatten(arr)        -> [T]           — flatten nested arrays
+//   any(arr, pred)      -> bool          — true if any element matches
+//   all(arr, pred)      -> bool          — true if all elements match
+//   count(arr, pred)    -> i64           — count matching elements
+//
+// Usage:
+//   import std::collections
+//
+//   let nums = [3, 1, 4, 1, 5]
+//   let s = sorted(nums)         // [1, 1, 3, 4, 5]
+//   let r = reversed(nums)       // [5, 1, 4, 1, 3]
+//   let hasEven = any(nums, func(x: i64) -> bool { x % 2 == 0 })
+//   let allPos  = all(nums, func(x: i64) -> bool { x > 0 })
+//   let evens   = count(nums, func(x: i64) -> bool { x % 2 == 0 })

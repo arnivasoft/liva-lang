@@ -2621,6 +2621,152 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(fn, {x}, "roundtmp");
     }
 
+    // === Stdlib: String utility functions ===
+    if (funcName == "strRepeat" && node->getArgs().size() >= 2) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        if (!s || !n) return nullptr;
+        if (!n->getType()->isIntegerTy(64))
+            n = builder_->CreateSExt(n, builder_->getInt64Ty());
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_repeat"), {s, n}, "strrepeat");
+        trackStringTemp(result);
+        return result;
+    }
+    if ((funcName == "strPadLeft" || funcName == "strPadRight") && node->getArgs().size() >= 3) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *w = visit(node->getArgs()[1].get());
+        auto *f = visit(node->getArgs()[2].get());
+        if (!s || !w || !f) return nullptr;
+        if (!w->getType()->isIntegerTy(64))
+            w = builder_->CreateSExt(w, builder_->getInt64Ty());
+        auto *fn = getOrPanic(funcName == "strPadLeft" ? "liva_str_pad_left" : "liva_str_pad_right");
+        auto *result = builder_->CreateCall(fn, {s, w, f}, "strpad");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strJoin" && node->getArgs().size() >= 2) {
+        // strJoin(arr, sep) — arr is DynArray of strings
+        auto *arrVal = visit(node->getArgs()[0].get());
+        auto *sep = visit(node->getArgs()[1].get());
+        if (!arrVal || !sep) return nullptr;
+        auto *arrStructTy = getDynArrayStructTy();
+        auto *dataGEP = builder_->CreateStructGEP(arrStructTy, arrVal, 0);
+        auto *data = builder_->CreateLoad(llvm::PointerType::getUnqual(*context_), dataGEP, "data");
+        auto *lenGEP = builder_->CreateStructGEP(arrStructTy, arrVal, 1);
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenGEP, "len");
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_join"), {data, len, sep}, "strjoin");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strTrimLeft" && node->getArgs().size() >= 1) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_trim_left"), {s}, "strtriml");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strTrimRight" && node->getArgs().size() >= 1) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_trim_right"), {s}, "strtrimr");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strReverse" && node->getArgs().size() >= 1) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_reverse"), {s}, "strrev");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strTrim" && node->getArgs().size() >= 1) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_trim"), {s}, "strtrim");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strToUpper" && node->getArgs().size() >= 1) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_to_upper"), {s}, "strupper");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strToLower" && node->getArgs().size() >= 1) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_to_lower"), {s}, "strlower");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strContains" && node->getArgs().size() >= 2) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *sub = visit(node->getArgs()[1].get());
+        if (!s || !sub) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_contains"), {s, sub}, "strcontains");
+        return builder_->CreateICmpNE(result, llvm::ConstantInt::get(builder_->getInt8Ty(), 0), "strcontainsbool");
+    }
+    if (funcName == "strStartsWith" && node->getArgs().size() >= 2) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *pre = visit(node->getArgs()[1].get());
+        if (!s || !pre) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_starts_with"), {s, pre}, "strstartswith");
+        return builder_->CreateICmpNE(result, llvm::ConstantInt::get(builder_->getInt8Ty(), 0), "strswbool");
+    }
+    if (funcName == "strEndsWith" && node->getArgs().size() >= 2) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *suf = visit(node->getArgs()[1].get());
+        if (!s || !suf) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_ends_with"), {s, suf}, "strendswith");
+        return builder_->CreateICmpNE(result, llvm::ConstantInt::get(builder_->getInt8Ty(), 0), "strewbool");
+    }
+    if (funcName == "strReplace" && node->getArgs().size() >= 3) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *old = visit(node->getArgs()[1].get());
+        auto *rep = visit(node->getArgs()[2].get());
+        if (!s || !old || !rep) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_str_replace"), {s, old, rep}, "strreplace");
+        trackStringTemp(result);
+        return result;
+    }
+    if (funcName == "strSplit" && node->getArgs().size() >= 2) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *delim = visit(node->getArgs()[1].get());
+        if (!s || !delim) return nullptr;
+        // Allocate count on stack
+        auto *countAlloca = builder_->CreateAlloca(builder_->getInt64Ty(), nullptr, "splitcount");
+        auto *arrPtr = builder_->CreateCall(getOrPanic("liva_str_split"), {s, delim, countAlloca}, "strsplit");
+        // Build DynArray struct
+        auto *arrStructTy = getDynArrayStructTy();
+        auto *arrStruct = builder_->CreateAlloca(arrStructTy, nullptr, "splitarr");
+        auto *dataGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 0);
+        builder_->CreateStore(arrPtr, dataGEP);
+        auto *lenGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 1);
+        auto *cnt = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "cnt");
+        builder_->CreateStore(cnt, lenGEP);
+        auto *capGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 2);
+        builder_->CreateStore(cnt, capGEP);
+        return arrStruct;
+    }
+    if ((funcName == "strChars" || funcName == "strLines") && node->getArgs().size() >= 1) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *countAlloca = builder_->CreateAlloca(builder_->getInt64Ty(), nullptr, "count");
+        auto *fn = getOrPanic(funcName == "strChars" ? "liva_str_chars" : "liva_str_lines");
+        auto *arrPtr = builder_->CreateCall(fn, {s, countAlloca}, funcName.c_str());
+        auto *arrStructTy = getDynArrayStructTy();
+        auto *arrStruct = builder_->CreateAlloca(arrStructTy, nullptr, "arr");
+        auto *dataGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 0);
+        builder_->CreateStore(arrPtr, dataGEP);
+        auto *lenGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 1);
+        auto *cnt = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "cnt");
+        builder_->CreateStore(cnt, lenGEP);
+        auto *capGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 2);
+        builder_->CreateStore(cnt, capGEP);
+        return arrStruct;
+    }
+
     // Handle print/println built-ins
     if (funcName == "print" || funcName == "println") {
         auto *printfFunc = module_->getFunction("printf");

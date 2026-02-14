@@ -562,7 +562,14 @@ REPLSession::getCompletions(const std::string &lineBuffer,
         static const char *builtins[] = {
             "abs",      "len",      "max",     "min",      "print",
             "println",  "readLine", "toFloat", "toInt",    "toString",
-            "typeof",   "assert",   "panic",   "drop",     "clone"
+            "typeof",   "assert",   "panic",   "drop",     "clone",
+            "sorted",   "reversed", "enumerate","zip",     "flatten",
+            "any",      "all",      "count",   "forEach",
+            "strRepeat","strPadLeft","strPadRight","strJoin",
+            "strTrim",  "strTrimLeft","strTrimRight",
+            "strReverse","strChars","strLines",
+            "strContains","strStartsWith","strEndsWith",
+            "strReplace","strSplit","strToUpper","strToLower"
         };
         // Primitive types
         static const char *primitives[] = {

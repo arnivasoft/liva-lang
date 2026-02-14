@@ -95,13 +95,30 @@ void ModuleLoader::registerBuiltinModules() {
          "atomicCreate", "atomicLoad", "atomicStore",
          "atomicAdd", "atomicSub", "atomicCas", "atomicFree"});
 
+    // std::collections — collection utility functions
+    cache_["std::collections"] = createBuiltinModule("std::collections",
+        {"forEach", "map", "filter", "reduce",
+         "enumerate", "zip", "sorted", "reversed",
+         "flatten", "any", "all", "count"},
+        {"Map", "Set"});
+
+    // std::strings — string utility functions
+    cache_["std::strings"] = createBuiltinModule("std::strings",
+        {"strRepeat", "strPadLeft", "strPadRight",
+         "strContains", "strReplace", "strSplit",
+         "strJoin", "strTrim", "strTrimLeft", "strTrimRight",
+         "strStartsWith", "strEndsWith",
+         "strToUpper", "strToLower",
+         "strReverse", "strChars", "strLines"});
+
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();
     umbrella->name = "std";
     for (const auto &sub : {"std::math", "std::io", "std::convert",
                              "std::os", "std::random", "std::regex", "std::net",
                              "std::json", "std::log", "std::test",
-                             "std::datetime", "std::compress", "std::sync"}) {
+                             "std::datetime", "std::compress", "std::sync",
+                             "std::collections", "std::strings"}) {
         for (const auto &sym : cache_[sub]->exportedSymbols)
             umbrella->exportedSymbols.push_back(sym);
     }

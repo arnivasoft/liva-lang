@@ -158,6 +158,28 @@ void TypeChecker::registerBuiltins() {
         sym.kind = Symbol::Kind::Function;
         scopes_.declare(name, sym);
     }
+
+    // Stdlib: Collections utility functions (top-level)
+    for (auto &name : {"forEach", "enumerate", "zip", "sorted",
+                        "reversed", "flatten", "any", "all", "count"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: String utility functions (top-level)
+    for (auto &name : {"strRepeat", "strPadLeft", "strPadRight",
+                        "strContains", "strReplace", "strSplit",
+                        "strJoin", "strTrim", "strTrimLeft", "strTrimRight",
+                        "strStartsWith", "strEndsWith",
+                        "strToUpper", "strToLower",
+                        "strReverse", "strChars", "strLines"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
 }
 
 // === "Did you mean?" suggestion helpers ===
@@ -1526,6 +1548,44 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "atomicStore" ||
                    ident->getName() == "atomicFree") {
             // void — no resolved type
+        // Stdlib: Collections utility functions
+        } else if (ident->getName() == "sorted" || ident->getName() == "reversed" ||
+                   ident->getName() == "flatten") {
+            // Returns same-type array as input (or generic [T])
+            if (!node->getArgs().empty() && node->getArgs()[0]->getResolvedType()) {
+                node->setResolvedType(cloneTypeRepr(node->getArgs()[0]->getResolvedType()));
+            }
+        } else if (ident->getName() == "any" || ident->getName() == "all") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "count") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "forEach") {
+            // void — no resolved type
+        } else if (ident->getName() == "enumerate") {
+            // enumerate([T]) -> [(i64, T)] — for now, resolve as dynamic array
+            if (!node->getArgs().empty() && node->getArgs()[0]->getResolvedType()) {
+                node->setResolvedType(cloneTypeRepr(node->getArgs()[0]->getResolvedType()));
+            }
+        } else if (ident->getName() == "zip") {
+            // zip([A], [B]) -> [(A, B)] — for now, resolve as dynamic array
+            if (!node->getArgs().empty() && node->getArgs()[0]->getResolvedType()) {
+                node->setResolvedType(cloneTypeRepr(node->getArgs()[0]->getResolvedType()));
+            }
+        // Stdlib: String utility functions
+        } else if (ident->getName() == "strRepeat" || ident->getName() == "strPadLeft" ||
+                   ident->getName() == "strPadRight" || ident->getName() == "strJoin" ||
+                   ident->getName() == "strTrim" || ident->getName() == "strTrimLeft" ||
+                   ident->getName() == "strTrimRight" || ident->getName() == "strReplace" ||
+                   ident->getName() == "strToUpper" || ident->getName() == "strToLower" ||
+                   ident->getName() == "strReverse") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "strContains" || ident->getName() == "strStartsWith" ||
+                   ident->getName() == "strEndsWith") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "strSplit" || ident->getName() == "strChars" ||
+                   ident->getName() == "strLines") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
         } else {
             auto *sym = scopes_.lookup(ident->getName());
             if (sym && sym->type &&

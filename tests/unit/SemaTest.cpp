@@ -6349,3 +6349,140 @@ TEST_F(SemaTest, ComptimeErrorLoopLimit) {
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_comptime_loop_limit));
 }
+
+// === std::collections module tests ===
+
+TEST_F(SemaTest, StdCollectionsImport) {
+    auto result = checkWithModules(R"--(
+        import std::collections
+        func main() {
+            let arr = [1, 2, 3]
+            let _s = sorted(arr)
+            let arr2 = [4, 5, 6]
+            let _r = reversed(arr2)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdCollectionsAnyAllType) {
+    auto result = checkWithModules(R"--(
+        import std::collections
+        func isPositive(x: i64) -> bool { return x > 0 }
+        func main() {
+            let arr = [1, 2, 3]
+            let _a = any(arr, |x: i64| -> bool { return x > 2 })
+            let arr2 = [4, 5, 6]
+            let _b = all(arr2, |x: i64| -> bool { return x > 0 })
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdCollectionsCountType) {
+    auto result = checkWithModules(R"--(
+        import std::collections
+        func main() {
+            let arr = [1, 2, 3, 4]
+            let _c = count(arr, |x: i64| -> bool { return x > 2 })
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdCollectionsSortedType) {
+    auto result = checkWithModules(R"--(
+        import std::collections
+        func main() {
+            let arr = [3, 1, 2]
+            let _s = sorted(arr)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdCollectionsReversedType) {
+    auto result = checkWithModules(R"--(
+        import std::collections
+        func main() {
+            let arr = [1, 2, 3]
+            let _r = reversed(arr)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdCollectionsMap) {
+    auto result = check(R"--(
+        func main() {
+            var m: Map<string, i64>
+            m.insert("a", 1)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdCollectionsSet) {
+    auto result = check(R"--(
+        func main() {
+            var s: Set<i64>
+            s.insert(42)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === std::strings module tests ===
+
+TEST_F(SemaTest, StdStringImport) {
+    auto result = checkWithModules(R"--(
+        import std::strings
+        func main() {
+            let _r = strRepeat("x", 3)
+            let _j = strJoin(["a", "b"], ",")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdStringRepeatType) {
+    auto result = checkWithModules(R"--(
+        import std::strings
+        func main() {
+            let _s: string = strRepeat("ab", 3)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdStringSplitType) {
+    auto result = checkWithModules(R"--(
+        import std::strings
+        func main() {
+            let _parts = strSplit("a,b,c", ",")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdStringContainsType) {
+    auto result = checkWithModules(R"--(
+        import std::strings
+        func main() {
+            let _b = strContains("hello", "ell")
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdUmbrellaIncludesCollections) {
+    auto result = checkWithModules(R"--(
+        import std
+        func main() {
+            let arr = [3, 1, 2]
+            let _s = sorted(arr)
+            let _r = strRepeat("x", 2)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}

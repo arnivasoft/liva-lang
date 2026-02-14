@@ -861,7 +861,14 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
     static const char *builtins[] = {
         "println", "print", "len", "toString", "abs", "sqrt", "pow",
         "min", "max", "readLine", "format", "parseInt", "parseFloat",
-        "randInt", "randFloat"
+        "randInt", "randFloat",
+        "sorted", "reversed", "enumerate", "zip", "flatten",
+        "any", "all", "count", "forEach",
+        "strRepeat", "strPadLeft", "strPadRight", "strJoin",
+        "strTrim", "strTrimLeft", "strTrimRight",
+        "strReverse", "strChars", "strLines",
+        "strContains", "strStartsWith", "strEndsWith",
+        "strReplace", "strSplit", "strToUpper", "strToLower"
     };
     for (const char *bi : builtins) {
         auto item = JSONValue::object();

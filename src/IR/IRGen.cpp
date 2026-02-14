@@ -615,6 +615,57 @@ void IRGen::createRuntimeDecls() {
     // atomicFree(handle) -> void
     module_->getOrInsertFunction("liva_atomic_free", voidI64Ty);
 
+    // === Stdlib: String utility functions ===
+
+    // liva_str_repeat(ptr, i64) -> ptr
+    auto *strRepeatTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_str_repeat", strRepeatTy);
+
+    // liva_str_pad_left(ptr, i64, ptr) -> ptr, liva_str_pad_right(ptr, i64, ptr) -> ptr
+    auto *strPadTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_pad_left", strPadTy);
+    module_->getOrInsertFunction("liva_str_pad_right", strPadTy);
+
+    // liva_str_join(ptr*, i64, ptr) -> ptr
+    auto *strJoinTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_join", strJoinTy);
+
+    // liva_str_trim_left(ptr) -> ptr, liva_str_trim_right(ptr) -> ptr
+    // liva_str_reverse(ptr) -> ptr — reuse strNoArgTy: (ptr) -> ptr
+    module_->getOrInsertFunction("liva_str_trim_left", strNoArgTy);
+    module_->getOrInsertFunction("liva_str_trim_right", strNoArgTy);
+    module_->getOrInsertFunction("liva_str_reverse", strNoArgTy);
+
+    // liva_str_chars(ptr, ptr) -> ptr, liva_str_lines(ptr, ptr) -> ptr
+    auto *strCharsTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_chars", strCharsTy);
+    module_->getOrInsertFunction("liva_str_lines", strCharsTy);
+
+    // === Stdlib: Collection utility functions ===
+
+    auto *voidTy2 = builder_->getVoidTy();
+
+    // liva_array_reversed(ptr, i64, i64, ptr, ptr, ptr) -> void
+    auto *arrReversedTy = llvm::FunctionType::get(voidTy2,
+        {i8PtrTy, i64Ty, i64Ty, i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_array_reversed", arrReversedTy);
+
+    // liva_array_sorted(ptr, i64, i64, ptr, ptr, ptr, ptr) -> void
+    auto *arrSortedTy = llvm::FunctionType::get(voidTy2,
+        {i8PtrTy, i64Ty, i64Ty, i8PtrTy, i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_array_sorted", arrSortedTy);
+
+    // liva_array_any(ptr, i64, i64, ptr) -> i8
+    auto *arrPredTy = llvm::FunctionType::get(i8Ty,
+        {i8PtrTy, i64Ty, i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_array_any", arrPredTy);
+    module_->getOrInsertFunction("liva_array_all", arrPredTy);
+
+    // liva_array_count(ptr, i64, i64, ptr) -> i64
+    auto *arrCountTy = llvm::FunctionType::get(i64Ty,
+        {i8PtrTy, i64Ty, i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_array_count", arrCountTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();
