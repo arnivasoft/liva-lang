@@ -1222,6 +1222,45 @@ llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
     return result;
 }
 
+llvm::Value *IRGen::visitComptimeExpr(ComptimeExpr *node) {
+    // Comptime block is validated at sema time; at IRGen we simply
+    // evaluate the block's statements (const/var → constValues_) and
+    // return the last expression's value. Since all values are compile-time
+    // constants, LLVM will fold them automatically.
+    auto &stmts = node->getBody()->getStatements();
+    llvm::Value *result = nullptr;
+
+    // Save const values that might be shadowed
+    std::vector<std::pair<std::string, llvm::Constant *>> savedConsts;
+
+    for (size_t i = 0; i < stmts.size(); ++i) {
+        auto *stmt = stmts[i].get();
+        if (auto *varDecl = dynamic_cast<VarDecl *>(stmt)) {
+            if (varDecl->hasInit()) {
+                auto *val = visit(const_cast<Expr *>(varDecl->getInit()));
+                if (auto *constVal = llvm::dyn_cast_or_null<llvm::Constant>(val)) {
+                    // Save old value if exists
+                    auto it = constValues_.find(varDecl->getName());
+                    if (it != constValues_.end())
+                        savedConsts.push_back({varDecl->getName(), it->second});
+                    constValues_[varDecl->getName()] = constVal;
+                }
+            }
+        } else if (auto *exprStmt = dynamic_cast<ExprStmt *>(stmt)) {
+            result = visit(exprStmt->getExpr());
+        } else {
+            visit(stmt);
+        }
+    }
+
+    // Restore saved const values
+    for (auto &[name, val] : savedConsts) {
+        constValues_[name] = val;
+    }
+
+    return result;
+}
+
 } // namespace liva
 
 #endif // LIVA_HAS_LLVM

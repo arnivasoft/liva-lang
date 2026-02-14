@@ -142,6 +142,9 @@ public:
         case ASTNode::NodeKind::AwaitExpr:
             return static_cast<Derived *>(this)->visitAwaitExpr(
                 static_cast<AwaitExpr *>(node));
+        case ASTNode::NodeKind::ComptimeExpr:
+            return static_cast<Derived *>(this)->visitComptimeExpr(
+                static_cast<ComptimeExpr *>(node));
         }
         return RetTy();
     }
@@ -194,6 +197,7 @@ public:
     RetTy visitTryExpr(TryExpr *) { return RetTy(); }
     RetTy visitTernaryExpr(TernaryExpr *) { return RetTy(); }
     RetTy visitAwaitExpr(AwaitExpr *) { return RetTy(); }
+    RetTy visitComptimeExpr(ComptimeExpr *) { return RetTy(); }
 };
 
 } // namespace liva

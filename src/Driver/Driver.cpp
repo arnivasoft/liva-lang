@@ -4,7 +4,9 @@
 #include "liva/Driver/CompilerInstance.h"
 #include "liva/Driver/PackageManager.h"
 #include "liva/CodeGen/CodeGen.h"
+#include "liva/Lexer/Lexer.h"
 #include "liva/LSP/LSPServer.h"
+#include "liva/Parser/Parser.h"
 #include "liva/REPL/REPL.h"
 #include "liva/Sema/ModuleLoader.h"
 #include <cstdlib>
@@ -48,6 +50,28 @@ bool Driver::parseArgs(int argc, const char **argv) {
         } else if (std::strcmp(argv[1], "repl") == 0) {
             options_.subcommand = Subcommand::Repl;
             startIdx = 2;
+            return true;
+        } else if (std::strcmp(argv[1], "fmt") == 0) {
+            options_.subcommand = Subcommand::Fmt;
+            for (int i = 2; i < argc; ++i) {
+                if (std::strcmp(argv[i], "--check") == 0)
+                    options_.fmtCheck = true;
+                else
+                    options_.fmtFiles.push_back(argv[i]);
+            }
+            if (options_.fmtFiles.empty()) {
+                std::cerr << "error: livac fmt requires at least one file\n";
+                return false;
+            }
+            return true;
+        } else if (std::strcmp(argv[1], "lint") == 0) {
+            options_.subcommand = Subcommand::Lint;
+            for (int i = 2; i < argc; ++i)
+                options_.lintFiles.push_back(argv[i]);
+            if (options_.lintFiles.empty()) {
+                std::cerr << "error: livac lint requires at least one file\n";
+                return false;
+            }
             return true;
         } else if (std::strcmp(argv[1], "install") == 0) {
             options_.subcommand = Subcommand::Install;
@@ -217,6 +241,8 @@ int Driver::execute() {
     case Subcommand::Lsp:     return executeLsp();
     case Subcommand::Repl:    return executeRepl();
     case Subcommand::Install: return executeInstall();
+    case Subcommand::Fmt:     return executeFmt();
+    case Subcommand::Lint:    return executeLint();
     case Subcommand::None:    return executeLegacy();
     }
 
@@ -786,6 +812,76 @@ int Driver::executeInstall() {
     return 0;
 }
 
+int Driver::executeFmt() {
+    int exitCode = 0;
+    for (const auto &filePath : options_.fmtFiles) {
+        std::ifstream ifs(filePath);
+        if (!ifs.is_open()) {
+            std::cerr << "error: cannot open '" << filePath << "'\n";
+            exitCode = 1;
+            continue;
+        }
+        std::ostringstream ss;
+        ss << ifs.rdbuf();
+        ifs.close();
+        std::string original = ss.str();
+
+        std::string formatted = formatLivaSource(original);
+
+        if (options_.fmtCheck) {
+            if (formatted != original) {
+                std::cerr << filePath << ": not formatted\n";
+                exitCode = 1;
+            }
+        } else {
+            if (formatted != original) {
+                std::ofstream ofs(filePath);
+                if (!ofs.is_open()) {
+                    std::cerr << "error: cannot write '" << filePath << "'\n";
+                    exitCode = 1;
+                    continue;
+                }
+                ofs << formatted;
+            }
+        }
+    }
+    return exitCode;
+}
+
+int Driver::executeLint() {
+    int totalWarnings = 0;
+    for (const auto &filePath : options_.lintFiles) {
+        std::ifstream ifs(filePath);
+        if (!ifs.is_open()) {
+            std::cerr << "error: cannot open '" << filePath << "'\n";
+            totalWarnings = 1;
+            continue;
+        }
+        std::ostringstream ss;
+        ss << ifs.rdbuf();
+        ifs.close();
+        std::string source = ss.str();
+
+        SourceManager sm(filePath, source);
+        DiagnosticsEngine diag(&sm);
+        diag.setPrintCallback([&sm](const Diagnostic &d) {
+            DiagnosticsEngine::printToStderr(d, &sm);
+        });
+
+        Lexer lexer(sm, diag);
+        Parser parser(lexer, diag);
+        auto tu = parser.parseTranslationUnit();
+
+        if (diag.hasErrors() || !tu) {
+            totalWarnings += diag.getErrorCount();
+            continue;
+        }
+
+        totalWarnings += lintLivaSource(*tu, diag);
+    }
+    return totalWarnings > 0 ? 1 : 0;
+}
+
 int Driver::executeClean() {
     std::string cwd = getCurrentDirectory();
     std::string tomlPath = findProjectFile(cwd);
@@ -934,6 +1030,8 @@ void Driver::printHelp() {
               << "       livac init [name]\n"
               << "       livac install <pkg> [version]\n"
               << "       livac clean\n"
+              << "       livac fmt [--check] <files...>\n"
+              << "       livac lint <files...>\n"
               << "       livac lsp\n"
               << "\n"
               << "Subcommands:\n"
@@ -942,6 +1040,8 @@ void Driver::printHelp() {
               << "  init [name]         Create a new Liva project\n"
               << "  install <pkg> [ver] Install a package from registry\n"
               << "  clean               Remove build artifacts\n"
+              << "  fmt [--check]       Format Liva source files\n"
+              << "  lint                Lint Liva source files\n"
               << "  lsp                 Start Language Server Protocol server\n"
               << "  repl                Start interactive REPL\n"
               << "\n"

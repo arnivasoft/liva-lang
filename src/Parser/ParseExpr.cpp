@@ -288,6 +288,9 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
     case TokenKind::pipe_pipe:
         return parseClosureExpr();
 
+    case TokenKind::kw_comptime:
+        return parseComptimeExpr();
+
     default:
         diag_.report(current_.getLocation(), DiagID::err_expected_expression);
         return nullptr;
@@ -503,6 +506,14 @@ std::unique_ptr<Expr> Parser::parseClosureExpr() {
     return std::make_unique<ClosureExpr>(
         std::move(params), std::move(returnType),
         std::move(body), rangeFrom(startLoc));
+}
+
+std::unique_ptr<Expr> Parser::parseComptimeExpr() {
+    auto startLoc = current_.getLocation();
+    advance(); // consume 'comptime'
+    auto body = parseBlock();
+    if (!body) return nullptr;
+    return std::make_unique<ComptimeExpr>(std::move(body), rangeFrom(startLoc));
 }
 
 } // namespace liva

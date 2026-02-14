@@ -93,6 +93,8 @@ DIAG(err_multiple_variadic,          error,   "function cannot have more than on
 // === Sema - Const ===
 DIAG(err_const_requires_init,      error, "'const' declaration requires an initializer")
 DIAG(err_const_init_not_constant,  error, "'const' initializer must be a compile-time constant expression")
+DIAG(err_comptime_not_constant,   error, "expression in comptime block must be evaluable at compile time")
+DIAG(err_comptime_loop_limit,     error, "comptime while loop exceeded maximum iteration limit")
 
 // === Parser - Error Recovery ===
 DIAG(err_too_many_errors,            error,   "too many errors emitted, stopping now")
@@ -102,6 +104,14 @@ DIAG(warn_unused_variable,           warning, "unused variable '%0'")
 DIAG(warn_unreachable_code,          warning, "code after '%0' will never be executed")
 DIAG(warn_shadowed_variable,         warning, "variable '%0' shadows previous declaration")
 DIAG(warn_unreachable_match_arm,     warning, "unreachable match arm: case '%0' already handled")
+
+// === Lint Warnings ===
+DIAG(warn_lint_type_naming,          warning, "%0 '%1' should use PascalCase naming")
+DIAG(warn_lint_bool_comparison,      warning, "unnecessary comparison with boolean literal")
+DIAG(warn_lint_empty_func_body,      warning, "function '%0' has an empty body")
+DIAG(warn_lint_missing_doc_comment,  warning, "public %0 '%1' should have a doc comment")
+DIAG(warn_lint_default_param_order,  warning, "parameter '%0' with default value should come after parameters without defaults")
+DIAG(warn_lint_self_comparison,      warning, "comparing '%0' to itself always produces the same result")
 
 // === Notes ===
 DIAG(note_previous_declaration,      note,    "previous declaration of '%0' is here")

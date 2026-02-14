@@ -1,5 +1,6 @@
 #include "liva/Common/Diagnostics.h"
 #include "liva/Common/SourceLocation.h"
+#include "liva/Driver/Driver.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
 #include "liva/Sema/Sema.h"
@@ -1575,4 +1576,205 @@ func main() {
     EXPECT_TRUE(result.parseSuccess) << "Parse failed for string_interp_cleanup.liva";
     EXPECT_TRUE(result.semaSuccess) << "Sema failed for string_interp_cleanup.liva";
     for (const auto &e : result.errors) { EXPECT_TRUE(false) << "Error: " << e; }
+}
+
+// ============================================================
+// Formatter Tests — formatLivaSource()
+// ============================================================
+
+TEST_F(IntegrationTest, FmtBasicIndentation) {
+    std::string input = "func foo() {\nreturn 42\n}";
+    std::string expected = "func foo() {\n    return 42\n}";
+    EXPECT_EQ(liva::formatLivaSource(input), expected);
+}
+
+TEST_F(IntegrationTest, FmtNestedBlocks) {
+    std::string input = "func foo() {\nif true {\nwhile x {\nbar()\n}\n}\n}";
+    std::string expected =
+        "func foo() {\n"
+        "    if true {\n"
+        "        while x {\n"
+        "            bar()\n"
+        "        }\n"
+        "    }\n"
+        "}";
+    EXPECT_EQ(liva::formatLivaSource(input), expected);
+}
+
+TEST_F(IntegrationTest, FmtAlreadyFormatted) {
+    std::string input =
+        "func main() {\n"
+        "    println(42)\n"
+        "}";
+    EXPECT_EQ(liva::formatLivaSource(input), input);
+}
+
+TEST_F(IntegrationTest, FmtEmptyLines) {
+    std::string input = "func foo() {\n\nreturn 1\n\n}";
+    std::string expected = "func foo() {\n\n    return 1\n\n}";
+    EXPECT_EQ(liva::formatLivaSource(input), expected);
+}
+
+TEST_F(IntegrationTest, FmtMultipleClosingBraces) {
+    std::string input = "func foo() {\nif true {\nbar()\n}\n}";
+    std::string expected =
+        "func foo() {\n"
+        "    if true {\n"
+        "        bar()\n"
+        "    }\n"
+        "}";
+    EXPECT_EQ(liva::formatLivaSource(input), expected);
+}
+
+TEST_F(IntegrationTest, FmtTrailingWhitespace) {
+    std::string input = "func foo() {   \n    return 1   \n}  ";
+    std::string expected = "func foo() {\n    return 1\n}";
+    EXPECT_EQ(liva::formatLivaSource(input), expected);
+}
+
+TEST_F(IntegrationTest, FmtEmptyInput) {
+    EXPECT_EQ(liva::formatLivaSource(""), "");
+}
+
+TEST_F(IntegrationTest, FmtLeadingCloseBrace) {
+    std::string input = "func foo() {\nreturn 1\n}\nfunc bar() {\nreturn 2\n}";
+    std::string expected =
+        "func foo() {\n"
+        "    return 1\n"
+        "}\n"
+        "func bar() {\n"
+        "    return 2\n"
+        "}";
+    EXPECT_EQ(liva::formatLivaSource(input), expected);
+}
+
+// ============================================================
+// Lint Tests — lintLivaSource()
+// ============================================================
+
+namespace {
+
+// Helper: parse source and run linter, return warnings
+static std::vector<std::string> runLint(const std::string &source) {
+    SourceManager sm("lint_test.liva", source);
+    DiagnosticsEngine diag(&sm);
+    Lexer lexer(sm, diag);
+    Parser parser(lexer, diag);
+    auto tu = parser.parseTranslationUnit();
+    std::vector<std::string> warnings;
+    if (!tu || diag.hasErrors())
+        return warnings;
+    liva::lintLivaSource(*tu, diag);
+    for (const auto &d : diag.getDiagnostics()) {
+        if (d.level == DiagLevel::Warning)
+            warnings.push_back(d.message);
+    }
+    return warnings;
+}
+
+} // namespace
+
+TEST_F(IntegrationTest, LintTypeNamingStruct) {
+    auto warnings = runLint("struct my_point { var x: i32 }\nfunc main() {}");
+    ASSERT_FALSE(warnings.empty());
+    EXPECT_NE(warnings[0].find("PascalCase"), std::string::npos);
+}
+
+TEST_F(IntegrationTest, LintTypeNamingEnum) {
+    auto warnings = runLint("enum my_color { case Red }\nfunc main() {}");
+    ASSERT_FALSE(warnings.empty());
+    EXPECT_NE(warnings[0].find("PascalCase"), std::string::npos);
+}
+
+TEST_F(IntegrationTest, LintTypeNamingCorrect) {
+    auto warnings = runLint("struct MyPoint { var x: i32 }\nfunc main() {}");
+    for (const auto &w : warnings) {
+        EXPECT_EQ(w.find("PascalCase"), std::string::npos)
+            << "Unexpected PascalCase warning: " << w;
+    }
+}
+
+TEST_F(IntegrationTest, LintBoolComparisonEqTrue) {
+    auto warnings = runLint("func main() {\n    let x = true\n    let y = x == true\n}");
+    bool found = false;
+    for (const auto &w : warnings) {
+        if (w.find("boolean literal") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found) << "Expected bool comparison warning";
+}
+
+TEST_F(IntegrationTest, LintBoolComparisonEqFalse) {
+    auto warnings = runLint("func main() {\n    let x = true\n    let y = x == false\n}");
+    bool found = false;
+    for (const auto &w : warnings) {
+        if (w.find("boolean literal") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found) << "Expected bool comparison warning";
+}
+
+TEST_F(IntegrationTest, LintBoolComparisonClean) {
+    auto warnings = runLint("func main() {\n    let x = true\n    if x { }\n}");
+    for (const auto &w : warnings) {
+        EXPECT_EQ(w.find("boolean literal"), std::string::npos)
+            << "Unexpected bool comparison warning: " << w;
+    }
+}
+
+TEST_F(IntegrationTest, LintEmptyFuncBody) {
+    auto warnings = runLint("func foo() {}\nfunc main() {}");
+    bool found = false;
+    for (const auto &w : warnings) {
+        if (w.find("empty body") != std::string::npos && w.find("foo") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found) << "Expected empty function body warning for 'foo'";
+}
+
+TEST_F(IntegrationTest, LintNonEmptyFuncBody) {
+    auto warnings = runLint("func foo() -> i32 { return 1 }\nfunc main() { println(1) }");
+    for (const auto &w : warnings) {
+        EXPECT_EQ(w.find("empty body"), std::string::npos)
+            << "Unexpected empty body warning: " << w;
+    }
+}
+
+TEST_F(IntegrationTest, LintMissingDocOnPublic) {
+    auto warnings = runLint("pub func foo() -> i32 { return 1 }\nfunc main() {}");
+    bool found = false;
+    for (const auto &w : warnings) {
+        if (w.find("doc comment") != std::string::npos && w.find("foo") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found) << "Expected missing doc comment warning";
+}
+
+TEST_F(IntegrationTest, LintDocPresent) {
+    auto warnings = runLint("/// A documented function\npub func foo() -> i32 { return 1 }\nfunc main() {}");
+    for (const auto &w : warnings) {
+        if (w.find("doc comment") != std::string::npos && w.find("foo") != std::string::npos) {
+            EXPECT_TRUE(false) << "Unexpected doc comment warning: " << w;
+        }
+    }
+}
+
+TEST_F(IntegrationTest, LintDefaultParamOrder) {
+    auto warnings = runLint("func f(x: i32 = 1, y: i32) -> i32 { return y }\nfunc main() {}");
+    bool found = false;
+    for (const auto &w : warnings) {
+        if (w.find("default value") != std::string::npos && w.find("'y'") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found) << "Expected default param order warning";
+}
+
+TEST_F(IntegrationTest, LintSelfComparison) {
+    auto warnings = runLint("func main() {\n    let x: i32 = 5\n    let y = x == x\n}");
+    bool found = false;
+    for (const auto &w : warnings) {
+        if (w.find("comparing") != std::string::npos && w.find("to itself") != std::string::npos)
+            found = true;
+    }
+    EXPECT_TRUE(found) << "Expected self-comparison warning";
 }

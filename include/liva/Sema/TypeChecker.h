@@ -68,6 +68,7 @@ public:
     void visitTryExpr(TryExpr *node);
     void visitTernaryExpr(TernaryExpr *node);
     void visitAwaitExpr(AwaitExpr *node);
+    void visitComptimeExpr(ComptimeExpr *node);
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
@@ -148,7 +149,9 @@ private:
         std::string strVal;
     };
     std::optional<ConstValue> evaluateConstExpr(const Expr *expr);
+    std::optional<ConstValue> evaluateComptimeBlock(const BlockStmt *block);
     std::unordered_map<std::string, ConstValue> constValues_;
+    std::unordered_map<std::string, ConstValue> comptimeLocals_;
 
     /// Unused variable tracking (per function)
     std::set<std::string> usedSymbols_;

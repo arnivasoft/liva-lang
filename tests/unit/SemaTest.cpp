@@ -6180,3 +6180,172 @@ TEST_F(SemaTest, DynProtocolKeywordParsing) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Comptime Tests ===
+
+TEST_F(SemaTest, ComptimeSimpleExpr) {
+    auto result = check(R"(
+        func main() {
+            let x = comptime { 2 + 3 }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeWithConst) {
+    auto result = check(R"--(
+        func main() {
+            let x = comptime {
+                const a = 10
+                a * 2
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeWithMultiConst) {
+    auto result = check(R"--(
+        func main() {
+            let x = comptime {
+                const a = 3
+                const b = 4
+                a + b
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeStringConcat) {
+    auto result = check(R"--(
+        func main() {
+            let s = comptime { "hello" + " " + "world" }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeTernary) {
+    auto result = check(R"(
+        func main() {
+            let x = comptime { true ? 1 : 2 }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeBoolLogic) {
+    auto result = check(R"(
+        func main() {
+            let x = comptime { !false && true }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeFloatArith) {
+    auto result = check(R"(
+        func main() {
+            let x = comptime { 1.5 + 2.5 }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeCast) {
+    auto result = check(R"(
+        func main() {
+            let x = comptime { 42 as i64 }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeIfElse) {
+    auto result = check(R"--(
+        func main() {
+            let x = comptime {
+                const a = 5
+                if a > 3 { 1 } else { 0 }
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeWhileLoop) {
+    auto result = check(R"--(
+        func main() {
+            let x = comptime {
+                var r = 0
+                var i = 0
+                while i < 5 {
+                    r = r + i
+                    i = i + 1
+                }
+                r
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeNestedBlocks) {
+    auto result = check(R"--(
+        func main() {
+            let x = comptime {
+                const a = comptime { 1 + 2 }
+                a * 3
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeInVarDecl) {
+    auto result = check(R"(
+        func main() {
+            let x: i32 = comptime { 42 }
+            println(x)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeInConstDecl) {
+    auto result = check(R"(
+        const x = comptime { 10 + 20 }
+        func main() {
+            println(x)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ComptimeErrorRuntime) {
+    auto result = check(R"(
+        func main() {
+            var y = 5
+            let x = comptime { y }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_comptime_not_constant));
+}
+
+TEST_F(SemaTest, ComptimeErrorLoopLimit) {
+    auto result = check(R"--(
+        func main() {
+            let x = comptime {
+                var v = 0
+                while true {
+                    v = v + 1
+                }
+                v
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_comptime_loop_limit));
+}

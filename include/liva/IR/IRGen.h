@@ -104,6 +104,7 @@ public:
     llvm::Value *visitRefExpr(RefExpr *node);
     llvm::Value *visitTypeAliasDecl(TypeAliasDecl *node);
     llvm::Value *visitAwaitExpr(AwaitExpr *node);
+    llvm::Value *visitComptimeExpr(ComptimeExpr *node);
 
 private:
     /// Lookup a runtime function by name, asserting it was declared

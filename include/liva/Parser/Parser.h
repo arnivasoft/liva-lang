@@ -54,6 +54,7 @@ public:
     std::unique_ptr<Expr> parseArrayLiteral();
     std::unique_ptr<Expr> parseMatchExpr();
     std::unique_ptr<Expr> parseClosureExpr();
+    std::unique_ptr<Expr> parseComptimeExpr();
 
     // Type parsing (ParseType.cpp)
     std::unique_ptr<TypeRepr> parseType();

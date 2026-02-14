@@ -59,6 +59,7 @@ public:
         TryExpr,     // try expr
         TernaryExpr, // condition ? then : else
         AwaitExpr,   // await expr
+        ComptimeExpr, // comptime { ... }
     };
 
     explicit ASTNode(NodeKind kind, SourceRange range = SourceRange::invalid())

@@ -6,7 +6,7 @@
 
 namespace liva {
 
-enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean, Install };
+enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean, Install, Fmt, Lint };
 
 /// Command-line options
 struct DriverOptions {
@@ -30,6 +30,9 @@ struct DriverOptions {
     std::string initName;
     std::string installPkgName;      // package name to install
     std::string installPkgVersion;   // optional version constraint (default: latest)
+    std::vector<std::string> fmtFiles;
+    std::vector<std::string> lintFiles;
+    bool fmtCheck = false;
     bool hasOptLevelOverride = false;
     bool hasDebugOverride = false;
 };
@@ -59,6 +62,8 @@ private:
     int executeRepl();
     int executeClean();
     int executeInstall();
+    int executeFmt();
+    int executeLint();
     int executeLegacy();
 
     int buildProject(bool runAfter);
@@ -74,5 +79,16 @@ private:
     DriverOptions options_;
     std::string executablePath_;
 };
+
+/// Format Liva source code using brace-depth indentation (4 spaces).
+std::string formatLivaSource(const std::string &content);
+
+// Forward declarations for lint
+class TranslationUnit;
+class DiagnosticsEngine;
+
+/// Lint a parsed translation unit, emitting warnings via diag.
+/// Returns the number of warnings emitted.
+int lintLivaSource(const TranslationUnit &tu, DiagnosticsEngine &diag);
 
 } // namespace liva

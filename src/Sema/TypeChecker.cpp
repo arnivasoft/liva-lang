@@ -2273,6 +2273,168 @@ void TypeChecker::visitClosureExpr(ClosureExpr *node) {
     scopes_.popScope();
 }
 
+void TypeChecker::visitComptimeExpr(ComptimeExpr *node) {
+    // Save and restore comptimeLocals_ at the top-level entry point
+    auto savedLocals = comptimeLocals_;
+    auto result = evaluateComptimeBlock(node->getBody());
+    comptimeLocals_ = savedLocals;
+    if (!result) {
+        diag_.report(node->getStartLoc(), DiagID::err_comptime_not_constant);
+        return;
+    }
+    switch (result->kind) {
+    case ConstValue::Integer:
+        node->setResolvedType(std::make_unique<TypeRepr>(TypeRepr::Kind::I32));
+        break;
+    case ConstValue::Float:
+        node->setResolvedType(std::make_unique<TypeRepr>(TypeRepr::Kind::F64));
+        break;
+    case ConstValue::Bool:
+        node->setResolvedType(std::make_unique<TypeRepr>(TypeRepr::Kind::Bool));
+        break;
+    case ConstValue::String:
+        node->setResolvedType(std::make_unique<TypeRepr>(TypeRepr::Kind::String));
+        break;
+    }
+}
+
+std::optional<TypeChecker::ConstValue> TypeChecker::evaluateComptimeBlock(const BlockStmt *block) {
+    if (!block) return std::nullopt;
+
+    auto &stmts = block->getStatements();
+    if (stmts.empty()) return std::nullopt;
+
+    std::optional<ConstValue> result;
+
+    for (size_t i = 0; i < stmts.size(); ++i) {
+        auto *stmt = stmts[i].get();
+        bool isLast = (i == stmts.size() - 1);
+
+        switch (stmt->getKind()) {
+        case ASTNode::NodeKind::VarDecl: {
+            auto *var = static_cast<VarDecl *>(stmt);
+            if (!var->hasInit()) return std::nullopt;
+            auto val = evaluateConstExpr(var->getInit());
+            if (!val) return std::nullopt;
+            comptimeLocals_[var->getName()] = *val;
+            if (isLast) result = val;
+            break;
+        }
+        case ASTNode::NodeKind::ExprStmt: {
+            auto *exprStmt = static_cast<ExprStmt *>(stmt);
+            auto *expr = exprStmt->getExpr();
+            // Check for assignment: x = expr or x += expr etc.
+            if (expr->getKind() == ASTNode::NodeKind::AssignExpr) {
+                auto *assign = static_cast<AssignExpr *>(const_cast<Expr *>(expr));
+                auto *target = assign->getTarget();
+                if (target->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                    auto *ident = static_cast<const IdentifierExpr *>(target);
+                    auto val = evaluateConstExpr(assign->getValue());
+                    if (!val) return std::nullopt;
+                    auto it = comptimeLocals_.find(ident->getName());
+                    if (it == comptimeLocals_.end()) return std::nullopt;
+                    switch (assign->getOp()) {
+                    case AssignExpr::Op::Assign:
+                        it->second = *val;
+                        break;
+                    case AssignExpr::Op::AddAssign:
+                        if (it->second.kind == ConstValue::Integer && val->kind == ConstValue::Integer)
+                            it->second.intVal += val->intVal;
+                        else if (it->second.kind == ConstValue::Float && val->kind == ConstValue::Float)
+                            it->second.floatVal += val->floatVal;
+                        else return std::nullopt;
+                        break;
+                    case AssignExpr::Op::SubAssign:
+                        if (it->second.kind == ConstValue::Integer && val->kind == ConstValue::Integer)
+                            it->second.intVal -= val->intVal;
+                        else if (it->second.kind == ConstValue::Float && val->kind == ConstValue::Float)
+                            it->second.floatVal -= val->floatVal;
+                        else return std::nullopt;
+                        break;
+                    case AssignExpr::Op::MulAssign:
+                        if (it->second.kind == ConstValue::Integer && val->kind == ConstValue::Integer)
+                            it->second.intVal *= val->intVal;
+                        else if (it->second.kind == ConstValue::Float && val->kind == ConstValue::Float)
+                            it->second.floatVal *= val->floatVal;
+                        else return std::nullopt;
+                        break;
+                    case AssignExpr::Op::DivAssign:
+                        if (it->second.kind == ConstValue::Integer && val->kind == ConstValue::Integer) {
+                            if (val->intVal == 0) return std::nullopt;
+                            it->second.intVal /= val->intVal;
+                        } else if (it->second.kind == ConstValue::Float && val->kind == ConstValue::Float) {
+                            if (val->floatVal == 0.0) return std::nullopt;
+                            it->second.floatVal /= val->floatVal;
+                        } else return std::nullopt;
+                        break;
+                    case AssignExpr::Op::ModAssign:
+                        if (it->second.kind == ConstValue::Integer && val->kind == ConstValue::Integer) {
+                            if (val->intVal == 0) return std::nullopt;
+                            it->second.intVal %= val->intVal;
+                        } else return std::nullopt;
+                        break;
+                    }
+                    if (isLast) result = it->second;
+                } else return std::nullopt;
+            } else {
+                auto val = evaluateConstExpr(expr);
+                if (!val) return std::nullopt;
+                if (isLast) result = val;
+            }
+            break;
+        }
+        case ASTNode::NodeKind::IfStmt: {
+            auto *ifStmt = static_cast<IfStmt *>(stmt);
+            auto cond = evaluateConstExpr(ifStmt->getCondition());
+            if (!cond || cond->kind != ConstValue::Bool) return std::nullopt;
+            const ASTNode *branch = cond->boolVal ? ifStmt->getThenBody() : ifStmt->getElseBody();
+            if (!branch) {
+                if (isLast) return std::nullopt;
+                break;
+            }
+            if (branch->getKind() == ASTNode::NodeKind::BlockStmt) {
+                auto branchResult = evaluateComptimeBlock(static_cast<const BlockStmt *>(branch));
+                if (isLast) {
+                    if (!branchResult) return std::nullopt;
+                    result = branchResult;
+                }
+            } else return std::nullopt;
+            break;
+        }
+        case ASTNode::NodeKind::WhileStmt: {
+            auto *whileStmt = static_cast<WhileStmt *>(stmt);
+            const int maxIter = 10000;
+            int iter = 0;
+            while (true) {
+                if (iter++ >= maxIter) {
+                    diag_.report(whileStmt->getStartLoc(), DiagID::err_comptime_loop_limit);
+                    return std::nullopt;
+                }
+                auto cond = evaluateConstExpr(whileStmt->getCondition());
+                if (!cond || cond->kind != ConstValue::Bool) return std::nullopt;
+                if (!cond->boolVal) break;
+                auto *body = whileStmt->getBody();
+                if (body->getKind() == ASTNode::NodeKind::BlockStmt) {
+                    evaluateComptimeBlock(static_cast<const BlockStmt *>(body));
+                } else return std::nullopt;
+            }
+            break;
+        }
+        case ASTNode::NodeKind::ReturnStmt: {
+            auto *ret = static_cast<ReturnStmt *>(stmt);
+            if (ret->hasValue()) {
+                return evaluateConstExpr(ret->getValue());
+            }
+            return std::nullopt;
+        }
+        default:
+            return std::nullopt;
+        }
+    }
+
+    return result;
+}
+
 std::optional<TypeChecker::ConstValue> TypeChecker::evaluateConstExpr(const Expr *expr) {
     if (!expr) return std::nullopt;
 
@@ -2307,6 +2469,8 @@ std::optional<TypeChecker::ConstValue> TypeChecker::evaluateConstExpr(const Expr
     }
     case ASTNode::NodeKind::IdentifierExpr: {
         auto *ident = static_cast<const IdentifierExpr *>(expr);
+        auto cit = comptimeLocals_.find(ident->getName());
+        if (cit != comptimeLocals_.end()) return cit->second;
         auto it = constValues_.find(ident->getName());
         if (it != constValues_.end()) return it->second;
         return std::nullopt;
@@ -2468,6 +2632,10 @@ std::optional<TypeChecker::ConstValue> TypeChecker::evaluateConstExpr(const Expr
             if (isFloatTarget) return operand;
         }
         return std::nullopt;
+    }
+    case ASTNode::NodeKind::ComptimeExpr: {
+        auto *comptime = static_cast<const ComptimeExpr *>(expr);
+        return evaluateComptimeBlock(comptime->getBody());
     }
     default:
         return std::nullopt;

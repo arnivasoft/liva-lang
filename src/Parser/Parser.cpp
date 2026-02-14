@@ -52,6 +52,7 @@ void Parser::synchronize() {
             case TokenKind::kw_let:
             case TokenKind::kw_var:
             case TokenKind::kw_const:
+            case TokenKind::kw_comptime:
             case TokenKind::kw_if:
             case TokenKind::kw_while:
             case TokenKind::kw_for:

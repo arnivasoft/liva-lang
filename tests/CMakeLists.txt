@@ -54,7 +54,7 @@ target_link_libraries(benchmark_test PRIVATE liva_sema liva_parser)
 liva_add_test(integration_test
     unit/IntegrationTest.cpp
 )
-target_link_libraries(integration_test PRIVATE liva_sema liva_parser)
+target_link_libraries(integration_test PRIVATE liva_driver liva_sema liva_parser)
 target_compile_definitions(integration_test PRIVATE
     LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
 )

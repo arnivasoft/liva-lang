@@ -543,6 +543,10 @@ JSONValue LSPServer::dispatch(const JSONValue &msg) {
             return handleSelectionRange(id, params);
         if (method == "textDocument/documentHighlight")
             return handleDocumentHighlight(id, params);
+        if (method == "textDocument/inlayHint")
+            return handleInlayHint(id, params);
+        if (method == "workspace/symbol")
+            return handleWorkspaceSymbol(id, params);
         // Unknown request → method not found
         return makeError(id, -32601, "method not found: " + method);
     }
@@ -625,6 +629,9 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
     // Document symbols
     capabilities.set("documentSymbolProvider", JSONValue(true));
 
+    // Workspace symbols
+    capabilities.set("workspaceSymbolProvider", JSONValue(true));
+
     // References
     capabilities.set("referencesProvider", JSONValue(true));
 
@@ -681,6 +688,9 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
 
     // Document highlight
     capabilities.set("documentHighlightProvider", JSONValue(true));
+
+    // Inlay hints
+    capabilities.set("inlayHintProvider", JSONValue(true));
 
     auto serverInfo = JSONValue::object();
     serverInfo.set("name", JSONValue("liva-lsp"));
@@ -2317,6 +2327,196 @@ std::string LSPServer::pathToUri(const std::string &path) const {
         }
     }
     return uri;
+}
+
+// ============================================================
+// Inlay Hints
+// ============================================================
+
+void LSPServer::collectVarDeclHints(const ASTNode *node, uint32_t startLine,
+                                     uint32_t endLine, JSONValue &hints) {
+    if (!node) return;
+
+    if (auto *vd = dynamic_cast<const VarDecl *>(node)) {
+        if (!vd->hasTypeAnnotation() && !vd->isDestructured() &&
+            vd->hasInit() && vd->getInit()->getResolvedType()) {
+            uint32_t line = vd->getRange().start.line; // 1-indexed
+            if (line >= startLine && line <= endLine) {
+                // Compute hint position: after the variable name
+                // "let name" → keyword_len + 1 (space) + name.length()
+                // "var name" → 4, "let name" → 4, "const name" → 6
+                uint32_t keywordLen = vd->isConst() ? 6 : 4; // const=6, let/var=4
+                uint32_t hintCol = keywordLen + static_cast<uint32_t>(vd->getName().length());
+
+                auto hint = JSONValue::object();
+
+                // Position (0-indexed)
+                auto pos = JSONValue::object();
+                pos.set("line", JSONValue(static_cast<int64_t>(line - 1)));
+                pos.set("character", JSONValue(static_cast<int64_t>(hintCol)));
+                hint.set("position", std::move(pos));
+
+                // Label
+                std::string label = ": " + vd->getInit()->getResolvedType()->toString();
+                hint.set("label", JSONValue(label));
+
+                // Kind = 1 (Type)
+                hint.set("kind", JSONValue(static_cast<int64_t>(1)));
+
+                hints.push(std::move(hint));
+            }
+        }
+        return;
+    }
+
+    // Recurse into function bodies
+    if (auto *fd = dynamic_cast<const FuncDecl *>(node)) {
+        if (fd->getBody()) {
+            for (const auto &stmt : fd->getBody()->getStatements()) {
+                collectVarDeclHints(stmt.get(), startLine, endLine, hints);
+            }
+        }
+        return;
+    }
+
+    // Recurse into block statements
+    if (auto *bs = dynamic_cast<const BlockStmt *>(node)) {
+        for (const auto &stmt : bs->getStatements()) {
+            collectVarDeclHints(stmt.get(), startLine, endLine, hints);
+        }
+        return;
+    }
+
+    // Recurse into if statements
+    if (auto *is = dynamic_cast<const IfStmt *>(node)) {
+        collectVarDeclHints(is->getThenBody(), startLine, endLine, hints);
+        if (is->hasElse())
+            collectVarDeclHints(is->getElseBody(), startLine, endLine, hints);
+        return;
+    }
+
+    // Recurse into while statements
+    if (auto *ws = dynamic_cast<const WhileStmt *>(node)) {
+        collectVarDeclHints(ws->getBody(), startLine, endLine, hints);
+        return;
+    }
+
+    // Recurse into for statements
+    if (auto *fs = dynamic_cast<const ForStmt *>(node)) {
+        collectVarDeclHints(fs->getBody(), startLine, endLine, hints);
+        return;
+    }
+}
+
+// ============================================================
+// Workspace Symbol
+// ============================================================
+
+JSONValue LSPServer::handleWorkspaceSymbol(const JSONValue &id,
+                                           const JSONValue &params) {
+    std::string query = params["query"].getString();
+
+    // Convert query to lowercase for case-insensitive matching
+    std::string queryLower;
+    queryLower.reserve(query.size());
+    for (char c : query) queryLower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    auto symbols = JSONValue::array();
+
+    for (const auto &[docUri, docState] : documents_) {
+        if (!docState.tu) continue;
+
+        for (const auto &node : docState.tu->getDeclarations()) {
+            auto *decl = node.get();
+            std::string name;
+            int kind = 0;
+
+            if (auto *fd = dynamic_cast<FuncDecl *>(decl)) {
+                name = fd->getName();
+                kind = 12; // Function
+            } else if (auto *sd = dynamic_cast<StructDecl *>(decl)) {
+                name = sd->getName();
+                kind = 23; // Struct
+            } else if (auto *ed = dynamic_cast<EnumDecl *>(decl)) {
+                name = ed->getName();
+                kind = 10; // Enum
+            } else if (auto *pd = dynamic_cast<ProtocolDecl *>(decl)) {
+                name = pd->getName();
+                kind = 11; // Interface
+            } else if (auto *vd = dynamic_cast<VarDecl *>(decl)) {
+                name = vd->getName();
+                kind = 13; // Variable
+            } else if (auto *td = dynamic_cast<TypeAliasDecl *>(decl)) {
+                name = td->getName();
+                kind = 26; // TypeParameter
+            }
+
+            if (name.empty() || kind == 0) continue;
+
+            // Filter by query (case-insensitive substring match)
+            if (!queryLower.empty()) {
+                std::string nameLower;
+                nameLower.reserve(name.size());
+                for (char c : name) nameLower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (nameLower.find(queryLower) == std::string::npos) continue;
+            }
+
+            SourceRange sr = decl->getRange();
+            int startLine = sr.start.isValid() ? static_cast<int>(sr.start.line) - 1 : 0;
+            int startCol  = sr.start.isValid() ? static_cast<int>(sr.start.column) - 1 : 0;
+            int endLine   = sr.end.isValid() ? static_cast<int>(sr.end.line) - 1 : startLine;
+            int endCol    = sr.end.isValid() ? static_cast<int>(sr.end.column) - 1 : startCol;
+
+            auto rangeStart = JSONValue::object();
+            rangeStart.set("line", JSONValue(static_cast<int64_t>(startLine)));
+            rangeStart.set("character", JSONValue(static_cast<int64_t>(startCol)));
+            auto rangeEnd = JSONValue::object();
+            rangeEnd.set("line", JSONValue(static_cast<int64_t>(endLine)));
+            rangeEnd.set("character", JSONValue(static_cast<int64_t>(endCol)));
+            auto range = JSONValue::object();
+            range.set("start", std::move(rangeStart));
+            range.set("end", std::move(rangeEnd));
+
+            auto location = JSONValue::object();
+            location.set("uri", JSONValue(docUri));
+            location.set("range", std::move(range));
+
+            auto sym = JSONValue::object();
+            sym.set("name", JSONValue(name));
+            sym.set("kind", JSONValue(static_cast<int64_t>(kind)));
+            sym.set("location", std::move(location));
+
+            symbols.push(std::move(sym));
+        }
+    }
+
+    return makeResponse(id, std::move(symbols));
+}
+
+// ============================================================
+// Inlay Hints
+// ============================================================
+
+JSONValue LSPServer::handleInlayHint(const JSONValue &id,
+                                      const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end() || !it->second.tu) {
+        return makeResponse(id, JSONValue::array());
+    }
+
+    // Range (0-indexed from client, convert to 1-indexed for AST)
+    uint32_t startLine = static_cast<uint32_t>(
+        params["range"]["start"]["line"].getInteger()) + 1;
+    uint32_t endLine = static_cast<uint32_t>(
+        params["range"]["end"]["line"].getInteger()) + 1;
+
+    auto hints = JSONValue::array();
+    for (const auto &decl : it->second.tu->getDeclarations()) {
+        collectVarDeclHints(decl.get(), startLine, endLine, hints);
+    }
+
+    return makeResponse(id, std::move(hints));
 }
 
 } // namespace liva

@@ -1336,3 +1336,170 @@ TEST_F(LSPTest, HoverWithoutDocComment) {
         EXPECT_EQ(val.find("---"), std::string::npos);
     }
 }
+
+// ============================================================
+// Inlay Hint Tests
+// ============================================================
+
+// Helper to build inlayHint requests in LSPTest fixture
+static std::string inlayHintRequest(const std::string &uri, int startLine,
+                                     int endLine, int id = 99) {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+           ",\"method\":\"textDocument/inlayHint\","
+           "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+           "\"},\"range\":{\"start\":{\"line\":" + std::to_string(startLine) +
+           ",\"character\":0},\"end\":{\"line\":" + std::to_string(endLine) +
+           ",\"character\":0}}}}";
+}
+
+TEST_F(LSPTest, InlayHintBasicType) {
+    initAndOpen("file:///test.liva", "let x = 42");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 1)));
+    const auto &hints = resp["result"].getArray();
+    ASSERT_EQ(hints.size(), 1u);
+    std::string label = hints[0]["label"].getString();
+    EXPECT_EQ(label, ": i32");
+    EXPECT_EQ(hints[0]["kind"].getInteger(), 1); // Type
+    // Position: after "let x" → line 0, character 5
+    EXPECT_EQ(hints[0]["position"]["line"].getInteger(), 0);
+    EXPECT_EQ(hints[0]["position"]["character"].getInteger(), 5);
+}
+
+TEST_F(LSPTest, InlayHintString) {
+    initAndOpen("file:///test.liva", "var s = \"hello\"");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 1)));
+    const auto &hints = resp["result"].getArray();
+    ASSERT_EQ(hints.size(), 1u);
+    std::string label = hints[0]["label"].getString();
+    EXPECT_EQ(label, ": string");
+}
+
+TEST_F(LSPTest, InlayHintNoAnnotation) {
+    // Explicit type annotation → no hint
+    initAndOpen("file:///test.liva", "let z: i32 = 42");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 1)));
+    const auto &hints = resp["result"].getArray();
+    EXPECT_TRUE(hints.empty());
+}
+
+TEST_F(LSPTest, InlayHintMultipleVars) {
+    initAndOpen("file:///test.liva", "let a = 1\nlet b = 2\nlet c = 3");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 3)));
+    const auto &hints = resp["result"].getArray();
+    ASSERT_EQ(hints.size(), 3u);
+    for (const auto &h : hints) {
+        EXPECT_EQ(h["label"].getString(), ": i32");
+    }
+}
+
+TEST_F(LSPTest, InlayHintInsideFunction) {
+    initAndOpen("file:///test.liva", "func foo() {\n    let x = 42\n}");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 3)));
+    const auto &hints = resp["result"].getArray();
+    ASSERT_EQ(hints.size(), 1u);
+    EXPECT_EQ(hints[0]["label"].getString(), ": i32");
+    EXPECT_EQ(hints[0]["position"]["line"].getInteger(), 1);
+}
+
+TEST_F(LSPTest, InlayHintCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["inlayHintProvider"].getBool());
+}
+
+// ============================================================
+// Workspace Symbol Tests
+// ============================================================
+
+static std::string workspaceSymbolRequest(const std::string &query, int id = 130) {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+           ",\"method\":\"workspace/symbol\","
+           "\"params\":{\"query\":\"" + query + "\"}}";
+}
+
+TEST_F(LSPTest, WorkspaceSymbolBasic) {
+    initAndOpen("file:///test.liva", "func greet() {}\nstruct Point {\n    var x: i32\n}");
+    auto resp = parseResponse(
+        server.handleMessage(workspaceSymbolRequest("")));
+    const auto &syms = resp["result"].getArray();
+    ASSERT_GE(syms.size(), 2u);
+    // Should contain greet and Point
+    bool hasGreet = false, hasPoint = false;
+    for (const auto &s : syms) {
+        if (s["name"].getString() == "greet") hasGreet = true;
+        if (s["name"].getString() == "Point") hasPoint = true;
+    }
+    EXPECT_TRUE(hasGreet);
+    EXPECT_TRUE(hasPoint);
+    // Check SymbolInformation format (location with uri)
+    EXPECT_TRUE(syms[0].hasKey("location"));
+    EXPECT_TRUE(syms[0]["location"].hasKey("uri"));
+    EXPECT_TRUE(syms[0]["location"].hasKey("range"));
+}
+
+TEST_F(LSPTest, WorkspaceSymbolQuery) {
+    initAndOpen("file:///test.liva", "func greet() {}\nfunc main() {}");
+    auto resp = parseResponse(
+        server.handleMessage(workspaceSymbolRequest("greet")));
+    const auto &syms = resp["result"].getArray();
+    ASSERT_EQ(syms.size(), 1u);
+    EXPECT_EQ(syms[0]["name"].getString(), "greet");
+    EXPECT_EQ(syms[0]["kind"].getInteger(), 12); // Function
+}
+
+TEST_F(LSPTest, WorkspaceSymbolMultipleFiles) {
+    // Init server
+    server.handleMessage(initRequest());
+    server.takeNotifications();
+    server.handleMessage(initializedNotif());
+    // Open two files
+    server.handleMessage(didOpen("file:///a.liva", "func alpha() {}"));
+    server.takeNotifications();
+    server.handleMessage(didOpen("file:///b.liva", "struct Beta {\n    var x: i32\n}"));
+    server.takeNotifications();
+
+    auto resp = parseResponse(
+        server.handleMessage(workspaceSymbolRequest("")));
+    const auto &syms = resp["result"].getArray();
+    bool hasAlpha = false, hasBeta = false;
+    for (const auto &s : syms) {
+        if (s["name"].getString() == "alpha") {
+            hasAlpha = true;
+            EXPECT_EQ(s["location"]["uri"].getString(), "file:///a.liva");
+        }
+        if (s["name"].getString() == "Beta") {
+            hasBeta = true;
+            EXPECT_EQ(s["location"]["uri"].getString(), "file:///b.liva");
+        }
+    }
+    EXPECT_TRUE(hasAlpha);
+    EXPECT_TRUE(hasBeta);
+}
+
+TEST_F(LSPTest, WorkspaceSymbolCaseInsensitive) {
+    initAndOpen("file:///test.liva", "struct Point {\n    var x: i32\n}");
+    auto resp = parseResponse(
+        server.handleMessage(workspaceSymbolRequest("point")));
+    const auto &syms = resp["result"].getArray();
+    ASSERT_GE(syms.size(), 1u);
+    EXPECT_EQ(syms[0]["name"].getString(), "Point");
+}
+
+TEST_F(LSPTest, WorkspaceSymbolNoMatch) {
+    initAndOpen("file:///test.liva", "func greet() {}");
+    auto resp = parseResponse(
+        server.handleMessage(workspaceSymbolRequest("xyz")));
+    const auto &syms = resp["result"].getArray();
+    EXPECT_EQ(syms.size(), 0u);
+}
+
+TEST_F(LSPTest, WorkspaceSymbolCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["workspaceSymbolProvider"].getBool());
+}

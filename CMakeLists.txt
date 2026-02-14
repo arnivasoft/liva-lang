@@ -143,8 +143,10 @@ add_library(liva_driver STATIC
     src/Driver/ProjectConfig.cpp
     src/Driver/BuildCache.cpp
     src/Driver/PackageManager.cpp
+    src/Driver/Formatter.cpp
+    src/Driver/Linter.cpp
 )
-target_link_libraries(liva_driver PUBLIC liva_common)
+target_link_libraries(liva_driver PUBLIC liva_common liva_parser)
 liva_set_compiler_flags(liva_driver)
 
 # === Main Executable ===

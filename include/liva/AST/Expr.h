@@ -21,7 +21,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::IntegerLiteralExpr &&
-               node->getKind() <= NodeKind::AwaitExpr;
+               node->getKind() <= NodeKind::ComptimeExpr;
     }
 
 protected:
@@ -535,6 +535,18 @@ public:
     static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::AwaitExpr; }
 private:
     std::unique_ptr<Expr> operand_;
+};
+
+/// Compile-time expression block: comptime { ... }
+class ComptimeExpr : public Expr {
+public:
+    ComptimeExpr(std::unique_ptr<BlockStmt> body, SourceRange range)
+        : Expr(NodeKind::ComptimeExpr, range), body_(std::move(body)) {}
+    const BlockStmt *getBody() const { return body_.get(); }
+    BlockStmt *getBody() { return body_.get(); }
+    static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::ComptimeExpr; }
+private:
+    std::unique_ptr<BlockStmt> body_;
 };
 
 } // namespace liva

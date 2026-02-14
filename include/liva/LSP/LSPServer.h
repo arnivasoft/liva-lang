@@ -155,6 +155,12 @@ private:
     JSONValue handleFoldingRange(const JSONValue &id, const JSONValue &params);
     JSONValue handleSelectionRange(const JSONValue &id, const JSONValue &params);
     JSONValue handleDocumentHighlight(const JSONValue &id, const JSONValue &params);
+    JSONValue handleInlayHint(const JSONValue &id, const JSONValue &params);
+    JSONValue handleWorkspaceSymbol(const JSONValue &id, const JSONValue &params);
+
+    // Inlay hint helpers
+    void collectVarDeclHints(const ASTNode *node, uint32_t startLine,
+                             uint32_t endLine, JSONValue &hints);
 
     // Analysis helpers
     void analyzeDocument(DocumentState &doc);
