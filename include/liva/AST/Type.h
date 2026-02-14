@@ -36,6 +36,7 @@ public:
         Tuple,       // (T1, T2)
         Generic,     // T<U, V>
         Inferred,    // Type to be inferred by the compiler
+        DynProtocol, // dyn Protocol (trait object)
     };
 
     explicit TypeRepr(Kind kind) : kind_(kind) {}
@@ -55,6 +56,7 @@ public:
     bool isPrimitive() const;
     bool isReference() const { return kind_ == Kind::Reference; }
     bool isInferred() const { return kind_ == Kind::Inferred; }
+    bool isDynProtocol() const { return kind_ == Kind::DynProtocol; }
 
     /// Get the bit width for integer/float types
     int getBitWidth() const;
@@ -180,6 +182,19 @@ private:
     std::unique_ptr<TypeRepr> errType_;
 };
 
+/// Trait object type: dyn Protocol
+class DynProtocolTypeRepr : public TypeRepr {
+public:
+    explicit DynProtocolTypeRepr(std::string protocolName)
+        : TypeRepr(Kind::DynProtocol), protocolName_(std::move(protocolName)) {}
+
+    const std::string &getProtocolName() const { return protocolName_; }
+    std::string toString() const override { return "dyn " + protocolName_; }
+
+private:
+    std::string protocolName_;
+};
+
 /// Helper to create common types
 std::unique_ptr<TypeRepr> makeVoidType();
 std::unique_ptr<TypeRepr> makeBoolType();
@@ -190,6 +205,7 @@ std::unique_ptr<TypeRepr> makeStringType();
 std::unique_ptr<TypeRepr> makeInferredType();
 std::unique_ptr<TypeRepr> makeNamedType(const std::string &name);
 std::unique_ptr<TypeRepr> makePrimitiveType(TypeRepr::Kind kind);
+std::unique_ptr<TypeRepr> makeDynProtocolType(const std::string &protocolName);
 
 /// Deep-clone a TypeRepr tree
 std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type);

@@ -63,6 +63,7 @@ KEYWORD(await,      "await")
 KEYWORD(const,      "const")
 KEYWORD(try,        "try")
 KEYWORD(type,       "type")
+KEYWORD(dyn,        "dyn")
 
 // === Type keywords ===
 KEYWORD(i8,         "i8")

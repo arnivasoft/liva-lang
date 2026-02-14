@@ -806,6 +806,83 @@ int8_t liva_file_is_file(const char *path) {
 #endif
 }
 
+// fileRead(path) -> Optional<string> (null on error)
+char *liva_file_read(const char *path) {
+    if (!path) return nullptr;
+    FILE *f = fopen(path, "rb");
+    if (!f) return nullptr;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 0) { fclose(f); return nullptr; }
+    char *buf = (char *)malloc((size_t)sz + 1);
+    if (!buf) { fclose(f); return nullptr; }
+    size_t rd = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[rd] = '\0';
+    return buf;
+}
+
+// fileWrite(path, content) -> bool
+int8_t liva_file_write_path(const char *path, const char *content) {
+    if (!path) return 0;
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    if (content) fwrite(content, 1, strlen(content), f);
+    fclose(f);
+    return 1;
+}
+
+// fileAppend(path, content) -> bool
+int8_t liva_file_append(const char *path, const char *content) {
+    if (!path) return 0;
+    FILE *f = fopen(path, "ab");
+    if (!f) return 0;
+    if (content) fwrite(content, 1, strlen(content), f);
+    fclose(f);
+    return 1;
+}
+
+// fileRemove(path) -> bool
+int8_t liva_file_remove(const char *path) {
+    if (!path) return 0;
+    return (remove(path) == 0) ? 1 : 0;
+}
+
+// fileCopy(src, dst) -> bool
+int8_t liva_file_copy(const char *src, const char *dst) {
+    if (!src || !dst) return 0;
+    FILE *in = fopen(src, "rb");
+    if (!in) return 0;
+    FILE *out = fopen(dst, "wb");
+    if (!out) { fclose(in); return 0; }
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            fclose(in); fclose(out); return 0;
+        }
+    }
+    fclose(in);
+    fclose(out);
+    return 1;
+}
+
+// pathAbsolute(path) -> string
+char *liva_path_absolute(const char *path) {
+    if (!path || !*path) return strdup_safe(".");
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    DWORD len = GetFullPathNameA(path, MAX_PATH, buf, nullptr);
+    if (len == 0 || len >= MAX_PATH) return strdup_safe(path);
+    return strdup_safe(buf);
+#else
+    char *resolved = realpath(path, nullptr);
+    if (resolved) return resolved;
+    return strdup_safe(path);
+#endif
+}
+
 // === I/O ===
 
 void liva_print_i32(int32_t value) {
@@ -2552,6 +2629,229 @@ char **liva_json_keys(const char *json, int64_t *count) {
     return result;
 }
 
+// --- JSON Serialization ---
+
+static std::string json_escape_string(const char *s) {
+    std::string out;
+    out += '"';
+    for (const char *p = s; *p; p++) {
+        switch (*p) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b";  break;
+            case '\f': out += "\\f";  break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:   out += *p;     break;
+        }
+    }
+    out += '"';
+    return out;
+}
+
+// Helper: set a raw JSON value for a key in a JSON object string
+static char *json_set_raw(const char *json, const char *key, const std::string &rawValue) {
+    if (!json || !key) return strdup_safe("{}");
+    const char *p = json_skip_ws(json);
+    if (*p != '{') return strdup_safe("{}");
+
+    std::string escapedKey = json_escape_string(key);
+    std::string result;
+
+    // Collect existing key-value pairs, skipping the one we're replacing
+    std::vector<std::pair<std::string, std::string>> pairs;
+    p = json_skip_ws(p + 1); // skip '{'
+    bool found = false;
+    while (*p && *p != '}') {
+        if (*p == ',') { p = json_skip_ws(p + 1); continue; }
+        if (*p != '"') break;
+        // Parse key
+        char *existingKey = json_extract_string(p);
+        const char *keyStart = p;
+        p = json_skip_string(p);
+        p = json_skip_ws(p);
+        if (*p == ':') p++;
+        p = json_skip_ws(p);
+        // Capture value range
+        const char *valStart = p;
+        p = json_skip_value(p);
+        std::string valStr(valStart, p);
+        p = json_skip_ws(p);
+
+        if (existingKey && strcmp(existingKey, key) == 0) {
+            found = true;
+            pairs.push_back({escapedKey, rawValue});
+        } else {
+            std::string kStr = existingKey ? json_escape_string(existingKey) : "\"\"";
+            pairs.push_back({kStr, valStr});
+        }
+        if (existingKey) free(existingKey);
+    }
+    if (!found) {
+        pairs.push_back({escapedKey, rawValue});
+    }
+
+    result = "{";
+    for (size_t i = 0; i < pairs.size(); i++) {
+        if (i > 0) result += ",";
+        result += pairs[i].first + ":" + pairs[i].second;
+    }
+    result += "}";
+    return strdup_safe(result.c_str());
+}
+
+// jsonCreate() -> string
+char *liva_json_create() {
+    return strdup_safe("{}");
+}
+
+// jsonSet(json, key, val) -> string
+char *liva_json_set(const char *json, const char *key, const char *val) {
+    std::string raw = val ? json_escape_string(val) : "null";
+    return json_set_raw(json, key, raw);
+}
+
+// jsonSetInt(json, key, val) -> string
+char *liva_json_set_int(const char *json, const char *key, int64_t val) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%lld", (long long)val);
+    return json_set_raw(json, key, buf);
+}
+
+// jsonSetFloat(json, key, val) -> string
+char *liva_json_set_float(const char *json, const char *key, double val) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%g", val);
+    return json_set_raw(json, key, buf);
+}
+
+// jsonSetBool(json, key, val) -> string
+char *liva_json_set_bool(const char *json, const char *key, int8_t val) {
+    return json_set_raw(json, key, val ? "true" : "false");
+}
+
+// jsonRemove(json, key) -> string
+char *liva_json_remove(const char *json, const char *key) {
+    if (!json || !key) return strdup_safe("{}");
+    const char *p = json_skip_ws(json);
+    if (*p != '{') return strdup_safe("{}");
+
+    std::vector<std::pair<std::string, std::string>> pairs;
+    p = json_skip_ws(p + 1);
+    while (*p && *p != '}') {
+        if (*p == ',') { p = json_skip_ws(p + 1); continue; }
+        if (*p != '"') break;
+        char *existingKey = json_extract_string(p);
+        p = json_skip_string(p);
+        p = json_skip_ws(p);
+        if (*p == ':') p++;
+        p = json_skip_ws(p);
+        const char *valStart = p;
+        p = json_skip_value(p);
+        std::string valStr(valStart, p);
+        p = json_skip_ws(p);
+
+        if (existingKey && strcmp(existingKey, key) != 0) {
+            std::string kStr = json_escape_string(existingKey);
+            pairs.push_back({kStr, valStr});
+        }
+        if (existingKey) free(existingKey);
+    }
+
+    std::string result = "{";
+    for (size_t i = 0; i < pairs.size(); i++) {
+        if (i > 0) result += ",";
+        result += pairs[i].first + ":" + pairs[i].second;
+    }
+    result += "}";
+    return strdup_safe(result.c_str());
+}
+
+// jsonGetArray(json, key) -> Optional<string> (null on missing/not-array)
+char *liva_json_get_array(const char *json, const char *key) {
+    if (!json || !key) return nullptr;
+    const char *p = json_skip_ws(json);
+    if (*p != '{') return nullptr;
+    p = json_skip_ws(p + 1);
+    while (*p && *p != '}') {
+        if (*p == ',') { p = json_skip_ws(p + 1); continue; }
+        if (*p != '"') break;
+        char *k = json_extract_string(p);
+        p = json_skip_string(p);
+        p = json_skip_ws(p);
+        if (*p == ':') p++;
+        p = json_skip_ws(p);
+        const char *valStart = p;
+        p = json_skip_value(p);
+        if (k && strcmp(k, key) == 0) {
+            const char *vs = json_skip_ws(valStart);
+            if (*vs == '[') {
+                std::string val(valStart, p);
+                free(k);
+                return strdup_safe(val.c_str());
+            }
+            free(k);
+            return nullptr;
+        }
+        if (k) free(k);
+        p = json_skip_ws(p);
+    }
+    return nullptr;
+}
+
+// jsonGetObject(json, key) -> Optional<string> (null on missing/not-object)
+char *liva_json_get_object(const char *json, const char *key) {
+    if (!json || !key) return nullptr;
+    const char *p = json_skip_ws(json);
+    if (*p != '{') return nullptr;
+    p = json_skip_ws(p + 1);
+    while (*p && *p != '}') {
+        if (*p == ',') { p = json_skip_ws(p + 1); continue; }
+        if (*p != '"') break;
+        char *k = json_extract_string(p);
+        p = json_skip_string(p);
+        p = json_skip_ws(p);
+        if (*p == ':') p++;
+        p = json_skip_ws(p);
+        const char *valStart = p;
+        p = json_skip_value(p);
+        if (k && strcmp(k, key) == 0) {
+            const char *vs = json_skip_ws(valStart);
+            if (*vs == '{') {
+                std::string val(valStart, p);
+                free(k);
+                return strdup_safe(val.c_str());
+            }
+            free(k);
+            return nullptr;
+        }
+        if (k) free(k);
+        p = json_skip_ws(p);
+    }
+    return nullptr;
+}
+
+// jsonCount(json) -> i32 (number of top-level keys)
+int32_t liva_json_count(const char *json) {
+    if (!json) return 0;
+    const char *p = json_skip_ws(json);
+    if (*p != '{') return 0;
+    p = json_skip_ws(p + 1);
+    int32_t count = 0;
+    while (*p && *p != '}') {
+        if (*p == ',') { p = json_skip_ws(p + 1); continue; }
+        if (*p != '"') break;
+        count++;
+        p = json_skip_string(p);
+        p = json_skip_ws(p);
+        if (*p == ':') p++;
+        p = json_skip_value(p);
+        p = json_skip_ws(p);
+    }
+    return count;
+}
+
 // === Logging ===
 
 static std::atomic<int> liva_log_level_{0}; // 0=debug, 1=info, 2=warn, 3=error
@@ -2666,6 +2966,66 @@ int32_t liva_date_year(double timestamp)    { struct tm *t = liva_localtime(time
 int32_t liva_date_month(double timestamp)   { struct tm *t = liva_localtime(timestamp); return t ? t->tm_mon + 1 : 0; }
 int32_t liva_date_day(double timestamp)     { struct tm *t = liva_localtime(timestamp); return t ? t->tm_mday : 0; }
 int32_t liva_date_weekday(double timestamp) { struct tm *t = liva_localtime(timestamp); return t ? t->tm_wday : 0; }
+
+// dateTimestamp() -> f64 (Unix timestamp)
+double liva_date_timestamp() {
+    return (double)time(nullptr);
+}
+
+// dateParse(str, fmt) -> f64 (timestamp, -1 on error)
+double liva_date_parse(const char *str, const char *fmt) {
+    if (!str || !fmt) return -1.0;
+    struct tm t;
+    memset(&t, 0, sizeof(t));
+    t.tm_isdst = -1;
+#ifdef _WIN32
+    // Windows: no strptime, sscanf fallback for common formats
+    if (strcmp(fmt, "%Y-%m-%d %H:%M:%S") == 0) {
+        if (sscanf(str, "%d-%d-%d %d:%d:%d",
+                   &t.tm_year, &t.tm_mon, &t.tm_mday,
+                   &t.tm_hour, &t.tm_min, &t.tm_sec) == 6) {
+            t.tm_year -= 1900;
+            t.tm_mon -= 1;
+            time_t result = mktime(&t);
+            return (result == (time_t)-1) ? -1.0 : (double)result;
+        }
+    } else if (strcmp(fmt, "%Y-%m-%d") == 0) {
+        if (sscanf(str, "%d-%d-%d", &t.tm_year, &t.tm_mon, &t.tm_mday) == 3) {
+            t.tm_year -= 1900;
+            t.tm_mon -= 1;
+            time_t result = mktime(&t);
+            return (result == (time_t)-1) ? -1.0 : (double)result;
+        }
+    } else if (strcmp(fmt, "%H:%M:%S") == 0) {
+        if (sscanf(str, "%d:%d:%d", &t.tm_hour, &t.tm_min, &t.tm_sec) == 3) {
+            t.tm_year = 70; t.tm_mon = 0; t.tm_mday = 1;
+            time_t result = mktime(&t);
+            return (result == (time_t)-1) ? -1.0 : (double)result;
+        }
+    }
+    return -1.0;
+#else
+    char *end = strptime(str, fmt, &t);
+    if (!end) return -1.0;
+    time_t result = mktime(&t);
+    return (result == (time_t)-1) ? -1.0 : (double)result;
+#endif
+}
+
+// dateAdd(ts, secs) -> f64
+double liva_date_add(double timestamp, double seconds) {
+    return timestamp + seconds;
+}
+
+// dateDiff(ts1, ts2) -> f64
+double liva_date_diff(double ts1, double ts2) {
+    return ts1 - ts2;
+}
+
+// dateHour/dateMinute/dateSecond
+int32_t liva_date_hour(double timestamp)   { struct tm *t = liva_localtime(timestamp); return t ? t->tm_hour : 0; }
+int32_t liva_date_minute(double timestamp) { struct tm *t = liva_localtime(timestamp); return t ? t->tm_min : 0; }
+int32_t liva_date_second(double timestamp) { struct tm *t = liva_localtime(timestamp); return t ? t->tm_sec : 0; }
 
 // === Encoding / Compression ===
 

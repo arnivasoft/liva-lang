@@ -44,7 +44,9 @@ void ModuleLoader::registerBuiltinModules() {
         {"print", "println", "readLine", "format",
          "dirList", "dirCreate", "dirRemove", "dirExists",
          "pathJoin", "pathDirname", "pathBasename", "pathExtension",
-         "pathExists", "isFile"}, {"File"});
+         "pathExists", "isFile",
+         "fileRead", "fileWrite", "fileAppend",
+         "fileRemove", "fileCopy", "pathAbsolute"}, {"File"});
 
     cache_["std::convert"] = createBuiltinModule("std::convert",
         {"parseInt", "parseInt64", "parseFloat", "toString"});
@@ -68,7 +70,10 @@ void ModuleLoader::registerBuiltinModules() {
 
     cache_["std::json"] = createBuiltinModule("std::json",
         {"jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
-         "jsonIsValid", "jsonKeys"});
+         "jsonIsValid", "jsonKeys",
+         "jsonCreate", "jsonSet", "jsonSetInt",
+         "jsonSetFloat", "jsonSetBool", "jsonRemove",
+         "jsonGetArray", "jsonGetObject", "jsonCount"});
 
     cache_["std::log"] = createBuiltinModule("std::log",
         {"logDebug", "logInfo", "logWarn", "logError", "logSetLevel"});
@@ -78,7 +83,9 @@ void ModuleLoader::registerBuiltinModules() {
 
     cache_["std::datetime"] = createBuiltinModule("std::datetime",
         {"dateNow", "timeNow", "datetimeNow", "dateFormat",
-         "dateYear", "dateMonth", "dateDay", "dateWeekday"});
+         "dateYear", "dateMonth", "dateDay", "dateWeekday",
+         "dateTimestamp", "dateParse", "dateAdd", "dateDiff",
+         "dateHour", "dateMinute", "dateSecond"});
 
     cache_["std::compress"] = createBuiltinModule("std::compress",
         {"base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32"});

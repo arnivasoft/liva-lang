@@ -432,6 +432,19 @@ void IRGen::createRuntimeDecls() {
     // liva_file_is_file(path) -> i8
     module_->getOrInsertFunction("liva_file_is_file", dirBoolTy);
 
+    // liva_file_read(path) -> char* (nullable)
+    module_->getOrInsertFunction("liva_file_read", strNoArgTy);
+    // liva_file_write_path(path, content) -> i8
+    module_->getOrInsertFunction("liva_file_write_path", strBoolTy);
+    // liva_file_append(path, content) -> i8
+    module_->getOrInsertFunction("liva_file_append", strBoolTy);
+    // liva_file_remove(path) -> i8
+    module_->getOrInsertFunction("liva_file_remove", dirBoolTy);
+    // liva_file_copy(src, dst) -> i8
+    module_->getOrInsertFunction("liva_file_copy", strBoolTy);
+    // liva_path_absolute(path) -> char*
+    module_->getOrInsertFunction("liva_path_absolute", strNoArgTy);
+
     // liva_str_array_free(arr, count) -> void
     auto *strArrayFreeTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy, i64Ty}, false);
     module_->getOrInsertFunction("liva_str_array_free", strArrayFreeTy);
@@ -480,6 +493,30 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_json_is_valid", jsonIsValidTy);
     // liva_json_keys(json, &count) -> char**
     module_->getOrInsertFunction("liva_json_keys", dirListTy); // (ptr, ptr) -> ptr
+    // liva_json_create() -> char*
+    auto *jsonCreateTy = llvm::FunctionType::get(i8PtrTy, {}, false);
+    module_->getOrInsertFunction("liva_json_create", jsonCreateTy);
+    // liva_json_set(json, key, val) -> char*
+    auto *jsonSet3Ty = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_json_set", jsonSet3Ty);
+    // liva_json_set_int(json, key, i64) -> char*
+    auto *jsonSetIntTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_json_set_int", jsonSetIntTy);
+    // liva_json_set_float(json, key, f64) -> char*
+    auto *jsonSetFloatTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, f64Ty}, false);
+    module_->getOrInsertFunction("liva_json_set_float", jsonSetFloatTy);
+    // liva_json_set_bool(json, key, i8) -> char*
+    auto *jsonSetBoolTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8Ty}, false);
+    module_->getOrInsertFunction("liva_json_set_bool", jsonSetBoolTy);
+    // liva_json_remove(json, key) -> char*
+    module_->getOrInsertFunction("liva_json_remove", concatTy); // (ptr, ptr) -> ptr
+    // liva_json_get_array(json, key) -> char* (nullable)
+    module_->getOrInsertFunction("liva_json_get_array", concatTy); // (ptr, ptr) -> ptr
+    // liva_json_get_object(json, key) -> char* (nullable)
+    module_->getOrInsertFunction("liva_json_get_object", concatTy); // (ptr, ptr) -> ptr
+    // liva_json_count(json) -> i32
+    auto *jsonCountTy = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_json_count", jsonCountTy);
 
     // === Logging ===
     auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
@@ -514,6 +551,21 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_date_month", datePartTy);
     module_->getOrInsertFunction("liva_date_day", datePartTy);
     module_->getOrInsertFunction("liva_date_weekday", datePartTy);
+    // liva_date_timestamp() -> f64
+    auto *dateTimestampTy = llvm::FunctionType::get(f64Ty, {}, false);
+    module_->getOrInsertFunction("liva_date_timestamp", dateTimestampTy);
+    // liva_date_parse(str, fmt) -> f64
+    auto *dateParseTy = llvm::FunctionType::get(f64Ty, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_date_parse", dateParseTy);
+    // liva_date_add(ts, secs) -> f64
+    auto *dateArithTy = llvm::FunctionType::get(f64Ty, {f64Ty, f64Ty}, false);
+    module_->getOrInsertFunction("liva_date_add", dateArithTy);
+    // liva_date_diff(ts1, ts2) -> f64
+    module_->getOrInsertFunction("liva_date_diff", dateArithTy);
+    // liva_date_hour/minute/second(ts) -> i32
+    module_->getOrInsertFunction("liva_date_hour", datePartTy);
+    module_->getOrInsertFunction("liva_date_minute", datePartTy);
+    module_->getOrInsertFunction("liva_date_second", datePartTy);
 
     // === Encoding/Compression ===
     // base64Encode/hexEncode: (ptr) -> ptr (same as strNoArgTy)
@@ -815,6 +867,8 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         return getClosureObjTy();
     case TypeRepr::Kind::Reference:
         return llvm::PointerType::getUnqual(*context_);
+    case TypeRepr::Kind::DynProtocol:
+        return getTraitObjectTy();
     default:
         return builder_->getInt32Ty();
     }

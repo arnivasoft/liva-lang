@@ -3711,6 +3711,63 @@ TEST_F(SemaTest, DirPathViaStdIo) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, FileReadReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let content = fileRead("test.txt")
+            if let c = content {
+                println(c)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileWriteReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = fileWrite("test.txt", "hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileAppendReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = fileAppend("test.txt", "more")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileRemoveReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = fileRemove("test.txt")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FileCopyReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = fileCopy("a.txt", "b.txt")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PathAbsoluteReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let abs: string = pathAbsolute("relative/path")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, FileSeekTellSize) {
     auto result = check(R"--(
         func main() {
@@ -3896,6 +3953,94 @@ TEST_F(SemaTest, JsonViaStdJson) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, JsonCreateReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let j: string = jsonCreate()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonSetReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let j = jsonCreate()
+            let j2: string = jsonSet(j, "name", "Alice")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonSetIntReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let j: string = jsonSetInt("{}", "age", 30)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonSetFloatReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let j: string = jsonSetFloat("{}", "pi", 3.14)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonSetBoolReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let j: string = jsonSetBool("{}", "active", true)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonRemoveReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let j: string = jsonRemove("{\"a\":1}", "a")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonGetArrayReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let arr = jsonGetArray("{\"items\":[1,2,3]}", "items")
+            if let a = arr {
+                println(a)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonGetObjectReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let obj = jsonGetObject("{\"nested\":{\"a\":1}}", "nested")
+            if let o = obj {
+                println(o)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, JsonCountReturnsI32) {
+    auto result = check(R"--(
+        func main() {
+            let n: i32 = jsonCount("{\"a\":1,\"b\":2}")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 // === Logging ===
 
 TEST_F(SemaTest, LogFunctions) {
@@ -3989,6 +4134,59 @@ TEST_F(SemaTest, DatetimeViaStdDatetime) {
         func main() {
             let d = dateNow()
             let y: i32 = dateYear(clock())
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DateTimestampReturnsF64) {
+    auto result = check(R"--(
+        func main() {
+            let ts: f64 = dateTimestamp()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DateParseReturnsF64) {
+    auto result = check(R"--(
+        func main() {
+            let ts: f64 = dateParse("2026-01-15", "%Y-%m-%d")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DateAddDiffReturnF64) {
+    auto result = check(R"--(
+        func main() {
+            let ts: f64 = dateTimestamp()
+            let future: f64 = dateAdd(ts, 3600.0)
+            let diff: f64 = dateDiff(future, ts)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DateHourMinuteSecondReturnI32) {
+    auto result = check(R"--(
+        func main() {
+            let ts: f64 = dateTimestamp()
+            let h: i32 = dateHour(ts)
+            let m: i32 = dateMinute(ts)
+            let s: i32 = dateSecond(ts)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DatetimeEnhancedViaStdDatetime) {
+    auto result = checkWithModules(R"--(
+        import std::datetime
+        func main() {
+            let ts = dateTimestamp()
+            let h: i32 = dateHour(ts)
+            let parsed: f64 = dateParse("2026-01-15", "%Y-%m-%d")
         }
     )--", {});
     EXPECT_TRUE(result.passed);
@@ -5904,4 +6102,81 @@ TEST_F(SemaTest, DidYouMeanImplForType) {
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_type));
     EXPECT_TRUE(hasDiag(result, DiagID::note_did_you_mean));
+}
+
+// ===== dyn Protocol tests =====
+
+TEST_F(SemaTest, DynProtocolVarDecl) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle {
+            var radius: f64
+        }
+        impl Circle: Shape {
+            func area(self) -> f64 {
+                return self.radius
+            }
+        }
+        func main() {
+            let c = Circle { radius: 5.0 }
+            let s: dyn Shape = c
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynProtocolFuncParam) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle {
+            var radius: f64
+        }
+        impl Circle: Shape {
+            func area(self) -> f64 {
+                return self.radius
+            }
+        }
+        func printArea(s: dyn Shape) {
+            println(s.area())
+        }
+        func main() {
+            let c = Circle { radius: 5.0 }
+            printArea(c)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynProtocolUndefined) {
+    auto result = check(R"--(
+        func printArea(s: dyn NonExistent) {
+            println(s)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_undefined_protocol));
+}
+
+TEST_F(SemaTest, DynProtocolKeywordParsing) {
+    auto result = check(R"--(
+        protocol Drawable {
+            func draw(self) -> i32
+        }
+        struct Rect {
+            var w: i32
+        }
+        impl Rect: Drawable {
+            func draw(self) -> i32 {
+                return self.w
+            }
+        }
+        func render(d: dyn Drawable) -> i32 {
+            return 0
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
 }

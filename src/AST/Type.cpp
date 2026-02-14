@@ -48,6 +48,8 @@ std::string TypeRepr::toString() const {
         return "<generic>";
     case Kind::Inferred:
         return "<inferred>";
+    case Kind::DynProtocol:
+        return "<dyn>";
     }
     return "<unknown>";
 }
@@ -184,6 +186,10 @@ std::unique_ptr<TypeRepr> makePrimitiveType(TypeRepr::Kind kind) {
     return std::make_unique<TypeRepr>(kind);
 }
 
+std::unique_ptr<TypeRepr> makeDynProtocolType(const std::string &protocolName) {
+    return std::make_unique<DynProtocolTypeRepr>(protocolName);
+}
+
 std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type) {
     if (!type) return nullptr;
     if (type->isPrimitive() || type->isVoid())
@@ -218,6 +224,10 @@ std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type) {
         for (auto &e : t->getElements())
             elems.push_back(cloneTypeRepr(e.get()));
         return std::make_unique<TupleTypeRepr>(std::move(elems));
+    }
+    case TypeRepr::Kind::DynProtocol: {
+        auto *d = static_cast<const DynProtocolTypeRepr *>(type);
+        return makeDynProtocolType(d->getProtocolName());
     }
     default:
         return makePrimitiveType(type->getKind());

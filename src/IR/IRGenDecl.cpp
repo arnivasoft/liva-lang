@@ -71,6 +71,8 @@ void IRGen::declareExternFunction(FuncDecl *funcDecl) {
     for (auto &param : funcDecl->getParams()) {
         if (param.isVariadic) {
             paramTypes.push_back(getDynArrayStructTy());
+        } else if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
+            paramTypes.push_back(getTraitObjectTy());
         } else if (param.isRef) {
             paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
         } else {
@@ -172,6 +174,8 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     for (auto &param : node->getParams()) {
         if (param.isVariadic) {
             paramTypes.push_back(getDynArrayStructTy());
+        } else if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
+            paramTypes.push_back(getTraitObjectTy());
         } else if (param.isRef) {
             paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
         } else {
@@ -455,6 +459,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         }
     }
 
+    // Populate varProtocolTypes_ for dyn Protocol parameters
+    for (auto &param : node->getParams()) {
+        if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
+            auto *dynType = static_cast<const DynProtocolTypeRepr *>(param.type.get());
+            varProtocolTypes_[param.name] = dynType->getProtocolName();
+        }
+    }
+
     // Generate body
     visitBlockStmt(const_cast<BlockStmt *>(node->getBody()));
 
@@ -651,6 +663,48 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             namedValues_[node->getDestructuredNames()[i]] = elemAlloca;
         }
         return tupleAlloca;
+    }
+
+    // Dyn protocol trait object: let s: dyn Shape = circle
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::DynProtocol) {
+        auto *dynType = static_cast<const DynProtocolTypeRepr *>(node->getType());
+        const std::string &protocolName = dynType->getProtocolName();
+        auto pmIt = protocolMethodNames_.find(protocolName);
+        if (pmIt != protocolMethodNames_.end()) {
+            auto *traitTy = getTraitObjectTy();
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), traitTy);
+
+            std::string concreteType;
+            llvm::AllocaInst *dataAlloca = nullptr;
+            if (node->hasInit() &&
+                node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *ident = static_cast<IdentifierExpr *>(
+                    const_cast<Expr *>(node->getInit()));
+                auto stIt = varStructTypes_.find(ident->getName());
+                if (stIt != varStructTypes_.end()) {
+                    concreteType = stIt->second;
+                    auto nvIt = namedValues_.find(ident->getName());
+                    if (nvIt != namedValues_.end())
+                        dataAlloca = nvIt->second;
+                }
+            }
+
+            if (!concreteType.empty() && dataAlloca) {
+                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+                auto *dataGEP = builder_->CreateStructGEP(traitTy, alloca, 0, "dyn.data");
+                builder_->CreateStore(dataAlloca, dataGEP);
+
+                auto *vtable = getOrCreateVtable(protocolName, concreteType);
+                auto *vtableGEP = builder_->CreateStructGEP(traitTy, alloca, 1, "dyn.vtable");
+                builder_->CreateStore(vtable, vtableGEP);
+
+                namedValues_[node->getName()] = alloca;
+                varProtocolTypes_[node->getName()] = protocolName;
+                return alloca;
+            }
+        }
     }
 
     // Protocol trait object: let s: ref Shape = circle

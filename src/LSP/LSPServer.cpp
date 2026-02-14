@@ -837,7 +837,8 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
         "func", "struct", "let", "var", "if", "else", "while", "for",
         "return", "match", "enum", "impl", "protocol", "ref", "mut", "as",
         "import", "pub", "self", "break", "continue", "nil", "where",
-        "async", "await", "const", "try", "type", "true", "false", "in", "case"
+        "async", "await", "const", "try", "type", "true", "false", "in", "case",
+        "dyn"
     };
     for (const char *kw : keywords) {
         auto item = JSONValue::object();
@@ -1526,6 +1527,7 @@ JSONValue LSPServer::handleSemanticTokens(const JSONValue &id,
         case TokenKind::kw_as:
         case TokenKind::kw_ref:
         case TokenKind::kw_mut:
+        case TokenKind::kw_dyn:
             tokenType = 0; // keyword
             break;
 

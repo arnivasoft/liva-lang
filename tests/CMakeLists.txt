@@ -59,6 +59,20 @@ target_compile_definitions(integration_test PRIVATE
     LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
 )
 
+# Self-hosting end-to-end tests (only with LLVM backend, not MinGW — MSVC ABI linker needed)
+if(LIVA_HAS_LLVM AND NOT MINGW)
+    liva_add_test(selfhost_test
+        unit/SelfHostTest.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp
+    )
+    target_link_libraries(selfhost_test PRIVATE
+        liva_codegen liva_irgen liva_sema liva_parser)
+    target_compile_definitions(selfhost_test PRIVATE
+        LIVA_HAS_LLVM=1
+        LIVA_BUILD_DIR="${CMAKE_BINARY_DIR}")
+    add_dependencies(selfhost_test liva_runtime)
+endif()
+
 # Benchmark executable (not part of ctest — run manually with ./liva_bench)
 add_executable(liva_bench bench/Benchmark.cpp)
 target_link_libraries(liva_bench PRIVATE liva_sema liva_parser)

@@ -77,7 +77,9 @@ void TypeChecker::registerBuiltins() {
     // Stdlib: Directory and Path operations
     for (auto &name : {"dirList", "dirCreate", "dirRemove", "dirExists",
                         "pathJoin", "pathDirname", "pathBasename",
-                        "pathExtension", "pathExists", "isFile"}) {
+                        "pathExtension", "pathExists", "isFile",
+                        "fileRead", "fileWrite", "fileAppend",
+                        "fileRemove", "fileCopy", "pathAbsolute"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -96,7 +98,10 @@ void TypeChecker::registerBuiltins() {
 
     // Stdlib: JSON
     for (auto &name : {"jsonGet", "jsonGetInt", "jsonGetFloat",
-                        "jsonGetBool", "jsonIsValid", "jsonKeys"}) {
+                        "jsonGetBool", "jsonIsValid", "jsonKeys",
+                        "jsonCreate", "jsonSet", "jsonSetInt",
+                        "jsonSetFloat", "jsonSetBool", "jsonRemove",
+                        "jsonGetArray", "jsonGetObject", "jsonCount"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -123,7 +128,9 @@ void TypeChecker::registerBuiltins() {
 
     // Stdlib: DateTime
     for (auto &name : {"dateNow", "timeNow", "datetimeNow", "dateFormat",
-                        "dateYear", "dateMonth", "dateDay", "dateWeekday"}) {
+                        "dateYear", "dateMonth", "dateDay", "dateWeekday",
+                        "dateTimestamp", "dateParse", "dateAdd", "dateDiff",
+                        "dateHour", "dateMinute", "dateSecond"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -349,6 +356,18 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         }
     }
 
+    // Validate dyn Protocol parameters
+    for (auto &param : node->getParams()) {
+        if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
+            auto *dynType = static_cast<const DynProtocolTypeRepr *>(param.type.get());
+            auto *protoSym = scopes_.lookup(dynType->getProtocolName());
+            if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+                diag_.report(param.location, DiagID::err_undefined_protocol,
+                             dynType->getProtocolName());
+            }
+        }
+    }
+
     // Register parameters
     for (auto &param : node->getParams()) {
         Symbol sym;
@@ -510,6 +529,18 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
             // Allow concrete → ref Protocol (trait object)
             if (annType->getKind() == TypeRepr::Kind::Reference) {
                 compat = true;
+            }
+            // Allow concrete → dyn Protocol (trait object)
+            if (annType->getKind() == TypeRepr::Kind::DynProtocol) {
+                auto *dynType = static_cast<const DynProtocolTypeRepr *>(annType);
+                auto *protoSym = scopes_.lookup(dynType->getProtocolName());
+                if (protoSym && protoSym->kind == Symbol::Kind::ProtocolType) {
+                    compat = true;
+                } else {
+                    diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol,
+                                 dynType->getProtocolName());
+                    compat = true;
+                }
             }
             if (!compat) {
                 diag_.report(node->getStartLoc(), DiagID::err_type_mismatch,
@@ -752,6 +783,10 @@ void TypeChecker::visitReturnStmt(ReturnStmt *node) {
                 }
                 // Allow concrete → ref Protocol
                 if (currentReturnType_->getKind() == TypeRepr::Kind::Reference) {
+                    compat = true;
+                }
+                // Allow concrete → dyn Protocol
+                if (currentReturnType_->getKind() == TypeRepr::Kind::DynProtocol) {
                     compat = true;
                 }
                 if (!compat) {
@@ -1386,8 +1421,15 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "isFile") {
             node->setResolvedType(makeBoolType());
         } else if (ident->getName() == "pathJoin" || ident->getName() == "pathDirname" ||
-                   ident->getName() == "pathBasename" || ident->getName() == "pathExtension") {
+                   ident->getName() == "pathBasename" || ident->getName() == "pathExtension" ||
+                   ident->getName() == "pathAbsolute") {
             node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "fileRead") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "fileWrite" || ident->getName() == "fileAppend" ||
+                   ident->getName() == "fileRemove" || ident->getName() == "fileCopy") {
+            node->setResolvedType(makeBoolType());
         // Stdlib: Subprocess
         } else if (ident->getName() == "exec" || ident->getName() == "processWait") {
             node->setResolvedType(makeI32Type());
@@ -1413,6 +1455,15 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "jsonKeys") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
             node->setResolvedType(std::move(arrType));
+        } else if (ident->getName() == "jsonCreate" || ident->getName() == "jsonSet" ||
+                   ident->getName() == "jsonSetInt" || ident->getName() == "jsonSetFloat" ||
+                   ident->getName() == "jsonSetBool" || ident->getName() == "jsonRemove") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "jsonGetArray" || ident->getName() == "jsonGetObject") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "jsonCount") {
+            node->setResolvedType(makeI32Type());
         // Stdlib: Logging (all void)
         } else if (ident->getName() == "logDebug" || ident->getName() == "logInfo" ||
                    ident->getName() == "logWarn" || ident->getName() == "logError" ||
@@ -1430,8 +1481,13 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "dateFormat") {
             node->setResolvedType(makeStringType());
         } else if (ident->getName() == "dateYear" || ident->getName() == "dateMonth" ||
-                   ident->getName() == "dateDay" || ident->getName() == "dateWeekday") {
+                   ident->getName() == "dateDay" || ident->getName() == "dateWeekday" ||
+                   ident->getName() == "dateHour" || ident->getName() == "dateMinute" ||
+                   ident->getName() == "dateSecond") {
             node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "dateTimestamp" || ident->getName() == "dateParse" ||
+                   ident->getName() == "dateAdd" || ident->getName() == "dateDiff") {
+            node->setResolvedType(makeF64Type());
         // Stdlib: Encoding/Compression
         } else if (ident->getName() == "base64Encode" || ident->getName() == "hexEncode") {
             node->setResolvedType(makeStringType());
@@ -1897,6 +1953,9 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
         return true;
     auto *exp = resolveAlias(expected);
     auto *act = resolveAlias(actual);
+    // dyn Protocol accepts any concrete type
+    if (exp->getKind() == TypeRepr::Kind::DynProtocol)
+        return true;
     if (exp->getKind() != act->getKind())
         return false;
     // Deep compare for Named types (struct/enum names must match)

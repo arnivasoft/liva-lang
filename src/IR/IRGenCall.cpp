@@ -1827,6 +1827,68 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateTrunc(r, builder_->getInt1Ty(), "is.file.bool");
     }
 
+    if (funcName == "fileRead" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_file_read");
+        auto *result = builder_->CreateCall(fn, {pathArg}, "file.read.raw");
+        trackStringTemp(result);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "file.read.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "file.read.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "file.read.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "file.read.result");
+    }
+
+    if (funcName == "fileWrite" && node->getArgs().size() >= 2) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        auto *contentArg = visit(node->getArgs()[1].get());
+        if (!pathArg || !contentArg) return nullptr;
+        auto *fn = getOrPanic("liva_file_write_path");
+        auto *r = builder_->CreateCall(fn, {pathArg, contentArg}, "file.write");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "file.write.bool");
+    }
+
+    if (funcName == "fileAppend" && node->getArgs().size() >= 2) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        auto *contentArg = visit(node->getArgs()[1].get());
+        if (!pathArg || !contentArg) return nullptr;
+        auto *fn = getOrPanic("liva_file_append");
+        auto *r = builder_->CreateCall(fn, {pathArg, contentArg}, "file.append");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "file.append.bool");
+    }
+
+    if (funcName == "fileRemove" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_file_remove");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "file.remove");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "file.remove.bool");
+    }
+
+    if (funcName == "fileCopy" && node->getArgs().size() >= 2) {
+        auto *srcArg = visit(node->getArgs()[0].get());
+        auto *dstArg = visit(node->getArgs()[1].get());
+        if (!srcArg || !dstArg) return nullptr;
+        auto *fn = getOrPanic("liva_file_copy");
+        auto *r = builder_->CreateCall(fn, {srcArg, dstArg}, "file.copy");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "file.copy.bool");
+    }
+
+    if (funcName == "pathAbsolute" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_absolute");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "path.absolute");
+        trackStringTemp(r);
+        return r;
+    }
+
     // === Subprocess ===
     if (funcName == "exec" && !node->getArgs().empty()) {
         auto *cmdArg = visit(node->getArgs()[0].get());
@@ -1982,6 +2044,113 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(daTy, daAlloca, "jsonkeys.da.val");
     }
 
+    if (funcName == "jsonCreate" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_json_create");
+        auto *r = builder_->CreateCall(fn, {}, "json.create");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "jsonSet" && node->getArgs().size() >= 3) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!jsonArg || !keyArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_set");
+        auto *r = builder_->CreateCall(fn, {jsonArg, keyArg, valArg}, "json.set");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "jsonSetInt" && node->getArgs().size() >= 3) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!jsonArg || !keyArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_set_int");
+        auto *r = builder_->CreateCall(fn, {jsonArg, keyArg, valArg}, "json.setint");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "jsonSetFloat" && node->getArgs().size() >= 3) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!jsonArg || !keyArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_set_float");
+        auto *r = builder_->CreateCall(fn, {jsonArg, keyArg, valArg}, "json.setfloat");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "jsonSetBool" && node->getArgs().size() >= 3) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!jsonArg || !keyArg || !valArg) return nullptr;
+        auto *i8Val = builder_->CreateZExt(valArg, builder_->getInt8Ty(), "json.setbool.i8");
+        auto *fn = getOrPanic("liva_json_set_bool");
+        auto *r = builder_->CreateCall(fn, {jsonArg, keyArg, i8Val}, "json.setbool");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "jsonRemove" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_remove");
+        auto *r = builder_->CreateCall(fn, {jsonArg, keyArg}, "json.remove");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "jsonGetArray" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_get_array");
+        auto *result = builder_->CreateCall(fn, {jsonArg, keyArg}, "json.getarray.raw");
+        trackStringTemp(result);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "json.getarray.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "json.getarray.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "json.getarray.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "json.getarray.result");
+    }
+
+    if (funcName == "jsonGetObject" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *keyArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_get_object");
+        auto *result = builder_->CreateCall(fn, {jsonArg, keyArg}, "json.getobj.raw");
+        trackStringTemp(result);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "json.getobj.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "json.getobj.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "json.getobj.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "json.getobj.result");
+    }
+
+    if (funcName == "jsonCount" && !node->getArgs().empty()) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        if (!jsonArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_count");
+        return builder_->CreateCall(fn, {jsonArg}, "json.count");
+    }
+
     // === Logging ===
     if (funcName == "logDebug" && !node->getArgs().empty()) {
         auto *msgArg = visit(node->getArgs()[0].get());
@@ -2099,6 +2268,53 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *tsArg = visit(node->getArgs()[0].get());
         if (!tsArg) return nullptr;
         return builder_->CreateCall(getOrPanic("liva_date_weekday"), {tsArg}, "date.weekday");
+    }
+
+    if (funcName == "dateTimestamp" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_date_timestamp");
+        return builder_->CreateCall(fn, {}, "date.timestamp");
+    }
+
+    if (funcName == "dateParse" && node->getArgs().size() >= 2) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        auto *fmtArg = visit(node->getArgs()[1].get());
+        if (!strArg || !fmtArg) return nullptr;
+        auto *fn = getOrPanic("liva_date_parse");
+        return builder_->CreateCall(fn, {strArg, fmtArg}, "date.parse");
+    }
+
+    if (funcName == "dateAdd" && node->getArgs().size() >= 2) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        auto *secsArg = visit(node->getArgs()[1].get());
+        if (!tsArg || !secsArg) return nullptr;
+        auto *fn = getOrPanic("liva_date_add");
+        return builder_->CreateCall(fn, {tsArg, secsArg}, "date.add");
+    }
+
+    if (funcName == "dateDiff" && node->getArgs().size() >= 2) {
+        auto *ts1Arg = visit(node->getArgs()[0].get());
+        auto *ts2Arg = visit(node->getArgs()[1].get());
+        if (!ts1Arg || !ts2Arg) return nullptr;
+        auto *fn = getOrPanic("liva_date_diff");
+        return builder_->CreateCall(fn, {ts1Arg, ts2Arg}, "date.diff");
+    }
+
+    if (funcName == "dateHour" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_date_hour"), {tsArg}, "date.hour");
+    }
+
+    if (funcName == "dateMinute" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_date_minute"), {tsArg}, "date.minute");
+    }
+
+    if (funcName == "dateSecond" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_date_second"), {tsArg}, "date.second");
     }
 
     // === Encoding/Compression ===
@@ -2624,6 +2840,55 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!val)
             return nullptr;
         args.push_back(val);
+    }
+
+    // Caller-side boxing: concrete struct → dyn Protocol fat pointer
+    {
+        auto fdIt3 = funcDecls_.find(funcName);
+        if (fdIt3 != funcDecls_.end()) {
+            const auto &params = fdIt3->second->getParams();
+            for (size_t i = 0; i < args.size() && i < params.size(); ++i) {
+                if (params[i].type && params[i].type->getKind() == TypeRepr::Kind::DynProtocol) {
+                    auto *dynType = static_cast<const DynProtocolTypeRepr *>(params[i].type.get());
+                    const std::string &protocolName = dynType->getProtocolName();
+
+                    // Check if argument is already a trait object (passed through)
+                    if (args[i]->getType() == getTraitObjectTy())
+                        continue;
+
+                    // Find concrete type from argument expression
+                    std::string concreteType;
+                    llvm::AllocaInst *dataAlloca = nullptr;
+                    if (i < node->getArgs().size() &&
+                        node->getArgs()[i]->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                        auto *ident = static_cast<IdentifierExpr *>(node->getArgs()[i].get());
+                        auto stIt = varStructTypes_.find(ident->getName());
+                        if (stIt != varStructTypes_.end()) {
+                            concreteType = stIt->second;
+                            auto nvIt = namedValues_.find(ident->getName());
+                            if (nvIt != namedValues_.end())
+                                dataAlloca = nvIt->second;
+                        }
+                    }
+
+                    if (!concreteType.empty() && dataAlloca) {
+                        auto *curFunc = builder_->GetInsertBlock()->getParent();
+                        auto *traitTy = getTraitObjectTy();
+                        auto *traitAlloca = createEntryBlockAlloca(curFunc, "dyn.box", traitTy);
+
+                        auto *dataGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 0, "dyn.data");
+                        builder_->CreateStore(dataAlloca, dataGEP);
+
+                        auto *vtable = getOrCreateVtable(protocolName, concreteType);
+                        auto *vtableGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 1, "dyn.vtable");
+                        builder_->CreateStore(vtable, vtableGEP);
+
+                        auto *traitVal = builder_->CreateLoad(traitTy, traitAlloca, "dyn.val");
+                        args[i] = traitVal;
+                    }
+                }
+            }
+        }
     }
 
     // Fill in default arguments for missing params

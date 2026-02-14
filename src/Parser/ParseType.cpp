@@ -66,6 +66,13 @@ std::unique_ptr<TypeRepr> Parser::parseBaseType() {
         advance();
         return makeStringType();
 
+    // Trait object type: dyn Protocol
+    case TokenKind::kw_dyn: {
+        advance();
+        auto nameTok = expect(TokenKind::identifier);
+        return std::make_unique<DynProtocolTypeRepr>(std::string(nameTok.getText()));
+    }
+
     // Named type or generic type: Identifier<T, U>
     case TokenKind::identifier: {
         std::string name(current_.getText());
