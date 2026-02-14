@@ -1,0 +1,6 @@
+func main() {
+    var nums: [i32] = [10, 20, 30]
+    let first = nums[0]
+    nums[1] = 99
+    let length = nums.length
+}

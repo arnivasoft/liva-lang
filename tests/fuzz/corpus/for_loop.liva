@@ -1,0 +1,10 @@
+func main() {
+    for i in 0..10 {
+        println(i)
+    }
+
+    let arr = [1, 2, 3, 4, 5]
+    for x in arr {
+        println(x)
+    }
+}

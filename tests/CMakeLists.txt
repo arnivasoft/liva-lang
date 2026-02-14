@@ -83,6 +83,27 @@ if(LIVA_HAS_LLVM AND NOT MINGW)
     add_dependencies(selfhost_test liva_runtime)
 endif()
 
+# Fuzz targets (requires Clang with libFuzzer: -DLIVA_ENABLE_FUZZING=ON)
+if(LIVA_ENABLE_FUZZING)
+    function(liva_add_fuzz_target name source)
+        add_executable(${name} ${source})
+        target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+        target_compile_features(${name} PRIVATE cxx_std_20)
+        target_compile_options(${name} PRIVATE
+            -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -g -O1)
+        target_link_options(${name} PRIVATE -fsanitize=fuzzer,address,undefined)
+    endfunction()
+
+    liva_add_fuzz_target(lexer_fuzz fuzz/LexerFuzz.cpp)
+    target_link_libraries(lexer_fuzz PRIVATE liva_lexer)
+
+    liva_add_fuzz_target(parser_fuzz fuzz/ParserFuzz.cpp)
+    target_link_libraries(parser_fuzz PRIVATE liva_parser)
+
+    liva_add_fuzz_target(sema_fuzz fuzz/SemaFuzz.cpp)
+    target_link_libraries(sema_fuzz PRIVATE liva_sema liva_parser)
+endif()
+
 # Benchmark executable (not part of ctest — run manually with ./liva_bench)
 add_executable(liva_bench bench/Benchmark.cpp)
 target_link_libraries(liva_bench PRIVATE liva_sema liva_parser)

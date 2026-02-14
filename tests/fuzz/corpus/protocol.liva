@@ -1,0 +1,13 @@
+protocol Printable {
+    func toString(ref self) -> String
+}
+
+struct Name {
+    var value: String
+}
+
+impl Printable for Name {
+    func toString(ref self) -> String {
+        return self.value
+    }
+}

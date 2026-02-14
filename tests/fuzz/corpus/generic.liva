@@ -1,0 +1,8 @@
+func identity<T>(x: T) -> T {
+    return x
+}
+
+struct Pair<A, B> {
+    var first: A
+    var second: B
+}

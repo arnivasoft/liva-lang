@@ -6,6 +6,9 @@ project(liva-lang
     LANGUAGES CXX
 )
 
+# Fuzzing option (requires Clang with libFuzzer)
+option(LIVA_ENABLE_FUZZING "Build libFuzzer fuzz targets" OFF)
+
 # Include CMake modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(CompilerFlags)

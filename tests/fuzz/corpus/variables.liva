@@ -1,0 +1,7 @@
+func main() {
+    let x: i32 = 42
+    var y: f64 = 3.14
+    let name: String = "liva"
+    let flag: bool = true
+    y = y + 1.0
+}

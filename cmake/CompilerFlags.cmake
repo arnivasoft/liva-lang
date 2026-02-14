@@ -27,5 +27,10 @@ function(liva_set_compiler_flags target)
             -Wno-unused-variable
             -fno-exceptions
         )
+        if(LIVA_ENABLE_FUZZING AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            target_compile_options(${target} PRIVATE
+                -fsanitize=address,undefined -fno-omit-frame-pointer)
+            target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+        endif()
     endif()
 endfunction()

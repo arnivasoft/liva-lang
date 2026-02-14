@@ -1,0 +1,8 @@
+func apply(f: (i32) -> i32, x: i32) -> i32 {
+    return f(x)
+}
+
+func main() {
+    let double = { (x: i32) -> i32 in return x * 2 }
+    let result = apply(double, 5)
+}

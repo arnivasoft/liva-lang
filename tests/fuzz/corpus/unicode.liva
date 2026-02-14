@@ -1,0 +1,6 @@
+func main() {
+    let greeting = "Merhaba Dünya! \u{1F600}"
+    let len = greeting.length
+    let bytes = greeting.byteLength
+    println(greeting)
+}

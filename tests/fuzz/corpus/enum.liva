@@ -1,0 +1,14 @@
+enum Color {
+    case Red
+    case Green
+    case Blue
+    case Custom(r: i32, g: i32, b: i32)
+}
+
+func describe(c: Color) -> String {
+    match c {
+        Color.Red => return "red"
+        Color.Green => return "green"
+        _ => return "other"
+    }
+}
