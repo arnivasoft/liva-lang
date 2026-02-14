@@ -27,7 +27,14 @@ function(liva_set_compiler_flags target)
             -Wno-unused-variable
             -fno-exceptions
         )
-        if(LIVA_ENABLE_FUZZING AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # Sanitizer support (standalone, works with Clang and GCC)
+        if(NOT LIVA_SANITIZER STREQUAL "none")
+            target_compile_options(${target} PRIVATE
+                -fsanitize=${LIVA_SANITIZER} -fno-omit-frame-pointer)
+            target_link_options(${target} PRIVATE -fsanitize=${LIVA_SANITIZER})
+        endif()
+        # Fuzzing fallback: if fuzzing enabled but no explicit sanitizer, add ASan+UBSan (Clang only)
+        if(LIVA_ENABLE_FUZZING AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND LIVA_SANITIZER STREQUAL "none")
             target_compile_options(${target} PRIVATE
                 -fsanitize=address,undefined -fno-omit-frame-pointer)
             target_link_options(${target} PRIVATE -fsanitize=address,undefined)

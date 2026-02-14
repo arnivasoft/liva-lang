@@ -19,6 +19,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(gtest_main PRIVATE -Wno-undef)
 endif()
 
+# Sanitizer flags for GoogleTest (must match the main project)
+if(NOT LIVA_SANITIZER STREQUAL "none" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(gtest PRIVATE -fsanitize=${LIVA_SANITIZER} -fno-omit-frame-pointer)
+    target_compile_options(gtest_main PRIVATE -fsanitize=${LIVA_SANITIZER} -fno-omit-frame-pointer)
+    target_link_options(gtest PRIVATE -fsanitize=${LIVA_SANITIZER})
+    target_link_options(gtest_main PRIVATE -fsanitize=${LIVA_SANITIZER})
+endif()
+
 enable_testing()
 
 # Use CMake's built-in GoogleTest module for gtest_discover_tests

@@ -8,6 +8,7 @@ project(liva-lang
 
 # Fuzzing option (requires Clang with libFuzzer)
 option(LIVA_ENABLE_FUZZING "Build libFuzzer fuzz targets" OFF)
+set(LIVA_SANITIZER "none" CACHE STRING "Sanitizer to enable (none/address/undefined/address,undefined)")
 
 # Include CMake modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")

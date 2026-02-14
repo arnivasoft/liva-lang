@@ -109,6 +109,43 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --parallel 4
 
+  sanitizer:
+    name: Sanitizers (Clang ASan+UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 cmake ninja-build
+
+      - name: Configure CMake with sanitizers
+        run: |
+          cmake -G Ninja -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DLIVA_SANITIZER=address,undefined
+
+      - name: Build test targets
+        run: |
+          cmake --build build --target lexer_test
+          cmake --build build --target parser_test
+          cmake --build build --target sema_test
+          cmake --build build --target type_test
+          cmake --build build --target ownership_test
+          cmake --build build --target projectconfig_test
+          cmake --build build --target lsp_test
+          cmake --build build --target repl_test
+          cmake --build build --target integration_test
+          cmake --build build --target benchmark_test
+
+      - name: Run tests under ASan+UBSan
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
   coverage:
     name: Code Coverage (GCC 13)
     runs-on: ubuntu-latest
