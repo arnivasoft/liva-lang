@@ -47,7 +47,13 @@ public:
     /// Reset session state
     void reset();
 
+    /// Get tab-completion candidates for a line buffer at cursor position
+    std::vector<std::string> getCompletions(const std::string &lineBuffer,
+                                            size_t cursorPos) const;
+
 private:
+    static std::string extractCurrentWord(const std::string &line,
+                                          size_t cursorPos);
     enum class InputKind { Empty, Command, Declaration, Statement, Expression };
 
     InputKind classifyInput(const std::string &input) const;
@@ -62,6 +68,7 @@ private:
     REPLResult handleCommand(const std::string &cmd);
 
     std::vector<std::string> declarations_;
+    std::vector<std::string> declaredSymbols_;
     std::string multilineBuffer_;
     int lineNumber_ = 1;
 };

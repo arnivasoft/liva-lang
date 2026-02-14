@@ -1,4 +1,5 @@
 #include "liva/REPL/REPL.h"
+#include <algorithm>
 #include <gtest/gtest.h>
 
 using namespace liva;
@@ -390,4 +391,131 @@ TEST(REPLTest, MultipleImports) {
     session.processLine("import std::math");
     session.processLine("import std::io");
     EXPECT_EQ(session.getDeclarations().size(), 2u);
+}
+
+// ============================================================
+// Tab Completion Tests
+// ============================================================
+
+TEST(REPLTest, CompletionKeywordPrefix) {
+    REPLSession session;
+    auto results = session.getCompletions("fu", 2);
+    EXPECT_FALSE(results.empty());
+    EXPECT_NE(std::find(results.begin(), results.end(), "func"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionBuiltinPrefix) {
+    REPLSession session;
+    auto results = session.getCompletions("pri", 3);
+    EXPECT_NE(std::find(results.begin(), results.end(), "print"),
+              results.end());
+    EXPECT_NE(std::find(results.begin(), results.end(), "println"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionCommandPrefix) {
+    REPLSession session;
+    auto results = session.getCompletions(":h", 2);
+    EXPECT_NE(std::find(results.begin(), results.end(), ":h"),
+              results.end());
+    EXPECT_NE(std::find(results.begin(), results.end(), ":help"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionCommandColon) {
+    REPLSession session;
+    auto results = session.getCompletions(":", 1);
+    // Should return all REPL commands
+    EXPECT_GE(results.size(), 8u);
+    EXPECT_NE(std::find(results.begin(), results.end(), ":quit"),
+              results.end());
+    EXPECT_NE(std::find(results.begin(), results.end(), ":help"),
+              results.end());
+    EXPECT_NE(std::find(results.begin(), results.end(), ":reset"),
+              results.end());
+    EXPECT_NE(std::find(results.begin(), results.end(), ":declarations"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionDeclaredFunc) {
+    REPLSession session;
+    session.processLine("func add(a: i32, b: i32) -> i32 { return a + b }");
+    auto results = session.getCompletions("ad", 2);
+    EXPECT_NE(std::find(results.begin(), results.end(), "add"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionDeclaredStruct) {
+    REPLSession session;
+    session.processLine("struct Point {");
+    session.processLine("    var x: i32");
+    session.processLine("}");
+    auto results = session.getCompletions("Po", 2);
+    EXPECT_NE(std::find(results.begin(), results.end(), "Point"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionNoMatch) {
+    REPLSession session;
+    auto results = session.getCompletions("xyz123", 6);
+    EXPECT_TRUE(results.empty());
+}
+
+TEST(REPLTest, CompletionEmptyPrefix) {
+    REPLSession session;
+    auto results = session.getCompletions("", 0);
+    // Should return all keywords + builtins + primitives
+    EXPECT_GT(results.size(), 30u);
+}
+
+TEST(REPLTest, CompletionCaseSensitive) {
+    REPLSession session;
+    auto results = session.getCompletions("Fu", 2);
+    // Keywords are lowercase, "Fu" should not match "func"
+    EXPECT_EQ(std::find(results.begin(), results.end(), "func"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionAfterReset) {
+    REPLSession session;
+    session.processLine("func myFunc() -> i32 { return 1 }");
+    auto r1 = session.getCompletions("my", 2);
+    EXPECT_NE(std::find(r1.begin(), r1.end(), "myFunc"), r1.end());
+
+    session.processLine(":reset");
+    auto r2 = session.getCompletions("my", 2);
+    EXPECT_EQ(std::find(r2.begin(), r2.end(), "myFunc"), r2.end());
+}
+
+TEST(REPLTest, CompletionMidLine) {
+    REPLSession session;
+    auto results = session.getCompletions("let x = pri", 11);
+    EXPECT_NE(std::find(results.begin(), results.end(), "print"),
+              results.end());
+    EXPECT_NE(std::find(results.begin(), results.end(), "println"),
+              results.end());
+}
+
+TEST(REPLTest, CompletionPrimitiveTypes) {
+    REPLSession session;
+    auto results = session.getCompletions("i3", 2);
+    EXPECT_NE(std::find(results.begin(), results.end(), "i32"),
+              results.end());
+}
+
+TEST(REPLTest, ExtractCurrentWord) {
+    // Test via getCompletions — prefix extraction is internal
+    REPLSession session;
+    // "let x = pr" at cursor=10 → prefix "pr"
+    auto r1 = session.getCompletions("let x = pr", 10);
+    EXPECT_NE(std::find(r1.begin(), r1.end(), "print"), r1.end());
+
+    // ":he" at cursor=3 → prefix ":he"
+    auto r2 = session.getCompletions(":he", 3);
+    EXPECT_NE(std::find(r2.begin(), r2.end(), ":help"), r2.end());
+
+    // Empty at cursor=0 → all candidates
+    auto r3 = session.getCompletions("", 0);
+    EXPECT_GT(r3.size(), 0u);
 }

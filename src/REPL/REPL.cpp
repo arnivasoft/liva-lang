@@ -9,12 +9,43 @@
 
 namespace liva {
 
+// ── Helper: extract symbol name from a declaration string ───────────────
+
+static std::string extractDeclName(const std::string &decl) {
+    size_t pos = decl.find_first_not_of(" \t");
+    if (pos == std::string::npos)
+        return "";
+    size_t wend = decl.find_first_of(" \t\r\n({", pos);
+    std::string kw = (wend != std::string::npos) ? decl.substr(pos, wend - pos)
+                                                  : decl.substr(pos);
+    if (kw == "pub") {
+        pos = decl.find_first_not_of(" \t", wend);
+        if (pos == std::string::npos)
+            return "";
+        wend = decl.find_first_of(" \t\r\n({", pos);
+        kw = (wend != std::string::npos) ? decl.substr(pos, wend - pos)
+                                          : decl.substr(pos);
+    }
+    if (kw == "func" || kw == "struct" || kw == "enum" || kw == "protocol" ||
+        kw == "type" || kw == "let" || kw == "var" || kw == "const" ||
+        kw == "macro") {
+        pos = decl.find_first_not_of(" \t", wend);
+        if (pos == std::string::npos)
+            return "";
+        wend = decl.find_first_of(" \t\r\n({:=<", pos);
+        return (wend != std::string::npos) ? decl.substr(pos, wend - pos)
+                                            : decl.substr(pos);
+    }
+    return "";
+}
+
 // ── Constructor / Reset ─────────────────────────────────────────────────
 
 REPLSession::REPLSession() = default;
 
 void REPLSession::reset() {
     declarations_.clear();
+    declaredSymbols_.clear();
     multilineBuffer_.clear();
     lineNumber_ = 1;
 }
@@ -56,6 +87,8 @@ REPLResult REPLSession::processLine(const std::string &line) {
                 return r;
             }
             declarations_.push_back(completeInput);
+            { auto sym = extractDeclName(completeInput);
+              if (!sym.empty()) declaredSymbols_.push_back(sym); }
             REPLResult r;
             r.kind = REPLResult::Declaration;
             r.output = "Declaration added.";
@@ -139,6 +172,8 @@ REPLResult REPLSession::processLine(const std::string &line) {
             return r;
         }
         declarations_.push_back(trimmed);
+        { auto sym = extractDeclName(trimmed);
+          if (!sym.empty()) declaredSymbols_.push_back(sym); }
         REPLResult r;
         r.kind = REPLResult::Declaration;
         r.output = "Declaration added.";
@@ -459,6 +494,109 @@ REPLResult REPLSession::handleCommand(const std::string &cmd) {
     r.kind = REPLResult::CommandError;
     r.output = "Unknown command: " + cmd;
     return r;
+}
+
+// ── extractCurrentWord ──────────────────────────────────────────────────
+
+std::string REPLSession::extractCurrentWord(const std::string &line,
+                                            size_t cursorPos) {
+    if (cursorPos == 0 || line.empty())
+        return "";
+    if (cursorPos > line.size())
+        cursorPos = line.size();
+
+    // For command lines starting with ':', include ':' in the word
+    size_t firstNonSpace = line.find_first_not_of(" \t");
+    bool isCommand = (firstNonSpace != std::string::npos && line[firstNonSpace] == ':');
+
+    size_t end = cursorPos;
+    size_t start = end;
+    while (start > 0) {
+        char c = line[start - 1];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_' ||
+            (isCommand && c == ':')) {
+            --start;
+        } else {
+            break;
+        }
+    }
+    return line.substr(start, end - start);
+}
+
+// ── getCompletions ──────────────────────────────────────────────────────
+
+std::vector<std::string>
+REPLSession::getCompletions(const std::string &lineBuffer,
+                            size_t cursorPos) const {
+    std::string prefix = extractCurrentWord(lineBuffer, cursorPos);
+
+    // Command completions
+    size_t firstNonSpace = lineBuffer.find_first_not_of(" \t");
+    bool isCommand = (firstNonSpace != std::string::npos &&
+                      lineBuffer[firstNonSpace] == ':');
+
+    std::vector<std::string> candidates;
+
+    if (isCommand) {
+        static const char *commands[] = {
+            ":declarations", ":decls", ":h", ":help", ":q", ":quit", ":r", ":reset"
+        };
+        for (const char *cmd : commands) {
+            std::string s(cmd);
+            if (prefix.empty() || s.substr(0, prefix.size()) == prefix)
+                candidates.push_back(s);
+        }
+    } else {
+        // Keywords
+        static const char *keywords[] = {
+            "as",       "async",    "await",   "break",    "comptime",
+            "const",    "continue", "defer",   "dyn",      "else",
+            "enum",     "false",    "for",     "func",     "guard",
+            "if",       "impl",     "import",  "in",       "let",
+            "match",    "nil",      "protocol","pub",      "ref",
+            "return",   "struct",   "true",    "type",     "var",
+            "while",    "macro"
+        };
+        // Builtins
+        static const char *builtins[] = {
+            "abs",      "len",      "max",     "min",      "print",
+            "println",  "readLine", "toFloat", "toInt",    "toString",
+            "typeof",   "assert",   "panic",   "drop",     "clone"
+        };
+        // Primitive types
+        static const char *primitives[] = {
+            "bool",  "f32",   "f64",   "i16",  "i32",
+            "i64",   "i8",    "string","u16",  "u32",
+            "u64",   "u8"
+        };
+
+        for (const char *kw : keywords) {
+            std::string s(kw);
+            if (prefix.empty() || s.substr(0, prefix.size()) == prefix)
+                candidates.push_back(s);
+        }
+        for (const char *bi : builtins) {
+            std::string s(bi);
+            if (prefix.empty() || s.substr(0, prefix.size()) == prefix)
+                candidates.push_back(s);
+        }
+        for (const char *pt : primitives) {
+            std::string s(pt);
+            if (prefix.empty() || s.substr(0, prefix.size()) == prefix)
+                candidates.push_back(s);
+        }
+        for (const auto &sym : declaredSymbols_) {
+            if (prefix.empty() || sym.substr(0, prefix.size()) == prefix)
+                candidates.push_back(sym);
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end());
+    // Remove duplicates
+    candidates.erase(std::unique(candidates.begin(), candidates.end()),
+                     candidates.end());
+    return candidates;
 }
 
 } // namespace liva

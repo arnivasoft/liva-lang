@@ -10,6 +10,7 @@
 #include "liva/Parser/Parser.h"
 #include "liva/DAP/DAPServer.h"
 #include "liva/REPL/REPL.h"
+#include "liva/REPL/LineEditor.h"
 #include "liva/Sema/ModuleLoader.h"
 #include <atomic>
 #include <cstdlib>
@@ -676,17 +677,14 @@ int Driver::executeRepl() {
     std::cout << "Liva REPL (type :help for help, :quit to exit)\n";
 
     REPLSession session;
+    LineEditor editor;
+    editor.setCompletionCallback(
+        [&](const std::string &buf, size_t pos) {
+            return session.getCompletions(buf, pos);
+        });
 
-    while (true) {
-        std::cout << session.getPrompt() << std::flush;
-
-        std::string line;
-        if (!std::getline(std::cin, line)) {
-            // EOF (Ctrl+D / Ctrl+Z)
-            std::cout << "\nGoodbye!\n";
-            return 0;
-        }
-
+    std::string line;
+    while (editor.readLine(session.getPrompt(), line)) {
         REPLResult result = session.processLine(line);
 
         switch (result.kind) {
@@ -709,6 +707,7 @@ int Driver::executeRepl() {
             std::cerr << result.output << "\n";
             break;
 
+        case REPLResult::Statement:
         case REPLResult::Expression:
             if (result.needsExecution) {
 #ifdef LIVA_HAS_LLVM
@@ -739,6 +738,8 @@ int Driver::executeRepl() {
         }
     }
 
+    // EOF reached
+    std::cout << "\nGoodbye!\n";
     return 0;
 }
 

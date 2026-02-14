@@ -153,6 +153,7 @@ liva_set_compiler_flags(liva_dap)
 # liva_repl
 add_library(liva_repl STATIC
     src/REPL/REPL.cpp
+    src/REPL/LineEditor.cpp
 )
 target_link_libraries(liva_repl PUBLIC liva_sema liva_parser liva_common)
 liva_set_compiler_flags(liva_repl)
