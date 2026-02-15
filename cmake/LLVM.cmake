@@ -68,12 +68,15 @@ if(LLVM_FOUND)
     endif()
 
     # Map LLVM components to libraries
-    # Use 'native' to automatically resolve the host target
+    # Use AllTargets* meta-components for cross-compilation support
     set(_LIVA_LLVM_COMPONENTS
         Core
         Support
         IRReader
-        nativecodegen
+        AllTargetsCodeGens
+        AllTargetsAsmParsers
+        AllTargetsDescs
+        AllTargetsInfos
         Passes
         Coroutines
         MC
@@ -85,13 +88,6 @@ if(LLVM_FOUND)
         AsmPrinter
         ObjCARCOpts
     )
-    # Add platform-specific asm parsers
-    if(WIN32 OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86" OR NOT CMAKE_SYSTEM_PROCESSOR)
-        list(APPEND _LIVA_LLVM_COMPONENTS X86AsmParser)
-    endif()
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
-        list(APPEND _LIVA_LLVM_COMPONENTS AArch64AsmParser)
-    endif()
     llvm_map_components_to_libnames(LIVA_LLVM_LIBS ${_LIVA_LLVM_COMPONENTS})
 
     set(LIVA_HAS_LLVM TRUE)

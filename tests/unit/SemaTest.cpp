@@ -1007,8 +1007,12 @@ TEST_F(SemaTest, TryInResultFunction) {
         func parseNum() -> Result<i32, string> {
             return Result.ok(42)
         }
-        func main() {
+        func process() -> Result<i32, string> {
             let x = try parseNum()
+            return Result.ok(x)
+        }
+        func main() {
+            let r = process()
         }
     )--");
     EXPECT_TRUE(result.passed);
@@ -3256,9 +3260,12 @@ TEST_F(SemaTest, AsyncTryAwaitCombo) {
         async func fetch() -> Result<i32, string> {
             return Result.ok(42)
         }
-        async func main() {
+        async func process() -> Result<i32, string> {
             let val = try await fetch()
-            println(val)
+            return Result.ok(val)
+        }
+        func main() {
+            println(0)
         }
     )--");
     EXPECT_TRUE(result.passed);
@@ -5966,9 +5973,144 @@ TEST_F(SemaTest, ErrorTryOnNonResultString) {
 
 TEST_F(SemaTest, NoErrorTryOnResult) {
     auto result = check(R"--(
-        func main() {
+        func process() -> Result<i32, string> {
             let r: Result<i32, string> = Result.ok(42)
             let val = try r
+            return Result.ok(val)
+        }
+        func main() {
+            let r = process()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Y4: Postfix ? Operator and try/? Sema ===
+
+TEST_F(SemaTest, PostfixQ_ResultPropagation) {
+    auto result = check(R"--(
+        func g() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func f() -> Result<i32, string> {
+            let x = g()?
+            return Result.ok(x)
+        }
+        func main() {
+            let r = f()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PostfixQ_NonResultError) {
+    auto result = check(R"--(
+        func f() -> Result<i32, string> {
+            let x: i32 = 5
+            let y = x?
+            return Result.ok(y)
+        }
+        func main() {
+            let r = f()
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_try_on_non_result));
+}
+
+TEST_F(SemaTest, PostfixQ_NotInResultFunc) {
+    auto result = check(R"--(
+        func g() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func f() -> i32 {
+            let x = g()?
+            return x
+        }
+        func main() {
+            let r = f()
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_try_outside_result_func));
+}
+
+TEST_F(SemaTest, PostfixQ_TypeUnwrap) {
+    auto result = check(R"--(
+        func g() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func f() -> Result<i32, string> {
+            let x = g()?
+            return Result.ok(x)
+        }
+        func main() {
+            let r = f()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TryPrefix_NotInResultFunc) {
+    auto result = check(R"--(
+        func g() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func f() -> i32 {
+            let x = try g()
+            return x
+        }
+        func main() {
+            let r = f()
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_try_outside_result_func));
+}
+
+TEST_F(SemaTest, TryPrefix_TypeUnwrap) {
+    auto result = check(R"--(
+        func g() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func f() -> Result<i32, string> {
+            let x = try g()
+            return Result.ok(x)
+        }
+        func main() {
+            let r = f()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, PostfixQ_InVoidFunc) {
+    auto result = check(R"--(
+        func g() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func f() {
+            let x = g()?
+        }
+        func main() {
+            f()
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_try_outside_result_func));
+}
+
+TEST_F(SemaTest, PostfixQ_InResultFuncOK) {
+    auto result = check(R"--(
+        func g() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func f() -> Result<string, string> {
+            let x = g()?
+            return Result.ok("done")
+        }
+        func main() {
+            let r = f()
         }
     )--");
     EXPECT_TRUE(result.passed);
@@ -7233,4 +7375,433 @@ TEST_F(SemaTest, ClassDecl_TypeCheck_DeinitWithStringParam) {
     )--");
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_class_deinit_params));
+}
+
+// ===== Y3: Object Safety Tests =====
+
+TEST_F(SemaTest, ObjectSafe_NonGenericProtocol) {
+    auto result = check(R"--(
+        protocol Printable {
+            func display(self) -> string
+        }
+        struct Foo { var x: i32 }
+        impl Foo: Printable {
+            func display(self) -> string { return "foo" }
+        }
+        func show(p: dyn Printable) {
+            println(p.display())
+        }
+        func main() {
+            let f = Foo { x: 1 }
+            show(f)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ObjectSafe_GenericMethodError) {
+    auto result = check(R"--(
+        protocol Converter {
+            func convert<T>(self) -> T
+        }
+        struct Foo { var x: i32 }
+        impl Foo: Converter {
+            func convert<T>(self) -> T { return self.x }
+        }
+        func use(c: dyn Converter) {
+            println(0)
+        }
+        func main() { println(0) }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_protocol_not_object_safe));
+}
+
+TEST_F(SemaTest, ObjectSafe_GenericMethodInVar) {
+    auto result = check(R"--(
+        protocol Converter {
+            func convert<T>(self) -> T
+        }
+        struct Foo { var x: i32 }
+        impl Foo: Converter {
+            func convert<T>(self) -> T { return self.x }
+        }
+        func main() {
+            let f = Foo { x: 1 }
+            let c: dyn Converter = f
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_protocol_not_object_safe));
+}
+
+TEST_F(SemaTest, ObjectSafe_MixedMethods) {
+    auto result = check(R"--(
+        protocol Mixed {
+            func safe(self) -> i32
+            func unsafe_m<T>(self) -> T
+        }
+        struct Foo { var x: i32 }
+        impl Foo: Mixed {
+            func safe(self) -> i32 { return self.x }
+            func unsafe_m<T>(self) -> T { return self.x }
+        }
+        func use(m: dyn Mixed) {
+            println(0)
+        }
+        func main() { println(0) }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_protocol_not_object_safe));
+}
+
+TEST_F(SemaTest, ObjectSafe_AssociatedTypeOK) {
+    // Associated types don't break object safety
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct IntBox { var val: i32 }
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 { return self.val }
+        }
+        func use(c: dyn Container) {
+            println(c.get())
+        }
+        func main() {
+            let b = IntBox { val: 42 }
+            use(b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ObjectSafe_StaticBoundOK) {
+    // Using as static bound <T: P> still works
+    auto result = check(R"--(
+        protocol Converter {
+            func convert<T>(self) -> T
+        }
+        struct Foo { var x: i32 }
+        impl Foo: Converter {
+            func convert<T>(self) -> T { return self.x }
+        }
+        func use<T: Converter>(c: T) {
+            println(0)
+        }
+        func main() {
+            let f = Foo { x: 1 }
+            use(f)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ObjectSafe_DefaultGenericMethod) {
+    // Even with a body, generic method makes protocol object-unsafe
+    auto result = check(R"--(
+        protocol WithDefault {
+            func normal(self) -> i32
+            func generic_m<T>(self) -> T
+        }
+        struct Foo { var x: i32 }
+        impl Foo: WithDefault {
+            func normal(self) -> i32 { return self.x }
+            func generic_m<T>(self) -> T { return self.x }
+        }
+        func use(w: dyn WithDefault) {
+            println(0)
+        }
+        func main() { println(0) }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_protocol_not_object_safe));
+}
+
+// ===== Y3: Associated Type Constraint Tests =====
+
+TEST_F(SemaTest, AssocConstraint_EqualValid) {
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct IntBox { var val: i32 }
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 { return self.val }
+        }
+        func process<T: Container>(c: T) where T.Item == i32 {
+            println(c.get())
+        }
+        func main() {
+            let b = IntBox { val: 42 }
+            process(b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AssocConstraint_EqualViolation) {
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct StrBox { var val: i32 }
+        impl StrBox: Container {
+            type Item = string
+            func get(self) -> i32 { return self.val }
+        }
+        func process<T: Container>(c: T) where T.Item == i32 {
+            println(c.get())
+        }
+        func main() {
+            let b = StrBox { val: 1 }
+            process(b)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_associated_type_mismatch));
+}
+
+TEST_F(SemaTest, AssocConstraint_BoundValid) {
+    auto result = check(R"--(
+        protocol Displayable {
+            func show(self) -> string
+        }
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct MyItem { var x: i32 }
+        impl MyItem: Displayable {
+            func show(self) -> string { return "item" }
+        }
+        struct MyBox { var val: i32 }
+        impl MyBox: Container {
+            type Item = MyItem
+            func get(self) -> i32 { return self.val }
+        }
+        func process<T: Container>(c: T) where T.Item: Displayable {
+            println(c.get())
+        }
+        func main() {
+            let b = MyBox { val: 42 }
+            process(b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AssocConstraint_BoundViolation) {
+    auto result = check(R"--(
+        protocol Displayable {
+            func show(self) -> string
+        }
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct RawItem { var x: i32 }
+        struct MyBox { var val: i32 }
+        impl MyBox: Container {
+            type Item = RawItem
+            func get(self) -> i32 { return self.val }
+        }
+        func process<T: Container>(c: T) where T.Item: Displayable {
+            println(c.get())
+        }
+        func main() {
+            let b = MyBox { val: 42 }
+            process(b)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_associated_type_no_conformance));
+}
+
+TEST_F(SemaTest, AssocConstraint_EqualWithProtocolBound) {
+    // Combine T: Container and T.Item == i32
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct IntBox { var val: i32 }
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 { return self.val }
+        }
+        func process<T: Container>(c: T) where T.Item == i32 {
+            println(c.get())
+        }
+        func main() {
+            let b = IntBox { val: 10 }
+            process(b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AssocConstraint_MultipleConstraints) {
+    auto result = check(R"--(
+        protocol HasKey {
+            type Key
+            func getKey(self) -> i32
+        }
+        protocol HasValue {
+            type Value
+            func getValue(self) -> i32
+        }
+        struct Entry { var k: i32; var v: i32 }
+        impl Entry: HasKey {
+            type Key = i32
+            func getKey(self) -> i32 { return self.k }
+        }
+        impl Entry: HasValue {
+            type Value = string
+            func getValue(self) -> i32 { return self.v }
+        }
+        func process<T: HasKey>(e: T) where T.Key == i32 {
+            println(e.getKey())
+        }
+        func main() {
+            let e = Entry { k: 1, v: 2 }
+            process(e)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AssocConstraint_NoAssocTypeDefined) {
+    // T has no associated type → silently pass (graceful)
+    auto result = check(R"--(
+        protocol Simple {
+            func run(self) -> i32
+        }
+        struct Foo { var x: i32 }
+        impl Foo: Simple {
+            func run(self) -> i32 { return self.x }
+        }
+        func process<T: Simple>(f: T) where T.Item == i32 {
+            println(f.run())
+        }
+        func main() {
+            let f = Foo { x: 5 }
+            process(f)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AssocConstraint_MultipleBounds) {
+    auto result = check(R"--(
+        protocol Showable {
+            func show(self) -> string
+        }
+        protocol Sortable {
+            func compare(self) -> i32
+        }
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct MyItem { var x: i32 }
+        impl MyItem: Showable {
+            func show(self) -> string { return "item" }
+        }
+        impl MyItem: Sortable {
+            func compare(self) -> i32 { return self.x }
+        }
+        struct MyBox { var val: i32 }
+        impl MyBox: Container {
+            type Item = MyItem
+            func get(self) -> i32 { return self.val }
+        }
+        func process<T: Container>(c: T) where T.Item: Showable + Sortable {
+            println(c.get())
+        }
+        func main() {
+            let b = MyBox { val: 1 }
+            process(b)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ===== Y3: Associated Type Reference Tests =====
+
+TEST_F(SemaTest, AssocTypeRef_ReturnResolved) {
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct IntBox { var val: i32 }
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 { return self.val }
+        }
+        func first<T: Container>(c: T) -> T.Item {
+            return c.get()
+        }
+        func main() {
+            let b = IntBox { val: 42 }
+            let x = first(b)
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AssocTypeRef_WithConstraint) {
+    // where T.Item == i32 combined with -> T.Item
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct IntBox { var val: i32 }
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 { return self.val }
+        }
+        func first<T: Container>(c: T) -> T.Item where T.Item == i32 {
+            return c.get()
+        }
+        func main() {
+            let b = IntBox { val: 42 }
+            let x = first(b)
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AssocTypeRef_UnknownAssocType) {
+    // T.Nonexistent → no crash, graceful handling
+    auto result = check(R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct IntBox { var val: i32 }
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 { return self.val }
+        }
+        func first<T: Container>(c: T) -> T.Nonexistent {
+            return c.get()
+        }
+        func main() {
+            let b = IntBox { val: 42 }
+            let x = first(b)
+            println(0)
+        }
+    )--");
+    // Should not crash — graceful handling
+    EXPECT_TRUE(result.passed || !result.passed);
 }

@@ -5,6 +5,7 @@
 #include "liva/Driver/PackageManager.h"
 #include "liva/Driver/SemaCache.h"
 #include "liva/CodeGen/CodeGen.h"
+#include "liva/CodeGen/TargetInfo.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/LSP/LSPServer.h"
 #include "liva/Parser/Parser.h"
@@ -244,6 +245,22 @@ bool Driver::parseArgs(int argc, const char **argv) {
             continue;
         }
 
+        if (std::strncmp(arg, "--target=", 9) == 0) {
+            options_.targetTriple = arg + 9;
+            options_.hasTargetOverride = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--target") == 0) {
+            if (i + 1 < argc) {
+                options_.targetTriple = argv[++i];
+                options_.hasTargetOverride = true;
+            } else {
+                std::cerr << "error: --target requires an argument\n";
+                return false;
+            }
+            continue;
+        }
+
         // If starts with -, unknown flag
         if (arg[0] == '-') {
             std::cerr << "error: unknown option '" << arg << "'\n";
@@ -303,6 +320,7 @@ int Driver::executeLegacy() {
     compiler.setExecutablePath(executablePath_);
     compiler.setOptLevel(options_.optLevel);
     compiler.setDebugInfo(options_.debugInfo);
+    compiler.setTargetTriple(options_.targetTriple);
     if (!compiler.loadFile(options_.inputFile))
         return 1;
 
@@ -400,6 +418,8 @@ int Driver::buildProject(bool runAfter) {
         cfg.pgoProfile = options_.pgoProfile;
     if (options_.hasJobsOverride)
         cfg.jobs = options_.jobs;
+    if (options_.hasTargetOverride)
+        cfg.target = options_.targetTriple;
 
     // Resolve entry file
     std::string entryPath = joinPath(cfg.projectRoot, cfg.entry);
@@ -473,6 +493,7 @@ int Driver::buildProject(bool runAfter) {
         compiler.setPgoMode(cfg.pgo);
         compiler.setPgoProfile(cfg.pgoProfile);
         compiler.setSearchPaths(searchPaths);
+        compiler.setTargetTriple(cfg.target);
 
         if (!compiler.loadFile(entryPath))
             return 1;
@@ -619,6 +640,7 @@ int Driver::buildProject(bool runAfter) {
             compiler.setPgoMode(cfg.pgo);
             compiler.setPgoProfile(cfg.pgoProfile);
             compiler.setSearchPaths(searchPaths);
+            compiler.setTargetTriple(cfg.target);
 
             if (!compiler.loadFile(sourcePath)) {
                 compileFailed = true;
@@ -670,6 +692,7 @@ int Driver::buildProject(bool runAfter) {
                 compiler.setPgoMode(cfg.pgo);
                 compiler.setPgoProfile(cfg.pgoProfile);
                 compiler.setSearchPaths(searchPaths);
+                compiler.setTargetTriple(cfg.target);
 
                 if (!compiler.loadFile(sourcePath)) {
                     failed.store(true);
@@ -1193,7 +1216,10 @@ int Driver::linkCachedObject(const std::string &objPath,
     }
 
     DiagnosticsEngine diag;
-    CodeGen codegen(diag);
+    TargetInfo linkTarget = options_.hasTargetOverride
+        ? TargetInfo::fromTriple(options_.targetTriple)
+        : TargetInfo::getHostTarget();
+    CodeGen codegen(diag, linkTarget);
 
     std::vector<std::string> objects = { objPath, runtimeLib };
     std::vector<std::string> flags;
@@ -1249,7 +1275,10 @@ int Driver::linkObjects(const std::vector<std::string> &objPaths,
     }
 
     DiagnosticsEngine diag;
-    CodeGen codegen(diag);
+    TargetInfo linkTarget = options_.hasTargetOverride
+        ? TargetInfo::fromTriple(options_.targetTriple)
+        : TargetInfo::getHostTarget();
+    CodeGen codegen(diag, linkTarget);
 
     std::vector<std::string> objects = objPaths;
     objects.push_back(runtimeLib);
@@ -1324,7 +1353,8 @@ void Driver::printHelp() {
               << "  --pgo=use           Build with PGO profile data\n"
               << "  --pgo-profile=PATH  Profile data path (default: default.profdata)\n"
               << "  -j N                Number of parallel compilation jobs (default: auto)\n"
-              << "  --rebuild           Force recompile all files (bypass cache)\n";
+              << "  --rebuild           Force recompile all files (bypass cache)\n"
+              << "  --target <triple>   Cross-compile for target triple\n";
 }
 
 } // namespace liva

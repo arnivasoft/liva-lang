@@ -78,6 +78,18 @@ std::unique_ptr<TypeRepr> Parser::parseBaseType() {
         std::string name(current_.getText());
         advance();
 
+        // Associated type reference: T.Item
+        if (check(TokenKind::dot)) {
+            auto nextTok = peek();
+            if (nextTok.is(TokenKind::identifier)) {
+                advance(); // consume '.'
+                std::string assocName(current_.getText());
+                advance(); // consume assoc name
+                return std::make_unique<AssociatedTypeRepr>(
+                    std::move(name), std::move(assocName));
+            }
+        }
+
         // Check for generic parameters: Type<T, U>
         if (match(TokenKind::less)) {
             std::vector<std::unique_ptr<TypeRepr>> typeArgs;

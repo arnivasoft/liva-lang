@@ -3117,3 +3117,36 @@ TEST(DriverOptionsTest, RemoveDefault) {
     EXPECT_TRUE(opts.removePkgName.empty());
     EXPECT_EQ(opts.subcommand, liva::Subcommand::None);
 }
+
+// === Cross-Compilation Target Field ===
+
+TEST(ProjectConfigCrossTarget, TargetFieldFromToml) {
+    auto result = liva::parseTOML("[build]\ntarget = \"aarch64-unknown-linux-gnu\"\n");
+    EXPECT_TRUE(result.success);
+    auto cfg = liva::loadProjectConfig(result.doc);
+    EXPECT_EQ(cfg.target, "aarch64-unknown-linux-gnu");
+}
+
+TEST(ProjectConfigCrossTarget, TargetFieldDefault) {
+    auto result = liva::parseTOML("[project]\nname = \"test\"\n");
+    EXPECT_TRUE(result.success);
+    auto cfg = liva::loadProjectConfig(result.doc);
+    EXPECT_TRUE(cfg.target.empty());
+}
+
+TEST(ProjectConfigCrossTarget, TargetFieldWasm) {
+    auto result = liva::parseTOML("[build]\ntarget = \"wasm32-unknown-wasi\"\n");
+    EXPECT_TRUE(result.success);
+    auto cfg = liva::loadProjectConfig(result.doc);
+    EXPECT_EQ(cfg.target, "wasm32-unknown-wasi");
+}
+
+TEST(ProjectConfigCrossTarget, TargetFieldWithOtherOptions) {
+    auto result = liva::parseTOML(
+        "[build]\nopt-level = 2\ntarget = \"x86_64-unknown-linux-gnu\"\nlto = \"thin\"\n");
+    EXPECT_TRUE(result.success);
+    auto cfg = liva::loadProjectConfig(result.doc);
+    EXPECT_EQ(cfg.target, "x86_64-unknown-linux-gnu");
+    EXPECT_EQ(cfg.optLevel, 2);
+    EXPECT_EQ(cfg.lto, "thin");
+}

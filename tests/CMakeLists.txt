@@ -68,6 +68,19 @@ target_link_libraries(integration_test PRIVATE liva_driver liva_sema liva_parser
 target_compile_definitions(integration_test PRIVATE
     LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
 )
+if(LIVA_HAS_LLVM AND NOT MINGW)
+    target_link_libraries(integration_test PRIVATE liva_codegen liva_irgen)
+    target_compile_definitions(integration_test PRIVATE LIVA_HAS_LLVM=1)
+endif()
+
+# CodeGen cross-compilation target tests (LLVM only)
+if(LIVA_HAS_LLVM AND NOT MINGW)
+    liva_add_test(codegen_test
+        unit/CodeGenTest.cpp
+    )
+    target_link_libraries(codegen_test PRIVATE liva_codegen liva_driver)
+    target_compile_definitions(codegen_test PRIVATE LIVA_HAS_LLVM=1)
+endif()
 
 # Self-hosting end-to-end tests (only with LLVM backend, not MinGW — MSVC ABI linker needed)
 if(LIVA_HAS_LLVM AND NOT MINGW)

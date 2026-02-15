@@ -108,14 +108,47 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     }
 
     // Parse optional where clause
+    std::vector<WhereConstraint> whereConstraints;
     if (match(TokenKind::kw_where)) {
         do {
             auto paramTok = expect(TokenKind::identifier);
-            expect(TokenKind::colon);
-            do {
-                auto boundTok = expect(TokenKind::identifier);
-                typeParamBounds[std::string(paramTok.getText())].push_back(std::string(boundTok.getText()));
-            } while (match(TokenKind::plus));
+            std::string paramName(paramTok.getText());
+
+            if (match(TokenKind::dot)) {
+                // T.Item == Type  or  T.Item: Protocol
+                auto assocTok = expect(TokenKind::identifier);
+                std::string assocName(assocTok.getText());
+
+                if (match(TokenKind::equal_equal)) {
+                    // T.Item == ConcreteType
+                    auto targetType = parseType();
+                    WhereConstraint c;
+                    c.kind = WhereConstraint::Kind::AssociatedTypeEqual;
+                    c.paramName = paramName;
+                    c.assocTypeName = assocName;
+                    c.equalTypeName = targetType ? targetType->toString() : "";
+                    whereConstraints.push_back(std::move(c));
+                } else {
+                    // T.Item: Protocol [+ Protocol2]
+                    expect(TokenKind::colon);
+                    WhereConstraint c;
+                    c.kind = WhereConstraint::Kind::AssociatedTypeBound;
+                    c.paramName = paramName;
+                    c.assocTypeName = assocName;
+                    do {
+                        auto boundTok = expect(TokenKind::identifier);
+                        c.protocolNames.push_back(std::string(boundTok.getText()));
+                    } while (match(TokenKind::plus));
+                    whereConstraints.push_back(std::move(c));
+                }
+            } else {
+                // Existing: T: Protocol [+ Protocol2]
+                expect(TokenKind::colon);
+                do {
+                    auto boundTok = expect(TokenKind::identifier);
+                    typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                } while (match(TokenKind::plus));
+            }
         } while (match(TokenKind::comma));
     }
 
@@ -133,6 +166,9 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     }
     if (!typeParamBounds.empty()) {
         funcDecl->setTypeParamBounds(std::move(typeParamBounds));
+    }
+    if (!whereConstraints.empty()) {
+        funcDecl->setWhereConstraints(std::move(whereConstraints));
     }
     return funcDecl;
 }
@@ -216,11 +252,26 @@ std::unique_ptr<StructDecl> Parser::parseStructDecl(bool isPublic) {
     if (match(TokenKind::kw_where)) {
         do {
             auto paramTok = expect(TokenKind::identifier);
-            expect(TokenKind::colon);
-            do {
-                auto boundTok = expect(TokenKind::identifier);
-                typeParamBounds[std::string(paramTok.getText())].push_back(std::string(boundTok.getText()));
-            } while (match(TokenKind::plus));
+            std::string paramName(paramTok.getText());
+
+            if (match(TokenKind::dot)) {
+                auto assocTok = expect(TokenKind::identifier);
+                std::string assocName(assocTok.getText());
+                if (match(TokenKind::equal_equal)) {
+                    parseType(); // consume the target type (struct doesn't use constraints yet)
+                } else {
+                    expect(TokenKind::colon);
+                    do {
+                        expect(TokenKind::identifier);
+                    } while (match(TokenKind::plus));
+                }
+            } else {
+                expect(TokenKind::colon);
+                do {
+                    auto boundTok = expect(TokenKind::identifier);
+                    typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                } while (match(TokenKind::plus));
+            }
         } while (match(TokenKind::comma));
     }
 
@@ -359,14 +410,43 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
     }
 
     // Parse optional where clause
+    std::vector<WhereConstraint> implWhereConstraints;
     if (match(TokenKind::kw_where)) {
         do {
             auto paramTok = expect(TokenKind::identifier);
-            expect(TokenKind::colon);
-            do {
-                auto boundTok = expect(TokenKind::identifier);
-                typeParamBounds[std::string(paramTok.getText())].push_back(std::string(boundTok.getText()));
-            } while (match(TokenKind::plus));
+            std::string paramName(paramTok.getText());
+
+            if (match(TokenKind::dot)) {
+                auto assocTok = expect(TokenKind::identifier);
+                std::string assocName(assocTok.getText());
+
+                if (match(TokenKind::equal_equal)) {
+                    auto targetType = parseType();
+                    WhereConstraint c;
+                    c.kind = WhereConstraint::Kind::AssociatedTypeEqual;
+                    c.paramName = paramName;
+                    c.assocTypeName = assocName;
+                    c.equalTypeName = targetType ? targetType->toString() : "";
+                    implWhereConstraints.push_back(std::move(c));
+                } else {
+                    expect(TokenKind::colon);
+                    WhereConstraint c;
+                    c.kind = WhereConstraint::Kind::AssociatedTypeBound;
+                    c.paramName = paramName;
+                    c.assocTypeName = assocName;
+                    do {
+                        auto boundTok = expect(TokenKind::identifier);
+                        c.protocolNames.push_back(std::string(boundTok.getText()));
+                    } while (match(TokenKind::plus));
+                    implWhereConstraints.push_back(std::move(c));
+                }
+            } else {
+                expect(TokenKind::colon);
+                do {
+                    auto boundTok = expect(TokenKind::identifier);
+                    typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                } while (match(TokenKind::plus));
+            }
         } while (match(TokenKind::comma));
     }
 
@@ -415,6 +495,8 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
         implDecl->setTypeParamBounds(std::move(typeParamBounds));
     if (!associatedTypes.empty())
         implDecl->setAssociatedTypes(std::move(associatedTypes));
+    if (!implWhereConstraints.empty())
+        implDecl->setWhereConstraints(std::move(implWhereConstraints));
     return implDecl;
 }
 

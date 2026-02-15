@@ -331,6 +331,33 @@ std::unique_ptr<Expr> Parser::parsePostfixExpr(std::unique_ptr<Expr> base) {
             auto startLoc = base->getStartLoc();
             advance();
             base = std::make_unique<UnwrapExpr>(std::move(base), rangeFrom(startLoc));
+        } else if (check(TokenKind::question)) {
+            // Postfix ? (Result propagation) vs ternary ? disambiguation
+            // If next token can start an expression → leave for ternary
+            auto next = peek();
+            bool canStartExpr =
+                next.is(TokenKind::identifier) ||
+                next.is(TokenKind::integer_literal) ||
+                next.is(TokenKind::float_literal) ||
+                next.is(TokenKind::string_literal) ||
+                next.is(TokenKind::char_literal) ||
+                next.is(TokenKind::kw_true) || next.is(TokenKind::kw_false) ||
+                next.is(TokenKind::kw_nil) ||
+                next.is(TokenKind::minus) ||    // unary -
+                next.is(TokenKind::tilde) ||    // unary ~
+                next.is(TokenKind::kw_ref) ||
+                next.is(TokenKind::kw_try) ||
+                next.is(TokenKind::kw_await) ||
+                next.is(TokenKind::kw_match) ||
+                next.is(TokenKind::kw_if) ||
+                next.is(TokenKind::kw_comptime);
+            if (!canStartExpr) {
+                auto startLoc = base->getStartLoc();
+                advance(); // consume ?
+                base = std::make_unique<TryExpr>(std::move(base), rangeFrom(startLoc));
+            } else {
+                break; // ternary → parseExpression() will handle
+            }
         } else {
             break;
         }

@@ -36,7 +36,8 @@ public:
         Tuple,       // (T1, T2)
         Generic,     // T<U, V>
         Inferred,    // Type to be inferred by the compiler
-        DynProtocol, // dyn Protocol (trait object)
+        DynProtocol,    // dyn Protocol (trait object)
+        AssociatedType, // T.Item
     };
 
     explicit TypeRepr(Kind kind) : kind_(kind) {}
@@ -195,6 +196,22 @@ private:
     std::string protocolName_;
 };
 
+/// Associated type reference: T.Item
+class AssociatedTypeRepr : public TypeRepr {
+public:
+    AssociatedTypeRepr(std::string baseName, std::string assocTypeName)
+        : TypeRepr(Kind::AssociatedType), baseName_(std::move(baseName)),
+          assocTypeName_(std::move(assocTypeName)) {}
+
+    const std::string &getBaseName() const { return baseName_; }
+    const std::string &getAssocTypeName() const { return assocTypeName_; }
+    std::string toString() const override { return baseName_ + "." + assocTypeName_; }
+
+private:
+    std::string baseName_;
+    std::string assocTypeName_;
+};
+
 /// Helper to create common types
 std::unique_ptr<TypeRepr> makeVoidType();
 std::unique_ptr<TypeRepr> makeBoolType();
@@ -206,6 +223,7 @@ std::unique_ptr<TypeRepr> makeInferredType();
 std::unique_ptr<TypeRepr> makeNamedType(const std::string &name);
 std::unique_ptr<TypeRepr> makePrimitiveType(TypeRepr::Kind kind);
 std::unique_ptr<TypeRepr> makeDynProtocolType(const std::string &protocolName);
+std::unique_ptr<TypeRepr> makeAssociatedType(const std::string &base, const std::string &assoc);
 
 /// Deep-clone a TypeRepr tree
 std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type);

@@ -1659,3 +1659,253 @@ TEST_F(ParserTest, ClassDecl_LetField) {
     EXPECT_EQ(fields[1]->getName(), "value");
     EXPECT_TRUE(fields[1]->isMutable());
 }
+
+// ===== Y3: Where Clause Associated Type Constraint Parser Tests =====
+
+TEST_F(ParserTest, WhereClause_AssocTypeEqual) {
+    auto result = parse(R"--(
+        func process<T: Container>(c: T) where T.Item == i32 {
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "process");
+    ASSERT_EQ(func->getWhereConstraints().size(), 1u);
+    auto &wc = func->getWhereConstraints()[0];
+    EXPECT_EQ(wc.kind, WhereConstraint::Kind::AssociatedTypeEqual);
+    EXPECT_EQ(wc.paramName, "T");
+    EXPECT_EQ(wc.assocTypeName, "Item");
+    EXPECT_EQ(wc.equalTypeName, "i32");
+}
+
+TEST_F(ParserTest, WhereClause_AssocTypeBound) {
+    auto result = parse(R"--(
+        func process<T: Container>(c: T) where T.Item: Comparable {
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getWhereConstraints().size(), 1u);
+    auto &wc = func->getWhereConstraints()[0];
+    EXPECT_EQ(wc.kind, WhereConstraint::Kind::AssociatedTypeBound);
+    EXPECT_EQ(wc.paramName, "T");
+    EXPECT_EQ(wc.assocTypeName, "Item");
+    ASSERT_EQ(wc.protocolNames.size(), 1u);
+    EXPECT_EQ(wc.protocolNames[0], "Comparable");
+}
+
+TEST_F(ParserTest, WhereClause_Mixed) {
+    auto result = parse(R"--(
+        func process<T>(c: T) where T: Container, T.Item == i32 {
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    // T: Container is a regular bound
+    auto &bounds = func->getTypeParamBounds();
+    auto it = bounds.find("T");
+    ASSERT_NE(it, bounds.end());
+    EXPECT_EQ(it->second.size(), 1u);
+    EXPECT_EQ(it->second[0], "Container");
+    // T.Item == i32 is a where constraint
+    ASSERT_EQ(func->getWhereConstraints().size(), 1u);
+    EXPECT_EQ(func->getWhereConstraints()[0].kind, WhereConstraint::Kind::AssociatedTypeEqual);
+}
+
+TEST_F(ParserTest, WhereClause_AssocMultipleBounds) {
+    auto result = parse(R"--(
+        func process<T: Container>(c: T) where T.Item: A + B {
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getWhereConstraints().size(), 1u);
+    auto &wc = func->getWhereConstraints()[0];
+    EXPECT_EQ(wc.kind, WhereConstraint::Kind::AssociatedTypeBound);
+    ASSERT_EQ(wc.protocolNames.size(), 2u);
+    EXPECT_EQ(wc.protocolNames[0], "A");
+    EXPECT_EQ(wc.protocolNames[1], "B");
+}
+
+TEST_F(ParserTest, WhereClause_AssocTypeInImpl) {
+    auto result = parse(R"--(
+        impl MyType : Container where T.Item == i32 {
+            func get(self) -> i32 { return 0 }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *impl = dynamic_cast<ImplDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(impl, nullptr);
+    ASSERT_EQ(impl->getWhereConstraints().size(), 1u);
+    EXPECT_EQ(impl->getWhereConstraints()[0].kind, WhereConstraint::Kind::AssociatedTypeEqual);
+    EXPECT_EQ(impl->getWhereConstraints()[0].paramName, "T");
+    EXPECT_EQ(impl->getWhereConstraints()[0].assocTypeName, "Item");
+}
+
+TEST_F(ParserTest, WhereClause_MultipleAssocConstraints) {
+    auto result = parse(R"--(
+        func process<T>(c: T) where T.Item == i32, T.Key == string {
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_EQ(func->getWhereConstraints().size(), 2u);
+    EXPECT_EQ(func->getWhereConstraints()[0].assocTypeName, "Item");
+    EXPECT_EQ(func->getWhereConstraints()[0].equalTypeName, "i32");
+    EXPECT_EQ(func->getWhereConstraints()[1].assocTypeName, "Key");
+    EXPECT_EQ(func->getWhereConstraints()[1].equalTypeName, "string");
+}
+
+// ===== Y3: Associated Type Reference Parser Tests =====
+
+TEST_F(ParserTest, AssocTypeRepr_ReturnType) {
+    auto result = parse(R"--(
+        func get<T: Container>(c: T) -> T.Item {
+            return c.get()
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto *retType = func->getReturnType();
+    ASSERT_NE(retType, nullptr);
+    EXPECT_EQ(retType->getKind(), TypeRepr::Kind::AssociatedType);
+    auto *assocType = static_cast<const AssociatedTypeRepr *>(retType);
+    EXPECT_EQ(assocType->getBaseName(), "T");
+    EXPECT_EQ(assocType->getAssocTypeName(), "Item");
+}
+
+TEST_F(ParserTest, AssocTypeRepr_ParamType) {
+    auto result = parse(R"--(
+        func set<T: Container>(c: T, item: T.Item) {
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_GE(func->getParams().size(), 2u);
+    auto *paramType = func->getParams()[1].type.get();
+    ASSERT_NE(paramType, nullptr);
+    EXPECT_EQ(paramType->getKind(), TypeRepr::Kind::AssociatedType);
+}
+
+TEST_F(ParserTest, AssocTypeRepr_ToString) {
+    auto result = parse(R"--(
+        func get<T: Container>(c: T) -> T.Item {
+            return c.get()
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getReturnType()->toString(), "T.Item");
+}
+
+TEST_F(ParserTest, AssocTypeRepr_MultipleAssoc) {
+    auto result = parse(R"--(
+        func swap<T: Container>(a: T.Key, b: T.Value) {
+            println(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    ASSERT_GE(func->getParams().size(), 2u);
+    auto *p0 = func->getParams()[0].type.get();
+    auto *p1 = func->getParams()[1].type.get();
+    EXPECT_EQ(p0->getKind(), TypeRepr::Kind::AssociatedType);
+    EXPECT_EQ(p1->getKind(), TypeRepr::Kind::AssociatedType);
+    EXPECT_EQ(p0->toString(), "T.Key");
+    EXPECT_EQ(p1->toString(), "T.Value");
+}
+
+// === Y4: Postfix ? Operator ===
+
+TEST_F(ParserTest, PostfixQuestion_BasicParse) {
+    auto result = parse(R"--(
+        func foo() -> Result<i32, string> {
+            return Result.ok(1)
+        }
+        func bar() -> Result<i32, string> {
+            let x = foo()?
+            return Result.ok(x)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, PostfixQuestion_InFuncCall) {
+    auto result = parse(R"--(
+        func foo() -> Result<i32, string> {
+            return Result.ok(1)
+        }
+        func bar(x: i32) -> i32 {
+            return x
+        }
+        func baz() -> Result<i32, string> {
+            let y = bar(foo()?)
+            return Result.ok(y)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, PostfixQuestion_Chained) {
+    auto result = parse(R"--(
+        func foo() -> Result<i32, string> {
+            return Result.ok(42)
+        }
+        func process() -> Result<i32, string> {
+            let x = foo()?
+            return Result.ok(x)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, PostfixQuestion_WithBinaryOp) {
+    auto result = parse(R"--(
+        func foo() -> Result<i32, string> {
+            return Result.ok(1)
+        }
+        func bar() -> Result<i32, string> {
+            let x = foo()? + 5
+            return Result.ok(x)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, PostfixQuestion_TernaryStillWorks) {
+    auto result = parse(R"--(
+        func main() {
+            let cond = true
+            let x = cond ? 1 : 2
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, PostfixQuestion_WithSemicolon) {
+    auto result = parse(R"--(
+        func foo() -> Result<i32, string> {
+            return Result.ok(1)
+        }
+        func bar() -> Result<i32, string> {
+            foo()?
+            return Result.ok(0)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}

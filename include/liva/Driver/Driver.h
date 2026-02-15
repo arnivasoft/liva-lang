@@ -39,6 +39,8 @@ struct DriverOptions {
     int jobs = 0;  // 0 = auto (hardware_concurrency), 1 = sequential
     bool hasJobsOverride = false;
     bool rebuild = false;  // --rebuild: force recompile all, bypass cache
+    std::string targetTriple;       // --target=<triple>
+    bool hasTargetOverride = false;
 };
 
 /// Parses command-line arguments and drives compilation

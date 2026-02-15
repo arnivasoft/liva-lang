@@ -20,4 +20,19 @@ TargetInfo TargetInfo::getHostTarget() {
     return info;
 }
 
+TargetInfo TargetInfo::fromTriple(const std::string &triple,
+                                  const std::string &cpu,
+                                  const std::string &features) {
+    TargetInfo info;
+    info.triple = triple;
+    info.cpu = cpu;
+    info.features = features;
+    return info;
+}
+
+bool TargetInfo::isCrossCompiling() const {
+    auto host = getHostTarget();
+    return triple != host.triple;
+}
+
 } // namespace liva

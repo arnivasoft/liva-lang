@@ -163,6 +163,12 @@ private:
     void expandMacrosInExpr(std::unique_ptr<Expr> &expr);
     void expandMacrosInStmt(ASTNode *node);
 
+    /// Object safety check: returns false if protocol has generic methods
+    bool isObjectSafe(const std::string &protocolName, std::string &unsafeMethodName);
+
+    /// "TypeName::ProtocolName::AssocType" -> concrete type name
+    std::unordered_map<std::string, std::string> implAssociatedTypeResolutions_;
+
     /// Class declaration tracking
     std::unordered_map<std::string, const ClassDecl *> classDecls_;
     std::unordered_map<std::string, std::string> classParent_;

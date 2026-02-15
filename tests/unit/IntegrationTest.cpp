@@ -1,9 +1,14 @@
 #include "liva/Common/Diagnostics.h"
 #include "liva/Common/SourceLocation.h"
 #include "liva/Driver/Driver.h"
+#include "liva/Driver/ProjectConfig.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
 #include "liva/Sema/Sema.h"
+#ifdef LIVA_HAS_LLVM
+#include "liva/CodeGen/TargetInfo.h"
+#include "liva/Driver/CompilerInstance.h"
+#endif
 #include <fstream>
 #include <gtest/gtest.h>
 #include <sstream>
@@ -1587,9 +1592,12 @@ TEST_F(IntegrationTest, AsyncTryAwait) {
 async func fetch() -> Result<i32, string> {
     return Result.ok(100)
 }
-async func main() {
+async func process() -> Result<i32, string> {
     let val = try await fetch()
-    println(val)
+    return Result.ok(val)
+}
+func main() {
+    println(0)
 }
 )--";
     auto result = runPipeline("async_try_await.liva", source);
@@ -2295,5 +2303,220 @@ TEST_F(IntegrationTest, ClassDecl_ErrorParentNotFound_FullPipeline) {
     EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
     EXPECT_FALSE(result.semaSuccess) << "Sema should fail for unknown parent";
     EXPECT_FALSE(result.errors.empty());
+}
+
+// ===== Y3: Generics Edge Cases Integration Tests =====
+
+TEST_F(IntegrationTest, ObjectSafety_GenericMethodReject) {
+    std::string source = R"--(
+        protocol Converter {
+            func convert<T>(self) -> T
+        }
+        struct Foo { var x: i32 }
+        impl Foo: Converter {
+            func convert<T>(self) -> T { return self.x }
+        }
+        func use(c: dyn Converter) {
+            println(0)
+        }
+        func main() { println(0) }
+    )--";
+    auto result = runPipeline("object_safety.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should reject dyn with generic method";
+    EXPECT_FALSE(result.errors.empty());
+    bool found = false;
+    for (auto &e : result.errors) {
+        if (e.find("cannot be used as a trait object") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found) << "Should have object safety error";
+}
+
+TEST_F(IntegrationTest, AssocTypeConstraint_E2E) {
+    std::string source = R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct StrBox { var val: i32 }
+        impl StrBox: Container {
+            type Item = string
+            func get(self) -> i32 { return self.val }
+        }
+        func process<T: Container>(c: T) where T.Item == i32 {
+            println(c.get())
+        }
+        func main() {
+            let b = StrBox { val: 1 }
+            process(b)
+        }
+    )--";
+    auto result = runPipeline("assoc_constraint.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail: Item is string, not i32";
+    EXPECT_FALSE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, AssocTypeRef_BasicE2E) {
+    std::string source = R"--(
+        protocol Container {
+            type Item
+            func get(self) -> i32
+        }
+        struct IntBox { var val: i32 }
+        impl IntBox: Container {
+            type Item = i32
+            func get(self) -> i32 { return self.val }
+        }
+        func first<T: Container>(c: T) -> T.Item {
+            return c.get()
+        }
+        func main() {
+            let b = IntBox { val: 42 }
+            let x = first(b)
+            println(x)
+        }
+    )--";
+    auto result = runPipeline("assoc_type_ref.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema should pass with T.Item resolved";
+}
+
+// === Y4: Postfix ? E2E ===
+
+TEST_F(IntegrationTest, PostfixQuestion_E2E) {
+    std::string source = R"--(
+func parseValue(s: string) -> Result<i32, string> {
+    return Result.ok(42)
+}
+func process() -> Result<i32, string> {
+    let x = parseValue("42")?
+    let y = parseValue("10")?
+    return Result.ok(x + y)
+}
+func main() {
+    let r = process()
+    println(0)
+}
+)--";
+    auto result = runPipeline("postfix_question.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed for postfix ?";
+    EXPECT_TRUE(result.semaSuccess) << "Sema should pass for postfix ? in Result func";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, PostfixQuestion_TernaryCoexist) {
+    std::string source = R"--(
+func tryParse() -> Result<i32, string> {
+    return Result.ok(10)
+}
+func compute() -> Result<i32, string> {
+    let x = tryParse()?
+    let cond = true
+    let y = cond ? x : 0
+    return Result.ok(y)
+}
+func main() {
+    let r = compute()
+    println(0)
+}
+)--";
+    auto result = runPipeline("postfix_q_ternary.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed with both ? usages";
+    EXPECT_TRUE(result.semaSuccess) << "Sema should pass with ? and ternary coexisting";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+// === Cross-Compilation Target Tests ===
+
+// TargetInfo and CompilerInstance tests require LLVM (liva_codegen)
+#ifdef LIVA_HAS_LLVM
+
+TEST_F(IntegrationTest, CrossTarget_TargetInfoFromTriple) {
+    auto info = TargetInfo::fromTriple("aarch64-unknown-linux-gnu");
+    EXPECT_EQ(info.triple, "aarch64-unknown-linux-gnu");
+    EXPECT_EQ(info.cpu, "generic");
+    EXPECT_TRUE(info.features.empty());
+}
+
+TEST_F(IntegrationTest, CrossTarget_TargetInfoHost) {
+    auto info = TargetInfo::getHostTarget();
+    EXPECT_FALSE(info.triple.empty());
+}
+
+TEST_F(IntegrationTest, CrossTarget_IsCrossCompilingFalseForHost) {
+    auto host = TargetInfo::getHostTarget();
+    EXPECT_FALSE(host.isCrossCompiling());
+}
+
+TEST_F(IntegrationTest, CrossTarget_IsCrossCompilingTrue) {
+    auto info = TargetInfo::fromTriple("aarch64-unknown-linux-gnu");
+    // Only true if host is NOT aarch64-unknown-linux-gnu
+    auto host = TargetInfo::getHostTarget();
+    if (host.triple != "aarch64-unknown-linux-gnu") {
+        EXPECT_TRUE(info.isCrossCompiling());
+    }
+}
+
+TEST_F(IntegrationTest, CrossTarget_TargetInfoCpuFeatures) {
+    auto info = TargetInfo::fromTriple("aarch64-unknown-linux-gnu", "cortex-a72", "+neon");
+    EXPECT_EQ(info.triple, "aarch64-unknown-linux-gnu");
+    EXPECT_EQ(info.cpu, "cortex-a72");
+    EXPECT_EQ(info.features, "+neon");
+}
+
+TEST_F(IntegrationTest, CrossTarget_CompilerInstanceDefault) {
+    CompilerInstance compiler;
+    // Should work without setting target — uses host target
+    compiler.setSource("test.liva", "func main() { println(0) }");
+    bool ok = compiler.checkOnly();
+    EXPECT_TRUE(ok);
+}
+
+TEST_F(IntegrationTest, CrossTarget_ParseSemaTargetAgnostic) {
+    // Parse+sema pipeline should produce same result regardless of target
+    std::string source = "func main() {\n    let x: i32 = 42\n    println(x)\n}\n";
+
+    // Run with default (host) target
+    CompilerInstance compiler1;
+    compiler1.setSource("test1.liva", source);
+    bool ok1 = compiler1.checkOnly();
+
+    // Run with cross target
+    CompilerInstance compiler2;
+    compiler2.setTargetTriple("aarch64-unknown-linux-gnu");
+    compiler2.setSource("test2.liva", source);
+    bool ok2 = compiler2.checkOnly();
+
+    EXPECT_EQ(ok1, ok2);
+}
+
+TEST_F(IntegrationTest, CrossTarget_TargetInfoDefaultCpu) {
+    auto info = TargetInfo::fromTriple("arm64-apple-macosx");
+    EXPECT_EQ(info.cpu, "generic");
+    EXPECT_TRUE(info.features.empty());
+}
+
+#endif // LIVA_HAS_LLVM
+
+// These tests don't need LLVM — pure struct field tests
+TEST_F(IntegrationTest, CrossTarget_DriverOptionsTarget) {
+    DriverOptions opts;
+    EXPECT_TRUE(opts.targetTriple.empty());
+    EXPECT_FALSE(opts.hasTargetOverride);
+    opts.targetTriple = "riscv64-unknown-linux-gnu";
+    opts.hasTargetOverride = true;
+    EXPECT_EQ(opts.targetTriple, "riscv64-unknown-linux-gnu");
+    EXPECT_TRUE(opts.hasTargetOverride);
+}
+
+TEST_F(IntegrationTest, CrossTarget_ProjectConfigTarget) {
+    ProjectConfig cfg;
+    EXPECT_TRUE(cfg.target.empty());
+    cfg.target = "wasm32-unknown-wasi";
+    EXPECT_EQ(cfg.target, "wasm32-unknown-wasi");
 }
 

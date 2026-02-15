@@ -12,6 +12,20 @@ namespace liva {
 
 class Expr;  // forward declaration for ParamDecl default value
 
+/// Where clause constraint (T: Protocol, T.Item == i32, T.Item: Protocol)
+struct WhereConstraint {
+    enum class Kind {
+        TypeBound,           // T: Protocol
+        AssociatedTypeEqual, // T.Item == i32
+        AssociatedTypeBound  // T.Item: Protocol
+    };
+    Kind kind;
+    std::string paramName;                  // "T"
+    std::string assocTypeName;              // "Item" (empty for TypeBound)
+    std::string equalTypeName;              // "i32" (only for Equal)
+    std::vector<std::string> protocolNames; // (for TypeBound and Bound)
+};
+
 /// Base class for all declarations
 class Decl : public ASTNode {
 public:
@@ -81,6 +95,9 @@ public:
         return typeParamBounds_;
     }
 
+    void setWhereConstraints(std::vector<WhereConstraint> c) { whereConstraints_ = std::move(c); }
+    const std::vector<WhereConstraint> &getWhereConstraints() const { return whereConstraints_; }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::FuncDecl;
     }
@@ -94,6 +111,7 @@ private:
     bool isAsync_ = false;
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
+    std::vector<WhereConstraint> whereConstraints_;
 };
 
 /// Variable declaration: let x: i32 = 42, var y = 10
@@ -272,6 +290,9 @@ public:
         return associatedTypes_;
     }
 
+    void setWhereConstraints(std::vector<WhereConstraint> c) { whereConstraints_ = std::move(c); }
+    const std::vector<WhereConstraint> &getWhereConstraints() const { return whereConstraints_; }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::ImplDecl;
     }
@@ -283,6 +304,7 @@ private:
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
     std::unordered_map<std::string, std::string> associatedTypes_;
+    std::vector<WhereConstraint> whereConstraints_;
 };
 
 /// Protocol (trait) declaration

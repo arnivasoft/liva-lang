@@ -60,9 +60,10 @@ static std::string findClang() {
 CodeGen::CodeGen(DiagnosticsEngine &diag, const TargetInfo &target)
     : diag_(diag), target_(target) {
 #ifdef LIVA_HAS_LLVM
-    llvm::InitializeNativeTarget();
-    llvm::InitializeNativeTargetAsmParser();
-    llvm::InitializeNativeTargetAsmPrinter();
+    llvm::InitializeAllTargets();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+    llvm::InitializeAllAsmPrinters();
 #endif
 }
 
@@ -229,6 +230,10 @@ bool CodeGen::link(const std::vector<std::string> &objectFiles,
                    const std::string &pgoMode) {
     std::string clang = findClang();
     std::string cmd = "\"" + clang + "\" -o \"" + outputPath + "\"";
+
+    // Cross-compilation target
+    if (target_.isCrossCompiling())
+        cmd += " --target=" + target_.triple;
 
     // LTO flags
     if (ltoMode == "thin")

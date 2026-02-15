@@ -50,6 +50,8 @@ std::string TypeRepr::toString() const {
         return "<inferred>";
     case Kind::DynProtocol:
         return "<dyn>";
+    case Kind::AssociatedType:
+        return "<assoc>";
     }
     return "<unknown>";
 }
@@ -190,6 +192,10 @@ std::unique_ptr<TypeRepr> makeDynProtocolType(const std::string &protocolName) {
     return std::make_unique<DynProtocolTypeRepr>(protocolName);
 }
 
+std::unique_ptr<TypeRepr> makeAssociatedType(const std::string &base, const std::string &assoc) {
+    return std::make_unique<AssociatedTypeRepr>(base, assoc);
+}
+
 std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type) {
     if (!type) return nullptr;
     if (type->isPrimitive() || type->isVoid())
@@ -228,6 +234,10 @@ std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type) {
     case TypeRepr::Kind::DynProtocol: {
         auto *d = static_cast<const DynProtocolTypeRepr *>(type);
         return makeDynProtocolType(d->getProtocolName());
+    }
+    case TypeRepr::Kind::AssociatedType: {
+        auto *a = static_cast<const AssociatedTypeRepr *>(type);
+        return makeAssociatedType(a->getBaseName(), a->getAssocTypeName());
     }
     default:
         return makePrimitiveType(type->getKind());

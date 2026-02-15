@@ -425,6 +425,13 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
                 std::vector<std::string> protoCandidates;
                 scopes_.collectNames(Symbol::Kind::ProtocolType, protoCandidates);
                 suggestSimilar(param.location, dynType->getProtocolName(), protoCandidates);
+            } else {
+                // Object safety check
+                std::string unsafeMethod;
+                if (!isObjectSafe(dynType->getProtocolName(), unsafeMethod)) {
+                    diag_.report(param.location, DiagID::err_protocol_not_object_safe,
+                                 dynType->getProtocolName(), unsafeMethod);
+                }
             }
         }
     }
@@ -571,6 +578,20 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
     if ((!sym.type || sym.type->isInferred()) && node->hasInit() &&
         node->getInit()->getResolvedType()) {
         sym.type = node->getInit()->getResolvedType();
+    }
+
+    // Object safety check for dyn Protocol annotations (independent of type mismatch)
+    if (node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::DynProtocol) {
+        auto *dynType = static_cast<const DynProtocolTypeRepr *>(node->getType());
+        auto *protoSym = scopes_.lookup(dynType->getProtocolName());
+        if (protoSym && protoSym->kind == Symbol::Kind::ProtocolType) {
+            std::string unsafeMethod;
+            if (!isObjectSafe(dynType->getProtocolName(), unsafeMethod)) {
+                diag_.report(node->getStartLoc(), DiagID::err_protocol_not_object_safe,
+                             dynType->getProtocolName(), unsafeMethod);
+            }
+        }
     }
 
     // Check type mismatch between annotation and init
@@ -928,6 +949,12 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
             }
             // Record successful conformance
             protocolConformances_[node->getProtocolName()].push_back(node->getTypeName());
+
+            // Record associated type resolutions
+            for (auto &[assocName, concreteName] : node->getAssociatedTypes()) {
+                std::string key = node->getTypeName() + "::" + node->getProtocolName() + "::" + assocName;
+                implAssociatedTypeResolutions_[key] = concreteName;
+            }
 
             // Iter protocol: extract element type from next() -> T?
             if (node->getProtocolName() == "Iter") {
@@ -1873,9 +1900,73 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                         }
                     }
 
+                    // Check associated type constraints (where T.Item == i32, T.Item: Proto)
+                    const auto &whereConstraints = sym->funcDecl->getWhereConstraints();
+                    for (auto &wc : whereConstraints) {
+                        auto bindIt = typeBindings.find(wc.paramName);
+                        if (bindIt == typeBindings.end()) continue;
+                        std::string concreteName = typeToString(bindIt->second);
+
+                        // Find the associated type for this concrete type
+                        std::string resolvedAssocType;
+                        for (auto &[protoName, types] : protocolConformances_) {
+                            for (auto &t : types) {
+                                if (t == concreteName) {
+                                    std::string key = concreteName + "::" + protoName + "::" + wc.assocTypeName;
+                                    auto it = implAssociatedTypeResolutions_.find(key);
+                                    if (it != implAssociatedTypeResolutions_.end()) {
+                                        resolvedAssocType = it->second;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!resolvedAssocType.empty()) break;
+                        }
+
+                        if (wc.kind == WhereConstraint::Kind::AssociatedTypeEqual) {
+                            if (!resolvedAssocType.empty() && resolvedAssocType != wc.equalTypeName) {
+                                diag_.report(node->getStartLoc(), DiagID::err_associated_type_mismatch,
+                                             wc.paramName, wc.assocTypeName, resolvedAssocType, wc.equalTypeName);
+                            }
+                        } else if (wc.kind == WhereConstraint::Kind::AssociatedTypeBound) {
+                            for (auto &requiredProto : wc.protocolNames) {
+                                auto confIt = protocolConformances_.find(requiredProto);
+                                bool conforms = false;
+                                if (confIt != protocolConformances_.end()) {
+                                    for (auto &t : confIt->second)
+                                        if (t == resolvedAssocType) { conforms = true; break; }
+                                }
+                                if (!conforms && !resolvedAssocType.empty()) {
+                                    diag_.report(node->getStartLoc(), DiagID::err_associated_type_no_conformance,
+                                                 wc.paramName, wc.assocTypeName, resolvedAssocType, requiredProto);
+                                }
+                            }
+                        }
+                    }
+
                     // Resolve return type
                     const TypeRepr *retType = resolveAlias(sym->funcDecl->getReturnType());
-                    if (retType && retType->getKind() == TypeRepr::Kind::Named) {
+                    if (retType && retType->getKind() == TypeRepr::Kind::AssociatedType) {
+                        // Resolve T.Item → concrete type
+                        auto *assocType = static_cast<const AssociatedTypeRepr *>(retType);
+                        auto bindIt2 = typeBindings.find(assocType->getBaseName());
+                        if (bindIt2 != typeBindings.end()) {
+                            std::string concreteName2 = typeToString(bindIt2->second);
+                            for (auto &[protoName2, types2] : protocolConformances_) {
+                                for (auto &t2 : types2) {
+                                    if (t2 == concreteName2) {
+                                        std::string key2 = concreteName2 + "::" + protoName2 + "::" + assocType->getAssocTypeName();
+                                        auto resIt2 = implAssociatedTypeResolutions_.find(key2);
+                                        if (resIt2 != implAssociatedTypeResolutions_.end()) {
+                                            node->setResolvedType(makeNamedType(resIt2->second));
+                                            goto assoc_resolved;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        assoc_resolved:;
+                    } else if (retType && retType->getKind() == TypeRepr::Kind::Named) {
                         auto *named = static_cast<const NamedTypeRepr *>(retType);
                         auto it = typeBindings.find(named->getName());
                         if (it != typeBindings.end()) {
@@ -2542,11 +2633,28 @@ void TypeChecker::visitUnwrapExpr(UnwrapExpr *node) {
 
 void TypeChecker::visitTryExpr(TryExpr *node) {
     visit(const_cast<Expr *>(node->getOperand()));
-    // Check: try can only be applied to Result type expressions
+
+    // Check: try/? can only be applied to Result type expressions
     auto *operandType = node->getOperand()->getResolvedType();
     if (operandType && !operandType->isInferred() &&
         operandType->getKind() != TypeRepr::Kind::Result) {
         diag_.report(node->getStartLoc(), DiagID::err_try_on_non_result);
+    }
+
+    // Check: enclosing function must return Result
+    // currentReturnType_ is nullptr for void functions → also an error
+    if (!currentReturnType_ ||
+        (!currentReturnType_->isInferred() &&
+         currentReturnType_->getKind() != TypeRepr::Kind::Result)) {
+        diag_.report(node->getStartLoc(), DiagID::err_try_outside_result_func);
+    }
+
+    // Unwrap Result<T, E> → T for type propagation
+    if (operandType && operandType->getKind() == TypeRepr::Kind::Result) {
+        auto *resType = static_cast<const ResultTypeRepr *>(operandType);
+        if (resType->getOkType()) {
+            node->setResolvedType(cloneTypeRepr(resType->getOkType()));
+        }
     }
 }
 
@@ -3022,6 +3130,18 @@ void TypeChecker::expandMacrosInExpr(std::unique_ptr<Expr> &) {
 
 void TypeChecker::expandMacrosInStmt(ASTNode *) {
     // Expansion now happens lazily in visitMacroInvokeExpr
+}
+
+bool TypeChecker::isObjectSafe(const std::string &protocolName, std::string &unsafeMethodName) {
+    auto *sym = scopes_.lookup(protocolName);
+    if (!sym || !sym->protocolDecl) return true;
+    for (auto &method : sym->protocolDecl->getMethods()) {
+        if (method->isGeneric()) {
+            unsafeMethodName = method->getName();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace liva

@@ -16,6 +16,12 @@
 
 namespace liva {
 
+static TargetInfo resolveTarget(const std::string &targetTriple) {
+    if (!targetTriple.empty())
+        return TargetInfo::fromTriple(targetTriple);
+    return TargetInfo::getHostTarget();
+}
+
 CompilerInstance::CompilerInstance() {
     diag_.setPrintCallback([this](const Diagnostic &d) {
         DiagnosticsEngine::printToStderr(d, sourceManager_.get());
@@ -156,7 +162,7 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
         return false;
 
     auto *module = irgen.getModule();
-    CodeGen codegen(diag_);
+    CodeGen codegen(diag_, resolveTarget(targetTriple_));
     codegen.optimize(*module, optLevel_, ltoMode_, pgoMode_, pgoProfile_);
 
     bool useLto = (ltoMode_ == "thin" || ltoMode_ == "full");
@@ -225,7 +231,7 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
         return result;
 
     auto *module = irgen.getModule();
-    CodeGen codegen(diag_);
+    CodeGen codegen(diag_, resolveTarget(targetTriple_));
     codegen.optimize(*module, optLevel_, ltoMode_, pgoMode_, pgoProfile_);
 
     bool useLto = (ltoMode_ == "thin" || ltoMode_ == "full");
@@ -272,7 +278,7 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
     // Use CodeGen API: optimize → emit object/bitcode → link
     auto *module = irgen.getModule();
-    CodeGen codegen(diag_);
+    CodeGen codegen(diag_, resolveTarget(targetTriple_));
     codegen.optimize(*module, optLevel_, ltoMode_, pgoMode_, pgoProfile_);
 
     bool useLto = (ltoMode_ == "thin" || ltoMode_ == "full");

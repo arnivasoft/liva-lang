@@ -34,6 +34,9 @@ public:
     /// Set profile data path for PGO use mode
     void setPgoProfile(const std::string &path) { pgoProfile_ = path; }
 
+    /// Set cross-compilation target triple
+    void setTargetTriple(const std::string &triple) { targetTriple_ = triple; }
+
     /// Set additional module search paths
     void setSearchPaths(const std::vector<std::string> &paths) {
         searchPaths_ = paths;
@@ -97,6 +100,7 @@ private:
     bool keepObjectFile_ = false;
     std::string lastObjPath_;
     std::vector<std::string> searchPaths_;
+    std::string targetTriple_;
 };
 
 } // namespace liva
