@@ -38,11 +38,11 @@ cmake --build build
 # MinGW build
 ctest --test-dir build --output-on-failure
 
-# Clang build
+# Clang build (recommended — includes codegen, JIT, and self-host tests)
 ctest --test-dir build-clang --output-on-failure
 ```
 
-All 613 tests must pass before submitting a pull request.
+All 1600+ tests must pass before submitting a pull request.
 
 ## Project Structure
 
@@ -88,6 +88,14 @@ Tests use GoogleTest. Each component has its own test file:
 | Project Config | `tests/unit/ProjectConfigTest.cpp` |
 | LSP | `tests/unit/LSPTest.cpp` |
 | REPL | `tests/unit/REPLTest.cpp` |
+| CodeGen | `tests/unit/CodeGenTest.cpp` |
+| Integration | `tests/unit/IntegrationTest.cpp` |
+| Macro | `tests/unit/MacroTest.cpp` |
+| Plugin | `tests/unit/PluginTest.cpp` |
+| Benchmark | `tests/unit/BenchmarkTest.cpp` |
+| SelfHost | `tests/unit/SelfHostTest.cpp` |
+| JIT | `tests/unit/JITTest.cpp` |
+| DAP | `tests/unit/DAPTest.cpp` |
 
 To add a new test:
 
@@ -116,14 +124,15 @@ func main() {
 - MinGW builds disable exceptions (`-fno-exceptions`) — use `strtol` instead of `stoi`/`try-catch`
 - MinGW `livac.exe` linking fails with LLVM libraries (expected); unit tests still work
 - Raw string literals with `\(` need custom delimiters: `R"--(...)--"`
-- Multi-field inline structs (`struct Pt { var x: i32; var y: i32 }`) hang the parser — use multi-line declarations
+- Multi-field inline structs (`struct Pt { var x: i32; var y: i32 }`) — FIXED, semicolons are now consumed correctly
 - On Windows, `std::system()` commands with quoted paths need extra wrapping for `cmd.exe`
+- MinGW CTest may SEGFAULT due to Git's `libstdc++-6.dll` conflicting with MinGW's — prepend MinGW to PATH: `PATH="/c/Program Files/mingw64/bin:$PATH"`
 
 ## Pull Request Process
 
 1. Create a feature branch from `main`
 2. Make your changes with clear, focused commits
-3. Ensure all 613+ tests pass
+3. Ensure all 1600+ tests pass
 4. Add new tests for any new functionality
 5. Update `plan.md` if adding a milestone
 6. Submit a pull request with a clear description

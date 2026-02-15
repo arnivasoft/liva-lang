@@ -1,0 +1,25 @@
+// Cross-Compilation Demo
+//
+// Compile for different targets:
+//   livac build --target x86_64-linux-gnu
+//   livac build --target aarch64-linux-gnu
+//   livac build --target wasm32
+//
+// Check target in liva.toml:
+//   [build]
+//   target = "x86_64-linux-gnu"
+
+import std::os
+
+func main() {
+    println("Hello from Liva!")
+    println("This program can be cross-compiled to various targets.")
+
+    let arguments = args()
+    if len(arguments) > 1 {
+        println("Arguments:")
+        for arg in arguments {
+            println("  \(arg)")
+        }
+    }
+}

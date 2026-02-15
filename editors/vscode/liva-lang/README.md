@@ -4,22 +4,28 @@ Language support for the [Liva](https://github.com/liva-lang/liva-lang) programm
 
 ## Features
 
-### LSP-Powered (12 Features)
+### LSP-Powered (18+ Features)
 
 All LSP features are provided by the `livac lsp` language server:
 
 - **Diagnostics** -- Real-time error and warning reporting (type mismatches, ownership violations, unused variables, unreachable code, shadowed variables).
 - **Autocompletion** -- Keywords, built-in functions, and symbol completions.
-- **Hover** -- Type and signature information for functions, variables, structs, and enums.
+- **Hover** -- Type and signature information for functions, variables, structs, enums, and classes.
 - **Go-to-definition** -- Jump to the definition of any symbol.
 - **References** -- Find all references of a symbol across the document.
 - **Rename** -- Rename a symbol and all its references.
-- **Signature help** -- Parameter hints for function calls (15 built-in function signatures + user-defined).
-- **Document symbols** -- Outline view of functions, structs, enums, and protocols.
+- **Signature help** -- Parameter hints for function calls (built-in + user-defined).
+- **Document symbols** -- Outline view of functions, structs, enums, classes, and protocols.
 - **Semantic tokens** -- Compiler-accurate syntax highlighting beyond TextMate grammar.
 - **Formatting** -- Automatic code formatting.
 - **Folding ranges** -- Fold/unfold code blocks, structs, enums, functions, and region markers.
 - **Document highlight** -- Highlight all occurrences of a symbol under the cursor.
+- **Code Actions** -- Quick-fix suggestions (e.g., prefix unused variables with `_`).
+- **Code Lens** -- Inline reference counts for functions and types.
+- **Call Hierarchy** -- Incoming and outgoing call navigation.
+- **Inlay Hints** -- Inline type annotations for variables and return types.
+- **Selection Range** -- Smart selection expansion based on AST structure.
+- **Workspace Symbol** -- Project-wide symbol search.
 
 ### Editor Features
 
@@ -148,15 +154,18 @@ The grammar covers the full Liva language including:
 - Variable declarations (`let`, `var`, `const`)
 - Functions (`func`, `async func`), closures (`|args| { body }`)
 - Control flow (`if`/`else`, `while`, `for`/`in`, `match`/`case`, `guard`, `break`, `continue`, `return`)
-- Types (`struct`, `enum`, `protocol`, `impl`, `type` aliases)
+- Types (`struct`, `enum`, `protocol`, `impl`, `type` aliases, `class`)
+- Classes (`class`, `init`, `deinit`, `override`, `private`, `super`, inheritance)
 - Ownership and borrowing (`ref`, `mut`, `self`)
 - Primitive types (`i8`--`u64`, `f32`, `f64`, `bool`, `string`, `void`)
 - Collections (`[T]` arrays, `Map<K,V>`, `Set<T>`)
 - Operators (`??`, `?.`, `..`, `...`, `->`, `=>`, `::`, bitwise, arithmetic, comparison, logical)
 - String interpolation (`\(expr)`) and escape sequences (`\n`, `\t`, `\u{hex}`)
 - Numeric literals (decimal, hex `0x`, binary `0b`, octal `0o`, floats with exponents)
-- Line comments (`//`) and block comments (`/* */`, nestable)
 - Module imports (`import`)
+- FFI (`extern "C"` declarations)
 - Async/await, try expressions
 - Generics (`<T>`, where clauses, trait bounds)
 - Pattern matching (exhaustive, nested, wildcard `_`)
+- Metaprogramming (`comptime`, `macro`, `dyn` protocol)
+- Test framework (`test "name" { }` blocks)

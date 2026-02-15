@@ -1,0 +1,23 @@
+// Compile-Time Evaluation Demo
+
+func main() {
+    // Compile-time computed lookup table
+    let squares = comptime {
+        var table: [i32] = []
+        var i = 0
+        while i < 10 {
+            table.push(i * i)
+            i = i + 1
+        }
+        table
+    }
+
+    println("Squares (computed at compile time):")
+    for i in 0..10 {
+        println("  \(i)^2 = \(squares[i])")
+    }
+
+    // Compile-time constant
+    let max_size = comptime { 32 * 1024 }
+    println("Max size: \(max_size)")
+}

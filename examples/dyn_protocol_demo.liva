@@ -1,0 +1,48 @@
+// dyn Protocol Demo: Trait Objects and Dynamic Dispatch
+
+protocol Shape {
+    func area(ref self) -> f64
+    func name(ref self) -> string
+}
+
+struct Circle {
+    var radius: f64
+}
+
+impl Circle: Shape {
+    func area(ref self) -> f64 {
+        return 3.14159 * self.radius * self.radius
+    }
+    func name(ref self) -> string {
+        return "Circle"
+    }
+}
+
+struct Rectangle {
+    var width: f64
+    var height: f64
+}
+
+impl Rectangle: Shape {
+    func area(ref self) -> f64 {
+        return self.width * self.height
+    }
+    func name(ref self) -> string {
+        return "Rectangle"
+    }
+}
+
+func printShape(s: dyn Shape) {
+    println("\(s.name()): area = \(s.area())")
+}
+
+func main() {
+    let shapes: [dyn Shape] = [
+        Circle { radius: 5.0 },
+        Rectangle { width: 3.0, height: 4.0 }
+    ]
+
+    for shape in shapes {
+        printShape(shape)
+    }
+}

@@ -13,7 +13,18 @@ Liva, LLVM aracılığıyla native koda derlenir; garbage collector olmadan bell
 - **Async/Await** — Coroutine tabanlı asenkron programlama
 - **Modüller** — Standart kütüphane modülleriyle import sistemi
 - **LLVM Backend** — Optimizasyon seviyeleriyle (O0-O3) native kod üretimi
-- **Araçlar** — LSP sunucusu, interaktif REPL, proje manifest'i (`liva.toml`)
+- **Araçlar** — LSP sunucusu (18+ özellik), JIT destekli interaktif REPL, `livac bench`, `livac test`, proje manifest'i (`liva.toml`)
+- **Sınıflar (Classes)** — Kalıtım, init/deinit, vtable dispatch destekli referans tipleri
+- **FFI** — C uyumluluğu için `extern "C"` bildirimleri
+- **Comptime & Macro'lar** — Derleme zamanı değerlendirme blokları, kalıp tabanlı macro'lar
+- **dyn Protocol** — Dinamik dispatch'li trait nesneleri
+- **Test Framework** — Dahili `test` blokları ve `livac test`
+- **Eşzamanlılık** — Channel'lar (tamponlu), yapısal eşzamanlılık için TaskGroup'lar
+- **Benchmarking** — `livac bench` ile dahili performans testi
+- **JIT Derleme** — LLJIT tabanlı anında derleme
+- **Çapraz Derleme** — Çoklu platform desteği için `--target` bayrağı
+- **Plugin Sistemi** — Özel analiz için derleyici plugin API'si
+- **WASM** — WebAssembly hedef desteği (`--target wasm32`)
 
 ## Hızlı Başlangıç
 
@@ -90,6 +101,18 @@ livac lsp
 
 # İnteraktif REPL
 livac repl
+
+# Benchmark çalıştır
+livac bench
+
+# Testleri çalıştır
+livac test
+
+# Bağımlılık kaldır
+livac remove <paket>
+
+# Çapraz derleme
+livac build --target x86_64-linux-gnu
 
 # Tanılama araçları
 livac --dump-tokens file.liva    # Token akışını göster
@@ -268,6 +291,10 @@ import std::os        // env, args, exit, exec
 import std::random    // randInt, randFloat
 import std::regex     // Regex, match, replace
 import std::net       // httpGet, httpPost
+import std::json      // jsonParse, jsonStringify
+import std::time      // now, sleep
+import std::channel   // Channel, send, recv
+import std::task      // TaskGroup, spawn, awaitAll
 ```
 
 ## Proje Manifest'i
@@ -306,6 +333,9 @@ Kaynak Kod (.liva)
         |
         v
     [ CodeGen ] --> Native Çalıştırılabilir Dosya
+        |
+        v
+    [ JIT ]    -->  Bellekte Çalıştırma (LLJIT)
 ```
 
 ## Proje Yapısı
@@ -324,7 +354,7 @@ liva-lang/
     REPL/              # İnteraktif REPL
     Driver/            # CLI sürücüsü, proje konfigürasyonu (TOML)
   tests/
-    unit/              # GoogleTest birim testleri (613 test)
+    unit/              # GoogleTest birim testleri (1600+ test)
     integration/       # Uçtan uca .liva programları
     error/             # Beklenen hata test senaryoları
   examples/            # Örnek Liva programları
@@ -334,23 +364,35 @@ liva-lang/
 
 ## Test Paketi
 
-8 test dosyasında 613 test:
+16 test dosyasında 1600+ test:
 
 | Bileşen | Test Sayısı | Kapsam |
 |---------|-------------|--------|
 | Lexer | 41 | Token'lar, literal'ler, yorumlar, pozisyonlar, string interpolation |
-| Parser | 82 | Bildirimler, ifadeler, generics, closure'lar, protocol'ler |
-| Sema | 321 | Tüm dil özellikleri için kapsamlı semantik analiz |
+| Parser | 82 | Bildirimler, ifadeler, generics, closure'lar, protocol'ler, sınıflar |
+| Sema | 530+ | Tip kontrolü, ownership, generics, sınıflar, FFI, comptime, macro'lar |
 | Type | 12 | Tip uyumluluğu, dönüşümler, bit genişlikleri |
 | Ownership | 9 | Move, borrow, use-after-move, lifetime |
-| ProjectConfig | 74 | TOML ayrıştırma, SemVer, bağımlılıklar, lock dosyaları |
-| LSP | 37 | JSON, yaşam döngüsü, senkronizasyon, completion, hover, definition |
+| ProjectConfig | 74 | TOML ayrıştırma, SemVer, bağımlılıklar, lock dosyaları, registry |
+| LSP | 37 | JSON, yaşam döngüsü, senkronizasyon, completion, hover, definition, code actions |
 | REPL | 37 | Giriş sınıflandırma, komutlar, çok satırlı, ifade sarmalama |
+| CodeGen | 95+ | LLVM IR üretimi, debug bilgisi, çapraz derleme |
+| Integration | 280+ | Uçtan uca programlar, hata kurtarma, modül sistemi |
+| Macro | 40+ | Macro tanımlama, genişletme, hijyen |
+| Plugin | 20+ | Plugin API, isimlendirme kuralı, kullanılmayan fonksiyon tespiti |
+| Benchmark | 15+ | Bench builtin'leri, bench runner, rapor biçimlendirme |
+| SelfHost | 10+ | Self-hosting derleme testleri (sadece Clang) |
+| JIT | 10+ | JIT derleme, REPL JIT çalıştırma (sadece Clang) |
+| DAP | 8+ | Debug bilgisi, DWARF tipleri, değişken debug kayıtları |
 
 Tüm test paketini çalıştırın:
 
 ```bash
+# MinGW build
 ctest --test-dir build --output-on-failure
+
+# Clang build (önerilen, codegen + JIT testlerini içerir)
+ctest --test-dir build-clang --output-on-failure
 ```
 
 ## Katkıda Bulunma

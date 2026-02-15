@@ -1,0 +1,32 @@
+// Benchmarking Demo
+import std::bench
+
+func sum_loop(n: i32) -> i32 {
+    var total: i32 = 0
+    for i in 0..n {
+        total = total + i
+    }
+    return total
+}
+
+func sum_formula(n: i32) -> i32 {
+    return n * (n - 1) / 2
+}
+
+func main() {
+    benchStart("sum_loop")
+    for i in 0..1000 {
+        benchIter("sum_loop")
+        sum_loop(1000)
+    }
+    benchDone("sum_loop")
+
+    benchStart("sum_formula")
+    for i in 0..1000 {
+        benchIter("sum_formula")
+        sum_formula(1000)
+    }
+    benchDone("sum_formula")
+
+    benchReport()
+}

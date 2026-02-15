@@ -13,7 +13,18 @@ Liva compiles to native code via LLVM, offering memory safety without garbage co
 - **Async/Await** — Coroutine-based asynchronous programming
 - **Modules** — Import system with standard library modules
 - **LLVM Backend** — Native code generation with optimization levels (O0-O3)
-- **Tooling** — LSP server, interactive REPL, project manifest (`liva.toml`)
+- **Tooling** — LSP server (18+ features), interactive REPL with JIT, `livac bench`, `livac test`, project manifest (`liva.toml`)
+- **Classes** — Reference types with inheritance, init/deinit, vtable dispatch
+- **FFI** — `extern "C"` declarations for C interoperability
+- **Comptime & Macros** — Compile-time evaluation blocks, pattern-based macros
+- **dyn Protocol** — Trait objects with dynamic dispatch
+- **Test Framework** — Built-in `test` blocks with `livac test`
+- **Concurrency** — Channels (buffered), TaskGroups for structured concurrency
+- **Benchmarking** — Built-in benchmarking with `livac bench`
+- **JIT Compilation** — LLJIT-based just-in-time execution
+- **Cross-compilation** — `--target` flag for multi-platform builds
+- **Plugin System** — Compiler plugin API for custom analyses
+- **WASM** — WebAssembly target support (`--target wasm32`)
 
 ## Quick Start
 
@@ -90,6 +101,18 @@ livac lsp
 
 # Interactive REPL
 livac repl
+
+# Run benchmarks
+livac bench
+
+# Run tests
+livac test
+
+# Remove a dependency
+livac remove <package>
+
+# Cross-compile
+livac build --target x86_64-linux-gnu
 
 # Diagnostic tools
 livac --dump-tokens file.liva    # Show token stream
@@ -268,6 +291,10 @@ import std::os        // env, args, exit, exec
 import std::random    // randInt, randFloat
 import std::regex     // Regex, match, replace
 import std::net       // httpGet, httpPost
+import std::json      // jsonParse, jsonStringify
+import std::time      // now, sleep
+import std::channel   // Channel, send, recv
+import std::task      // TaskGroup, spawn, awaitAll
 ```
 
 ## Project Manifest
@@ -306,6 +333,9 @@ Source Code (.liva)
         |
         v
     [ CodeGen ] --> Native Executable
+        |
+        v
+    [ JIT ]    -->  In-memory Execution (LLJIT)
 ```
 
 ## Project Structure
@@ -324,7 +354,7 @@ liva-lang/
     REPL/              # Interactive REPL
     Driver/            # CLI driver, project config (TOML)
   tests/
-    unit/              # GoogleTest unit tests (613 tests)
+    unit/              # GoogleTest unit tests (1600+ tests)
     integration/       # End-to-end .liva programs
     error/             # Expected-error test cases
   examples/            # Example Liva programs
@@ -334,23 +364,35 @@ liva-lang/
 
 ## Test Suite
 
-613 tests across 8 test files:
+1600+ tests across 16 test files:
 
 | Component | Tests | Coverage |
 |-----------|-------|----------|
 | Lexer | 41 | Tokens, literals, comments, positions, string interpolation |
-| Parser | 82 | Declarations, expressions, generics, closures, protocols |
-| Sema | 321 | Comprehensive semantic analysis for all language features |
+| Parser | 82 | Declarations, expressions, generics, closures, protocols, classes |
+| Sema | 530+ | Type checking, ownership, generics, classes, FFI, comptime, macros |
 | Type | 12 | Type compatibility, conversions, bit widths |
 | Ownership | 9 | Move, borrow, use-after-move, lifetime |
-| ProjectConfig | 74 | TOML parsing, SemVer, dependencies, lock files |
-| LSP | 37 | JSON, lifecycle, sync, completion, hover, definition |
+| ProjectConfig | 74 | TOML parsing, SemVer, dependencies, lock files, registry |
+| LSP | 37 | JSON, lifecycle, sync, completion, hover, definition, code actions |
 | REPL | 37 | Input classification, commands, multi-line, expression wrapping |
+| CodeGen | 95+ | LLVM IR generation, debug info, cross-compilation |
+| Integration | 280+ | End-to-end programs, error recovery, module system |
+| Macro | 40+ | Macro definition, expansion, hygiene |
+| Plugin | 20+ | Plugin API, naming convention, unused function detection |
+| Benchmark | 15+ | Bench builtins, bench runner, report formatting |
+| SelfHost | 10+ | Self-hosting compilation tests (Clang only) |
+| JIT | 10+ | JIT compilation, REPL JIT execution (Clang only) |
+| DAP | 8+ | Debug info, DWARF types, variable debug records |
 
 Run the full test suite:
 
 ```bash
+# MinGW build
 ctest --test-dir build --output-on-failure
+
+# Clang build (recommended, includes codegen + JIT tests)
+ctest --test-dir build-clang --output-on-failure
 ```
 
 ## Contributing

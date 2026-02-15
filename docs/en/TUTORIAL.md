@@ -32,6 +32,9 @@ A hands-on, step-by-step guide to learning the Liva programming language — fro
 22. [Project Management](#22-project-management)
 23. [Tooling](#23-tooling)
 24. [What's Next?](#24-whats-next)
+25. [Classes and OOP](#25-classes-and-oop)
+26. [Testing Your Code](#26-testing-your-code)
+27. [Compile-Time Features](#27-compile-time-features)
 
 ---
 
@@ -1925,6 +1928,52 @@ func main() {
 }
 ```
 
+### Comptime blocks
+
+```liva
+func main() {
+    // Compile-time evaluation
+    let lookup = comptime {
+        var table: [i32] = []
+        var i = 0
+        while i < 5 {
+            table.push(i * i)
+            i = i + 1
+        }
+        table
+    }
+    // lookup is [0, 1, 4, 9, 16] — computed at compile time
+    println(lookup)
+}
+```
+
+### Macros
+
+```liva
+macro max_of {
+    ($a, $b) => {
+        if $a > $b { $a } else { $b }
+    }
+}
+
+func main() {
+    let biggest = max_of!(10, 20)
+    println(biggest)  // 20
+}
+```
+
+### Guard clauses
+
+```liva
+func divide(a: f64, b: f64) -> f64? {
+    guard b != 0.0 else {
+        println("Cannot divide by zero")
+        return nil
+    }
+    return a / b
+}
+```
+
 ---
 
 ## 22. Project Management
@@ -2002,6 +2051,12 @@ livac lsp
 - Rename symbol
 - Signature help (parameter hints)
 - Document symbols (outline)
+- Code Actions (quick-fix suggestions)
+- Code Lens (reference counts)
+- Call Hierarchy (incoming/outgoing calls)
+- Inlay Hints (inline type annotations)
+- Selection Range (smart selection)
+- Workspace Symbol (project-wide search)
 
 #### VS Code setup
 
@@ -2053,6 +2108,36 @@ Type :help for help, :quit to exit.
 >>> factorial(10)
 3628800
 ```
+
+### Benchmarking
+
+```bash
+livac bench
+```
+
+Run performance benchmarks defined in your code:
+
+```liva
+import std::bench
+
+func main() {
+    benchStart("fibonacci")
+    for i in 0..1000 {
+        benchIter("fibonacci")
+        fibonacci(20)
+    }
+    benchDone("fibonacci")
+    benchReport()
+}
+```
+
+### Test Runner
+
+```bash
+livac test
+```
+
+Run all `test` blocks in your project. See [Testing Your Code](#26-testing-your-code) for details.
 
 ### Compiler diagnostic options
 
@@ -2161,7 +2246,177 @@ func main() {
 - [Language Reference](language-reference.md) — Complete syntax and semantics reference
 - [Contributing](CONTRIBUTING.md) — How to contribute to Liva
 - [Examples](examples/) — More example programs
+- [API Reference](API-REFERENCE.md) — Standard library module reference
+- [Cookbook](COOKBOOK.md) — Common patterns and recipes
 
 ---
 
-*This tutorial covers Liva as of version 0.1.0. The language is under active development — new features and improvements are added regularly.*
+## 25. Classes and OOP
+
+Classes in Liva are reference types with support for inheritance, constructors, destructors, and virtual method dispatch.
+
+### Defining a class
+
+```liva
+class Animal {
+    var name: string
+    var sound: string
+
+    init(name: string, sound: string) {
+        self.name = name
+        self.sound = sound
+    }
+
+    deinit {
+        println("\(self.name) freed")
+    }
+
+    func speak(ref self) {
+        println("\(self.name) says \(self.sound)")
+    }
+}
+
+func main() {
+    let cat = Animal("Whiskers", "Meow")
+    cat.speak()  // Whiskers says Meow
+}
+```
+
+### Inheritance and override
+
+```liva
+class Dog : Animal {
+    var breed: string
+
+    init(name: string, breed: string) {
+        super.init(name, "Woof")
+        self.breed = breed
+    }
+
+    override func speak(ref self) {
+        println("\(self.name) the \(self.breed) says Woof!")
+    }
+}
+
+func main() {
+    let dog = Dog("Rex", "Labrador")
+    dog.speak()  // Rex the Labrador says Woof!
+}
+```
+
+### Private fields
+
+```liva
+class BankAccount {
+    private var balance: f64
+
+    init(initial: f64) {
+        self.balance = initial
+    }
+
+    func deposit(ref mut self, amount: f64) {
+        self.balance = self.balance + amount
+    }
+
+    func getBalance(ref self) -> f64 {
+        return self.balance
+    }
+}
+
+func main() {
+    var account = BankAccount(100.0)
+    account.deposit(50.0)
+    println(account.getBalance())  // 150.0
+    // account.balance  // ERROR: 'balance' is private
+}
+```
+
+### When to use class vs struct
+
+Use **struct** for simple data containers (value semantics, no inheritance needed).
+Use **class** when you need inheritance, virtual dispatch, or reference semantics.
+
+---
+
+## 26. Testing Your Code
+
+Liva has a built-in test framework that lets you write test blocks directly in your source files.
+
+### Writing tests
+
+```liva
+func add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+test "add returns correct sum" {
+    assert(add(2, 3) == 5)
+    assert(add(-1, 1) == 0)
+    assert(add(0, 0) == 0)
+}
+
+test "add with large numbers" {
+    let result = add(1000000, 2000000)
+    assert(result == 3000000)
+}
+```
+
+### Running tests
+
+```bash
+livac test                          # run all tests
+livac test --filter "add"           # run tests matching pattern
+```
+
+Each test runs in isolation — a failure in one test does not prevent other tests from running.
+
+---
+
+## 27. Compile-Time Features
+
+### Comptime blocks
+
+Evaluate expressions at compile time:
+
+```liva
+func main() {
+    let pi_approx = comptime {
+        var sum: f64 = 0.0
+        var i = 0
+        while i < 1000 {
+            let term = 1.0 / (2.0 * (i as f64) + 1.0)
+            if i % 2 == 0 {
+                sum = sum + term
+            } else {
+                sum = sum - term
+            }
+            i = i + 1
+        }
+        sum * 4.0
+    }
+    println(pi_approx)
+}
+```
+
+### Macros
+
+Define reusable code patterns:
+
+```liva
+macro unless {
+    ($cond, $body) => {
+        if !($cond) { $body }
+    }
+}
+
+func main() {
+    let x = 5
+    unless!(x > 10, {
+        println("x is not greater than 10")
+    })
+}
+```
+
+---
+
+*This tutorial covers Liva as of version 0.2.0 with 1600+ tests. The language is under active development — new features and improvements are added regularly.*

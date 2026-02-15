@@ -1,0 +1,35 @@
+// Concurrency Demo: Channels and TaskGroups
+import std::channel
+import std::task
+
+func main() {
+    // Buffered channel
+    let ch = channelCreate(5)
+
+    // Producer: send values
+    channelSend(ch, 10)
+    channelSend(ch, 20)
+    channelSend(ch, 30)
+
+    // Consumer: receive values
+    let a = channelRecv(ch)
+    let b = channelRecv(ch)
+    let c = channelRecv(ch)
+    println("Received: \(a), \(b), \(c)")
+
+    channelClose(ch)
+
+    // TaskGroup
+    let group = taskGroupCreate()
+
+    taskGroupSpawn(group, || {
+        println("Task 1 running")
+    })
+
+    taskGroupSpawn(group, || {
+        println("Task 2 running")
+    })
+
+    taskGroupAwaitAll(group)
+    println("All tasks completed")
+}

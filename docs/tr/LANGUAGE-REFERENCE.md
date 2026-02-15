@@ -33,6 +33,14 @@ Liva programlama dili için kapsamlı bir referans — Swift benzeri sözdizimi 
 25. [Yerleşik Fonksiyonlar](#25-yerleşik-fonksiyonlar)
 26. [Proje Konfigürasyonu](#26-proje-konfigürasyonu)
 27. [Derleyici Seçenekleri](#27-derleyici-seçenekleri)
+28. [Sınıflar (Classes)](#28-sınıflar-classes)
+29. [FFI (Yabancı Fonksiyon Arayüzü)](#29-ffi-yabancı-fonksiyon-arayüzü)
+30. [Derleme Zamanı Değerlendirme](#30-derleme-zamanı-değerlendirme)
+31. [Macro'lar](#31-macrolar)
+32. [Test Framework](#32-test-framework)
+33. [Eşzamanlılık](#33-eşzamanlılık)
+34. [dyn Protocol (Trait Nesneleri)](#34-dyn-protocol-trait-nesneleri)
+35. [Guard Koşulları](#35-guard-koşulları)
 
 ---
 
@@ -1617,6 +1625,20 @@ Bu fonksiyonlar herhangi bir `import` olmadan global olarak kullanılabilir:
 | `parseFloat` | `(string) -> f64` | Float ayrıştır |
 | `randInt` | `(i32, i32) -> i32` | Rastgele tamsayı |
 | `randFloat` | `() -> f64` | Rastgele float [0, 1) |
+| `benchStart` | `(string) -> void` | Benchmark zamanlayıcısını başlat |
+| `benchIter` | `(string) -> void` | Benchmark iterasyonu kaydet |
+| `benchDone` | `(string) -> void` | Benchmark'ı sonlandır |
+| `benchReport` | `() -> void` | Benchmark sonuçlarını yazdır |
+| `benchReset` | `() -> void` | Tüm benchmark'ları sıfırla |
+| `channelCreate` | `(i32) -> Channel` | Tamponlu kanal oluştur |
+| `channelSend` | `(Channel, any) -> void` | Kanala değer gönder |
+| `channelRecv` | `(Channel) -> any` | Kanaldan değer al |
+| `channelClose` | `(Channel) -> void` | Kanalı kapat |
+| `taskGroupCreate` | `() -> TaskGroup` | Görev grubu oluştur |
+| `taskGroupSpawn` | `(TaskGroup, () -> void) -> void` | Grupta görev başlat |
+| `taskGroupAwaitAll` | `(TaskGroup) -> void` | Tüm görevleri bekle |
+| `taskGroupCancelAll` | `(TaskGroup) -> void` | Tüm görevleri iptal et |
+| `assert` | `(bool, string?) -> void` | Koşulu doğrula veya panik |
 
 ---
 
@@ -1686,6 +1708,14 @@ Proje:
   init [isim]              Yeni Liva projesi oluştur
   build [--release]        liva.toml'dan build et
   run [--release]          Build et ve çalıştır
+  remove [paket]           Bağımlılık kaldır
+
+Test & Benchmark:
+  test                     Test bloklarını çalıştır (test "ad" { ... })
+  bench                    Benchmark bloklarını çalıştır
+
+Çapraz Derleme:
+  --target <triple>        Hedef platform için derle (ör. x86_64-linux-gnu, wasm32)
 
 Araçlar:
   lsp                      Language Server Protocol sunucusunu başlat
@@ -1704,6 +1734,16 @@ Araçlar:
 - **References** — Bir sembolün tüm oluşumlarını bul
 - **Rename** — Bir sembolü doküman genelinde yeniden adlandır
 - **Signature Help** — Fonksiyon çağrısında parametre ipuçları
+- **Semantik Token'lar** — Derleyici doğruluğunda sözdizimi vurgulama
+- **Biçimlendirme** — Otomatik kod biçimlendirme
+- **Katlama Aralıkları** — Kod bloklarını katla/aç
+- **Belge Vurgulama** — Sembol oluşumlarını vurgula
+- **Kod Aksiyonları** — Hızlı düzeltme önerileri (ör. kullanılmayan değişken ön eki)
+- **Kod Merceği** — Satır içi referans sayıları
+- **Çağrı Hiyerarşisi** — Gelen ve giden çağrı navigasyonu
+- **Satır İçi İpuçları** — Satır içi tip açıklamaları
+- **Seçim Aralığı** — AST tabanlı akıllı seçim genişletme
+- **Çalışma Alanı Sembolü** — Proje genelinde sembol arama
 
 ### REPL
 
@@ -1736,12 +1776,460 @@ Goodbye!
 
 ---
 
+## 28. Sınıflar (Classes)
+
+Sınıflar, kalıtım, sanal dispatch ve otomatik bellek yönetimi desteği sunan referans tipleridir.
+
+### Bildirim
+
+```liva
+class Animal {
+    var name: string
+    var age: i32
+
+    init(name: string, age: i32) {
+        self.name = name
+        self.age = age
+    }
+
+    deinit {
+        println("Animal serbest bırakıldı")
+    }
+
+    func speak(ref self) -> string {
+        return self.name + " ses çıkarır"
+    }
+}
+```
+
+### Kalıtım
+
+```liva
+class Dog : Animal {
+    var breed: string
+
+    init(name: string, age: i32, breed: string) {
+        super.init(name, age)
+        self.breed = breed
+    }
+
+    override func speak(ref self) -> string {
+        return self.name + " havlar"
+    }
+}
+```
+
+### Erişim Kontrolü
+
+```liva
+class Account {
+    private var balance: f64
+
+    init(initial: f64) {
+        self.balance = initial
+    }
+
+    func getBalance(ref self) -> f64 {
+        return self.balance
+    }
+
+    func deposit(ref mut self, amount: f64) {
+        self.balance = self.balance + amount
+    }
+}
+```
+
+### Protocol Uyumluluğu
+
+Sınıflar doğrudan protocol'lere uyum sağlayabilir:
+
+```liva
+protocol Printable {
+    func toString(ref self) -> string
+}
+
+class User : Printable {
+    var name: string
+
+    init(name: string) {
+        self.name = name
+    }
+
+    func toString(ref self) -> string {
+        return "User: " + self.name
+    }
+}
+```
+
+### Temel Farklar: Class vs Struct
+
+| Özellik | `struct` | `class` |
+|---------|----------|---------|
+| Semantik | Değer tipi (kopyalama) | Referans tipi (paylaşımlı) |
+| Kalıtım | Hayır | Evet |
+| `init`/`deinit` | Hayır | Evet |
+| `override` | Hayır | Evet |
+| `private` alanlar | Hayır | Evet |
+| `super` | Hayır | Evet |
+| Sanal dispatch | Hayır | Evet (vtable) |
+
+### Örtük Self
+
+Sınıf metodları içinde alanlara `self.` ön eki olmadan doğrudan erişilebilir:
+
+```liva
+class Point {
+    var x: f64
+    var y: f64
+
+    init(x: f64, y: f64) {
+        self.x = x
+        self.y = y
+    }
+
+    func magnitude(ref self) -> f64 {
+        return sqrt(x * x + y * y)   // örtük self
+    }
+}
+```
+
+---
+
+## 29. FFI (Yabancı Fonksiyon Arayüzü)
+
+Liva, `extern "C"` bildirimleri aracılığıyla C fonksiyonlarını çağırmayı destekler.
+
+### Tekli Bildirim
+
+```liva
+extern "C" func puts(s: string) -> i32
+```
+
+### Blok Bildirim
+
+```liva
+extern "C" {
+    func malloc(size: u64) -> u64
+    func free(ptr: u64)
+    func printf(fmt: string, ...) -> i32
+}
+```
+
+### C Varargs
+
+Extern fonksiyonlar `...` ile C tarzı değişken argümanlar kullanabilir:
+
+```liva
+extern "C" func printf(fmt: string, ...) -> i32
+
+func main() {
+    printf("Merhaba %s, yaşınız %d\n", "Dünya", 42)
+}
+```
+
+### Kurallar
+
+- Extern bildirimlerde yalnızca C uyumlu tipler kullanılabilir
+- `...` (C varargs) yalnızca `extern "C"` fonksiyonlarında geçerlidir
+- Extern fonksiyonların gövdesi yoktur — derleme zamanında bağlanır
+- Harici kütüphaneler için `liva.toml`'da `-l` bağlayıcı bayrakları kullanın
+
+---
+
+## 30. Derleme Zamanı Değerlendirme
+
+`comptime` anahtar kelimesi, derleme zamanında değerlendirilen blokları işaretler.
+
+### Comptime Blokları
+
+```liva
+let size = comptime {
+    let base = 16
+    let multiplier = 4
+    base * multiplier
+}
+// size 64'tür, derleme zamanında hesaplanır
+```
+
+### Fonksiyonlarda Comptime
+
+```liva
+func main() {
+    let table = comptime {
+        var result: [i32] = []
+        var i = 0
+        while i < 10 {
+            result.push(i * i)
+            i = i + 1
+        }
+        result
+    }
+    // table [0, 1, 4, 9, 16, 25, 36, 49, 64, 81] olur
+    println(table)
+}
+```
+
+### Sınırlamalar
+
+- Yalnızca saf ifadeler ve deyimler (G/Ç yok, FFI yok)
+- Desteklenen: aritmetik, değişkenler, döngüler, koşullar, dizi/string işlemleri
+- Sonuç derleme zamanı sabit tipi olmalıdır
+
+---
+
+## 31. Macro'lar
+
+Macro'lar derleme zamanında kalıp tabanlı kod üretimi sağlar.
+
+### Macro Tanımlama
+
+```liva
+macro swap {
+    ($a, $b) => {
+        let temp = $a
+        $a = $b
+        $b = temp
+    }
+}
+```
+
+### Macro Çağrısı
+
+```liva
+func main() {
+    var x = 1
+    var y = 2
+    swap!(x, y)
+    println(x)  // 2
+    println(y)  // 1
+}
+```
+
+### Çoklu Kollar
+
+```liva
+macro vec {
+    () => { [] }
+    ($($x),*) => {
+        let arr = []
+        $( arr.push($x) )*
+        arr
+    }
+}
+```
+
+### Kurallar
+
+- Macro'lar tip kontrolünden önce genişletilir
+- Macro isimleri çağrı noktasında ayrıştırma için `!` kullanır
+- Kalıp değişkenleri `$` ile başlar
+- Tekrarlama `$(...)*` sözdizimi kullanır
+
+---
+
+## 32. Test Framework
+
+Liva'nın `test` blokları ile dahili test desteği vardır.
+
+### Test Blokları
+
+```liva
+test "toplama çalışıyor" {
+    let result = 2 + 2
+    assert(result == 4)
+}
+
+test "string birleştirme" {
+    let s = "hello" + " " + "world"
+    assert(s == "hello world")
+}
+```
+
+### Testleri Çalıştırma
+
+```bash
+livac test                    # tüm testleri çalıştır
+livac test --filter "toplama"   # eşleşen testleri çalıştır
+```
+
+### Test İzolasyonu
+
+Her test bloğu `setjmp`/`longjmp` kullanarak izole çalışır. Bir testteki başarısız doğrulama diğer testleri etkilemez.
+
+### Assert
+
+```liva
+test "doğrulamalar" {
+    assert(true)                          // geçer
+    assert(1 + 1 == 2)                   // geçer
+    assert(false, "özel hata mesajı")     // özel mesajla başarısız
+}
+```
+
+---
+
+## 33. Eşzamanlılık
+
+Liva, yapısal eşzamanlılık için kanallar ve görev grupları sağlar.
+
+### Kanallar
+
+Kanallar eşzamanlı görevler arasında iletişim sağlar:
+
+```liva
+import std::channel
+
+func main() {
+    let ch = channelCreate(10)  // tamponlu kanal, kapasite 10
+
+    channelSend(ch, 42)
+    channelSend(ch, 100)
+
+    let val1 = channelRecv(ch)  // 42
+    let val2 = channelRecv(ch)  // 100
+
+    channelClose(ch)
+}
+```
+
+### Görev Grupları
+
+Görev grupları spawn/await ile yapısal eşzamanlılık sağlar:
+
+```liva
+import std::task
+
+func main() {
+    let group = taskGroupCreate()
+
+    taskGroupSpawn(group, || {
+        println("Görev 1")
+    })
+
+    taskGroupSpawn(group, || {
+        println("Görev 2")
+    })
+
+    taskGroupAwaitAll(group)  // tüm görevleri bekle
+    println("Hepsi tamamlandı")
+}
+```
+
+### İptal
+
+```liva
+taskGroupCancelAll(group)  // çalışan tüm görevleri iptal et
+```
+
+### Kanal Özellikleri
+
+- Yapılandırılabilir kapasiteli tamponlu (dahili olarak ring buffer)
+- Spin-wait senkronizasyonu ile iş parçacığı güvenli
+- Kanalı kapatmak daha fazla gönderimi engeller
+
+---
+
+## 34. dyn Protocol (Trait Nesneleri)
+
+`dyn` anahtar kelimesi dinamik dispatch için trait nesneleri oluşturur.
+
+### Bildirim
+
+```liva
+protocol Drawable {
+    func draw(ref self)
+}
+
+func render(shape: dyn Drawable) {
+    shape.draw()  // sanal dispatch
+}
+```
+
+### Kullanım
+
+```liva
+struct Circle {
+    var radius: f64
+}
+
+impl Circle: Drawable {
+    func draw(ref self) {
+        println("Yarıçapı \(self.radius) olan daire çiziliyor")
+    }
+}
+
+struct Square {
+    var side: f64
+}
+
+impl Square: Drawable {
+    func draw(ref self) {
+        println("Kenarı \(self.side) olan kare çiziliyor")
+    }
+}
+
+func main() {
+    let shapes: [dyn Drawable] = [Circle { radius: 5.0 }, Square { side: 3.0 }]
+    for shape in shapes {
+        render(shape)
+    }
+}
+```
+
+### Nesne Güvenliği
+
+Bir protocol `dyn` ile kullanılabilmesi (nesne güvenli) için:
+- Hiçbir metod dönüş tipi olarak `Self` kullanmamalı
+- Hiçbir metodun generik tip parametresi olmamalı
+- Tüm metodlar `ref self` veya `ref mut self` almalı
+
+---
+
+## 35. Guard Koşulları
+
+`guard` deyimi, koşullar sağlanmadığında erken çıkış sağlar.
+
+### Temel Guard
+
+```liva
+func process(value: i32) {
+    guard value > 0 else {
+        println("pozitif olmalı")
+        return
+    }
+    // value burada > 0 garanti edilir
+    println(value)
+}
+```
+
+### Optional Bağlama ile Guard
+
+```liva
+func greet(name: string?) {
+    guard let n = name else {
+        println("İsim sağlanmadı")
+        return
+    }
+    println("Merhaba, \(n)!")
+}
+```
+
+### Kurallar
+
+- `else` bloğu zorunludur
+- `else` bloğu kapsayıcı kapsamdan çıkmalıdır (`return`, `break`, `continue`)
+- `guard let` ile bağlanan değişkenler guard deyiminden sonra kullanılabilir
+- Ön koşul kontrolü için iç içe `if` yerine guard tercih edilir
+
+---
+
 ## Ek: Gramer Özeti
 
 ```
 program       = declaration*
 declaration   = funcDecl | varDecl | structDecl | enumDecl
               | implDecl | protocolDecl | importDecl | typeAlias
+              | classDecl | externDecl | testDecl | macroDecl
 
 funcDecl      = ["pub"] ["async"] "func" IDENT ["<" typeParams ">"]
                 "(" params ")" ["->" type] block
@@ -1752,6 +2240,20 @@ implDecl      = "impl" ["<" typeParams ">"] IDENT [":" IDENT] "{" funcDecl* "}"
 protocolDecl  = ["pub"] "protocol" IDENT "{" funcDecl* "}"
 importDecl    = "import" IDENT ("::" IDENT)*
 typeAlias     = ["pub"] "type" IDENT "=" type
+
+classDecl     = "class" IDENT [":" IDENT ("," IDENT)*] "{" classBody "}"
+classBody     = (initDecl | deinitDecl | funcDecl | varDecl)*
+initDecl      = "init" "(" params ")" block
+deinitDecl    = "deinit" block
+externDecl    = "extern" STRING_LIT ("{" externFunc* "}" | externFunc)
+externFunc    = "func" IDENT "(" params ["," "..."] ")" ["->" type]
+testDecl      = "test" STRING_LIT block
+macroDecl     = "macro" IDENT "{" macroArm* "}"
+macroArm      = "(" pattern ")" "=>" block
+comptimeExpr  = "comptime" block
+dynType       = "dyn" IDENT
+guardStmt     = "guard" expr "else" block
+              | "guard" "let" IDENT "=" expr "else" block
 
 statement     = exprStmt | returnStmt | ifStmt | whileStmt | forStmt
               | breakStmt | continueStmt | guardStmt | block
@@ -1782,6 +2284,7 @@ primary       = INTEGER | FLOAT | STRING | BOOL | "nil"
               | "match" expr "{" matchArms "}"
               | "|" params "|" ["->" type] block  -- closure
               | "try" expr | "await" expr
+              | "comptime" block
 
 type          = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
               | "f32" | "f64" | "bool" | "string" | "void"
@@ -1791,4 +2294,5 @@ type          = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
               | "(" type ("," type)* ")"
               | "ref" ["mut"] type
               | type "?"
+              | "dyn" IDENT
 ```

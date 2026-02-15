@@ -1,0 +1,26 @@
+// Macro Demo: Pattern-based code generation
+
+macro swap {
+    ($a, $b) => {
+        let temp = $a
+        $a = $b
+        $b = temp
+    }
+}
+
+macro debug_print {
+    ($val) => {
+        println("[DEBUG] value = \($val)")
+    }
+}
+
+func main() {
+    var x = 10
+    var y = 20
+    println("Before swap: x=\(x), y=\(y)")
+
+    swap!(x, y)
+    println("After swap: x=\(x), y=\(y)")
+
+    debug_print!(x + y)
+}

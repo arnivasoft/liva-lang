@@ -32,6 +32,9 @@ Liva programlama dilini öğrenmek için uygulamalı, adım adım bir rehber —
 22. [Proje Yönetimi](#22-proje-yönetimi)
 23. [Araçlar](#23-araçlar)
 24. [Sırada Ne Var?](#24-sırada-ne-var)
+25. [Sınıflar ve OOP](#25-sınıflar-ve-oop)
+26. [Kodunuzu Test Etme](#26-kodunuzu-test-etme)
+27. [Derleme Zamanı Özellikleri](#27-derleme-zamanı-özellikleri)
 
 ---
 
@@ -1925,6 +1928,52 @@ func main() {
 }
 ```
 
+### Comptime blokları
+
+```liva
+func main() {
+    // Derleme zamanı değerlendirme
+    let lookup = comptime {
+        var table: [i32] = []
+        var i = 0
+        while i < 5 {
+            table.push(i * i)
+            i = i + 1
+        }
+        table
+    }
+    // lookup [0, 1, 4, 9, 16] — derleme zamanında hesaplandı
+    println(lookup)
+}
+```
+
+### Macro'lar
+
+```liva
+macro max_of {
+    ($a, $b) => {
+        if $a > $b { $a } else { $b }
+    }
+}
+
+func main() {
+    let biggest = max_of!(10, 20)
+    println(biggest)  // 20
+}
+```
+
+### Guard koşulları
+
+```liva
+func divide(a: f64, b: f64) -> f64? {
+    guard b != 0.0 else {
+        println("Sıfıra bölünemez")
+        return nil
+    }
+    return a / b
+}
+```
+
 ---
 
 ## 22. Proje Yönetimi
@@ -2002,6 +2051,12 @@ livac lsp
 - Sembol yeniden adlandırma
 - İmza yardımı (parametre ipuçları)
 - Doküman sembolleri (anahat)
+- Kod Aksiyonları (hızlı düzeltme önerileri)
+- Kod Merceği (referans sayıları)
+- Çağrı Hiyerarşisi (gelen/giden çağrılar)
+- Satır İçi İpuçları (satır içi tip açıklamaları)
+- Seçim Aralığı (akıllı seçim)
+- Çalışma Alanı Sembolü (proje genelinde arama)
 
 #### VS Code kurulumu
 
@@ -2053,6 +2108,36 @@ Yardım için :help, çıkmak için :quit yazın.
 >>> factorial(10)
 3628800
 ```
+
+### Benchmarking
+
+```bash
+livac bench
+```
+
+Kodunuzda tanımlanan performans benchmark'larını çalıştırın:
+
+```liva
+import std::bench
+
+func main() {
+    benchStart("fibonacci")
+    for i in 0..1000 {
+        benchIter("fibonacci")
+        fibonacci(20)
+    }
+    benchDone("fibonacci")
+    benchReport()
+}
+```
+
+### Test Çalıştırıcı
+
+```bash
+livac test
+```
+
+Projenizdeki tüm `test` bloklarını çalıştırın. Detaylar için [Kodunuzu Test Etme](#26-kodunuzu-test-etme) bölümüne bakın.
 
 ### Derleyici tanılama seçenekleri
 
@@ -2161,7 +2246,177 @@ func main() {
 - [Dil Referansı](LANGUAGE-REFERENCE.md) — Tam sözdizimi ve semantik referans
 - [Katkıda Bulunma](CONTRIBUTING.md) — Liva'ya nasıl katkıda bulunulur
 - [Örnekler](../../examples/) — Daha fazla örnek program
+- [API Referansı](API-REFERENCE.md) — Standart kütüphane modül referansı
+- [Yemek Kitabı](COOKBOOK.md) — Yaygın kalıplar ve tarifler
 
 ---
 
-*Bu eğitim Liva'nın 0.1.0 sürümünü kapsar. Dil aktif olarak geliştirilmektedir — düzenli olarak yeni özellikler ve iyileştirmeler eklenmektedir.*
+## 25. Sınıflar ve OOP
+
+Liva'da sınıflar; kalıtım, yapıcılar, yıkıcılar ve sanal metod dispatch desteğine sahip referans tipleridir.
+
+### Sınıf tanımlama
+
+```liva
+class Animal {
+    var name: string
+    var sound: string
+
+    init(name: string, sound: string) {
+        self.name = name
+        self.sound = sound
+    }
+
+    deinit {
+        println("\(self.name) serbest bırakıldı")
+    }
+
+    func speak(ref self) {
+        println("\(self.name) \(self.sound) der")
+    }
+}
+
+func main() {
+    let cat = Animal("Boncuk", "Miyav")
+    cat.speak()  // Boncuk Miyav der
+}
+```
+
+### Kalıtım ve override
+
+```liva
+class Dog : Animal {
+    var breed: string
+
+    init(name: string, breed: string) {
+        super.init(name, "Hav")
+        self.breed = breed
+    }
+
+    override func speak(ref self) {
+        println("\(self.name) \(self.breed) cinsi Hav der!")
+    }
+}
+
+func main() {
+    let dog = Dog("Karabaş", "Kangal")
+    dog.speak()  // Karabaş Kangal cinsi Hav der!
+}
+```
+
+### Private alanlar
+
+```liva
+class BankAccount {
+    private var balance: f64
+
+    init(initial: f64) {
+        self.balance = initial
+    }
+
+    func deposit(ref mut self, amount: f64) {
+        self.balance = self.balance + amount
+    }
+
+    func getBalance(ref self) -> f64 {
+        return self.balance
+    }
+}
+
+func main() {
+    var account = BankAccount(100.0)
+    account.deposit(50.0)
+    println(account.getBalance())  // 150.0
+    // account.balance  // HATA: 'balance' private
+}
+```
+
+### Class vs struct ne zaman kullanılır
+
+Basit veri taşıyıcıları için **struct** kullanın (değer semantiği, kalıtım gerekmez).
+Kalıtım, sanal dispatch veya referans semantiği gerektiğinde **class** kullanın.
+
+---
+
+## 26. Kodunuzu Test Etme
+
+Liva, kaynak dosyalarınızda doğrudan test blokları yazmanıza olanak tanıyan dahili bir test framework'üne sahiptir.
+
+### Test yazma
+
+```liva
+func add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+test "add doğru toplamı döndürür" {
+    assert(add(2, 3) == 5)
+    assert(add(-1, 1) == 0)
+    assert(add(0, 0) == 0)
+}
+
+test "büyük sayılarla add" {
+    let result = add(1000000, 2000000)
+    assert(result == 3000000)
+}
+```
+
+### Testleri çalıştırma
+
+```bash
+livac test                          # tüm testleri çalıştır
+livac test --filter "add"           # kalıba uyan testleri çalıştır
+```
+
+Her test izole çalışır — bir testteki başarısızlık diğer testlerin çalışmasını engellemez.
+
+---
+
+## 27. Derleme Zamanı Özellikleri
+
+### Comptime blokları
+
+İfadeleri derleme zamanında değerlendirin:
+
+```liva
+func main() {
+    let pi_approx = comptime {
+        var sum: f64 = 0.0
+        var i = 0
+        while i < 1000 {
+            let term = 1.0 / (2.0 * (i as f64) + 1.0)
+            if i % 2 == 0 {
+                sum = sum + term
+            } else {
+                sum = sum - term
+            }
+            i = i + 1
+        }
+        sum * 4.0
+    }
+    println(pi_approx)
+}
+```
+
+### Macro'lar
+
+Yeniden kullanılabilir kod kalıpları tanımlayın:
+
+```liva
+macro unless {
+    ($cond, $body) => {
+        if !($cond) { $body }
+    }
+}
+
+func main() {
+    let x = 5
+    unless!(x > 10, {
+        println("x 10'dan büyük değil")
+    })
+}
+```
+
+---
+
+*Bu eğitim Liva'nın 0.2.0 sürümünü ve 1600+ testi kapsar. Dil aktif olarak geliştirilmektedir — düzenli olarak yeni özellikler ve iyileştirmeler eklenmektedir.*

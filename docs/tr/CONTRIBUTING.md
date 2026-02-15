@@ -38,11 +38,11 @@ cmake --build build
 # MinGW build
 ctest --test-dir build --output-on-failure
 
-# Clang build
+# Clang build (önerilen — codegen, JIT ve self-host testlerini içerir)
 ctest --test-dir build-clang --output-on-failure
 ```
 
-Pull request göndermeden önce tüm 613 testin geçmesi gerekir.
+Pull request göndermeden önce tüm 1600+ testin geçmesi gerekir.
 
 ## Proje Yapısı
 
@@ -88,6 +88,14 @@ Testler GoogleTest kullanır. Her bileşenin kendi test dosyası vardır:
 | Project Config | `tests/unit/ProjectConfigTest.cpp` |
 | LSP | `tests/unit/LSPTest.cpp` |
 | REPL | `tests/unit/REPLTest.cpp` |
+| CodeGen | `tests/unit/CodeGenTest.cpp` |
+| Integration | `tests/unit/IntegrationTest.cpp` |
+| Macro | `tests/unit/MacroTest.cpp` |
+| Plugin | `tests/unit/PluginTest.cpp` |
+| Benchmark | `tests/unit/BenchmarkTest.cpp` |
+| SelfHost | `tests/unit/SelfHostTest.cpp` |
+| JIT | `tests/unit/JITTest.cpp` |
+| DAP | `tests/unit/DAPTest.cpp` |
 
 Yeni test eklemek için:
 
@@ -116,14 +124,15 @@ func main() {
 - MinGW build'leri exception'ları devre dışı bırakır (`-fno-exceptions`) — `stoi`/`try-catch` yerine `strtol` kullanın
 - MinGW `livac.exe` linkleme işlemi LLVM kütüphaneleriyle başarısız olur (beklenen davranış); birim testleri yine de çalışır
 - `\(` içeren raw string literal'ler özel delimiter gerektirir: `R"--(...)--"`
-- Çok alanlı inline struct'lar (`struct Pt { var x: i32; var y: i32 }`) parser'ı kilitler — çok satırlı bildirimler kullanın
+- Çok alanlı inline struct'lar (`struct Pt { var x: i32; var y: i32 }`) — DÜZELTİLDİ, noktalı virgüller artık doğru şekilde tüketiliyor
 - Windows'ta, tırnaklı yollar içeren `std::system()` komutları `cmd.exe` için ek sarmalama gerektirir
+- MinGW CTest, Git'in `libstdc++-6.dll` dosyasıyla çakışma nedeniyle SEGFAULT verebilir — MinGW'yi PATH'e ekleyin: `PATH="/c/Program Files/mingw64/bin:$PATH"`
 
 ## Pull Request Süreci
 
 1. `main` dalından bir özellik dalı oluşturun
 2. Değişikliklerinizi net, odaklanmış commit'lerle yapın
-3. Tüm 613+ testin geçtiğinden emin olun
+3. Tüm 1600+ testin geçtiğinden emin olun
 4. Yeni işlevsellik için yeni testler ekleyin
 5. Bir milestone ekliyorsanız `plan.md` dosyasını güncelleyin
 6. Net bir açıklama ile pull request gönderin

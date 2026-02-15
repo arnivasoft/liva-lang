@@ -1,7 +1,7 @@
 {
     "name": "liva-lang",
     "displayName": "Liva Language",
-    "description": "Full language support for Liva — a modern, compiled language with Swift-like syntax and Rust-style ownership. Provides 12 LSP features, syntax highlighting, and diagnostics.",
+    "description": "Full language support for Liva — a modern, compiled language with Swift-like syntax and Rust-style ownership. Provides 18+ LSP features, syntax highlighting, debugging, and diagnostics.",
     "version": "0.2.0",
     "publisher": "liva-lang",
     "license": "MIT",
@@ -24,7 +24,15 @@
         "ownership",
         "generics",
         "pattern-matching",
-        "llvm"
+        "llvm",
+        "classes",
+        "FFI",
+        "WASM",
+        "JIT",
+        "concurrency",
+        "benchmarking",
+        "test-framework",
+        "plugin-system"
     ],
     "activationEvents": [
         "onLanguage:liva",

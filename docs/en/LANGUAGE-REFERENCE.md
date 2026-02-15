@@ -33,6 +33,14 @@ A comprehensive reference for the Liva programming language — a statically typ
 25. [Built-in Functions](#25-built-in-functions)
 26. [Project Configuration](#26-project-configuration)
 27. [Compiler Options](#27-compiler-options)
+28. [Classes](#28-classes)
+29. [FFI (Foreign Function Interface)](#29-ffi-foreign-function-interface)
+30. [Compile-Time Evaluation](#30-compile-time-evaluation)
+31. [Macros](#31-macros)
+32. [Test Framework](#32-test-framework)
+33. [Concurrency](#33-concurrency)
+34. [dyn Protocol (Trait Objects)](#34-dyn-protocol-trait-objects)
+35. [Guard Clauses](#35-guard-clauses)
 
 ---
 
@@ -1617,6 +1625,20 @@ These functions are available globally without any `import`:
 | `parseFloat` | `(string) -> f64` | Parse float |
 | `randInt` | `(i32, i32) -> i32` | Random integer |
 | `randFloat` | `() -> f64` | Random float [0, 1) |
+| `benchStart` | `(string) -> void` | Start a benchmark timer |
+| `benchIter` | `(string) -> void` | Record a benchmark iteration |
+| `benchDone` | `(string) -> void` | End a benchmark |
+| `benchReport` | `() -> void` | Print benchmark results |
+| `benchReset` | `() -> void` | Reset all benchmarks |
+| `channelCreate` | `(i32) -> Channel` | Create a buffered channel |
+| `channelSend` | `(Channel, any) -> void` | Send value to channel |
+| `channelRecv` | `(Channel) -> any` | Receive value from channel |
+| `channelClose` | `(Channel) -> void` | Close a channel |
+| `taskGroupCreate` | `() -> TaskGroup` | Create a task group |
+| `taskGroupSpawn` | `(TaskGroup, () -> void) -> void` | Spawn task in group |
+| `taskGroupAwaitAll` | `(TaskGroup) -> void` | Wait for all tasks |
+| `taskGroupCancelAll` | `(TaskGroup) -> void` | Cancel all tasks |
+| `assert` | `(bool, string?) -> void` | Assert condition or panic |
 
 ---
 
@@ -1686,6 +1708,14 @@ Project:
   init [name]            Create a new Liva project
   build [--release]      Build from liva.toml
   run [--release]        Build and execute
+  remove [pkg]           Remove a dependency
+
+Testing & Benchmarking:
+  test                   Run test blocks (test "name" { ... })
+  bench                  Run benchmark blocks
+
+Cross-compilation:
+  --target <triple>      Cross-compile for target (e.g., x86_64-linux-gnu, wasm32)
 
 Tools:
   lsp                    Start Language Server Protocol server
@@ -1704,6 +1734,16 @@ The `livac lsp` command starts a Language Server Protocol server over stdio, pro
 - **References** — Find all occurrences of a symbol
 - **Rename** — Rename a symbol across the document
 - **Signature Help** — Parameter hints when calling functions
+- **Semantic Tokens** — Compiler-accurate syntax highlighting
+- **Formatting** — Automatic code formatting
+- **Folding Ranges** — Fold/unfold code blocks
+- **Document Highlight** — Highlight symbol occurrences
+- **Code Actions** — Quick-fix suggestions (e.g., unused variable prefix)
+- **Code Lens** — Inline reference counts
+- **Call Hierarchy** — Incoming and outgoing call navigation
+- **Inlay Hints** — Inline type annotations
+- **Selection Range** — Smart selection expansion
+- **Workspace Symbol** — Project-wide symbol search
 
 ### REPL
 
@@ -1736,12 +1776,460 @@ Features:
 
 ---
 
+## 28. Classes
+
+Classes are reference types with support for inheritance, virtual dispatch, and automatic memory management.
+
+### Declaration
+
+```liva
+class Animal {
+    var name: string
+    var age: i32
+
+    init(name: string, age: i32) {
+        self.name = name
+        self.age = age
+    }
+
+    deinit {
+        println("Animal deallocated")
+    }
+
+    func speak(ref self) -> string {
+        return self.name + " makes a sound"
+    }
+}
+```
+
+### Inheritance
+
+```liva
+class Dog : Animal {
+    var breed: string
+
+    init(name: string, age: i32, breed: string) {
+        super.init(name, age)
+        self.breed = breed
+    }
+
+    override func speak(ref self) -> string {
+        return self.name + " barks"
+    }
+}
+```
+
+### Access Control
+
+```liva
+class Account {
+    private var balance: f64
+
+    init(initial: f64) {
+        self.balance = initial
+    }
+
+    func getBalance(ref self) -> f64 {
+        return self.balance
+    }
+
+    func deposit(ref mut self, amount: f64) {
+        self.balance = self.balance + amount
+    }
+}
+```
+
+### Protocol Conformance
+
+Classes can directly conform to protocols:
+
+```liva
+protocol Printable {
+    func toString(ref self) -> string
+}
+
+class User : Printable {
+    var name: string
+
+    init(name: string) {
+        self.name = name
+    }
+
+    func toString(ref self) -> string {
+        return "User: " + self.name
+    }
+}
+```
+
+### Key Differences: Class vs Struct
+
+| Feature | `struct` | `class` |
+|---------|----------|---------|
+| Semantics | Value type (copy) | Reference type (shared) |
+| Inheritance | No | Yes |
+| `init`/`deinit` | No | Yes |
+| `override` | No | Yes |
+| `private` fields | No | Yes |
+| `super` | No | Yes |
+| Virtual dispatch | No | Yes (vtable) |
+
+### Implicit Self
+
+Inside class methods, fields can be accessed directly without the `self.` prefix:
+
+```liva
+class Point {
+    var x: f64
+    var y: f64
+
+    init(x: f64, y: f64) {
+        self.x = x
+        self.y = y
+    }
+
+    func magnitude(ref self) -> f64 {
+        return sqrt(x * x + y * y)   // implicit self
+    }
+}
+```
+
+---
+
+## 29. FFI (Foreign Function Interface)
+
+Liva supports calling C functions through `extern "C"` declarations.
+
+### Single Declaration
+
+```liva
+extern "C" func puts(s: string) -> i32
+```
+
+### Block Declaration
+
+```liva
+extern "C" {
+    func malloc(size: u64) -> u64
+    func free(ptr: u64)
+    func printf(fmt: string, ...) -> i32
+}
+```
+
+### C Varargs
+
+Extern functions can use C-style variadic arguments with `...`:
+
+```liva
+extern "C" func printf(fmt: string, ...) -> i32
+
+func main() {
+    printf("Hello %s, you are %d years old\n", "World", 42)
+}
+```
+
+### Rules
+
+- Only C-compatible types can be used in extern declarations
+- The `...` (C varargs) is only valid in `extern "C"` functions
+- Extern functions have no body — they are linked at compile time
+- Use `-l` linker flags in `liva.toml` for external libraries
+
+---
+
+## 30. Compile-Time Evaluation
+
+The `comptime` keyword marks blocks that are evaluated at compile time.
+
+### Comptime Blocks
+
+```liva
+let size = comptime {
+    let base = 16
+    let multiplier = 4
+    base * multiplier
+}
+// size is 64, computed at compile time
+```
+
+### Comptime in Functions
+
+```liva
+func main() {
+    let table = comptime {
+        var result: [i32] = []
+        var i = 0
+        while i < 10 {
+            result.push(i * i)
+            i = i + 1
+        }
+        result
+    }
+    // table is [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+    println(table)
+}
+```
+
+### Limitations
+
+- Only pure expressions and statements (no I/O, no FFI)
+- Supports: arithmetic, variables, loops, conditionals, array/string operations
+- The result must be a compile-time constant type
+
+---
+
+## 31. Macros
+
+Macros provide pattern-based code generation at compile time.
+
+### Macro Definition
+
+```liva
+macro swap {
+    ($a, $b) => {
+        let temp = $a
+        $a = $b
+        $b = temp
+    }
+}
+```
+
+### Macro Invocation
+
+```liva
+func main() {
+    var x = 1
+    var y = 2
+    swap!(x, y)
+    println(x)  // 2
+    println(y)  // 1
+}
+```
+
+### Multiple Arms
+
+```liva
+macro vec {
+    () => { [] }
+    ($($x),*) => {
+        let arr = []
+        $( arr.push($x) )*
+        arr
+    }
+}
+```
+
+### Rules
+
+- Macros are expanded before type checking
+- Macro names use `!` at the call site for disambiguation
+- Pattern variables start with `$`
+- Repetition uses `$(...)*` syntax
+
+---
+
+## 32. Test Framework
+
+Liva has built-in test support with `test` blocks.
+
+### Test Blocks
+
+```liva
+test "addition works" {
+    let result = 2 + 2
+    assert(result == 4)
+}
+
+test "string concatenation" {
+    let s = "hello" + " " + "world"
+    assert(s == "hello world")
+}
+```
+
+### Running Tests
+
+```bash
+livac test                    # run all tests
+livac test --filter "addition"  # run matching tests
+```
+
+### Test Isolation
+
+Each test block runs in isolation using `setjmp`/`longjmp`. A failing assertion in one test does not affect other tests.
+
+### Assert
+
+```liva
+test "assertions" {
+    assert(true)                          // passes
+    assert(1 + 1 == 2)                   // passes
+    assert(false, "custom error message") // fails with message
+}
+```
+
+---
+
+## 33. Concurrency
+
+Liva provides channels and task groups for structured concurrency.
+
+### Channels
+
+Channels allow communication between concurrent tasks:
+
+```liva
+import std::channel
+
+func main() {
+    let ch = channelCreate(10)  // buffered channel, capacity 10
+
+    channelSend(ch, 42)
+    channelSend(ch, 100)
+
+    let val1 = channelRecv(ch)  // 42
+    let val2 = channelRecv(ch)  // 100
+
+    channelClose(ch)
+}
+```
+
+### Task Groups
+
+Task groups provide structured concurrency with spawn/await:
+
+```liva
+import std::task
+
+func main() {
+    let group = taskGroupCreate()
+
+    taskGroupSpawn(group, || {
+        println("Task 1")
+    })
+
+    taskGroupSpawn(group, || {
+        println("Task 2")
+    })
+
+    taskGroupAwaitAll(group)  // wait for all tasks
+    println("All done")
+}
+```
+
+### Cancellation
+
+```liva
+taskGroupCancelAll(group)  // cancel all running tasks
+```
+
+### Channel Properties
+
+- Buffered with configurable capacity (ring buffer internally)
+- Thread-safe with spin-wait synchronization
+- Closing a channel prevents further sends
+
+---
+
+## 34. dyn Protocol (Trait Objects)
+
+The `dyn` keyword creates trait objects for dynamic dispatch.
+
+### Declaration
+
+```liva
+protocol Drawable {
+    func draw(ref self)
+}
+
+func render(shape: dyn Drawable) {
+    shape.draw()  // virtual dispatch
+}
+```
+
+### Usage
+
+```liva
+struct Circle {
+    var radius: f64
+}
+
+impl Circle: Drawable {
+    func draw(ref self) {
+        println("Drawing circle with radius \(self.radius)")
+    }
+}
+
+struct Square {
+    var side: f64
+}
+
+impl Square: Drawable {
+    func draw(ref self) {
+        println("Drawing square with side \(self.side)")
+    }
+}
+
+func main() {
+    let shapes: [dyn Drawable] = [Circle { radius: 5.0 }, Square { side: 3.0 }]
+    for shape in shapes {
+        render(shape)
+    }
+}
+```
+
+### Object Safety
+
+A protocol is object-safe (usable with `dyn`) if:
+- No methods use `Self` as a return type
+- No methods have generic type parameters
+- All methods take `ref self` or `ref mut self`
+
+---
+
+## 35. Guard Clauses
+
+The `guard` statement provides early exit when conditions are not met.
+
+### Basic Guard
+
+```liva
+func process(value: i32) {
+    guard value > 0 else {
+        println("must be positive")
+        return
+    }
+    // value is guaranteed > 0 here
+    println(value)
+}
+```
+
+### Guard with Optional Binding
+
+```liva
+func greet(name: string?) {
+    guard let n = name else {
+        println("No name provided")
+        return
+    }
+    println("Hello, \(n)!")
+}
+```
+
+### Rules
+
+- The `else` block is required
+- The `else` block must exit the enclosing scope (`return`, `break`, `continue`)
+- Variables bound in `guard let` are available after the guard statement
+- Guard is preferred over nested `if` for precondition checking
+
+---
+
 ## Appendix: Grammar Summary
 
 ```
 program       = declaration*
 declaration   = funcDecl | varDecl | structDecl | enumDecl
               | implDecl | protocolDecl | importDecl | typeAlias
+              | classDecl | externDecl | testDecl | macroDecl
 
 funcDecl      = ["pub"] ["async"] "func" IDENT ["<" typeParams ">"]
                 "(" params ")" ["->" type] block
@@ -1752,6 +2240,20 @@ implDecl      = "impl" ["<" typeParams ">"] IDENT [":" IDENT] "{" funcDecl* "}"
 protocolDecl  = ["pub"] "protocol" IDENT "{" funcDecl* "}"
 importDecl    = "import" IDENT ("::" IDENT)*
 typeAlias     = ["pub"] "type" IDENT "=" type
+
+classDecl     = "class" IDENT [":" IDENT ("," IDENT)*] "{" classBody "}"
+classBody     = (initDecl | deinitDecl | funcDecl | varDecl)*
+initDecl      = "init" "(" params ")" block
+deinitDecl    = "deinit" block
+externDecl    = "extern" STRING_LIT ("{" externFunc* "}" | externFunc)
+externFunc    = "func" IDENT "(" params ["," "..."] ")" ["->" type]
+testDecl      = "test" STRING_LIT block
+macroDecl     = "macro" IDENT "{" macroArm* "}"
+macroArm      = "(" pattern ")" "=>" block
+comptimeExpr  = "comptime" block
+dynType       = "dyn" IDENT
+guardStmt     = "guard" expr "else" block
+              | "guard" "let" IDENT "=" expr "else" block
 
 statement     = exprStmt | returnStmt | ifStmt | whileStmt | forStmt
               | breakStmt | continueStmt | guardStmt | block
@@ -1782,6 +2284,7 @@ primary       = INTEGER | FLOAT | STRING | BOOL | "nil"
               | "match" expr "{" matchArms "}"
               | "|" params "|" ["->" type] block  -- closure
               | "try" expr | "await" expr
+              | "comptime" block
 
 type          = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
               | "f32" | "f64" | "bool" | "string" | "void"
@@ -1791,4 +2294,5 @@ type          = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
               | "(" type ("," type)* ")"
               | "ref" ["mut"] type
               | type "?"
+              | "dyn" IDENT
 ```

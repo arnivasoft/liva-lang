@@ -1,0 +1,18 @@
+// FFI Demo: Calling C functions from Liva
+
+extern "C" func puts(s: string) -> i32
+
+extern "C" {
+    func abs(x: i32) -> i32
+    func atoi(s: string) -> i32
+}
+
+func main() {
+    puts("Hello from C's puts!")
+
+    let val = abs(-42)
+    println("abs(-42) = \(val)")
+
+    let num = atoi("123")
+    println("atoi(\"123\") = \(num)")
+}
