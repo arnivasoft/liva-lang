@@ -6,8 +6,10 @@
 #include "liva/AST/Decl.h"
 #include "liva/AST/Type.h"
 #include "liva/Common/Version.h"
+#include <chrono>
 #include <cstdio>
 #include <fstream>
+#include <thread>
 #include <gtest/gtest.h>
 
 using namespace liva;
@@ -2116,4 +2118,285 @@ TEST(ParallelCompile, DriverOptionsDefaultJobs) {
     liva::DriverOptions opts;
     EXPECT_EQ(opts.jobs, 0);
     EXPECT_FALSE(opts.hasJobsOverride);
+}
+
+// === Stale Cleanup Tests ===
+
+TEST_F(BuildCacheTest, PruneStaleEntriesRemovesDeletedFile) {
+    std::string src1 = liva::joinPath(testDir_, "a.liva");
+    std::string src2 = liva::joinPath(testDir_, "b.liva");
+    writeFile(src1, "func a() {}");
+    writeFile(src2, "func b() {}");
+
+    liva::BuildCache cache(testDir_);
+
+    std::string hash1 = cache.hashFileContent(src1);
+    std::string hash2 = cache.hashFileContent(src2);
+    std::string obj1 = liva::joinPath(testDir_, "a.o");
+    std::string obj2 = liva::joinPath(testDir_, "b.o");
+    writeFile(obj1, "obj1");
+    writeFile(obj2, "obj2");
+    cache.storeFileObject(src1, hash1, obj1, 0, false);
+    cache.storeFileObject(src2, hash2, obj2, 0, false);
+
+    // Remove src2 and prune
+    std::remove(src2.c_str());
+    std::vector<std::string> current = { src1 };
+    cache.pruneStaleEntries(current);
+
+    // Only src1 remains in cache
+    auto statuses = cache.checkFilesCache({ src1 }, 0, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+}
+
+TEST_F(BuildCacheTest, PruneStaleEntriesNoManifest) {
+    liva::BuildCache cache(testDir_);
+    std::vector<std::string> current = { "nonexistent.liva" };
+    cache.pruneStaleEntries(current); // no-op, no crash
+}
+
+TEST_F(BuildCacheTest, PruneStaleEntriesNothingToRemove) {
+    std::string src1 = liva::joinPath(testDir_, "x.liva");
+    writeFile(src1, "func x() {}");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash = cache.hashFileContent(src1);
+    std::string obj = liva::joinPath(testDir_, "x.o");
+    writeFile(obj, "objx");
+    cache.storeFileObject(src1, hash, obj, 0, false);
+
+    std::vector<std::string> current = { src1 };
+    cache.pruneStaleEntries(current);
+
+    auto statuses = cache.checkFilesCache({ src1 }, 0, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+}
+
+// === mtime Optimization Tests ===
+
+TEST_F(BuildCacheTest, MtimeFastPathSkipsRehash) {
+    std::string src = liva::joinPath(testDir_, "m.liva");
+    writeFile(src, "func m() {}");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash = cache.hashFileContent(src);
+    std::string obj = liva::joinPath(testDir_, "m.o");
+    writeFile(obj, "objm");
+    cache.storeFileObject(src, hash, obj, 0, false);
+
+    // Second check uses mtime fast path
+    auto statuses = cache.checkFilesCache({ src }, 0, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+    EXPECT_EQ(statuses[0].currentHash, hash);
+}
+
+TEST_F(BuildCacheTest, MtimeChangeTriggerRehash) {
+    std::string src = liva::joinPath(testDir_, "n.liva");
+    writeFile(src, "func n() {}");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash1 = cache.hashFileContent(src);
+    std::string obj = liva::joinPath(testDir_, "n.o");
+    writeFile(obj, "objn");
+    cache.storeFileObject(src, hash1, obj, 0, false);
+
+    // Wait and modify file to change mtime
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    writeFile(src, "func n_changed() {}");
+
+    auto statuses = cache.checkFilesCache({ src }, 0, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_TRUE(statuses[0].needsRecompile);
+    EXPECT_NE(statuses[0].currentHash, hash1);
+}
+
+TEST_F(BuildCacheTest, MtimeBackwardCompatible) {
+    std::string cacheSubDir = liva::joinPath(testDir_, ".liva-cache");
+    liva::createDirectories(cacheSubDir);
+
+    std::string src = liva::joinPath(testDir_, "bc.liva");
+    writeFile(src, "func bc() {}");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash = cache.hashFileContent(src);
+    std::string objName = cache.objectPathForSource(src);
+
+    // Write old-format manifest (no mtime field)
+    std::string manifestPath = liva::joinPath(cacheSubDir, "files_manifest");
+    {
+        std::ofstream f(manifestPath);
+        f << "OPT:0\n";
+        f << "DEBUG:0\n";
+        f << "FILE:" << src << ":" << hash << ":" << objName << "\n";
+    }
+
+    // Create cached .o file
+    std::string cachedObj = liva::joinPath(cacheSubDir, objName);
+    writeFile(cachedObj, "old_obj");
+
+    auto statuses = cache.checkFilesCache({ src }, 0, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+}
+
+// === Link Cache Tests ===
+
+TEST_F(BuildCacheTest, IsOutputUpToDateTrue) {
+    std::string obj1 = liva::joinPath(testDir_, "a.o");
+    std::string obj2 = liva::joinPath(testDir_, "b.o");
+    writeFile(obj1, "obj1");
+    writeFile(obj2, "obj2");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    std::string output = liva::joinPath(testDir_, "app.exe");
+    writeFile(output, "exe");
+
+    int64_t outMtime = liva::getFileModTime(output);
+    EXPECT_GT(outMtime, 0);
+    int64_t obj1Mtime = liva::getFileModTime(obj1);
+    EXPECT_GT(obj1Mtime, 0);
+    EXPECT_GE(outMtime, obj1Mtime);
+}
+
+TEST_F(BuildCacheTest, IsOutputUpToDateFalseNewObj) {
+    std::string output = liva::joinPath(testDir_, "app.exe");
+    writeFile(output, "exe");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    std::string obj1 = liva::joinPath(testDir_, "a.o");
+    writeFile(obj1, "obj1_new");
+
+    int64_t outMtime = liva::getFileModTime(output);
+    int64_t obj1Mtime = liva::getFileModTime(obj1);
+    EXPECT_GT(obj1Mtime, outMtime);
+}
+
+// === --rebuild Flag Tests ===
+
+TEST(DriverOptions, RebuildFlagDefault) {
+    liva::DriverOptions opts;
+    EXPECT_FALSE(opts.rebuild);
+}
+
+TEST(DriverOptions, RebuildFlagCanBeSet) {
+    liva::DriverOptions opts;
+    opts.rebuild = true;
+    EXPECT_TRUE(opts.rebuild);
+    EXPECT_EQ(opts.optLevel, 0);
+    EXPECT_FALSE(opts.hasOptLevelOverride);
+}
+
+// === Incremental Flow Tests ===
+
+TEST_F(BuildCacheTest, IncrementalFirstBuildAllMiss) {
+    std::string src1 = liva::joinPath(testDir_, "f1.liva");
+    std::string src2 = liva::joinPath(testDir_, "f2.liva");
+    writeFile(src1, "func f1() {}");
+    writeFile(src2, "func f2() {}");
+
+    liva::BuildCache cache(testDir_);
+    auto statuses = cache.checkFilesCache({ src1, src2 }, 0, false);
+    ASSERT_EQ(statuses.size(), 2u);
+    EXPECT_TRUE(statuses[0].needsRecompile);
+    EXPECT_TRUE(statuses[1].needsRecompile);
+}
+
+TEST_F(BuildCacheTest, IncrementalSecondBuildAllCached) {
+    std::string src = liva::joinPath(testDir_, "c.liva");
+    writeFile(src, "func c() {}");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash = cache.hashFileContent(src);
+    std::string obj = liva::joinPath(testDir_, "c.o");
+    writeFile(obj, "objc");
+    cache.storeFileObject(src, hash, obj, 0, false);
+
+    auto statuses = cache.checkFilesCache({ src }, 0, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+    EXPECT_FALSE(statuses[0].cachedObjPath.empty());
+}
+
+TEST_F(BuildCacheTest, IncrementalModifyFileInvalidatesOnly) {
+    std::string src1 = liva::joinPath(testDir_, "m1.liva");
+    std::string src2 = liva::joinPath(testDir_, "m2.liva");
+    writeFile(src1, "func m1() {}");
+    writeFile(src2, "func m2() {}");
+
+    liva::BuildCache cache(testDir_);
+
+    std::string hash1 = cache.hashFileContent(src1);
+    std::string hash2 = cache.hashFileContent(src2);
+    std::string obj1 = liva::joinPath(testDir_, "m1.o");
+    std::string obj2 = liva::joinPath(testDir_, "m2.o");
+    writeFile(obj1, "obj1");
+    writeFile(obj2, "obj2");
+    cache.storeFileObject(src1, hash1, obj1, 0, false);
+    cache.storeFileObject(src2, hash2, obj2, 0, false);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    writeFile(src1, "func m1_changed() {}");
+
+    auto statuses = cache.checkFilesCache({ src1, src2 }, 0, false);
+    ASSERT_EQ(statuses.size(), 2u);
+    EXPECT_TRUE(statuses[0].needsRecompile);   // src1 changed
+    EXPECT_FALSE(statuses[1].needsRecompile);   // src2 unchanged
+}
+
+TEST_F(BuildCacheTest, IncrementalDeletedFileRemovesCacheEntry) {
+    std::string src1 = liva::joinPath(testDir_, "d1.liva");
+    std::string src2 = liva::joinPath(testDir_, "d2.liva");
+    writeFile(src1, "func d1() {}");
+    writeFile(src2, "func d2() {}");
+
+    liva::BuildCache cache(testDir_);
+
+    std::string hash1 = cache.hashFileContent(src1);
+    std::string hash2 = cache.hashFileContent(src2);
+    std::string obj1 = liva::joinPath(testDir_, "d1.o");
+    std::string obj2 = liva::joinPath(testDir_, "d2.o");
+    writeFile(obj1, "obj1");
+    writeFile(obj2, "obj2");
+    cache.storeFileObject(src1, hash1, obj1, 0, false);
+    cache.storeFileObject(src2, hash2, obj2, 0, false);
+
+    std::remove(src2.c_str());
+    cache.pruneStaleEntries({ src1 });
+
+    auto statuses = cache.checkFilesCache({ src1 }, 0, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_FALSE(statuses[0].needsRecompile);
+}
+
+TEST_F(BuildCacheTest, IncrementalOptLevelChangeInvalidatesAll) {
+    std::string src = liva::joinPath(testDir_, "opt.liva");
+    writeFile(src, "func opt() {}");
+
+    liva::BuildCache cache(testDir_);
+    std::string hash = cache.hashFileContent(src);
+    std::string obj = liva::joinPath(testDir_, "opt.o");
+    writeFile(obj, "objopt");
+    cache.storeFileObject(src, hash, obj, 0, false);
+
+    auto statuses = cache.checkFilesCache({ src }, 2, false);
+    ASSERT_EQ(statuses.size(), 1u);
+    EXPECT_TRUE(statuses[0].needsRecompile);
+}
+
+// === getFileModTime Tests ===
+
+TEST_F(BuildCacheTest, GetFileModTimeExistingFile) {
+    std::string path = liva::joinPath(testDir_, "test.txt");
+    writeFile(path, "hello");
+
+    int64_t mtime = liva::getFileModTime(path);
+    EXPECT_GT(mtime, 0);
+}
+
+TEST_F(BuildCacheTest, GetFileModTimeNonExistent) {
+    int64_t mtime = liva::getFileModTime("nonexistent_file_xyz.txt");
+    EXPECT_EQ(mtime, 0);
 }

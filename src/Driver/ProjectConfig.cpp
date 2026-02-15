@@ -8,6 +8,7 @@
 
 #ifdef _WIN32
 #include <direct.h>
+#include <sys/stat.h>
 #else
 #include <sys/stat.h>
 #include <unistd.h>
@@ -760,6 +761,20 @@ std::string findProjectFile(const std::string &startDir) {
         dir = parent;
     }
     return "";
+}
+
+int64_t getFileModTime(const std::string &path) {
+#ifdef _WIN32
+    struct _stat64 st;
+    if (_stat64(path.c_str(), &st) != 0)
+        return 0;
+    return static_cast<int64_t>(st.st_mtime);
+#else
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0)
+        return 0;
+    return static_cast<int64_t>(st.st_mtime);
+#endif
 }
 
 } // namespace liva

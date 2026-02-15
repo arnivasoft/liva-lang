@@ -230,6 +230,11 @@ bool Driver::parseArgs(int argc, const char **argv) {
             continue;
         }
 
+        if (std::strcmp(arg, "--rebuild") == 0) {
+            options_.rebuild = true;
+            continue;
+        }
+
         // If starts with -, unknown flag
         if (arg[0] == '-') {
             std::cerr << "error: unknown option '" << arg << "'\n";
@@ -328,6 +333,19 @@ int Driver::executeLegacy() {
         return 1;
     std::cout << "Built " << output << "\n";
     return 0;
+}
+
+static bool isOutputUpToDate(const std::string &outputPath,
+                             const std::vector<std::string> &objPaths) {
+    int64_t outMtime = getFileModTime(outputPath);
+    if (outMtime == 0)
+        return false;
+    for (const auto &obj : objPaths) {
+        int64_t objMtime = getFileModTime(obj);
+        if (objMtime == 0 || objMtime > outMtime)
+            return false;
+    }
+    return true;
 }
 
 int Driver::buildProject(bool runAfter) {
@@ -466,12 +484,29 @@ int Driver::buildProject(bool runAfter) {
     BuildCache cache(cfg.projectRoot);
     auto depFiles = cache.scanDependencies(entryPath, searchPaths);
 
+    // Prune stale cache entries for deleted source files
+    cache.pruneStaleEntries(depFiles);
+
     // Per-file incremental compilation
     auto fileStatuses = cache.checkFilesCache(depFiles, cfg.optLevel, cfg.debugInfo);
+
+    // --rebuild: force recompile all files
+    if (options_.rebuild) {
+        for (auto &s : fileStatuses) {
+            s.needsRecompile = true;
+            s.cachedObjPath.clear();
+        }
+    }
 
     // Dependency-aware sema cache check
     SemaCache semaCache(cfg.projectRoot);
     auto semaStatuses = semaCache.check(depFiles, fileStatuses);
+
+    // --rebuild: force re-sema all files
+    if (options_.rebuild) {
+        for (auto &s : semaStatuses)
+            s.needsResema = true;
+    }
 
     // Check if all files are cached (both build cache and sema cache)
     bool allCached = true;
@@ -487,6 +522,16 @@ int Driver::buildProject(bool runAfter) {
         std::vector<std::string> objPaths;
         for (const auto &fs : fileStatuses)
             objPaths.push_back(fs.cachedObjPath);
+
+        // Check if output binary is also up-to-date
+        if (isOutputUpToDate(output, objPaths)) {
+            std::cout << "Built " << cfg.name << " -> " << output << " (up-to-date)\n";
+            if (runAfter) {
+                std::cout << "Running " << output << "...\n";
+                return std::system(output.c_str());
+            }
+            return 0;
+        }
 
         int linkResult = linkObjects(objPaths, output, cfg.debugInfo, cfg.lto, cfg.pgo);
         if (linkResult == 0) {
@@ -527,6 +572,19 @@ int Driver::buildProject(bool runAfter) {
     unsigned numThreads = std::min(maxJobs, static_cast<unsigned>(toCompile.size()));
     if (numThreads == 0) numThreads = 1;
 
+    // Progress output
+    {
+        size_t cachedCount = depFiles.size() - toCompile.size();
+        if (numThreads <= 1 || toCompile.size() <= 1) {
+            std::cout << "Compiling " << toCompile.size() << "/" << depFiles.size()
+                      << " files (" << cachedCount << " cached)\n";
+        } else {
+            std::cout << "Compiling " << toCompile.size() << "/" << depFiles.size()
+                      << " files (" << cachedCount << " cached, "
+                      << numThreads << " threads)\n";
+        }
+    }
+
     if (numThreads <= 1 || toCompile.size() <= 1) {
         // Sequential path — avoids thread overhead for single files
         for (size_t wi = 0; wi < toCompile.size(); ++wi) {
@@ -534,6 +592,9 @@ int Driver::buildProject(bool runAfter) {
             const auto &sourcePath = depFiles[fileIdx];
             const auto &status = fileStatuses[fileIdx];
             bool isEntry = (sourcePath == entryPath);
+
+            std::cout << "  [" << (wi + 1) << "/" << toCompile.size() << "] "
+                      << sourcePath << "\n";
 
             ModuleLoader threadLoader;
             threadLoader.setBasePath(loaderBasePath);
@@ -1185,7 +1246,8 @@ void Driver::printHelp() {
               << "  --pgo=generate      Build with PGO instrumentation\n"
               << "  --pgo=use           Build with PGO profile data\n"
               << "  --pgo-profile=PATH  Profile data path (default: default.profdata)\n"
-              << "  -j N                Number of parallel compilation jobs (default: auto)\n";
+              << "  -j N                Number of parallel compilation jobs (default: auto)\n"
+              << "  --rebuild           Force recompile all files (bypass cache)\n";
 }
 
 } // namespace liva

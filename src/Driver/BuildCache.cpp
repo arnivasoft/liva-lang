@@ -77,6 +77,16 @@ std::string BuildCache::hashFileContent(const std::string &path) {
     return uint64ToHex(hash);
 }
 
+std::string BuildCache::hashFileContent(const std::string &path, int64_t cachedMtime,
+                                         const std::string &cachedHash) {
+    if (cachedMtime > 0) {
+        int64_t currentMtime = getFileModTime(path);
+        if (currentMtime > 0 && currentMtime == cachedMtime)
+            return cachedHash; // mtime match — skip re-hash
+    }
+    return hashFileContent(path); // slow path: read + hash
+}
+
 std::string BuildCache::computeCombinedHash(
     const std::vector<SourceFileEntry> &entries, int optLevel, bool debugInfo) {
     // Sort entries by normalized path for deterministic hashing
@@ -403,8 +413,18 @@ std::vector<FileCompileStatus> BuildCache::checkFilesCache(
     for (const auto &path : sourceFiles) {
         FileCompileStatus status;
         status.sourcePath = path;
-        status.currentHash = hashFileContent(path);
         status.needsRecompile = true;
+
+        // Look up cached entry for mtime fast-path
+        std::string normalizedPath = normalizePath(path);
+        auto it = cachedMap.find(normalizedPath);
+        const SourceFileEntry *cached = (it != cachedMap.end()) ? it->second : nullptr;
+
+        if (cached && cached->mtime > 0) {
+            status.currentHash = hashFileContent(path, cached->mtime, cached->hash);
+        } else {
+            status.currentHash = hashFileContent(path);
+        }
 
         if (status.currentHash.empty()) {
             // Can't read file — must recompile
@@ -418,22 +438,18 @@ std::vector<FileCompileStatus> BuildCache::checkFilesCache(
             continue;
         }
 
-        // Look up cached entry
-        std::string normalizedPath = normalizePath(path);
-        auto it = cachedMap.find(normalizedPath);
-        if (it == cachedMap.end()) {
+        if (!cached) {
             result.push_back(status);
             continue;
         }
 
-        const auto &cached = *it->second;
-        if (cached.hash != status.currentHash || cached.objFile.empty()) {
+        if (cached->hash != status.currentHash || cached->objFile.empty()) {
             result.push_back(status);
             continue;
         }
 
         // Verify cached .o file exists
-        std::string cachedObjPath = joinPath(cacheDir_, cached.objFile);
+        std::string cachedObjPath = joinPath(cacheDir_, cached->objFile);
         if (!fileExists(cachedObjPath)) {
             result.push_back(status);
             continue;
@@ -481,11 +497,13 @@ bool BuildCache::storeFileObject(const std::string &sourcePath, const std::strin
 
     // Update or add entry for this source
     std::string normalizedPath = normalizePath(sourcePath);
+    int64_t fileMtime = getFileModTime(sourcePath);
     bool found = false;
     for (auto &entry : entries) {
         if (normalizePath(entry.path) == normalizedPath) {
             entry.hash = hash;
             entry.objFile = objName;
+            entry.mtime = fileMtime;
             found = true;
             break;
         }
@@ -495,6 +513,7 @@ bool BuildCache::storeFileObject(const std::string &sourcePath, const std::strin
         entry.path = sourcePath;
         entry.hash = hash;
         entry.objFile = objName;
+        entry.mtime = fileMtime;
         entries.push_back(entry);
     }
 
@@ -520,28 +539,84 @@ bool BuildCache::loadPerFileManifest(std::vector<SourceFileEntry> &out,
         } else if (startsWith(trimmed, "DEBUG:")) {
             debugInfo = (trimmed.substr(6) == "1");
         } else if (startsWith(trimmed, "FILE:")) {
-            // FILE:path:hash:objfile (3 colon-separated fields after FILE:)
+            // Format: FILE:path:hash:objfile[:mtime]
+            // mtime is optional (backward compat with old manifests)
             std::string rest = trimmed.substr(5);
-            // Find last two colons
+
+            // Parse from the right: check if last field is numeric (mtime)
             auto lastColon = rest.rfind(':');
             if (lastColon == std::string::npos || lastColon == 0)
                 continue;
-            std::string objFile = rest.substr(lastColon + 1);
-            std::string remainder = rest.substr(0, lastColon);
 
-            auto secondLastColon = remainder.rfind(':');
-            if (secondLastColon == std::string::npos || secondLastColon == 0)
+            std::string lastField = rest.substr(lastColon + 1);
+            int64_t mtime = 0;
+            bool hasMtime = false;
+
+            // Check if lastField is a non-negative integer
+            if (!lastField.empty()) {
+                char *endp = nullptr;
+                long long val = strtoll(lastField.c_str(), &endp, 10);
+                if (endp != lastField.c_str() && *endp == '\0' && val >= 0) {
+                    // Could be mtime — but need to verify there are enough fields
+                    std::string beforeLast = rest.substr(0, lastColon);
+                    // Count remaining colons: need at least 2 more for path:hash:objfile
+                    size_t colonCount = 0;
+                    for (char c : beforeLast) { if (c == ':') ++colonCount; }
+                    if (colonCount >= 2) {
+                        mtime = static_cast<int64_t>(val);
+                        hasMtime = true;
+                    }
+                }
+            }
+
+            std::string fields = hasMtime ? rest.substr(0, lastColon) : rest;
+
+            // Now parse fields = path:hash:objfile (last two colons)
+            auto objColon = fields.rfind(':');
+            if (objColon == std::string::npos || objColon == 0)
+                continue;
+            std::string objFile = fields.substr(objColon + 1);
+            std::string remainder = fields.substr(0, objColon);
+
+            auto hashColon = remainder.rfind(':');
+            if (hashColon == std::string::npos || hashColon == 0)
                 continue;
 
             SourceFileEntry entry;
-            entry.path = remainder.substr(0, secondLastColon);
-            entry.hash = remainder.substr(secondLastColon + 1);
+            entry.path = remainder.substr(0, hashColon);
+            entry.hash = remainder.substr(hashColon + 1);
             entry.objFile = objFile;
+            entry.mtime = mtime;
             out.push_back(entry);
         }
     }
 
     return true;
+}
+
+void BuildCache::pruneStaleEntries(const std::vector<std::string> &currentSources) {
+    std::vector<SourceFileEntry> cachedEntries;
+    int opt = -1;
+    bool debug = false;
+    if (!loadPerFileManifest(cachedEntries, opt, debug))
+        return;
+
+    std::unordered_set<std::string> currentSet;
+    for (const auto &p : currentSources)
+        currentSet.insert(normalizePath(p));
+
+    std::vector<SourceFileEntry> kept;
+    for (const auto &entry : cachedEntries) {
+        if (currentSet.count(normalizePath(entry.path))) {
+            kept.push_back(entry);
+        } else {
+            // Remove stale .o file
+            if (!entry.objFile.empty())
+                std::remove(joinPath(cacheDir_, entry.objFile).c_str());
+        }
+    }
+    if (kept.size() != cachedEntries.size())
+        savePerFileManifest(kept, opt, debug);
 }
 
 bool BuildCache::savePerFileManifest(const std::vector<SourceFileEntry> &entries,
@@ -559,7 +634,8 @@ bool BuildCache::savePerFileManifest(const std::vector<SourceFileEntry> &entries
     for (const auto &entry : entries) {
         file << "FILE:" << normalizePath(entry.path)
              << ":" << entry.hash
-             << ":" << entry.objFile << "\n";
+             << ":" << entry.objFile
+             << ":" << entry.mtime << "\n";
     }
 
     return file.good();

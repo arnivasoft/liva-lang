@@ -37,6 +37,7 @@ struct DriverOptions {
     bool hasDebugOverride = false;
     int jobs = 0;  // 0 = auto (hardware_concurrency), 1 = sequential
     bool hasJobsOverride = false;
+    bool rebuild = false;  // --rebuild: force recompile all, bypass cache
 };
 
 /// Parses command-line arguments and drives compilation

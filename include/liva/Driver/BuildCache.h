@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -8,6 +9,7 @@ struct SourceFileEntry {
     std::string path;
     std::string hash; // FNV-1a 64-bit hex
     std::string objFile; // per-file cached .o name (empty if not cached)
+    int64_t mtime = 0;  // last modification time (epoch seconds)
 };
 
 struct BuildCacheManifest {
@@ -59,8 +61,13 @@ public:
     /// Generate a unique .o filename for a source path
     std::string objectPathForSource(const std::string &sourcePath);
 
+    /// Remove cache entries for source files no longer in the project
+    void pruneStaleEntries(const std::vector<std::string> &currentSources);
+
     // Exposed for testing
     std::string hashFileContent(const std::string &path);
+    std::string hashFileContent(const std::string &path, int64_t cachedMtime,
+                                const std::string &cachedHash);
     const std::string &getCacheDir() const { return cacheDir_; }
 
 private:

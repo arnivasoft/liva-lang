@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -155,5 +156,6 @@ bool fileExists(const std::string &path);
 bool createDirectory(const std::string &path);
 bool createDirectories(const std::string &path);
 bool removeDirectoryRecursive(const std::string &path);
+int64_t getFileModTime(const std::string &path);
 
 } // namespace liva
