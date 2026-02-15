@@ -70,6 +70,7 @@ void IRGen::emitScopeCleanup() {
     // Call drop() for struct variables implementing Drop protocol,
     // or auto-cleanup heap fields for structs without Drop
     for (auto &[name, structTypeName] : varStructTypes_) {
+        if (name == "self") continue; // self is borrowed (ref/ref mut), not owned
         if (movedVars_.count(name)) continue;
         if (dropImplementors_.count(structTypeName)) {
             auto it = namedValues_.find(name);
@@ -185,6 +186,19 @@ void IRGen::emitStructFieldCleanup(const std::string &varName,
             }
         }
     }
+}
+
+llvm::Value *IRGen::dupIfStringField(const std::string &structName,
+                                      int idx, llvm::Value *val) {
+    if (!val || idx < 0) return val;
+    auto ftrIt = structFieldTypeReprs_.find(structName);
+    if (ftrIt == structFieldTypeReprs_.end()) return val;
+    if (idx >= static_cast<int>(ftrIt->second.size())) return val;
+    const TypeRepr *ft = ftrIt->second[idx];
+    if (ft && ft->getKind() == TypeRepr::Kind::String) {
+        return builder_->CreateCall(getOrPanic("liva_str_dup"), {val}, "str.own");
+    }
+    return val;
 }
 
 llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {

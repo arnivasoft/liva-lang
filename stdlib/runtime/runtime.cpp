@@ -175,6 +175,15 @@ static int64_t utf8_byte_to_cp(const char *str, int64_t byte_offset) {
 
 // === Simple char*-based string operations ===
 
+char *liva_str_dup(const char *s) {
+    if (!s) s = "";
+    size_t len = strlen(s);
+    char *result = (char *)malloc(len + 1);
+    if (!result) liva_panic("out of memory");
+    memcpy(result, s, len + 1);
+    return result;
+}
+
 char *liva_str_concat(const char *a, const char *b) {
     if (!a) a = "";
     if (!b) b = "";

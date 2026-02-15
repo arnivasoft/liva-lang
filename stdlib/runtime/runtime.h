@@ -36,6 +36,9 @@ int32_t liva_string_compare(const LivaString *a, const LivaString *b);
 
 // === Simple char*-based string operations (compatible with i8* IR) ===
 
+/// Duplicate a C string, returns malloc'd copy
+char *liva_str_dup(const char *s);
+
 /// Concatenate two C strings, returns malloc'd result
 char *liva_str_concat(const char *a, const char *b);
 

@@ -117,6 +117,7 @@ public:
     ExecState getState() const { return state_; }
     int getExitCode() const { return exitCode_; }
     const std::string &getOutput() const { return outputBuffer_; }
+    std::string takeOutput() { std::string r; r.swap(outputBuffer_); return r; }
 
     // Stop reason for DAP event
     const std::string &getStopReason() const { return stopReason_; }
@@ -129,6 +130,7 @@ private:
     StepResult executeExprStmt(const ExprStmt *stmt);
     StepResult executeReturnStmt(const ReturnStmt *stmt);
     StepResult executeIfStmt(const IfStmt *stmt);
+    StepResult executeIfLetStmt(const IfLetStmt *stmt);
     StepResult executeWhileStmt(const WhileStmt *stmt);
     StepResult executeForStmt(const ForStmt *stmt);
 
@@ -140,6 +142,7 @@ private:
     DAPValue evaluateMemberExpr(const MemberExpr *expr);
     DAPValue evaluateIndexExpr(const IndexExpr *expr);
     DAPValue evaluateAssignExpr(const AssignExpr *expr);
+    DAPValue evaluateMethodCall(const MemberExpr *member, const CallExpr *call);
 
     // Variable lookup/store
     DAPValue &lookupVariable(const std::string &name);
@@ -160,6 +163,8 @@ private:
     int stepFrameDepth_ = 0;
     std::map<std::string, std::set<int>> breakpoints_;
     std::map<std::string, const FuncDecl *> functions_;
+    // implMethods_["TypeName"]["methodName"] = FuncDecl*
+    std::map<std::string, std::map<std::string, const FuncDecl *>> implMethods_;
     std::map<std::string, const StructDecl *> structs_;
     std::map<std::string, const ClassDecl *> classes_;
     std::string outputBuffer_;
@@ -167,6 +172,8 @@ private:
     std::string runtimeError_;
     int exitCode_ = 0;
     int nextFrameId_ = 1;
+    int lastPausedLine_ = 0;
+    int resumeFromLine_ = 0;
     static const std::map<std::string, DAPValue> emptyLocals_;
 };
 

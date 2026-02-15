@@ -2,7 +2,7 @@
     "name": "liva-lang",
     "displayName": "Liva Language",
     "description": "Full language support for Liva — a modern, compiled language with Swift-like syntax and Rust-style ownership. Provides 18+ LSP features, syntax highlighting, debugging, and diagnostics.",
-    "version": "0.2.0",
+    "version": "1.0.0",
     "publisher": "liva-lang",
     "license": "MIT",
     "repository": {
@@ -40,6 +40,11 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
+        "breakpoints": [
+            {
+                "language": "liva"
+            }
+        ],
         "languages": [
             {
                 "id": "liva",
@@ -75,49 +80,13 @@
                         "properties": {
                             "program": {
                                 "type": "string",
-                                "description": "Path to the compiled executable to debug."
-                            },
-                            "args": {
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
-                                },
-                                "description": "Command-line arguments for the program.",
-                                "default": []
-                            },
-                            "cwd": {
-                                "type": "string",
-                                "description": "Working directory for the program.",
-                                "default": "${workspaceFolder}"
+                                "description": "Path to the .liva source file to debug.",
+                                "default": "${file}"
                             },
                             "stopOnEntry": {
                                 "type": "boolean",
                                 "description": "Break on the entry point of the program.",
                                 "default": false
-                            },
-                            "env": {
-                                "type": "object",
-                                "additionalProperties": {
-                                    "type": "string"
-                                },
-                                "description": "Environment variables for the program.",
-                                "default": {}
-                            },
-                            "preBuildTask": {
-                                "type": "boolean",
-                                "description": "Automatically run 'livac build -g' before debugging.",
-                                "default": true
-                            }
-                        }
-                    },
-                    "attach": {
-                        "required": [
-                            "pid"
-                        ],
-                        "properties": {
-                            "pid": {
-                                "type": "number",
-                                "description": "Process ID to attach to."
                             }
                         }
                     }
@@ -127,36 +96,20 @@
                         "type": "liva",
                         "request": "launch",
                         "name": "Debug Liva Program",
-                        "program": "${workspaceFolder}/${workspaceFolderBasename}.exe",
-                        "args": [],
-                        "cwd": "${workspaceFolder}",
-                        "stopOnEntry": false,
-                        "preBuildTask": true
+                        "program": "${file}",
+                        "stopOnEntry": false
                     }
                 ],
                 "configurationSnippets": [
                     {
-                        "label": "Liva: Launch",
-                        "description": "Build and debug a Liva program.",
+                        "label": "Liva: Debug Current File",
+                        "description": "Debug the currently open .liva file.",
                         "body": {
                             "type": "liva",
                             "request": "launch",
                             "name": "Debug Liva Program",
-                            "program": "^\"\\${workspaceFolder}/\\${workspaceFolderBasename}.exe\"",
-                            "args": [],
-                            "cwd": "^\"\\${workspaceFolder}\"",
-                            "stopOnEntry": false,
-                            "preBuildTask": true
-                        }
-                    },
-                    {
-                        "label": "Liva: Attach",
-                        "description": "Attach to a running Liva process.",
-                        "body": {
-                            "type": "liva",
-                            "request": "attach",
-                            "name": "Attach to Liva Process",
-                            "pid": 0
+                            "program": "^\"\\${file}\"",
+                            "stopOnEntry": false
                         }
                     }
                 ]
@@ -182,11 +135,6 @@
                     "default": true,
                     "description": "Enable semantic token highlighting from the LSP server (provides more accurate coloring than TextMate grammar alone)."
                 },
-                "liva.lldbDapPath": {
-                    "type": "string",
-                    "default": "",
-                    "description": "Path to the lldb-dap executable for debugging. If empty, the extension searches common locations and PATH."
-                },
                 "liva.trace.server": {
                     "type": "string",
                     "enum": [
@@ -201,9 +149,9 @@
         }
     },
     "scripts": {
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
-        "package": "npx vsce package",
+        "compile": "node esbuild.config.mjs",
+        "watch": "node esbuild.config.mjs --watch",
+        "package": "node esbuild.config.mjs --production && npx vsce package",
         "lint": "tsc --noEmit"
     },
     "dependencies": {
@@ -212,7 +160,7 @@
     "devDependencies": {
         "@types/node": "^25.2.3",
         "@types/vscode": "^1.85.0",
-        "esbuild": "^0.19.0",
+        "esbuild": "^0.27.3",
         "typescript": "^5.3.0"
     }
 }

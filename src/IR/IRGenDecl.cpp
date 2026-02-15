@@ -873,14 +873,17 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
             auto *structTy = structTypes_[mangledName];
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+            // Zero-initialize so unset fields (empty arrays, etc.) are safe to cleanup
+            builder_->CreateStore(llvm::Constant::getNullValue(structTy), alloca);
 
             for (size_t i = 0; i < structLit->getFields().size(); ++i) {
                 int idx = getStructFieldIndex(mangledName, structLit->getFields()[i].name);
                 if (idx < 0 || !fieldValues[i])
                     continue;
+                auto *val = dupIfStringField(mangledName, idx, fieldValues[i]);
                 auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
                                                        structLit->getFields()[i].name);
-                builder_->CreateStore(fieldValues[i], gep);
+                builder_->CreateStore(val, gep);
             }
 
             namedValues_[node->getName()] = alloca;
@@ -892,6 +895,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         if (stIt != structTypes_.end()) {
             auto *structTy = stIt->second;
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+            // Zero-initialize so unset fields (empty arrays, etc.) are safe to cleanup
+            builder_->CreateStore(llvm::Constant::getNullValue(structTy), alloca);
 
             // Store each field
             for (auto &fieldInit : structLit->getFields()) {
@@ -901,6 +906,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *val = visit(fieldInit.value.get());
                 if (!val)
                     continue;
+                // Dup string fields to ensure ownership for safe cleanup
+                val = dupIfStringField(typeName, idx, val);
                 auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
                                                        fieldInit.name);
                 builder_->CreateStore(val, gep);
@@ -2104,7 +2111,7 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             for (auto &BB : *initFn) {
                 for (auto &I : BB) {
                     if (auto *store = llvm::dyn_cast<llvm::StoreInst>(&I)) {
-                        if (auto *nullVal = llvm::dyn_cast<llvm::ConstantPointerNull>(store->getValueOperand())) {
+                        if (llvm::isa<llvm::ConstantPointerNull>(store->getValueOperand())) {
                             if (auto *gep = llvm::dyn_cast<llvm::GetElementPtrInst>(store->getPointerOperand())) {
                                 if (gep->getName() == "vtable_slot") {
                                     store->setOperand(0, vtableGlobal);
@@ -2174,7 +2181,7 @@ void IRGen::generateTestMain() {
     // Call liva_test_run(name, fn_ptr) for each test
     auto *testRunFn = getOrPanic("liva_test_run");
     for (auto &te : testEntries_) {
-        auto *nameStr = builder_->CreateGlobalStringPtr(te.name);
+        auto *nameStr = builder_->CreateGlobalString(te.name);
         builder_->CreateCall(testRunFn, {nameStr, te.func});
     }
 

@@ -312,6 +312,16 @@ JSONValue DAPServer::handleConfigurationDone(int64_t seq,
 
 void DAPServer::runInterpreter(StepMode mode) {
     auto result = interpreter_.resume(mode);
+
+    // Flush interpreter output (println etc.) as DAP output events
+    auto output = interpreter_.takeOutput();
+    if (!output.empty()) {
+        auto outBody = JSONValue::object();
+        outBody.set("category", JSONValue("stdout"));
+        outBody.set("output", JSONValue(output));
+        sendEvent("output", std::move(outBody));
+    }
+
     if (result.state == ExecState::Paused) {
         auto body = JSONValue::object();
         body.set("reason", JSONValue(interpreter_.getStopReason()));

@@ -68,52 +68,22 @@ function startClient(context: vscode.ExtensionContext): void {
 }
 
 // ---------------------------------------------------------------------------
-// Debug: find lldb-dap executable
+// Debug: find livac executable for DAP
 // ---------------------------------------------------------------------------
 
-function findLldbDap(): string | undefined {
-    // 1. User setting
+function findLivac(): string | undefined {
     const config = vscode.workspace.getConfiguration("liva");
-    const configPath = config.get<string>("lldbDapPath", "");
-    if (configPath && fs.existsSync(configPath)) {
-        return configPath;
+    const livacPath = config.get<string>("livacPath", "livac");
+
+    // If absolute path, check it exists
+    if (path.isAbsolute(livacPath)) {
+        return fs.existsSync(livacPath) ? livacPath : undefined;
     }
 
-    // 2. Environment variable
-    const envPath = process.env["LIVA_LLDB_DAP_PATH"];
-    if (envPath && fs.existsSync(envPath)) {
-        return envPath;
-    }
-
-    // 3. Platform-specific well-known locations
-    const candidates: string[] = [];
-    if (process.platform === "win32") {
-        candidates.push(
-            "C:\\LLVM\\bin\\lldb-dap.exe",
-            "C:\\Program Files\\LLVM\\bin\\lldb-dap.exe"
-        );
-    } else if (process.platform === "darwin") {
-        candidates.push(
-            "/opt/homebrew/opt/llvm/bin/lldb-dap",
-            "/usr/local/opt/llvm/bin/lldb-dap"
-        );
-    } else {
-        candidates.push(
-            "/usr/bin/lldb-dap",
-            "/usr/lib/llvm-21/bin/lldb-dap",
-            "/usr/lib/llvm-19/bin/lldb-dap",
-            "/usr/lib/llvm-18/bin/lldb-dap"
-        );
-    }
-
-    for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
-            return candidate;
-        }
-    }
-
-    // 4. Search PATH
-    const exeName = process.platform === "win32" ? "lldb-dap.exe" : "lldb-dap";
+    // Search PATH
+    const exeName = process.platform === "win32"
+        ? (livacPath.endsWith(".exe") ? livacPath : livacPath + ".exe")
+        : livacPath;
     const pathDirs = (process.env["PATH"] || "").split(path.delimiter);
     for (const dir of pathDirs) {
         const fullPath = path.join(dir, exeName);
@@ -122,7 +92,8 @@ function findLldbDap(): string | undefined {
         }
     }
 
-    return undefined;
+    // Fallback: return as-is (let OS resolve it)
+    return livacPath;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,101 +110,63 @@ class LivaDebugConfigurationProvider implements vscode.DebugConfigurationProvide
                 type: "liva",
                 request: "launch",
                 name: "Debug Liva Program",
-                program: "${workspaceFolder}/${workspaceFolderBasename}.exe",
-                args: [],
-                cwd: "${workspaceFolder}",
+                program: "${file}",
                 stopOnEntry: false,
-                preBuildTask: true,
             },
         ];
     }
 
-    async resolveDebugConfigurationWithSubstitutedVariables(
+    resolveDebugConfiguration(
         folder: vscode.WorkspaceFolder | undefined,
         config: vscode.DebugConfiguration,
         _token?: vscode.CancellationToken
-    ): Promise<vscode.DebugConfiguration | undefined> {
+    ): vscode.ProviderResult<vscode.DebugConfiguration> {
+        // If launched with F5 without a launch.json, fill in defaults
+        if (!config.type && !config.request && !config.name) {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document.languageId === "liva") {
+                config.type = "liva";
+                config.request = "launch";
+                config.name = "Debug Liva Program";
+                config.program = editor.document.uri.fsPath;
+                config.stopOnEntry = false;
+            }
+        }
 
-        // If no program specified, try to derive from liva.toml
-        if (!config.program && folder) {
-            const tomlPath = path.join(folder.uri.fsPath, "liva.toml");
-            if (fs.existsSync(tomlPath)) {
-                const content = fs.readFileSync(tomlPath, "utf-8");
-                const nameMatch = content.match(/^\s*name\s*=\s*"([^"]+)"/m);
-                if (nameMatch) {
-                    const ext = process.platform === "win32" ? ".exe" : "";
-                    config.program = path.join(folder.uri.fsPath, nameMatch[1] + ext);
-                }
+        // Default program to active editor
+        if (!config.program) {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document.languageId === "liva") {
+                config.program = editor.document.uri.fsPath;
             }
         }
 
         if (!config.program) {
             vscode.window.showErrorMessage(
-                "Liva Debug: 'program' is not set. Please specify the executable path in launch.json."
-            );
-            return undefined;
-        }
-
-        // Default cwd
-        if (!config.cwd && folder) {
-            config.cwd = folder.uri.fsPath;
-        }
-
-        // Pre-build with livac build -g
-        if (config.preBuildTask !== false) {
-            const livacPath = vscode.workspace
-                .getConfiguration("liva")
-                .get<string>("livacPath", "livac");
-
-            const buildCwd = folder ? folder.uri.fsPath : config.cwd || ".";
-
-            const exitCode = await runBuild(livacPath, buildCwd);
-            if (exitCode !== 0) {
-                vscode.window.showErrorMessage(
-                    "Liva Debug: Build failed (livac build -g). Fix errors before debugging."
-                );
-                return undefined;
-            }
-        }
-
-        // Verify the executable exists
-        if (!fs.existsSync(config.program)) {
-            vscode.window.showErrorMessage(
-                `Liva Debug: Executable not found: ${config.program}`
+                "Liva Debug: 'program' is not set. Open a .liva file or specify the path in launch.json."
             );
             return undefined;
         }
 
         return config;
     }
-}
 
-function runBuild(livacPath: string, cwd: string): Promise<number> {
-    return new Promise((resolve) => {
-        const task = new vscode.Task(
-            { type: "liva", task: "build-debug" },
-            vscode.TaskScope.Workspace,
-            "Liva Build (Debug)",
-            "liva",
-            new vscode.ShellExecution(livacPath, ["build", "-g"], { cwd })
-        );
-        task.presentationOptions = {
-            reveal: vscode.TaskRevealKind.Silent,
-            panel: vscode.TaskPanelKind.Shared,
-        };
+    resolveDebugConfigurationWithSubstitutedVariables(
+        _folder: vscode.WorkspaceFolder | undefined,
+        config: vscode.DebugConfiguration,
+        _token?: vscode.CancellationToken
+    ): vscode.ProviderResult<vscode.DebugConfiguration> {
 
-        const disposable = vscode.tasks.onDidEndTaskProcess((e) => {
-            if (e.execution.task === task) {
-                disposable.dispose();
-                resolve(e.exitCode ?? 1);
-            }
-        });
+        // Verify the source file exists
+        if (!fs.existsSync(config.program)) {
+            vscode.window.showErrorMessage(
+                `Liva Debug: Source file not found: ${config.program}`
+            );
+            return undefined;
+        }
 
-        vscode.tasks.executeTask(task).then(undefined, () => {
-            disposable.dispose();
-            resolve(1);
-        });
-    });
+        return config;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,14 +180,14 @@ class LivaDebugAdapterDescriptorFactory
         _session: vscode.DebugSession,
         _executable: vscode.DebugAdapterExecutable | undefined
     ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-        const lldbDapPath = findLldbDap();
-        if (!lldbDapPath) {
+        const livacPath = findLivac();
+        if (!livacPath) {
             vscode.window.showErrorMessage(
-                "Liva Debug: lldb-dap not found. Install LLVM or set 'liva.lldbDapPath' in settings."
+                "Liva Debug: livac not found. Set 'liva.livacPath' in settings."
             );
             return undefined;
         }
-        return new vscode.DebugAdapterExecutable(lldbDapPath);
+        return new vscode.DebugAdapterExecutable(livacPath, ["dap"]);
     }
 }
 

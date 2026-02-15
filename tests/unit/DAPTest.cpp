@@ -816,3 +816,179 @@ TEST_F(DAPTest, ExitedEvent) {
     }
     EXPECT_TRUE(foundExited);
 }
+
+// ============================================================
+// Impl Method Tests
+// ============================================================
+
+TEST_F(DAPTest, ImplStaticMethod) {
+    std::string src = "struct Point {\n"
+                      "    var x: i32\n"
+                      "    var y: i32\n"
+                      "}\n"
+                      "impl Point {\n"
+                      "    func new(x: i32, y: i32) -> Point {\n"
+                      "        return Point { x: x, y: y }\n"
+                      "    }\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    var p = Point.new(3, 4)\n"
+                      "    let done: i32 = p.x\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {12});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool foundP = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "p") {
+            // p should be a struct with x=3 y=4
+            auto val = v["value"].getString();
+            EXPECT_TRUE(val.find("3") != std::string::npos);
+            EXPECT_TRUE(val.find("4") != std::string::npos);
+            foundP = true;
+        }
+    }
+    EXPECT_TRUE(foundP);
+}
+
+TEST_F(DAPTest, ImplInstanceMethod) {
+    std::string src = "struct Counter {\n"
+                      "    var count: i32\n"
+                      "}\n"
+                      "impl Counter {\n"
+                      "    func new() -> Counter {\n"
+                      "        return Counter { count: 0 }\n"
+                      "    }\n"
+                      "    func increment(ref mut self) {\n"
+                      "        self.count = self.count + 1\n"
+                      "    }\n"
+                      "    func getCount(ref self) -> i32 {\n"
+                      "        return self.count\n"
+                      "    }\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    var c = Counter.new()\n"
+                      "    c.increment()\n"
+                      "    c.increment()\n"
+                      "    let val: i32 = c.getCount()\n"
+                      "    let done: i32 = val\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {20});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool foundVal = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "val") {
+            EXPECT_EQ(v["value"].getString(), "2");
+            foundVal = true;
+        }
+    }
+    EXPECT_TRUE(foundVal);
+}
+
+TEST_F(DAPTest, ImplArrayPush) {
+    std::string src = "struct Bag {\n"
+                      "    var items: [i32]\n"
+                      "}\n"
+                      "impl Bag {\n"
+                      "    func new() -> Bag {\n"
+                      "        return Bag { items: [] }\n"
+                      "    }\n"
+                      "    func add(ref mut self, item: i32) {\n"
+                      "        self.items.push(item)\n"
+                      "    }\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    var b = Bag.new()\n"
+                      "    b.add(10)\n"
+                      "    b.add(20)\n"
+                      "    let n: i32 = b.items.length\n"
+                      "    let done: i32 = n\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {17});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool foundN = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "n") {
+            EXPECT_EQ(v["value"].getString(), "2");
+            foundN = true;
+        }
+    }
+    EXPECT_TRUE(foundN);
+}
+
+TEST_F(DAPTest, IfLetOptional) {
+    std::string src = "func maybeVal() -> i32? {\n"
+                      "    return 42\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    var result: i32 = 0\n"
+                      "    if let v = maybeVal() {\n"
+                      "        result = v\n"
+                      "    }\n"
+                      "    let done: i32 = result\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {9});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    bool foundResult = false;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "result") {
+            EXPECT_EQ(v["value"].getString(), "42");
+            foundResult = true;
+        }
+    }
+    EXPECT_TRUE(foundResult);
+}
+
+TEST_F(DAPTest, StringInterpolationWithMemberAccess) {
+    std::string src = "struct Person {\n"
+                      "    var name: string\n"
+                      "}\n"
+                      "func main() {\n"
+                      "    var p = Person { name: \"Alice\" }\n"
+                      "    println(\"Hello \\(p.name)\")\n"
+                      "}\n";
+    initAndLaunch(src);
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+    // Program should run to end without crash
+    // Output should contain "Hello Alice"
+}

@@ -59,6 +59,7 @@ static std::string findClang() {
 
 CodeGen::CodeGen(DiagnosticsEngine &diag, const TargetInfo &target)
     : diag_(diag), target_(target) {
+    (void)diag_; // reserved for future diagnostics
 #ifdef LIVA_HAS_LLVM
     llvm::InitializeAllTargets();
     llvm::InitializeAllTargetMCs();

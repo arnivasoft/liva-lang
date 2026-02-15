@@ -565,8 +565,6 @@ std::unique_ptr<Expr> Parser::parseComptimeExpr() {
 std::vector<Token> Parser::collectBalancedTokens() {
     std::vector<Token> tokens;
     int parenDepth = 0;
-    int braceDepth = 0;
-    int bracketDepth = 0;
 
     while (!check(TokenKind::eof)) {
         if (check(TokenKind::l_paren)) ++parenDepth;
@@ -574,11 +572,6 @@ std::vector<Token> Parser::collectBalancedTokens() {
             if (parenDepth == 0) break;
             --parenDepth;
         }
-        else if (check(TokenKind::l_brace)) ++braceDepth;
-        else if (check(TokenKind::r_brace)) --braceDepth;
-        else if (check(TokenKind::l_bracket)) ++bracketDepth;
-        else if (check(TokenKind::r_bracket)) --bracketDepth;
-
         tokens.push_back(current_);
         advance();
     }

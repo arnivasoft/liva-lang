@@ -3890,8 +3890,9 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
             int idx = getStructFieldIndex(mangledName, node->getFields()[i].name);
             if (idx < 0 || !fieldValues[i])
                 continue;
+            auto *val = dupIfStringField(mangledName, idx, fieldValues[i]);
             auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, node->getFields()[i].name);
-            builder_->CreateStore(fieldValues[i], gep);
+            builder_->CreateStore(val, gep);
         }
 
         return builder_->CreateLoad(structTy, alloca, mangledName + ".val");
@@ -3913,6 +3914,7 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
         auto *val = visit(fieldInit.value.get());
         if (!val)
             continue;
+        val = dupIfStringField(typeName, idx, val);
         auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, fieldInit.name);
         builder_->CreateStore(val, gep);
     }

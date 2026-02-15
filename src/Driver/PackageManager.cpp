@@ -516,7 +516,6 @@ bool PackageManager::resolveDependencyTree(
         // Try local first
         ResolvedPackage pkg;
         RegistryEntry regEntry;
-        bool fromRegistry = false;
 
         if (resolveLocal(dep, pkg)) {
             resolved.push_back(pkg);
@@ -553,7 +552,6 @@ bool PackageManager::resolveDependencyTree(
                 return false;
             }
             resolved.push_back(pkg);
-            fromRegistry = true;
 
             // Resolve transitive dependencies from registry metadata
             if (!regEntry.dependencies.empty()) {

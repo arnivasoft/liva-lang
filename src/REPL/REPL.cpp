@@ -71,7 +71,7 @@ REPLResult REPLSession::processLine(const std::string &line) {
     if (!multilineBuffer_.empty()) {
         multilineBuffer_ += "\n" + line;
         if (hasUnclosedDelimiters(multilineBuffer_)) {
-            return REPLResult{REPLResult::Incomplete};
+            return REPLResult{REPLResult::Incomplete, {}, {}, false};
         }
         // Multi-line input is now complete — process accumulated buffer
         std::string completeInput = multilineBuffer_;
@@ -130,7 +130,7 @@ REPLResult REPLSession::processLine(const std::string &line) {
     // Trim leading whitespace for classification
     size_t firstNonSpace = line.find_first_not_of(" \t\r\n");
     if (firstNonSpace == std::string::npos) {
-        return REPLResult{REPLResult::Empty};
+        return REPLResult{REPLResult::Empty, {}, {}, false};
     }
 
     std::string trimmed = line.substr(firstNonSpace);
@@ -139,7 +139,7 @@ REPLResult REPLSession::processLine(const std::string &line) {
 
     switch (kind) {
     case InputKind::Empty:
-        return REPLResult{REPLResult::Empty};
+        return REPLResult{REPLResult::Empty, {}, {}, false};
 
     case InputKind::Command:
         return handleCommand(trimmed);
@@ -162,7 +162,7 @@ REPLResult REPLSession::processLine(const std::string &line) {
         // Check for unclosed delimiters — start multi-line
         if (hasUnclosedDelimiters(trimmed)) {
             multilineBuffer_ = trimmed;
-            return REPLResult{REPLResult::Incomplete};
+            return REPLResult{REPLResult::Incomplete, {}, {}, false};
         }
         std::string errorMsg;
         if (!validateDeclaration(trimmed, errorMsg)) {
@@ -184,7 +184,7 @@ REPLResult REPLSession::processLine(const std::string &line) {
         // Check for unclosed delimiters — start multi-line
         if (hasUnclosedDelimiters(trimmed)) {
             multilineBuffer_ = trimmed;
-            return REPLResult{REPLResult::Incomplete};
+            return REPLResult{REPLResult::Incomplete, {}, {}, false};
         }
         std::string source = generateFullSource(trimmed, false);
         std::string errorMsg;
@@ -205,7 +205,7 @@ REPLResult REPLSession::processLine(const std::string &line) {
         // Check for unclosed delimiters — start multi-line
         if (hasUnclosedDelimiters(trimmed)) {
             multilineBuffer_ = trimmed;
-            return REPLResult{REPLResult::Incomplete};
+            return REPLResult{REPLResult::Incomplete, {}, {}, false};
         }
         std::string wrapped = wrapExpression(trimmed);
         std::string source = generateFullSource(wrapped, true);
@@ -224,7 +224,7 @@ REPLResult REPLSession::processLine(const std::string &line) {
     }
     }
 
-    return REPLResult{REPLResult::Empty};
+    return REPLResult{REPLResult::Empty, {}, {}, false};
 }
 
 // ── classifyInput ───────────────────────────────────────────────────────

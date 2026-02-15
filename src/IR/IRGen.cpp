@@ -288,6 +288,9 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("printf", printfType);
 
     // String runtime functions
+    auto *strDupTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_dup", strDupTy);
+
     auto *concatTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_str_concat", concatTy);
 

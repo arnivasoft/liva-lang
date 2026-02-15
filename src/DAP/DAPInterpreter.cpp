@@ -1,4 +1,5 @@
 #include "liva/DAP/DAPServer.h"
+#include "liva/AST/Stmt.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -88,6 +89,7 @@ void DAPInterpreter::load(TranslationUnit *tu) {
     state_ = ExecState::Terminated;
     callStack_.clear();
     functions_.clear();
+    implMethods_.clear();
     structs_.clear();
     classes_.clear();
     outputBuffer_.clear();
@@ -97,7 +99,7 @@ void DAPInterpreter::load(TranslationUnit *tu) {
 
     if (!tu_) return;
 
-    // Collect top-level functions and structs
+    // Collect top-level functions, structs, and impl methods
     for (const auto &decl : tu_->getDeclarations()) {
         if (auto *fd = dynamic_cast<const FuncDecl *>(decl.get())) {
             functions_[fd->getName()] = fd;
@@ -105,6 +107,11 @@ void DAPInterpreter::load(TranslationUnit *tu) {
             structs_[sd->getName()] = sd;
         } else if (auto *cd = dynamic_cast<const ClassDecl *>(decl.get())) {
             classes_[cd->getName()] = cd;
+        } else if (auto *impl = dynamic_cast<const ImplDecl *>(decl.get())) {
+            const auto &typeName = impl->getTypeName();
+            for (const auto &method : impl->getMethods()) {
+                implMethods_[typeName][method->getName()] = method.get();
+            }
         }
     }
 }
@@ -137,6 +144,7 @@ StepResult DAPInterpreter::resume(StepMode mode) {
     stepFrameDepth_ = static_cast<int>(callStack_.size());
     state_ = ExecState::Running;
     stopReason_.clear();
+    resumeFromLine_ = lastPausedLine_;
 
     while (state_ == ExecState::Running && !callStack_.empty()) {
         auto &frame = callStack_.back();
@@ -179,7 +187,7 @@ StepResult DAPInterpreter::resume(StepMode mode) {
     if (callStack_.empty()) {
         state_ = ExecState::Terminated;
     }
-    return {state_, runtimeError_};
+    return {state_, runtimeError_, StepResult::None, {}};
 }
 
 void DAPInterpreter::setBreakpoints(const std::string &path,
@@ -203,12 +211,24 @@ DAPInterpreter::getFrameLocals(int frameId) const {
 bool DAPInterpreter::shouldPause(const SourceLocation &loc) {
     if (!loc.isValid()) return false;
 
+    int line = static_cast<int>(loc.line);
+
+    // Resume navigation: skip statements until we pass the previously paused line.
+    // This prevents re-pausing at the same statement after a step/continue.
+    if (resumeFromLine_ > 0) {
+        if (line == resumeFromLine_) {
+            resumeFromLine_ = 0; // Reached the pause point, clear
+        }
+        return false; // Don't pause during navigation
+    }
+
     switch (stepMode_) {
     case StepMode::Continue: {
         // Only pause on breakpoints
         for (const auto &bp : breakpoints_) {
-            if (bp.second.count(static_cast<int>(loc.line))) {
+            if (bp.second.count(line)) {
                 stopReason_ = "breakpoint";
+                lastPausedLine_ = line;
                 return true;
             }
         }
@@ -217,18 +237,21 @@ bool DAPInterpreter::shouldPause(const SourceLocation &loc) {
     case StepMode::StepIn:
         // Pause at every statement
         stopReason_ = "step";
+        lastPausedLine_ = line;
         return true;
     case StepMode::Next: {
         // Pause at same or shallower frame depth
         int currentDepth = static_cast<int>(callStack_.size());
         if (currentDepth <= stepFrameDepth_) {
             stopReason_ = "step";
+            lastPausedLine_ = line;
             return true;
         }
         // Also check breakpoints
         for (const auto &bp : breakpoints_) {
-            if (bp.second.count(static_cast<int>(loc.line))) {
+            if (bp.second.count(line)) {
                 stopReason_ = "breakpoint";
+                lastPausedLine_ = line;
                 return true;
             }
         }
@@ -239,12 +262,14 @@ bool DAPInterpreter::shouldPause(const SourceLocation &loc) {
         int currentDepth = static_cast<int>(callStack_.size());
         if (currentDepth < stepFrameDepth_) {
             stopReason_ = "step";
+            lastPausedLine_ = line;
             return true;
         }
         // Also check breakpoints
         for (const auto &bp : breakpoints_) {
-            if (bp.second.count(static_cast<int>(loc.line))) {
+            if (bp.second.count(line)) {
                 stopReason_ = "breakpoint";
+                lastPausedLine_ = line;
                 return true;
             }
         }
@@ -263,19 +288,26 @@ StepResult DAPInterpreter::executeBlock(const BlockStmt *block,
     const auto &stmts = block->getStatements();
     for (size_t i = startIdx; i < stmts.size(); ++i) {
         auto result = executeStatement(stmts[i].get());
-        if (result.state == ExecState::Paused ||
-            result.state == ExecState::Error ||
+        if (result.state == ExecState::Paused) {
+            // Save position in the frame's main block so resume() starts here
+            if (!callStack_.empty() &&
+                callStack_.back().currentBlock == block) {
+                callStack_.back().stmtIndex = i;
+            }
+            return result;
+        }
+        if (result.state == ExecState::Error ||
             result.signal == StepResult::Return ||
             result.signal == StepResult::Break ||
             result.signal == StepResult::Continue) {
             return result;
         }
     }
-    return {ExecState::Running, ""};
+    return {ExecState::Running, "", StepResult::None, {}};
 }
 
 StepResult DAPInterpreter::executeStatement(const ASTNode *stmt) {
-    if (!stmt) return {ExecState::Running, ""};
+    if (!stmt) return {ExecState::Running, "", StepResult::None, {}};
 
     // Check if we should pause before this statement
     auto loc = stmt->getStartLoc();
@@ -285,7 +317,7 @@ StepResult DAPInterpreter::executeStatement(const ASTNode *stmt) {
             callStack_.back().location = loc;
         }
         state_ = ExecState::Paused;
-        return {ExecState::Paused, ""};
+        return {ExecState::Paused, "", StepResult::None, {}};
     }
 
     // Update frame location
@@ -303,6 +335,8 @@ StepResult DAPInterpreter::executeStatement(const ASTNode *stmt) {
         return executeReturnStmt(static_cast<const ReturnStmt *>(stmt));
     case NK::IfStmt:
         return executeIfStmt(static_cast<const IfStmt *>(stmt));
+    case NK::IfLetStmt:
+        return executeIfLetStmt(static_cast<const IfLetStmt *>(stmt));
     case NK::WhileStmt:
         return executeWhileStmt(static_cast<const WhileStmt *>(stmt));
     case NK::ForStmt:
@@ -325,9 +359,9 @@ StepResult DAPInterpreter::executeStatement(const ASTNode *stmt) {
         // Try as expression statement
         if (auto *expr = dynamic_cast<const Expr *>(stmt)) {
             evaluateExpr(expr);
-            return {ExecState::Running, ""};
+            return {ExecState::Running, "", StepResult::None, {}};
         }
-        return {ExecState::Running, ""};
+        return {ExecState::Running, "", StepResult::None, {}};
     }
 }
 
@@ -336,7 +370,7 @@ StepResult DAPInterpreter::executeVarDecl(const VarDecl *decl) {
     if (decl->hasInit()) {
         val = evaluateExpr(decl->getInit());
         if (state_ == ExecState::Paused)
-            return {ExecState::Paused, ""};
+            return {ExecState::Paused, "", StepResult::None, {}};
     }
 
     if (decl->isDestructured()) {
@@ -350,14 +384,14 @@ StepResult DAPInterpreter::executeVarDecl(const VarDecl *decl) {
     } else {
         setVariable(decl->getName(), std::move(val));
     }
-    return {ExecState::Running, ""};
+    return {ExecState::Running, "", StepResult::None, {}};
 }
 
 StepResult DAPInterpreter::executeExprStmt(const ExprStmt *stmt) {
     evaluateExpr(stmt->getExpr());
     if (state_ == ExecState::Paused)
-        return {ExecState::Paused, ""};
-    return {ExecState::Running, ""};
+        return {ExecState::Paused, "", StepResult::None, {}};
+    return {ExecState::Running, "", StepResult::None, {}};
 }
 
 StepResult DAPInterpreter::executeReturnStmt(const ReturnStmt *stmt) {
@@ -372,7 +406,7 @@ StepResult DAPInterpreter::executeReturnStmt(const ReturnStmt *stmt) {
 
 StepResult DAPInterpreter::executeIfStmt(const IfStmt *stmt) {
     auto cond = evaluateExpr(stmt->getCondition());
-    if (state_ == ExecState::Paused) return {ExecState::Paused, ""};
+    if (state_ == ExecState::Paused) return {ExecState::Paused, "", StepResult::None, {}};
     if (cond.isTruthy()) {
         if (auto *block = dynamic_cast<const BlockStmt *>(stmt->getThenBody())) {
             return executeBlock(block);
@@ -384,14 +418,14 @@ StepResult DAPInterpreter::executeIfStmt(const IfStmt *stmt) {
         }
         return executeStatement(stmt->getElseBody());
     }
-    return {ExecState::Running, ""};
+    return {ExecState::Running, "", StepResult::None, {}};
 }
 
 StepResult DAPInterpreter::executeWhileStmt(const WhileStmt *stmt) {
     int iterLimit = 100000;
     while (iterLimit-- > 0) {
         auto cond = evaluateExpr(stmt->getCondition());
-        if (state_ == ExecState::Paused) return {ExecState::Paused, ""};
+        if (state_ == ExecState::Paused) return {ExecState::Paused, "", StepResult::None, {}};
         if (!cond.isTruthy()) break;
 
         StepResult result;
@@ -409,7 +443,7 @@ StepResult DAPInterpreter::executeWhileStmt(const WhileStmt *stmt) {
         if (result.signal == StepResult::Return) return result;
         // Continue: just loop again
     }
-    return {ExecState::Running, ""};
+    return {ExecState::Running, "", StepResult::None, {}};
 }
 
 StepResult DAPInterpreter::executeForStmt(const ForStmt *stmt) {
@@ -436,7 +470,22 @@ StepResult DAPInterpreter::executeForStmt(const ForStmt *stmt) {
             if (result.signal == StepResult::Return) return result;
         }
     }
-    return {ExecState::Running, ""};
+    return {ExecState::Running, "", StepResult::None, {}};
+}
+
+StepResult DAPInterpreter::executeIfLetStmt(const IfLetStmt *stmt) {
+    auto val = evaluateExpr(stmt->getOptionalExpr());
+    if (state_ == ExecState::Paused) return {ExecState::Paused, "", StepResult::None, {}};
+    if (val.kind != DAPValue::Nil) {
+        setVariable(stmt->getBindingName(), std::move(val));
+        return executeBlock(stmt->getThenBody());
+    } else if (stmt->hasElse()) {
+        if (auto *block = dynamic_cast<const BlockStmt *>(stmt->getElseBody())) {
+            return executeBlock(block);
+        }
+        return executeStatement(stmt->getElseBody());
+    }
+    return {ExecState::Running, "", StepResult::None, {}};
 }
 
 // ============================================================
@@ -528,6 +577,27 @@ DAPValue DAPInterpreter::evaluateExpr(const Expr *expr) {
     case NK::GroupExpr:
         return evaluateExpr(
             static_cast<const GroupExpr *>(expr)->getExpr());
+    case NK::MatchExpr: {
+        auto *me = static_cast<const MatchExpr *>(expr);
+        auto subject = evaluateExpr(me->getSubject());
+        for (const auto &arm : me->getArms()) {
+            // Bind pattern variable if present
+            if (!arm.bindings.empty()) {
+                setVariable(arm.bindings[0], subject);
+            }
+            // Check guard condition
+            if (arm.guard) {
+                auto guardVal = evaluateExpr(arm.guard.get());
+                if (!guardVal.isTruthy()) continue;
+            }
+            // Wildcard "_" or matching pattern
+            if (arm.pattern == "_" || !arm.bindings.empty()) {
+                auto result = evaluateExpr(arm.body.get());
+                return result;
+            }
+        }
+        return DAPValue::makeNil();
+    }
     case NK::RangeExpr: {
         auto *re = static_cast<const RangeExpr *>(expr);
         auto startVal = evaluateExpr(re->getStart());
@@ -732,12 +802,15 @@ DAPValue DAPInterpreter::evaluateUnaryExpr(const UnaryExpr *expr) {
 }
 
 DAPValue DAPInterpreter::evaluateCallExpr(const CallExpr *expr) {
+    // Check if this is a method call (member.method(args))
+    if (auto *member = dynamic_cast<const MemberExpr *>(expr->getCallee())) {
+        return evaluateMethodCall(member, expr);
+    }
+
     // Get function name
     std::string funcName;
     if (auto *id = dynamic_cast<const IdentifierExpr *>(expr->getCallee())) {
         funcName = id->getName();
-    } else if (auto *member = dynamic_cast<const MemberExpr *>(expr->getCallee())) {
-        funcName = member->getMember();
     }
 
     // Evaluate arguments
@@ -753,65 +826,220 @@ DAPValue DAPInterpreter::evaluateCallExpr(const CallExpr *expr) {
 
     // Look up user function
     auto it = functions_.find(funcName);
-    if (it == functions_.end()) {
-        // Try struct constructor
-        auto sit = structs_.find(funcName);
-        if (sit != structs_.end()) {
-            std::map<std::string, DAPValue> fields;
-            const auto &fieldDecls = sit->second->getFields();
-            for (size_t i = 0; i < fieldDecls.size() && i < argVals.size(); ++i) {
-                fields[fieldDecls[i]->getName()] = std::move(argVals[i]);
-            }
-            return DAPValue::makeStruct(funcName, std::move(fields));
+    if (it != functions_.end()) {
+        const FuncDecl *func = it->second;
+        if (!func->hasBody()) return DAPValue::makeNil();
+
+        CallFrame frame;
+        frame.functionName = funcName;
+        frame.funcDecl = func;
+        frame.frameId = nextFrameId_++;
+        frame.location = func->getBody()->getStartLoc();
+        frame.currentBlock = func->getBody();
+        frame.stmtIndex = 0;
+
+        const auto &params = func->getParams();
+        for (size_t i = 0; i < params.size() && i < argVals.size(); ++i) {
+            frame.locals[params[i].name] = std::move(argVals[i]);
         }
-        // Try class constructor
-        auto cit = classes_.find(funcName);
-        if (cit != classes_.end()) {
-            std::map<std::string, DAPValue> fields;
-            const auto classFields = cit->second->getFields();
-            for (size_t i = 0; i < classFields.size() && i < argVals.size(); ++i) {
-                fields[classFields[i]->getName()] = std::move(argVals[i]);
-            }
-            return DAPValue::makeStruct(funcName, std::move(fields));
+
+        callStack_.push_back(std::move(frame));
+        auto result = executeBlock(func->getBody());
+
+        DAPValue retVal;
+        if (result.signal == StepResult::Return) {
+            retVal = std::move(result.returnValue);
         }
-        return DAPValue::makeNil();
+        if (result.state == ExecState::Paused) {
+            return DAPValue::makeNil();
+        }
+        callStack_.pop_back();
+        return retVal;
     }
 
-    const FuncDecl *func = it->second;
-    if (!func->hasBody()) return DAPValue::makeNil();
+    // Try struct constructor
+    auto sit = structs_.find(funcName);
+    if (sit != structs_.end()) {
+        std::map<std::string, DAPValue> fields;
+        const auto &fieldDecls = sit->second->getFields();
+        for (size_t i = 0; i < fieldDecls.size() && i < argVals.size(); ++i) {
+            fields[fieldDecls[i]->getName()] = std::move(argVals[i]);
+        }
+        return DAPValue::makeStruct(funcName, std::move(fields));
+    }
+    // Try class constructor
+    auto cit = classes_.find(funcName);
+    if (cit != classes_.end()) {
+        std::map<std::string, DAPValue> fields;
+        const auto classFields = cit->second->getFields();
+        for (size_t i = 0; i < classFields.size() && i < argVals.size(); ++i) {
+            fields[classFields[i]->getName()] = std::move(argVals[i]);
+        }
+        return DAPValue::makeStruct(funcName, std::move(fields));
+    }
+    return DAPValue::makeNil();
+}
 
-    // Create call frame
-    CallFrame frame;
-    frame.functionName = funcName;
-    frame.funcDecl = func;
-    frame.frameId = nextFrameId_++;
-    frame.location = func->getBody()->getStartLoc();
-    frame.currentBlock = func->getBody();
-    frame.stmtIndex = 0;
+DAPValue DAPInterpreter::evaluateMethodCall(const MemberExpr *member,
+                                             const CallExpr *call) {
+    const std::string &methodName = member->getMember();
 
-    // Bind parameters
-    const auto &params = func->getParams();
-    for (size_t i = 0; i < params.size() && i < argVals.size(); ++i) {
-        frame.locals[params[i].name] = std::move(argVals[i]);
+    // Evaluate arguments
+    std::vector<DAPValue> argVals;
+    for (const auto &arg : call->getArgs()) {
+        argVals.push_back(evaluateExpr(arg.get()));
     }
 
-    callStack_.push_back(std::move(frame));
+    // Check if callee object is a type name (static method): Student.new(...)
+    if (auto *objId = dynamic_cast<const IdentifierExpr *>(member->getObject())) {
+        const std::string &objName = objId->getName();
 
-    // Execute the function body
-    auto result = executeBlock(func->getBody());
+        // Check if objName is a struct/class type → static method call
+        auto implIt = implMethods_.find(objName);
+        if (implIt != implMethods_.end()) {
+            auto methIt = implIt->second.find(methodName);
+            if (methIt != implIt->second.end()) {
+                const FuncDecl *func = methIt->second;
+                if (!func->isMethod() && func->hasBody()) {
+                    // Static method: no self parameter
+                    CallFrame frame;
+                    frame.functionName = objName + "." + methodName;
+                    frame.funcDecl = func;
+                    frame.frameId = nextFrameId_++;
+                    frame.location = func->getBody()->getStartLoc();
+                    frame.currentBlock = func->getBody();
+                    frame.stmtIndex = 0;
 
-    DAPValue retVal;
-    if (result.signal == StepResult::Return) {
-        retVal = std::move(result.returnValue);
+                    const auto &params = func->getParams();
+                    for (size_t i = 0; i < params.size() && i < argVals.size(); ++i) {
+                        frame.locals[params[i].name] = std::move(argVals[i]);
+                    }
+
+                    callStack_.push_back(std::move(frame));
+                    auto result = executeBlock(func->getBody());
+
+                    DAPValue retVal;
+                    if (result.signal == StepResult::Return) {
+                        retVal = std::move(result.returnValue);
+                    }
+                    if (result.state == ExecState::Paused) {
+                        return DAPValue::makeNil();
+                    }
+                    callStack_.pop_back();
+                    return retVal;
+                }
+            }
+        }
+
+        // If objName is a variable (not a type), fall through to instance method
+        // Check if it's actually a variable
+        bool isVariable = false;
+        for (auto it = callStack_.rbegin(); it != callStack_.rend(); ++it) {
+            if (it->locals.count(objName)) { isVariable = true; break; }
+        }
+
+        if (isVariable) {
+            auto &obj = lookupVariable(objName);
+
+            // Array built-in methods: push, pop, etc.
+            if (obj.kind == DAPValue::Array) {
+                if (methodName == "push" && !argVals.empty()) {
+                    obj.arrayVal.push_back(std::move(argVals[0]));
+                    return DAPValue::makeNil();
+                }
+                if (methodName == "pop" && !obj.arrayVal.empty()) {
+                    auto val = std::move(obj.arrayVal.back());
+                    obj.arrayVal.pop_back();
+                    return val;
+                }
+                return DAPValue::makeNil();
+            }
+
+            // Instance method on struct: student.addGrade(92.5)
+            if (obj.kind == DAPValue::Struct) {
+                auto implIt2 = implMethods_.find(obj.structTypeName);
+                if (implIt2 != implMethods_.end()) {
+                    auto methIt2 = implIt2->second.find(methodName);
+                    if (methIt2 != implIt2->second.end()) {
+                        const FuncDecl *func = methIt2->second;
+                        if (func->isMethod() && func->hasBody()) {
+                            CallFrame frame;
+                            frame.functionName = obj.structTypeName + "." + methodName;
+                            frame.funcDecl = func;
+                            frame.frameId = nextFrameId_++;
+                            frame.location = func->getBody()->getStartLoc();
+                            frame.currentBlock = func->getBody();
+                            frame.stmtIndex = 0;
+
+                            // Bind self as a copy; we'll write back after
+                            frame.locals["self"] = obj;
+
+                            // Bind remaining params (skip self param)
+                            const auto &params = func->getParams();
+                            size_t argIdx = 0;
+                            for (size_t i = 0; i < params.size(); ++i) {
+                                if (params[i].isSelf) continue;
+                                if (argIdx < argVals.size()) {
+                                    frame.locals[params[i].name] = std::move(argVals[argIdx++]);
+                                }
+                            }
+
+                            bool isMutSelf = !params.empty() && params[0].isSelf && params[0].isMutRef;
+                            callStack_.push_back(std::move(frame));
+                            auto result = executeBlock(func->getBody());
+
+                            DAPValue retVal;
+                            if (result.signal == StepResult::Return) {
+                                retVal = std::move(result.returnValue);
+                            }
+                            if (result.state == ExecState::Paused) {
+                                return DAPValue::makeNil();
+                            }
+
+                            // Write back self for ref mut self methods
+                            if (isMutSelf) {
+                                auto &selfVal = callStack_.back().locals["self"];
+                                obj = std::move(selfVal);
+                            }
+
+                            callStack_.pop_back();
+                            return retVal;
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    // If paused inside the function, don't pop frame yet
-    if (result.state == ExecState::Paused) {
-        return DAPValue::makeNil(); // Will be resumed later
+    // Chained member method: student.grades.push(val)
+    // Evaluate the object and try array methods
+    auto obj = evaluateExpr(member->getObject());
+    if (obj.kind == DAPValue::Array) {
+        if (methodName == "push" && !argVals.empty()) {
+            // For chained access we need to modify through the original variable
+            // Try to handle common case: var.field.push(val)
+            if (auto *innerMember = dynamic_cast<const MemberExpr *>(member->getObject())) {
+                if (auto *baseId = dynamic_cast<const IdentifierExpr *>(innerMember->getObject())) {
+                    auto &baseObj = lookupVariable(baseId->getName());
+                    if (baseObj.kind == DAPValue::Struct) {
+                        auto fIt = baseObj.structVal.find(innerMember->getMember());
+                        if (fIt != baseObj.structVal.end() && fIt->second.kind == DAPValue::Array) {
+                            fIt->second.arrayVal.push_back(std::move(argVals[0]));
+                            return DAPValue::makeNil();
+                        }
+                    }
+                }
+            }
+            return DAPValue::makeNil();
+        }
     }
 
-    callStack_.pop_back();
-    return retVal;
+    // Built-in function fallback
+    if (isBuiltin(methodName)) {
+        return callBuiltin(methodName, argVals);
+    }
+
+    return DAPValue::makeNil();
 }
 
 DAPValue DAPInterpreter::evaluateMemberExpr(const MemberExpr *expr) {
@@ -826,6 +1054,8 @@ DAPValue DAPInterpreter::evaluateMemberExpr(const MemberExpr *expr) {
     if (obj.kind == DAPValue::Array) {
         if (member == "length" || member == "count")
             return DAPValue::makeInt(static_cast<int64_t>(obj.arrayVal.size()));
+        if (member == "isEmpty")
+            return DAPValue::makeBool(obj.arrayVal.empty());
     }
     if (obj.kind == DAPValue::String) {
         if (member == "length")
@@ -958,7 +1188,7 @@ void DAPInterpreter::setVariable(const std::string &name, DAPValue val) {
 bool DAPInterpreter::isBuiltin(const std::string &name) const {
     static const std::set<std::string> builtins = {
         "println", "print", "toString", "toInt", "toFloat",
-        "len", "push", "pop", "abs", "min", "max"
+        "len", "push", "pop", "abs", "min", "max", "round"
     };
     return builtins.count(name) > 0;
 }
@@ -991,8 +1221,12 @@ DAPValue DAPInterpreter::callBuiltin(const std::string &name,
         return DAPValue::makeNil();
     }
     if (name == "toString") {
-        if (!args.empty())
+        if (!args.empty()) {
+            // For strings, return the value directly (no quotes)
+            if (args[0].kind == DAPValue::String)
+                return args[0];
             return DAPValue::makeString(args[0].display());
+        }
         return DAPValue::makeString("");
     }
     if (name == "toInt") {
@@ -1078,6 +1312,18 @@ DAPValue DAPInterpreter::callBuiltin(const std::string &name,
             }
         }
         return DAPValue::makeNil();
+    }
+    if (name == "round") {
+        if (!args.empty()) {
+            double val = args[0].kind == DAPValue::Float ? args[0].floatVal
+                                                          : static_cast<double>(args[0].intVal);
+            int decimals = 0;
+            if (args.size() >= 2 && args[1].kind == DAPValue::Integer)
+                decimals = static_cast<int>(args[1].intVal);
+            double factor = std::pow(10.0, decimals);
+            return DAPValue::makeFloat(std::round(val * factor) / factor);
+        }
+        return DAPValue::makeFloat(0.0);
     }
     return DAPValue::makeNil();
 }

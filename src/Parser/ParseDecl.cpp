@@ -839,7 +839,6 @@ std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
 }
 
 std::vector<std::unique_ptr<FuncDecl>> Parser::parseExternBlock(bool isPublic) {
-    auto startLoc = current_.getLocation();
     advance(); // consume 'extern'
 
     // Expect "C" string literal

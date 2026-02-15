@@ -409,6 +409,9 @@ private:
     /// Called when a struct var goes out of scope without implementing Drop
     void emitStructFieldCleanup(const std::string &varName, const std::string &structTypeName);
 
+    /// If the field at `idx` in `structName` is a string, wrap `val` with liva_str_dup
+    llvm::Value *dupIfStringField(const std::string &structName, int idx, llvm::Value *val);
+
     /// Track File-typed variables (opaque ptr = FILE*)
     std::set<std::string> varFileTypes_;
 
