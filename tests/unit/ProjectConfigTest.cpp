@@ -9,6 +9,8 @@
 #include <chrono>
 #include <cstdio>
 #include <fstream>
+#include <map>
+#include <set>
 #include <thread>
 #include <gtest/gtest.h>
 
@@ -1316,6 +1318,8 @@ TEST_F(BuildCacheTest, StoreFileObjectRoundTrip) {
     EXPECT_FALSE(statuses[0].cachedObjPath.empty());
 
     // Modify the source file → hash changes → recompile needed
+    // Sleep to ensure mtime changes (mtime fast-path skips hash if mtime matches)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
     writeFile(file1, "func foo() { return 42 }\n");
     auto statuses2 = cache.checkFilesCache({file1}, 2, true);
     ASSERT_EQ(statuses2.size(), 1u);
@@ -2399,4 +2403,717 @@ TEST_F(BuildCacheTest, GetFileModTimeExistingFile) {
 TEST_F(BuildCacheTest, GetFileModTimeNonExistent) {
     int64_t mtime = liva::getFileModTime("nonexistent_file_xyz.txt");
     EXPECT_EQ(mtime, 0);
+}
+
+// ============================================================
+// Mock HTTP Infrastructure for PackageManager Remote Tests
+// ============================================================
+
+namespace {
+
+struct MockHttp {
+    static std::map<std::string, std::string> responses;   // URL → HTTP response body
+    static std::map<std::string, std::string> downloads;   // URL → file content to write
+    static std::vector<std::string> requestLog;             // all HTTP request URLs
+
+    static std::string mockHttpGet(const std::string &url) {
+        requestLog.push_back("GET " + url);
+        auto it = responses.find(url);
+        if (it != responses.end()) return it->second;
+        return "";
+    }
+
+    static bool mockDownloadFile(const std::string &url, const std::string &destPath) {
+        requestLog.push_back("DOWNLOAD " + url);
+        auto it = downloads.find(url);
+        if (it == downloads.end()) return false;
+        std::ofstream f(destPath, std::ios::binary);
+        if (!f.is_open()) return false;
+        f << it->second;
+        return true;
+    }
+
+    static int mockExtractTar(const std::string &tarPath, const std::string &destDir) {
+        requestLog.push_back("EXTRACT " + tarPath);
+        // Read tar content (it's just mock data) and create a liva.toml from it
+        std::ifstream f(tarPath, std::ios::binary);
+        if (!f.is_open()) return 1;
+        std::stringstream ss;
+        ss << f.rdbuf();
+        std::string content = ss.str();
+        // If content looks like TOML, write it as liva.toml
+        if (content.find("[project]") != std::string::npos) {
+            std::string tomlPath = destDir + "/liva.toml";
+            std::ofstream out(tomlPath);
+            if (out.is_open()) out << content;
+            // Also create src/ dir
+            liva::createDirectories(destDir + "/src");
+        }
+        return 0;
+    }
+
+    static void reset() {
+        responses.clear();
+        downloads.clear();
+        requestLog.clear();
+    }
+};
+
+std::map<std::string, std::string> MockHttp::responses;
+std::map<std::string, std::string> MockHttp::downloads;
+std::vector<std::string> MockHttp::requestLog;
+
+} // anonymous namespace
+
+class PackageManagerRemoteTest : public BuildCacheTest {
+protected:
+    void SetUp() override {
+        BuildCacheTest::SetUp();
+        MockHttp::reset();
+        liva::PackageManager::httpGetFn = MockHttp::mockHttpGet;
+        liva::PackageManager::downloadFileFn = MockHttp::mockDownloadFile;
+        liva::PackageManager::extractTarFn = MockHttp::mockExtractTar;
+    }
+
+    void TearDown() override {
+        liva::PackageManager::resetHttpHooks();
+        MockHttp::reset();
+        BuildCacheTest::TearDown();
+    }
+
+    std::string checksumOf(const std::string &data) {
+        return "sha256:" + liva::PackageManager::sha256(data);
+    }
+
+    // Setup mock registry responses for a package
+    void setupRegistryPackage(const std::string &name,
+                              const std::string &version,
+                              const std::string &registryUrl,
+                              const std::string &tarContent = "",
+                              const std::string &deps = "") {
+        // Version list response
+        std::string listUrl = registryUrl + "/packages/" + name;
+        MockHttp::responses[listUrl] = R"({"versions":[")" + version + R"("]})";
+
+        // Package info response
+        std::string infoUrl = registryUrl + "/packages/" + name + "/" + version;
+        std::string downloadUrl = registryUrl + "/dl/" + name + "-" + version + ".tar.gz";
+        std::string content = tarContent.empty()
+            ? "[project]\nname = \"" + name + "\"\nversion = \"" + version + "\"\n"
+            : tarContent;
+        std::string cs = checksumOf(content);
+        std::string depsJson = deps.empty() ? "{}" : deps;
+        MockHttp::responses[infoUrl] =
+            R"({"name":")" + name + R"(","version":")" + version +
+            R"(","url":")" + downloadUrl +
+            R"(","checksum":")" + cs +
+            R"(","dependencies":)" + depsJson + R"(})";
+
+        // Download response
+        MockHttp::downloads[downloadUrl] = content;
+    }
+
+    // Setup multiple versions for a package
+    void setupRegistryVersions(const std::string &name,
+                               const std::vector<std::string> &versions,
+                               const std::string &registryUrl) {
+        std::string listUrl = registryUrl + "/packages/" + name;
+        std::string json = R"({"versions":[)";
+        for (size_t i = 0; i < versions.size(); ++i) {
+            if (i > 0) json += ",";
+            json += "\"" + versions[i] + "\"";
+        }
+        json += "]}";
+        MockHttp::responses[listUrl] = json;
+
+        // Setup info for each version
+        for (const auto &ver : versions) {
+            std::string infoUrl = registryUrl + "/packages/" + name + "/" + ver;
+            std::string downloadUrl = registryUrl + "/dl/" + name + "-" + ver + ".tar.gz";
+            std::string content = "[project]\nname = \"" + name + "\"\nversion = \"" + ver + "\"\n";
+            std::string cs = checksumOf(content);
+            MockHttp::responses[infoUrl] =
+                R"({"name":")" + name + R"(","version":")" + ver +
+                R"(","url":")" + downloadUrl +
+                R"(","checksum":")" + cs + R"(","dependencies":{}})";
+            MockHttp::downloads[downloadUrl] = content;
+        }
+    }
+
+    void createLocalPackage(const std::string &name, const std::string &version) {
+        std::string pkgDir = liva::joinPath(testDir_, "packages/" + name);
+        liva::createDirectories(pkgDir + "/src");
+        std::ofstream f(pkgDir + "/liva.toml");
+        f << "[project]\nname = \"" << name << "\"\nversion = \"" << version << "\"\n";
+    }
+};
+
+// ============================================================
+// Group A: Registry Query + Version Selection (8 tests)
+// ============================================================
+
+TEST_F(PackageManagerRemoteTest, InstallSingleFromRegistryExactVersion) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryPackage("mylib", "1.0.0", reg);
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", "1.0.0");
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.name, "mylib");
+    EXPECT_EQ(result.version.toString(), "1.0.0");
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleFromRegistryBestVersion) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryVersions("mylib", {"1.0.0", "1.1.0", "2.0.0"}, reg);
+    liva::PackageManager pm(testDir_, reg);
+    // Default (any version) → should pick highest = 2.0.0
+    auto result = pm.installSingle("mylib", "");
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.version.toString(), "2.0.0");
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleFromRegistryMinimumConstraint) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryVersions("mylib", {"1.0.0", "2.0.0", "3.0.0"}, reg);
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", ">=2.0.0");
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.version.toString(), "3.0.0");
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleFromRegistryRangeConstraint) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryVersions("mylib", {"1.0.0", "1.5.0", "2.0.0", "3.0.0"}, reg);
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", ">=1.0.0,<2.0.0");
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.version.toString(), "1.5.0");
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleRegistryNoMatchingVersion) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryVersions("mylib", {"1.0.0", "1.1.0"}, reg);
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", ">=5.0.0");
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.errorMsg.empty());
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleRegistryEmptyVersionList) {
+    std::string reg = "https://registry.example.com";
+    MockHttp::responses[reg + "/packages/mylib"] = R"({"versions":[]})";
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", "");
+    EXPECT_FALSE(result.success);
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleRegistryHttpFailure) {
+    std::string reg = "https://registry.example.com";
+    // No responses configured → httpGet returns ""
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", "");
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.errorMsg.find("not found") != std::string::npos);
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleRegistryBadJson) {
+    std::string reg = "https://registry.example.com";
+    MockHttp::responses[reg + "/packages/mylib"] = "this is not json";
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", "");
+    EXPECT_FALSE(result.success);
+}
+
+// ============================================================
+// Group B: Checksum Verification — Production Critical (6 tests)
+// ============================================================
+
+TEST_F(PackageManagerRemoteTest, InstallSingleChecksumValid) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryPackage("mylib", "1.0.0", reg);
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("mylib", "1.0.0");
+    EXPECT_TRUE(result.success);
+    EXPECT_FALSE(result.checksum.empty());
+    EXPECT_TRUE(result.checksum.find("sha256:") == 0);
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleChecksumMismatch) {
+    std::string reg = "https://registry.example.com";
+    std::string name = "badpkg";
+    std::string version = "1.0.0";
+    std::string listUrl = reg + "/packages/" + name;
+    MockHttp::responses[listUrl] = R"({"versions":["1.0.0"]})";
+
+    std::string infoUrl = reg + "/packages/" + name + "/1.0.0";
+    std::string downloadUrl = reg + "/dl/" + name + "-1.0.0.tar.gz";
+    std::string content = "[project]\nname = \"badpkg\"\nversion = \"1.0.0\"\n";
+    // Provide a wrong checksum
+    MockHttp::responses[infoUrl] =
+        R"({"name":"badpkg","version":"1.0.0","url":")" + downloadUrl +
+        R"(","checksum":"sha256:0000000000000000000000000000000000000000000000000000000000000000","dependencies":{}})";
+    MockHttp::downloads[downloadUrl] = content;
+
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("badpkg", "1.0.0");
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.errorMsg.find("checksum mismatch") != std::string::npos);
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleChecksumEmptySkipsVerification) {
+    std::string reg = "https://registry.example.com";
+    std::string name = "nocs";
+    std::string version = "1.0.0";
+    std::string listUrl = reg + "/packages/" + name;
+    MockHttp::responses[listUrl] = R"({"versions":["1.0.0"]})";
+
+    std::string infoUrl = reg + "/packages/" + name + "/1.0.0";
+    std::string downloadUrl = reg + "/dl/" + name + "-1.0.0.tar.gz";
+    std::string content = "[project]\nname = \"nocs\"\nversion = \"1.0.0\"\n";
+    // Empty checksum — verification should be skipped
+    MockHttp::responses[infoUrl] =
+        R"({"name":"nocs","version":"1.0.0","url":")" + downloadUrl +
+        R"(","checksum":"","dependencies":{}})";
+    MockHttp::downloads[downloadUrl] = content;
+
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("nocs", "1.0.0");
+    EXPECT_TRUE(result.success);
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleDownloadFailure) {
+    std::string reg = "https://registry.example.com";
+    std::string name = "dlfail";
+    std::string listUrl = reg + "/packages/" + name;
+    MockHttp::responses[listUrl] = R"({"versions":["1.0.0"]})";
+
+    std::string infoUrl = reg + "/packages/" + name + "/1.0.0";
+    std::string downloadUrl = reg + "/dl/" + name + "-1.0.0.tar.gz";
+    MockHttp::responses[infoUrl] =
+        R"({"name":"dlfail","version":"1.0.0","url":")" + downloadUrl +
+        R"(","checksum":"sha256:abc","dependencies":{}})";
+    // No download entry → download fails
+
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("dlfail", "1.0.0");
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.errorMsg.find("failed to download") != std::string::npos);
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleNoDownloadUrl) {
+    std::string reg = "https://registry.example.com";
+    std::string name = "nourl";
+    std::string listUrl = reg + "/packages/" + name;
+    MockHttp::responses[listUrl] = R"({"versions":["1.0.0"]})";
+
+    std::string infoUrl = reg + "/packages/" + name + "/1.0.0";
+    MockHttp::responses[infoUrl] =
+        R"({"name":"nourl","version":"1.0.0","url":"","checksum":"","dependencies":{}})";
+
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("nourl", "1.0.0");
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.errorMsg.find("no download URL") != std::string::npos);
+}
+
+TEST_F(PackageManagerRemoteTest, ChecksumMismatchErrorMessageDetailed) {
+    std::string reg = "https://registry.example.com";
+    std::string name = "csdetail";
+    std::string listUrl = reg + "/packages/" + name;
+    MockHttp::responses[listUrl] = R"({"versions":["1.0.0"]})";
+
+    std::string downloadUrl = reg + "/dl/" + name + "-1.0.0.tar.gz";
+    std::string content = "[project]\nname = \"csdetail\"\nversion = \"1.0.0\"\n";
+    std::string wrongHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    MockHttp::responses[reg + "/packages/" + name + "/1.0.0"] =
+        R"({"name":"csdetail","version":"1.0.0","url":")" + downloadUrl +
+        R"(","checksum":")" + wrongHash + R"(","dependencies":{}})";
+    MockHttp::downloads[downloadUrl] = content;
+
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("csdetail", "1.0.0");
+    EXPECT_FALSE(result.success);
+    // Should include both expected and got
+    EXPECT_TRUE(result.errorMsg.find("expected") != std::string::npos ||
+                result.errorMsg.find("sha256:") != std::string::npos);
+    EXPECT_TRUE(result.errorMsg.find("got") != std::string::npos ||
+                result.errorMsg.find("mismatch") != std::string::npos);
+}
+
+// ============================================================
+// Group C: Dependency Tree + Registry Fallback (6 tests)
+// ============================================================
+
+TEST_F(PackageManagerRemoteTest, ResolveAndInstallRegistryFallback) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryPackage("remotepkg", "1.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    std::vector<liva::PackageDep> deps;
+    liva::PackageDep dep;
+    dep.name = "remotepkg";
+    dep.constraint.kind = liva::VersionConstraint::Minimum;
+    dep.constraint.min = {0, 0, 0};
+    deps.push_back(dep);
+
+    auto result = pm.resolveAndInstall(deps);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.packages.size(), 1u);
+    EXPECT_EQ(result.packages[0].name, "remotepkg");
+}
+
+TEST_F(PackageManagerRemoteTest, ResolveAndInstallTransitiveDepsFromRegistry) {
+    std::string reg = "https://registry.example.com";
+
+    // "parent" depends on "child"
+    std::string parentDeps = R"({"child":">=1.0.0"})";
+    setupRegistryPackage("parent", "1.0.0", reg, "", parentDeps);
+    setupRegistryPackage("child", "1.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    std::vector<liva::PackageDep> deps;
+    liva::PackageDep dep;
+    dep.name = "parent";
+    dep.constraint.kind = liva::VersionConstraint::Minimum;
+    dep.constraint.min = {0, 0, 0};
+    deps.push_back(dep);
+
+    auto result = pm.resolveAndInstall(deps);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.packages.size(), 2u);
+}
+
+TEST_F(PackageManagerRemoteTest, ResolveAndInstallCircularDepsHandledGracefully) {
+    std::string reg = "https://registry.example.com";
+
+    // "a" depends on "b", "b" depends on "a"
+    // Circular deps are handled gracefully: "a" is resolved first, then "b",
+    // then "b"'s dep "a" is skipped via "already resolved" check.
+    setupRegistryPackage("a", "1.0.0", reg, "", R"({"b":">=1.0.0"})");
+    setupRegistryPackage("b", "1.0.0", reg, "", R"({"a":">=1.0.0"})");
+
+    liva::PackageManager pm(testDir_, reg);
+    std::vector<liva::PackageDep> deps;
+    liva::PackageDep dep;
+    dep.name = "a";
+    dep.constraint.kind = liva::VersionConstraint::Minimum;
+    dep.constraint.min = {0, 0, 0};
+    deps.push_back(dep);
+
+    auto result = pm.resolveAndInstall(deps);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.packages.size(), 2u);
+}
+
+TEST_F(PackageManagerRemoteTest, ResolveAndInstallMixedLocalRemote) {
+    std::string reg = "https://registry.example.com";
+
+    // Local package
+    createLocalPackage("localpkg", "1.0.0");
+    // Remote package
+    setupRegistryPackage("remotepkg", "2.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    std::vector<liva::PackageDep> deps;
+    {
+        liva::PackageDep d;
+        d.name = "localpkg";
+        d.constraint.kind = liva::VersionConstraint::Minimum;
+        d.constraint.min = {0, 0, 0};
+        deps.push_back(d);
+    }
+    {
+        liva::PackageDep d;
+        d.name = "remotepkg";
+        d.constraint.kind = liva::VersionConstraint::Minimum;
+        d.constraint.min = {0, 0, 0};
+        deps.push_back(d);
+    }
+
+    auto result = pm.resolveAndInstall(deps);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.packages.size(), 2u);
+}
+
+TEST_F(PackageManagerRemoteTest, ResolveAndInstallMultipleRemote) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryPackage("pkg1", "1.0.0", reg);
+    setupRegistryPackage("pkg2", "2.0.0", reg);
+    setupRegistryPackage("pkg3", "3.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    std::vector<liva::PackageDep> deps;
+    for (const auto &name : {"pkg1", "pkg2", "pkg3"}) {
+        liva::PackageDep d;
+        d.name = name;
+        d.constraint.kind = liva::VersionConstraint::Minimum;
+        d.constraint.min = {0, 0, 0};
+        deps.push_back(d);
+    }
+
+    auto result = pm.resolveAndInstall(deps);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.packages.size(), 3u);
+}
+
+TEST_F(PackageManagerRemoteTest, ResolveAndInstallLocalFirst) {
+    std::string reg = "https://registry.example.com";
+
+    // Both local and remote exist
+    createLocalPackage("mypkg", "1.0.0");
+    setupRegistryPackage("mypkg", "2.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    std::vector<liva::PackageDep> deps;
+    liva::PackageDep d;
+    d.name = "mypkg";
+    d.constraint.kind = liva::VersionConstraint::Minimum;
+    d.constraint.min = {0, 0, 0};
+    deps.push_back(d);
+
+    auto result = pm.resolveAndInstall(deps);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.packages.size(), 1u);
+    // Should use local version (1.0.0), not registry (2.0.0)
+    EXPECT_EQ(result.packages[0].version.toString(), "1.0.0");
+    // No HTTP GET for version list should have occurred for this package
+    bool hasRegistryCall = false;
+    for (const auto &log : MockHttp::requestLog) {
+        if (log.find("/packages/mypkg") != std::string::npos) {
+            hasRegistryCall = true;
+            break;
+        }
+    }
+    EXPECT_FALSE(hasRegistryCall);
+}
+
+// ============================================================
+// Group D: HTTP Request Validation (4 tests)
+// ============================================================
+
+TEST_F(PackageManagerRemoteTest, RequestsCorrectRegistryUrls) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryPackage("urltest", "1.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    pm.installSingle("urltest", "1.0.0");
+
+    // Should have made GET to version list and package info URLs
+    bool hasListUrl = false, hasInfoUrl = false;
+    for (const auto &log : MockHttp::requestLog) {
+        if (log.find("GET " + reg + "/packages/urltest") != std::string::npos &&
+            log.find("/1.0.0") == std::string::npos)
+            hasListUrl = true;
+        if (log.find("GET " + reg + "/packages/urltest/1.0.0") != std::string::npos)
+            hasInfoUrl = true;
+    }
+    EXPECT_TRUE(hasListUrl);
+    EXPECT_TRUE(hasInfoUrl);
+}
+
+TEST_F(PackageManagerRemoteTest, RegistryUrlTrailingSlashNormalized) {
+    std::string reg = "https://registry.example.com/";  // trailing slash
+    std::string normalizedReg = "https://registry.example.com";
+    setupRegistryPackage("slashtest", "1.0.0", normalizedReg);
+
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("slashtest", "1.0.0");
+    EXPECT_TRUE(result.success);
+}
+
+TEST_F(PackageManagerRemoteTest, NoHttpRequestsWhenNoRegistry) {
+    liva::PackageManager pm(testDir_, "");
+    auto result = pm.installSingle("nopkg", "");
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(MockHttp::requestLog.empty());
+}
+
+TEST_F(PackageManagerRemoteTest, InstallSingleAlreadyLocalSkipsRegistry) {
+    std::string reg = "https://registry.example.com";
+    createLocalPackage("localpkg", "1.0.0");
+    setupRegistryPackage("localpkg", "2.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    auto result = pm.installSingle("localpkg", "1.0.0");
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.version.toString(), "1.0.0");
+    // No HTTP requests should have been made
+    EXPECT_TRUE(MockHttp::requestLog.empty());
+}
+
+// ============================================================
+// Group E: JSON Parsing Edge Cases (4 tests)
+// ============================================================
+
+TEST_F(PackageManagerRemoteTest, ParseRegistryEntryWithDependencies) {
+    std::string json = R"({
+        "name": "mypkg",
+        "version": "1.2.3",
+        "url": "https://example.com/mypkg.tar.gz",
+        "checksum": "sha256:abc123",
+        "dependencies": {"dep1": ">=1.0.0", "dep2": "2.0.0"}
+    })";
+    liva::RegistryEntry entry;
+    EXPECT_TRUE(liva::PackageManager::parseRegistryEntry(json, entry));
+    EXPECT_EQ(entry.name, "mypkg");
+    EXPECT_EQ(entry.version.toString(), "1.2.3");
+    EXPECT_EQ(entry.downloadUrl, "https://example.com/mypkg.tar.gz");
+    EXPECT_EQ(entry.checksum, "sha256:abc123");
+    EXPECT_EQ(entry.dependencies.size(), 2u);
+}
+
+TEST_F(PackageManagerRemoteTest, ParseVersionListMultipleVersions) {
+    std::string json = R"({"versions":["1.0.0","2.0.0","3.0.0","1.5.0"]})";
+    auto versions = liva::PackageManager::parseVersionList(json);
+    EXPECT_EQ(versions.size(), 4u);
+    // Check all versions are present
+    EXPECT_EQ(versions[0], "1.0.0");
+    EXPECT_EQ(versions[1], "2.0.0");
+    EXPECT_EQ(versions[2], "3.0.0");
+    EXPECT_EQ(versions[3], "1.5.0");
+}
+
+TEST_F(PackageManagerRemoteTest, JsonGetObjectNestedValues) {
+    std::string json = R"({"dependencies":{"pkg1":">=1.0.0","pkg2":"2.0.0"}})";
+    auto obj = liva::json::getObject(json, "dependencies");
+    EXPECT_EQ(obj.size(), 2u);
+    EXPECT_EQ(obj["pkg1"], ">=1.0.0");
+    EXPECT_EQ(obj["pkg2"], "2.0.0");
+}
+
+TEST_F(PackageManagerRemoteTest, JsonHelperEmptyInputs) {
+    EXPECT_EQ(liva::json::getString("", "key"), "");
+    EXPECT_EQ(liva::json::getString("{}", "key"), "");
+    EXPECT_TRUE(liva::json::getStringArray("", "key").empty());
+    EXPECT_TRUE(liva::json::getObject("", "key").empty());
+
+    liva::RegistryEntry entry;
+    EXPECT_FALSE(liva::PackageManager::parseRegistryEntry("", entry));
+    EXPECT_FALSE(liva::PackageManager::parseRegistryEntry("{}", entry));
+    EXPECT_TRUE(liva::PackageManager::parseVersionList("").empty());
+    EXPECT_TRUE(liva::PackageManager::parseVersionList("{}").empty());
+}
+
+// ============================================================
+// Group F: End-to-End Flow (2 tests)
+// ============================================================
+
+TEST_F(PackageManagerRemoteTest, FullInstallFlowWithMockRegistry) {
+    std::string reg = "https://registry.example.com";
+    setupRegistryPackage("fulltest", "1.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+
+    // Install from registry
+    auto result = pm.installSingle("fulltest", "1.0.0");
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.name, "fulltest");
+    EXPECT_EQ(result.version.toString(), "1.0.0");
+    EXPECT_FALSE(result.checksum.empty());
+
+    // Verify local package exists now
+    std::string tomlPath = liva::joinPath(testDir_, "packages/fulltest/liva.toml");
+    std::ifstream f(tomlPath);
+    EXPECT_TRUE(f.is_open());
+
+    // Verify HTTP request log has expected entries
+    bool hasGet = false, hasDownload = false, hasExtract = false;
+    for (const auto &log : MockHttp::requestLog) {
+        if (log.find("GET") != std::string::npos) hasGet = true;
+        if (log.find("DOWNLOAD") != std::string::npos) hasDownload = true;
+        if (log.find("EXTRACT") != std::string::npos) hasExtract = true;
+    }
+    EXPECT_TRUE(hasGet);
+    EXPECT_TRUE(hasDownload);
+    EXPECT_TRUE(hasExtract);
+}
+
+TEST_F(PackageManagerRemoteTest, FullResolveAndInstallWithTransitiveDeps) {
+    std::string reg = "https://registry.example.com";
+
+    // "app" depends on "lib", "lib" depends on "core"
+    setupRegistryPackage("app", "1.0.0", reg, "", R"({"lib":">=1.0.0"})");
+    setupRegistryPackage("lib", "1.0.0", reg, "", R"({"core":">=1.0.0"})");
+    setupRegistryPackage("core", "1.0.0", reg);
+
+    liva::PackageManager pm(testDir_, reg);
+    std::vector<liva::PackageDep> deps;
+    liva::PackageDep dep;
+    dep.name = "app";
+    dep.constraint.kind = liva::VersionConstraint::Minimum;
+    dep.constraint.min = {0, 0, 0};
+    deps.push_back(dep);
+
+    auto result = pm.resolveAndInstall(deps);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.packages.size(), 3u);
+
+    // Check all 3 packages are resolved
+    std::set<std::string> names;
+    for (const auto &pkg : result.packages)
+        names.insert(pkg.name);
+    EXPECT_TRUE(names.count("app"));
+    EXPECT_TRUE(names.count("lib"));
+    EXPECT_TRUE(names.count("core"));
+}
+
+// ============================================================
+// removeDependencyFromToml Tests (5 tests)
+// ============================================================
+
+TEST_F(BuildCacheTest, RemoveDependencyFromToml) {
+    std::string tomlPath = liva::joinPath(testDir_, "liva.toml");
+    writeFile(tomlPath,
+        "[project]\nname = \"test\"\nversion = \"1.0.0\"\n\n"
+        "[dependencies]\nmylib = \"1.0.0\"\n");
+
+    EXPECT_TRUE(liva::removeDependencyFromToml(tomlPath, "mylib"));
+
+    std::ifstream f(tomlPath);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    std::string content = ss.str();
+    EXPECT_TRUE(content.find("mylib") == std::string::npos);
+    EXPECT_TRUE(content.find("[dependencies]") != std::string::npos);
+}
+
+TEST_F(BuildCacheTest, RemoveDependencyNotFound) {
+    std::string tomlPath = liva::joinPath(testDir_, "liva.toml");
+    writeFile(tomlPath,
+        "[project]\nname = \"test\"\nversion = \"1.0.0\"\n\n"
+        "[dependencies]\nmylib = \"1.0.0\"\n");
+
+    EXPECT_FALSE(liva::removeDependencyFromToml(tomlPath, "nonexistent"));
+}
+
+TEST_F(BuildCacheTest, RemoveDependencyPreservesOthers) {
+    std::string tomlPath = liva::joinPath(testDir_, "liva.toml");
+    writeFile(tomlPath,
+        "[project]\nname = \"test\"\nversion = \"1.0.0\"\n\n"
+        "[dependencies]\nfoo = \"1.0.0\"\nbar = \"2.0.0\"\nbaz = \"3.0.0\"\n");
+
+    EXPECT_TRUE(liva::removeDependencyFromToml(tomlPath, "bar"));
+
+    std::ifstream f(tomlPath);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    std::string content = ss.str();
+    EXPECT_TRUE(content.find("foo") != std::string::npos);
+    EXPECT_TRUE(content.find("bar") == std::string::npos);
+    EXPECT_TRUE(content.find("baz") != std::string::npos);
+}
+
+TEST_F(BuildCacheTest, RemoveDependencyFromEmptySection) {
+    std::string tomlPath = liva::joinPath(testDir_, "liva.toml");
+    writeFile(tomlPath,
+        "[project]\nname = \"test\"\nversion = \"1.0.0\"\n\n"
+        "[dependencies]\n");
+
+    EXPECT_FALSE(liva::removeDependencyFromToml(tomlPath, "anything"));
+}
+
+TEST(DriverOptionsTest, RemoveDefault) {
+    liva::DriverOptions opts;
+    EXPECT_TRUE(opts.removePkgName.empty());
+    EXPECT_EQ(opts.subcommand, liva::Subcommand::None);
 }

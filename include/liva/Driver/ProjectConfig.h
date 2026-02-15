@@ -147,6 +147,11 @@ bool addDependencyToToml(const std::string &tomlPath,
                          const std::string &pkgName,
                          const std::string &versionConstraint);
 
+/// Remove a dependency from liva.toml file.
+/// Returns true if the dependency was found and removed.
+bool removeDependencyFromToml(const std::string &tomlPath,
+                              const std::string &pkgName);
+
 // --- Path Utils ---
 std::string findProjectFile(const std::string &startDir);
 std::string getCurrentDirectory();

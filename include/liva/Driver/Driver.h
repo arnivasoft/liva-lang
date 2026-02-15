@@ -6,7 +6,7 @@
 
 namespace liva {
 
-enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean, Install, Fmt, Lint, Dap };
+enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean, Install, Remove, Fmt, Lint, Dap };
 
 /// Command-line options
 struct DriverOptions {
@@ -30,6 +30,7 @@ struct DriverOptions {
     std::string initName;
     std::string installPkgName;      // package name to install
     std::string installPkgVersion;   // optional version constraint (default: latest)
+    std::string removePkgName;       // package name to remove
     std::vector<std::string> fmtFiles;
     std::vector<std::string> lintFiles;
     bool fmtCheck = false;
@@ -65,6 +66,7 @@ private:
     int executeRepl();
     int executeClean();
     int executeInstall();
+    int executeRemove();
     int executeFmt();
     int executeLint();
     int executeDap();

@@ -97,6 +97,15 @@ bool Driver::parseArgs(int argc, const char **argv) {
                 ++startIdx;
             }
             return true;
+        } else if (std::strcmp(argv[1], "remove") == 0) {
+            options_.subcommand = Subcommand::Remove;
+            if (argc > 2 && argv[2][0] != '-') {
+                options_.removePkgName = argv[2];
+            } else {
+                std::cerr << "error: livac remove requires a package name\n";
+                return false;
+            }
+            return true;
         }
     }
 
@@ -272,6 +281,7 @@ int Driver::execute() {
     case Subcommand::Lsp:     return executeLsp();
     case Subcommand::Repl:    return executeRepl();
     case Subcommand::Install: return executeInstall();
+    case Subcommand::Remove:  return executeRemove();
     case Subcommand::Fmt:     return executeFmt();
     case Subcommand::Lint:    return executeLint();
     case Subcommand::Dap:     return executeDap();
@@ -994,6 +1004,72 @@ int Driver::executeInstall() {
     return 0;
 }
 
+int Driver::executeRemove() {
+    if (options_.removePkgName.empty()) {
+        std::cerr << "error: missing package name\n"
+                  << "usage: livac remove <package>\n";
+        return 1;
+    }
+
+    std::string cwd = getCurrentDirectory();
+    std::string tomlPath = findProjectFile(cwd);
+
+    if (tomlPath.empty()) {
+        std::cerr << "error: no liva.toml found — run 'livac init' first\n";
+        return 1;
+    }
+
+    std::string projectRoot = getDirectoryOf(tomlPath);
+
+    // Remove from liva.toml
+    if (!removeDependencyFromToml(tomlPath, options_.removePkgName)) {
+        std::cerr << "error: dependency '" << options_.removePkgName
+                  << "' not found in " << tomlPath << "\n";
+        return 1;
+    }
+
+    // Remove packages/{name} directory
+    std::string pkgDir = joinPath(projectRoot, "packages/" + options_.removePkgName);
+    if (fileExists(pkgDir))
+        removeDirectoryRecursive(pkgDir);
+
+    // Update lock file
+    {
+        std::ifstream f(tomlPath);
+        if (f.is_open()) {
+            std::stringstream ss;
+            ss << f.rdbuf();
+            auto pr = parseTOML(ss.str());
+            if (pr.success) {
+                auto allDeps = parseDependencies(pr.doc);
+                std::string packagesDir = joinPath(projectRoot, "packages");
+                auto resolution = resolvePackages(allDeps, packagesDir);
+                std::string lockPath = joinPath(projectRoot, "liva.lock");
+                if (resolution.success && !resolution.packages.empty()) {
+                    std::vector<LockFileEntry> lockEntries;
+                    for (const auto &pkg : resolution.packages) {
+                        LockFileEntry le;
+                        le.name = pkg.name;
+                        le.version = pkg.version.toString();
+                        lockEntries.push_back(le);
+                    }
+                    std::string lockContent = generateLockFile(
+                        resolution.packages, lockEntries);
+                    std::ofstream lockFile(lockPath);
+                    if (lockFile.is_open())
+                        lockFile << lockContent;
+                } else {
+                    // No more dependencies — remove lock file
+                    std::remove(lockPath.c_str());
+                }
+            }
+        }
+    }
+
+    std::cout << "Removed " << options_.removePkgName << "\n";
+    return 0;
+}
+
 int Driver::executeFmt() {
     int exitCode = 0;
     for (const auto &filePath : options_.fmtFiles) {
@@ -1222,6 +1298,7 @@ void Driver::printHelp() {
               << "  run                 Build and run project\n"
               << "  init [name]         Create a new Liva project\n"
               << "  install <pkg> [ver] Install a package from registry\n"
+              << "  remove <pkg>        Remove a package dependency\n"
               << "  clean               Remove build artifacts\n"
               << "  fmt [--check]       Format Liva source files\n"
               << "  lint                Lint Liva source files\n"

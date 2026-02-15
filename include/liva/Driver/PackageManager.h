@@ -28,6 +28,18 @@ struct InstallResult {
 /// Package manager: local + remote resolution, dependency tree, checksum
 class PackageManager {
 public:
+    // --- Hookable HTTP function pointers (for testing) ---
+    using HttpGetFn = std::string(*)(const std::string &url);
+    using DownloadFileFn = bool(*)(const std::string &url, const std::string &destPath);
+    using ExtractTarFn = int(*)(const std::string &tarPath, const std::string &destDir);
+
+    static HttpGetFn httpGetFn;
+    static DownloadFileFn downloadFileFn;
+    static ExtractTarFn extractTarFn;
+
+    /// Reset all HTTP hooks to default implementations
+    static void resetHttpHooks();
+
     PackageManager(const std::string &projectRoot,
                    const std::string &registryUrl);
 
@@ -83,12 +95,6 @@ private:
         std::unordered_set<std::string> &resolving,
         std::string &errorMsg);
 
-    /// HTTP GET returning response body (empty on failure)
-    static std::string httpGet(const std::string &url);
-
-    /// Download file from URL to local path
-    static bool downloadFile(const std::string &url,
-                             const std::string &destPath);
 };
 
 // --- Simple JSON helpers for registry responses ---

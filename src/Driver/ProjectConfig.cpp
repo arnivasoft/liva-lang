@@ -678,6 +678,78 @@ bool addDependencyToToml(const std::string &tomlPath,
     return true;
 }
 
+// === removeDependencyFromToml ===
+
+bool removeDependencyFromToml(const std::string &tomlPath,
+                              const std::string &pkgName) {
+    std::string content;
+    {
+        std::ifstream f(tomlPath);
+        if (!f.is_open()) return false;
+        std::stringstream ss;
+        ss << f.rdbuf();
+        content = ss.str();
+    }
+
+    std::string sectionHeader = "[dependencies]";
+    size_t secPos = content.find(sectionHeader);
+    if (secPos == std::string::npos) return false;
+
+    size_t afterHeader = secPos + sectionHeader.size();
+    if (afterHeader < content.size() && content[afterHeader] == '\r')
+        ++afterHeader;
+    if (afterHeader < content.size() && content[afterHeader] == '\n')
+        ++afterHeader;
+
+    size_t searchPos = afterHeader;
+    while (searchPos < content.size()) {
+        size_t lineEnd = content.find('\n', searchPos);
+        if (lineEnd == std::string::npos)
+            lineEnd = content.size();
+
+        std::string line = content.substr(searchPos, lineEnd - searchPos);
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
+        std::string trimmed = line;
+        size_t firstNonSpace = trimmed.find_first_not_of(" \t");
+        if (firstNonSpace != std::string::npos)
+            trimmed = trimmed.substr(firstNonSpace);
+
+        // Hit next section?
+        if (!trimmed.empty() && trimmed[0] == '[')
+            break;
+
+        // Check if this line is the target dependency
+        if (!trimmed.empty() && trimmed[0] != '#') {
+            size_t eqPos = trimmed.find('=');
+            if (eqPos != std::string::npos) {
+                std::string key = trimmed.substr(0, eqPos);
+                size_t kEnd = key.find_last_not_of(" \t");
+                if (kEnd != std::string::npos)
+                    key = key.substr(0, kEnd + 1);
+                size_t kStart = key.find_first_not_of(" \t");
+                if (kStart != std::string::npos)
+                    key = key.substr(kStart);
+
+                if (key == pkgName) {
+                    // Remove this line (including newline)
+                    size_t removeEnd = (lineEnd < content.size()) ? lineEnd + 1 : lineEnd;
+                    content = content.substr(0, searchPos) + content.substr(removeEnd);
+
+                    std::ofstream f(tomlPath);
+                    if (!f.is_open()) return false;
+                    f << content;
+                    return true;
+                }
+            }
+        }
+
+        searchPos = (lineEnd < content.size()) ? lineEnd + 1 : content.size();
+    }
+    return false;
+}
+
 // === Path Utilities ===
 
 std::string getCurrentDirectory() {

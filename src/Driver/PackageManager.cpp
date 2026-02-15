@@ -311,10 +311,12 @@ std::vector<std::string> PackageManager::parseVersionList(
 }
 
 // ============================================================
-// HTTP Helpers (via curl command)
+// HTTP Helpers (via curl command) — hookable for testing
 // ============================================================
 
-std::string PackageManager::httpGet(const std::string &url) {
+namespace {
+
+std::string defaultHttpGet(const std::string &url) {
     if (url.empty()) return "";
     std::string cmd = "curl -s --max-time 30 \"" + url + "\"";
     FILE *pipe = popen(cmd.c_str(), "r");
@@ -327,12 +329,29 @@ std::string PackageManager::httpGet(const std::string &url) {
     return result;
 }
 
-bool PackageManager::downloadFile(const std::string &url,
-                                   const std::string &destPath) {
+bool defaultDownloadFile(const std::string &url,
+                         const std::string &destPath) {
     if (url.empty() || destPath.empty()) return false;
     std::string cmd = "curl -s --max-time 120 -o \"" + destPath +
                       "\" \"" + url + "\"";
     return system(cmd.c_str()) == 0;
+}
+
+int defaultExtractTar(const std::string &tarPath, const std::string &destDir) {
+    std::string cmd = "tar xzf \"" + tarPath + "\" -C \"" + destDir + "\"";
+    return system(cmd.c_str());
+}
+
+} // anonymous namespace
+
+PackageManager::HttpGetFn PackageManager::httpGetFn = defaultHttpGet;
+PackageManager::DownloadFileFn PackageManager::downloadFileFn = defaultDownloadFile;
+PackageManager::ExtractTarFn PackageManager::extractTarFn = defaultExtractTar;
+
+void PackageManager::resetHttpHooks() {
+    httpGetFn = defaultHttpGet;
+    downloadFileFn = defaultDownloadFile;
+    extractTarFn = defaultExtractTar;
 }
 
 // ============================================================
@@ -390,7 +409,7 @@ bool PackageManager::queryRegistry(const PackageDep &dep,
 
     // 1. Get version list
     std::string listUrl = registryUrl_ + "/packages/" + dep.name;
-    std::string listJson = httpGet(listUrl);
+    std::string listJson = httpGetFn(listUrl);
     if (listJson.empty()) return false;
 
     auto versions = parseVersionList(listJson);
@@ -413,7 +432,7 @@ bool PackageManager::queryRegistry(const PackageDep &dep,
     // 3. Get package info for selected version
     std::string infoUrl = registryUrl_ + "/packages/" + dep.name +
                           "/" + bestVerStr;
-    std::string infoJson = httpGet(infoUrl);
+    std::string infoJson = httpGetFn(infoUrl);
     if (infoJson.empty()) return false;
 
     return parseRegistryEntry(infoJson, out);
@@ -436,7 +455,7 @@ bool PackageManager::installPackage(const RegistryEntry &entry,
     // Download to temp file
     std::string tempFile = packagesDir_ + "/" + entry.name + "-" +
                            entry.version.toString() + ".tar.gz";
-    if (!downloadFile(entry.downloadUrl, tempFile)) {
+    if (!downloadFileFn(entry.downloadUrl, tempFile)) {
         errorMsg = "failed to download package '" + entry.name + "'";
         return false;
     }
@@ -459,12 +478,10 @@ bool PackageManager::installPackage(const RegistryEntry &entry,
     std::string pkgDir = packagesDir_ + "/" + entry.name;
 #ifdef _WIN32
     _mkdir(pkgDir.c_str());
-    std::string extractCmd = "tar xzf \"" + tempFile + "\" -C \"" + pkgDir + "\"";
 #else
     mkdir(pkgDir.c_str(), 0755);
-    std::string extractCmd = "tar xzf \"" + tempFile + "\" -C \"" + pkgDir + "\"";
 #endif
-    int rc = system(extractCmd.c_str());
+    int rc = extractTarFn(tempFile, pkgDir);
     std::remove(tempFile.c_str());
 
     if (rc != 0) {
