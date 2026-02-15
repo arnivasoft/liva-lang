@@ -59,6 +59,7 @@ public:
     bool writeToFile(const std::string &filename);
 
     // Visitor methods
+    llvm::Value *visitClassDecl(ClassDecl *node);
     llvm::Value *visitFuncDecl(FuncDecl *node);
     llvm::Value *visitVarDecl(VarDecl *node);
     llvm::Value *visitStructDecl(StructDecl *node);
@@ -449,6 +450,18 @@ private:
 
     /// Track which variables are protocol trait objects: varName → protocolName
     std::unordered_map<std::string, std::string> varProtocolTypes_;
+
+    /// Class support
+    std::unordered_map<std::string, llvm::StructType *> classTypes_;
+    std::unordered_map<std::string, std::vector<std::string>> classFieldNames_;
+    std::unordered_map<std::string, std::vector<const TypeRepr *>> classFieldTypeReprs_;
+    std::unordered_map<std::string, std::string> classParent_;
+    std::unordered_map<std::string, std::string> varClassTypes_;
+    std::set<std::string> classNames_;
+    std::unordered_map<std::string, std::vector<std::string>> classVtableMethods_;
+    std::unordered_map<std::string, llvm::GlobalVariable *> classVtables_;
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> classMethodIndices_;
+    std::string currentClassContext_;
 
     /// Get or create a vtable for type conforming to protocol
     llvm::GlobalVariable *getOrCreateVtable(const std::string &protocolName,

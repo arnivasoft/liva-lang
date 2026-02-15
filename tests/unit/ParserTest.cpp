@@ -1373,23 +1373,15 @@ TEST_F(ParserTest, ForeignKeyword_Function) {
     EXPECT_TRUE(found);
 }
 
-TEST_F(ParserTest, ForeignKeyword_Class) {
+TEST_F(ParserTest, ClassDecl_Empty) {
     auto result = parse("class Foo {}");
-    EXPECT_TRUE(result.hasErrors);
-    bool found = false;
-    for (auto &d : result.diag.getDiagnostics()) {
-        if (d.id == DiagID::err_foreign_keyword &&
-            d.message.find("class") != std::string::npos &&
-            d.message.find("struct") != std::string::npos)
-            found = true;
-    }
-    EXPECT_TRUE(found);
-    bool foundNote = false;
-    for (auto &d : result.diag.getDiagnostics()) {
-        if (d.id == DiagID::note_use_struct_keyword)
-            foundNote = true;
-    }
-    EXPECT_TRUE(foundNote);
+    EXPECT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1u);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "Foo");
+    EXPECT_FALSE(cls->hasParentClass());
+    EXPECT_TRUE(cls->getMembers().empty());
 }
 
 TEST_F(ParserTest, ForeignKeyword_Trait) {
@@ -1445,4 +1437,225 @@ TEST_F(ParserTest, ForeignKeyword_RecoveryParsesBody) {
     EXPECT_EQ(func->getName(), "add");
     EXPECT_EQ(func->getParams().size(), 2);
     EXPECT_TRUE(func->hasBody());
+}
+
+// =============================================================================
+// Class Declaration Parser Tests
+// =============================================================================
+
+TEST_F(ParserTest, ClassDecl_WithFields) {
+    auto result = parse(R"--(
+        class Point {
+            var x: f64
+            var y: f64
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1u);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "Point");
+    auto fields = cls->getFields();
+    ASSERT_EQ(fields.size(), 2u);
+    EXPECT_EQ(fields[0]->getName(), "x");
+    EXPECT_EQ(fields[1]->getName(), "y");
+    EXPECT_TRUE(fields[0]->isMutable());
+}
+
+TEST_F(ParserTest, ClassDecl_WithInit) {
+    auto result = parse(R"--(
+        class Foo {
+            var x: i32
+            init(x: i32) {
+                self.x = x
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "Foo");
+    auto *initMethod = cls->getInit();
+    ASSERT_NE(initMethod, nullptr);
+    EXPECT_EQ(initMethod->getName(), "init");
+    EXPECT_TRUE(initMethod->hasBody());
+    // x param only (self is implicit)
+    EXPECT_EQ(initMethod->getParams().size(), 1u);
+}
+
+TEST_F(ParserTest, ClassDecl_WithDeinit) {
+    auto result = parse(R"--(
+        class Resource {
+            var handle: i32
+            deinit() {
+                println(self.handle)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    auto *deinitMethod = cls->getDeinit();
+    ASSERT_NE(deinitMethod, nullptr);
+    EXPECT_EQ(deinitMethod->getName(), "deinit");
+    EXPECT_TRUE(deinitMethod->hasBody());
+    EXPECT_EQ(deinitMethod->getParams().size(), 0u);
+}
+
+TEST_F(ParserTest, ClassDecl_WithMethods) {
+    auto result = parse(R"--(
+        class Calculator {
+            var value: i32
+            func add(n: i32) -> i32 {
+                return self.value + n
+            }
+            func reset() {
+                self.value = 0
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "Calculator");
+    auto methods = cls->getMethods();
+    ASSERT_EQ(methods.size(), 2u);
+    EXPECT_EQ(methods[0]->getName(), "add");
+    EXPECT_EQ(methods[1]->getName(), "reset");
+}
+
+TEST_F(ParserTest, ClassDecl_Inheritance) {
+    auto result = parse(R"--(
+        class Animal {
+            var name: string
+        }
+        class Dog : Animal {
+            var breed: string
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 2u);
+    auto *dog = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(dog, nullptr);
+    EXPECT_EQ(dog->getName(), "Dog");
+    EXPECT_TRUE(dog->hasParentClass());
+    EXPECT_EQ(dog->getParentClass(), "Animal");
+}
+
+TEST_F(ParserTest, ClassDecl_InheritanceWithProtocols) {
+    auto result = parse(R"--(
+        class Dog : Animal, Printable, Hashable {
+            var breed: string
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "Dog");
+    EXPECT_TRUE(cls->hasParentClass());
+    EXPECT_EQ(cls->getParentClass(), "Animal");
+    ASSERT_EQ(cls->getProtocols().size(), 2u);
+    EXPECT_EQ(cls->getProtocols()[0], "Printable");
+    EXPECT_EQ(cls->getProtocols()[1], "Hashable");
+}
+
+TEST_F(ParserTest, ClassDecl_OverrideMethod) {
+    auto result = parse(R"--(
+        class Animal {
+            func speak() {
+                println(0)
+            }
+        }
+        class Dog : Animal {
+            override func speak() {
+                println(1)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 2u);
+    auto *dog = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(dog, nullptr);
+    EXPECT_TRUE(dog->isOverride("speak"));
+}
+
+TEST_F(ParserTest, ClassDecl_PrivateField) {
+    auto result = parse(R"--(
+        class Account {
+            private var balance: i32
+            var name: string
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_TRUE(cls->isPrivate("balance"));
+    EXPECT_FALSE(cls->isPrivate("name"));
+}
+
+TEST_F(ParserTest, ClassDecl_Generic) {
+    auto result = parse(R"--(
+        class Box<T> {
+            var value: T
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "Box");
+    EXPECT_TRUE(cls->isGeneric());
+    ASSERT_EQ(cls->getTypeParams().size(), 1u);
+    EXPECT_EQ(cls->getTypeParams()[0], "T");
+}
+
+TEST_F(ParserTest, ClassDecl_PublicKeyword) {
+    auto result = parse("pub class Foo {}");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "Foo");
+    EXPECT_TRUE(cls->isPublic());
+}
+
+TEST_F(ParserTest, ClassDecl_InitAndDeinit) {
+    auto result = parse(R"--(
+        class ManagedResource {
+            var id: i32
+            init(id: i32) {
+                self.id = id
+            }
+            deinit() {
+                println(self.id)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_EQ(cls->getName(), "ManagedResource");
+    ASSERT_NE(cls->getInit(), nullptr);
+    ASSERT_NE(cls->getDeinit(), nullptr);
+    EXPECT_EQ(cls->getInit()->getName(), "init");
+    EXPECT_EQ(cls->getDeinit()->getName(), "deinit");
+    auto fields = cls->getFields();
+    ASSERT_EQ(fields.size(), 1u);
+    EXPECT_EQ(fields[0]->getName(), "id");
+}
+
+TEST_F(ParserTest, ClassDecl_LetField) {
+    auto result = parse(R"--(
+        class Config {
+            let name: string
+            var value: i32
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    auto fields = cls->getFields();
+    ASSERT_EQ(fields.size(), 2u);
+    EXPECT_EQ(fields[0]->getName(), "name");
+    EXPECT_FALSE(fields[0]->isMutable());
+    EXPECT_EQ(fields[1]->getName(), "value");
+    EXPECT_TRUE(fields[1]->isMutable());
 }

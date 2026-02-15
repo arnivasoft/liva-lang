@@ -31,6 +31,7 @@ public:
     std::unique_ptr<ImportDecl> parseImportDecl();
     std::unique_ptr<TypeAliasDecl> parseTypeAliasDecl(bool isPublic = false);
     std::unique_ptr<MacroDecl> parseMacroDecl(bool isPublic = false);
+    std::unique_ptr<ClassDecl> parseClassDecl(bool isPublic = false);
 
     // Statement parsing (ParseStmt.cpp)
     std::unique_ptr<ASTNode> parseStatement();
@@ -97,6 +98,7 @@ private:
     Lexer &lexer_;
     DiagnosticsEngine &diag_;
     Token current_;
+    bool inClassBody_ = false;
 };
 
 } // namespace liva

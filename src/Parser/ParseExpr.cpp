@@ -235,6 +235,12 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
         return std::make_unique<IdentifierExpr>("self", range);
     }
 
+    case TokenKind::kw_super: {
+        auto range = rangeFrom(startLoc);
+        advance();
+        return std::make_unique<IdentifierExpr>("super", range);
+    }
+
     case TokenKind::identifier: {
         std::string name(current_.getText());
         advance();
@@ -366,6 +372,14 @@ std::unique_ptr<Expr> Parser::parseMemberExpr(std::unique_ptr<Expr> object,
         advance();
         return std::make_unique<MemberExpr>(std::move(object),
             std::string(idx.getText()), rangeFrom(startLoc), isOptionalChain);
+    }
+
+    // Allow 'init' and 'deinit' keywords as member names (for super.init())
+    if (check(TokenKind::kw_init) || check(TokenKind::kw_deinit)) {
+        auto member = current_;
+        advance();
+        return std::make_unique<MemberExpr>(std::move(object),
+            std::string(member.getText()), rangeFrom(startLoc), isOptionalChain);
     }
 
     auto member = expect(TokenKind::identifier);

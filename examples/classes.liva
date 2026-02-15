@@ -1,0 +1,196 @@
+// Classes - Reference Types with Inheritance in Liva
+//
+// Classes are heap-allocated reference types with:
+// - Single inheritance (class Dog : Animal)
+// - Virtual method dispatch (vtable)
+// - Constructors (init) and destructors (deinit)
+// - Method override with 'override' keyword
+// - Access control (private fields)
+// - super keyword for parent access
+// - Implicit self in methods (no need to declare self parameter)
+
+// --- Base class: Animal ---
+class Animal {
+    var name: string
+    var age: i32
+
+    init(name: string, age: i32) {
+        self.name = name
+        self.age = age
+    }
+
+    deinit {
+        println(0)
+    }
+
+    func speak() -> string {
+        return "..."
+    }
+
+    func info() -> string {
+        return self.name
+    }
+}
+
+// --- Derived class: Dog (inherits from Animal) ---
+class Dog : Animal {
+    var breed: string
+
+    init(name: string, age: i32, breed: string) {
+        super.init(name, age)
+        self.breed = breed
+    }
+
+    override func speak() -> string {
+        return "Woof!"
+    }
+}
+
+// --- Derived class: Cat (inherits from Animal) ---
+class Cat : Animal {
+    var indoor: bool
+
+    init(name: string, age: i32, indoor: bool) {
+        super.init(name, age)
+        self.indoor = indoor
+    }
+
+    override func speak() -> string {
+        return "Meow!"
+    }
+}
+
+// --- Private fields and encapsulation ---
+class BankAccount {
+    private var balance: i32
+    var owner: string
+
+    init(owner: string, initial: i32) {
+        self.owner = owner
+        self.balance = initial
+    }
+
+    func getBalance() -> i32 {
+        return self.balance
+    }
+
+    func deposit(amount: i32) {
+        self.balance = self.balance + amount
+    }
+
+    func withdraw(amount: i32) -> bool {
+        if self.balance >= amount {
+            self.balance = self.balance - amount
+            return true
+        }
+        return false
+    }
+}
+
+// --- Deep inheritance chain ---
+class Vehicle {
+    var speed: i32
+
+    func describe() -> string {
+        return "Vehicle"
+    }
+}
+
+class Car : Vehicle {
+    var doors: i32
+
+    override func describe() -> string {
+        return "Car"
+    }
+}
+
+class ElectricCar : Car {
+    var battery: i32
+
+    override func describe() -> string {
+        return "ElectricCar"
+    }
+}
+
+// --- Protocol conformance with classes ---
+// Protocols define interfaces; classes conform directly in the declaration
+
+protocol Printable {
+    func toString(self) -> string
+}
+
+protocol Serializable {
+    func serialize(self) -> string
+}
+
+// class User : Printable, Serializable — conform to protocols directly
+class User : Printable, Serializable {
+    var name: string
+    var email: string
+
+    init(name: string, email: string) {
+        self.name = name
+        self.email = email
+    }
+
+    func toString() -> string {
+        return self.name
+    }
+
+    func serialize() -> string {
+        return self.email
+    }
+}
+
+// --- Class with init and deinit (resource management) ---
+class Connection {
+    var id: i32
+    var active: bool
+
+    init(id: i32) {
+        self.id = id
+        self.active = true
+    }
+
+    deinit {
+        self.active = false
+    }
+
+    func isActive() -> bool {
+        return self.active
+    }
+}
+
+func main() {
+    // Basic class instantiation
+    let dog = Dog("Rex", 5, "Labrador")
+    println(dog.speak())
+    println(dog.name)
+    println(dog.breed)
+
+    let cat = Cat("Whiskers", 3, true)
+    println(cat.speak())
+    println(cat.name)
+
+    // Encapsulation with private fields
+    let account = BankAccount("Alice", 1000)
+    println(account.getBalance())
+    account.deposit(500)
+    println(account.getBalance())
+    let ok = account.withdraw(200)
+    println(account.getBalance())
+
+    // Deep inheritance
+    let ev = ElectricCar()
+    println(ev.describe())
+
+    // Protocol conformance
+    let user = User("Bob", "bob@example.com")
+    println(user.toString())
+    println(user.serialize())
+
+    // Resource management with init/deinit
+    let conn = Connection(42)
+    println(conn.isActive())
+    println(conn.id)
+}

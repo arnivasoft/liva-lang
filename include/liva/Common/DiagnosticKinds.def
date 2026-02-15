@@ -103,6 +103,18 @@ DIAG(err_macro_no_matching_arm,    error, "no matching arm for macro '%0' invoca
 DIAG(err_macro_expansion_failed,   error, "macro expansion failed for '%0': %1")
 DIAG(err_macro_redefinition,       error, "redefinition of macro '%0'")
 
+// === Sema - Class ===
+DIAG(err_class_inherits_nonclass,    error,   "'%0' cannot inherit from '%1' which is not a class")
+DIAG(err_class_circular_inheritance, error,   "circular inheritance detected for class '%0'")
+DIAG(err_class_parent_not_found,     error,   "parent class '%0' not found")
+DIAG(err_class_override_no_parent_method, error, "method '%0' is marked override but does not override any method from parent class")
+DIAG(err_class_override_missing,     error,   "method '%0' overrides a parent method but is not marked 'override'")
+DIAG(err_class_override_signature,   error,   "override method '%0' has incompatible signature with parent method")
+DIAG(err_class_init_not_all_fields,  error,   "init must initialize all fields of class '%0'")
+DIAG(err_class_deinit_params,        error,   "deinit must only have 'self' parameter")
+DIAG(err_class_private_access,       error,   "cannot access private member '%0' of class '%1'")
+DIAG(err_class_duplicate_field,      error,   "class '%0' already has a field named '%1'")
+
 // === Parser - Error Recovery ===
 DIAG(err_too_many_errors,            error,   "too many errors emitted, stopping now")
 

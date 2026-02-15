@@ -21,6 +21,7 @@ public:
         ImportDecl,
         TypeAliasDecl,
         MacroDecl,
+        ClassDecl,
 
         // Statements
         ExprStmt,

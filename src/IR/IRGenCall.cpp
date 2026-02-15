@@ -1048,6 +1048,149 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 if (enIt != varEnumTypes_.end())
                     structTypeName = enIt->second;
             }
+
+            // Class instance method call (virtual dispatch)
+            auto clsIt = varClassTypes_.find(objName);
+            if (clsIt != varClassTypes_.end()) {
+                const std::string &clsTypeName = clsIt->second;
+                auto miIt = classMethodIndices_.find(clsTypeName);
+                if (miIt != classMethodIndices_.end()) {
+                    auto methodIt = miIt->second.find(methodName);
+                    if (methodIt != miIt->second.end()) {
+                        int methodIdx = methodIt->second;
+                        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                        auto ctIt = classTypes_.find(clsTypeName);
+                        auto *classTy = ctIt->second;
+
+                        // Load self
+                        llvm::Value *selfVal = objAlloca;
+                        if (objAlloca->getAllocatedType()->isPointerTy()) {
+                            selfVal = builder_->CreateLoad(ptrTy, objAlloca, "self.ptr");
+                        }
+
+                        // Load vtable ptr: gep(self, 0, 0)
+                        auto *vtableGEP = builder_->CreateStructGEP(
+                            classTy, selfVal, 0, "vtable.ptr.gep");
+                        auto *vtablePtrTy = llvm::ArrayType::get(ptrTy,
+                            classVtableMethods_[clsTypeName].size());
+                        auto *vtablePtr = builder_->CreateLoad(ptrTy, vtableGEP, "vtable.ptr");
+
+                        // Load method ptr from vtable: gep(vtable, methodIdx)
+                        auto *methodGEP = builder_->CreateGEP(
+                            vtablePtrTy, vtablePtr,
+                            {builder_->getInt32(0), builder_->getInt32(methodIdx)},
+                            "method.ptr.gep");
+                        auto *methodPtr = builder_->CreateLoad(ptrTy, methodGEP, "method.ptr");
+
+                        // Build args: self + user args
+                        std::vector<llvm::Value *> args;
+                        args.push_back(selfVal);
+                        for (auto &arg : node->getArgs()) {
+                            auto *val = visit(arg.get());
+                            if (!val) return nullptr;
+                            args.push_back(val);
+                        }
+
+                        // Build function type for indirect call
+                        std::vector<llvm::Type *> paramTypes;
+                        paramTypes.push_back(ptrTy); // self
+                        for (auto *a : args) {
+                            if (a != selfVal) paramTypes.push_back(a->getType());
+                        }
+
+                        // Find the mangled function to infer return type
+                        std::string mangledName = clsTypeName + "_" + methodName;
+                        auto *directFn = module_->getFunction(mangledName);
+                        llvm::Type *retTy = llvm::Type::getVoidTy(*context_);
+                        if (directFn) {
+                            retTy = directFn->getReturnType();
+                        }
+
+                        auto *funcTy = llvm::FunctionType::get(retTy, paramTypes, false);
+                        if (retTy->isVoidTy()) {
+                            builder_->CreateCall(funcTy, methodPtr, args);
+                            return nullptr;
+                        }
+                        return builder_->CreateCall(funcTy, methodPtr, args, "vcall");
+                    }
+                }
+                // Non-virtual direct method call
+                std::string mangledName = clsTypeName + "_" + methodName;
+                auto *callee = module_->getFunction(mangledName);
+                if (callee) {
+                    llvm::Value *selfVal = objAlloca;
+                    if (objAlloca->getAllocatedType()->isPointerTy()) {
+                        selfVal = builder_->CreateLoad(
+                            llvm::PointerType::getUnqual(*context_), objAlloca, "self.ptr");
+                    }
+                    std::vector<llvm::Value *> args;
+                    args.push_back(selfVal);
+                    for (auto &arg : node->getArgs()) {
+                        auto *val = visit(arg.get());
+                        if (!val) return nullptr;
+                        args.push_back(val);
+                    }
+                    if (callee->getReturnType()->isVoidTy()) {
+                        builder_->CreateCall(callee, args);
+                        return nullptr;
+                    }
+                    return builder_->CreateCall(callee, args, "mcall");
+                }
+            }
+
+            // super.method(args) → direct call to parent method
+            if (objName == "super" && !currentClassContext_.empty()) {
+                auto pit = classParent_.find(currentClassContext_);
+                if (pit != classParent_.end()) {
+                    // super.init(args) → call ParentName_init_fields(self, args)
+                    if (methodName == "init") {
+                        std::string parentInitFields = pit->second + "_init_fields";
+                        auto *parentFn = module_->getFunction(parentInitFields);
+                        if (parentFn) {
+                            auto selfIt = namedValues_.find("self");
+                            if (selfIt != namedValues_.end()) {
+                                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                                auto *selfVal = builder_->CreateLoad(
+                                    ptrTy, selfIt->second, "self.ptr");
+                                std::vector<llvm::Value *> args;
+                                args.push_back(selfVal);
+                                for (auto &arg : node->getArgs()) {
+                                    auto *val = visit(arg.get());
+                                    if (!val) return nullptr;
+                                    args.push_back(val);
+                                }
+                                builder_->CreateCall(parentFn, args);
+                                return nullptr;
+                            }
+                        }
+                    } else {
+                        // super.method(args) → direct call
+                        std::string parentMethod = pit->second + "_" + methodName;
+                        auto *parentFn = module_->getFunction(parentMethod);
+                        if (parentFn) {
+                            auto selfIt = namedValues_.find("self");
+                            if (selfIt != namedValues_.end()) {
+                                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                                auto *selfVal = builder_->CreateLoad(
+                                    ptrTy, selfIt->second, "self.ptr");
+                                std::vector<llvm::Value *> args;
+                                args.push_back(selfVal);
+                                for (auto &arg : node->getArgs()) {
+                                    auto *val = visit(arg.get());
+                                    if (!val) return nullptr;
+                                    args.push_back(val);
+                                }
+                                if (parentFn->getReturnType()->isVoidTy()) {
+                                    builder_->CreateCall(parentFn, args);
+                                    return nullptr;
+                                }
+                                return builder_->CreateCall(parentFn, args, "super_call");
+                            }
+                        }
+                    }
+                }
+                return nullptr;
+            }
         }
 
         // Static method call: Type.method() (e.g., Student.new("Alice"))
@@ -1133,6 +1276,25 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
         funcName = ident->getName();
+    }
+
+    // Class constructor call: ClassName(args) → call ClassName_init(args)
+    if (classNames_.count(funcName)) {
+        std::string initName = funcName + "_init";
+        auto *initFn = module_->getFunction(initName);
+        if (initFn) {
+            std::vector<llvm::Value *> args;
+            for (auto &arg : node->getArgs()) {
+                auto *val = visit(arg.get());
+                if (!val) return nullptr;
+                args.push_back(val);
+            }
+            auto *obj = builder_->CreateCall(initFn, args, "class_obj");
+            // Track as class instance
+            // (varClassTypes_ is set by the caller in visitVarDecl)
+            return obj;
+        }
+        return nullptr;
     }
 
     // Handle len() built-in
@@ -3087,6 +3249,40 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                 structTypeName = stIt->second;
         }
 
+        // Class field assignment: obj.field = val (or self.field = val)
+        if (objAlloca && !objName.empty()) {
+            auto clsIt = varClassTypes_.find(objName);
+            if (clsIt != varClassTypes_.end()) {
+                const std::string &clsTypeName = clsIt->second;
+                auto ctIt = classTypes_.find(clsTypeName);
+                if (ctIt != classTypes_.end()) {
+                    auto *classTy = ctIt->second;
+                    auto cfIt = classFieldNames_.find(clsTypeName);
+                    if (cfIt != classFieldNames_.end()) {
+                        int fieldIdx = -1;
+                        for (size_t i = 0; i < cfIt->second.size(); ++i) {
+                            if (cfIt->second[i] == memberExpr->getMember()) {
+                                fieldIdx = static_cast<int>(i);
+                                break;
+                            }
+                        }
+                        if (fieldIdx >= 0) {
+                            int structIdx = fieldIdx + 1; // +1 for vtable ptr
+                            llvm::Value *basePtr = objAlloca;
+                            if (objAlloca->getAllocatedType()->isPointerTy()) {
+                                basePtr = builder_->CreateLoad(
+                                    objAlloca->getAllocatedType(), objAlloca, objName + ".ptr");
+                            }
+                            auto *gep = builder_->CreateStructGEP(
+                                classTy, basePtr, structIdx, memberExpr->getMember());
+                            builder_->CreateStore(val, gep);
+                            return val;
+                        }
+                    }
+                }
+            }
+        }
+
         if (objAlloca && !structTypeName.empty()) {
             auto stIt = structTypes_.find(structTypeName);
             if (stIt != structTypes_.end()) {
@@ -3440,6 +3636,42 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         auto stIt = varStructTypes_.find(objName);
         if (stIt != varStructTypes_.end())
             structTypeName = stIt->second;
+    }
+
+    // Class field access: obj.field where obj is a class instance
+    if (objAlloca && !objName.empty()) {
+        auto clsIt = varClassTypes_.find(objName);
+        if (clsIt != varClassTypes_.end()) {
+            const std::string &clsTypeName = clsIt->second;
+            auto ctIt = classTypes_.find(clsTypeName);
+            if (ctIt != classTypes_.end()) {
+                auto *classTy = ctIt->second;
+                auto cfIt = classFieldNames_.find(clsTypeName);
+                if (cfIt != classFieldNames_.end()) {
+                    int fieldIdx = -1;
+                    for (size_t i = 0; i < cfIt->second.size(); ++i) {
+                        if (cfIt->second[i] == node->getMember()) {
+                            fieldIdx = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                    if (fieldIdx >= 0) {
+                        // field index in struct = fieldIdx + 1 (vtable ptr at 0)
+                        int structIdx = fieldIdx + 1;
+                        llvm::Value *basePtr = objAlloca;
+                        if (objAlloca->getAllocatedType()->isPointerTy()) {
+                            basePtr = builder_->CreateLoad(
+                                objAlloca->getAllocatedType(), objAlloca, objName + ".ptr");
+                        }
+                        auto *gep = builder_->CreateStructGEP(
+                            classTy, basePtr, structIdx, node->getMember());
+                        return builder_->CreateLoad(
+                            classTy->getElementType(structIdx), gep,
+                            node->getMember() + ".val");
+                    }
+                }
+            }
+        }
     }
 
     if (!objAlloca || structTypeName.empty())

@@ -12,6 +12,7 @@ class FuncDecl;
 class StructDecl;
 class EnumDecl;
 class ProtocolDecl;
+class ClassDecl;
 
 /// Represents a symbol in the symbol table
 struct Symbol {
@@ -25,6 +26,7 @@ struct Symbol {
         TypeParam,
         ProtocolType,
         TypeAlias,
+        ClassType,
     };
 
     std::string name;
@@ -39,6 +41,7 @@ struct Symbol {
     const StructDecl *structDecl = nullptr;
     const EnumDecl *enumDecl = nullptr;
     const ProtocolDecl *protocolDecl = nullptr;
+    const ClassDecl *classDecl = nullptr;
     const TypeRepr *aliasTarget = nullptr;
 };
 

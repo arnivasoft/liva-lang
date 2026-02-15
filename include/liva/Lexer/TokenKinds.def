@@ -66,6 +66,12 @@ KEYWORD(macro,      "macro")
 KEYWORD(try,        "try")
 KEYWORD(type,       "type")
 KEYWORD(dyn,        "dyn")
+KEYWORD(class,      "class")
+KEYWORD(init,       "init")
+KEYWORD(deinit,     "deinit")
+KEYWORD(override,   "override")
+KEYWORD(super,      "super")
+KEYWORD(private,    "private")
 
 // === Type keywords ===
 KEYWORD(i8,         "i8")

@@ -893,6 +893,11 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
                 item.set("label", JSONValue(sd->getName()));
                 item.set("kind", JSONValue(static_cast<int64_t>(22))); // Struct
                 items.push(std::move(item));
+            } else if (auto *cd = dynamic_cast<ClassDecl *>(decl)) {
+                auto item = JSONValue::object();
+                item.set("label", JSONValue(cd->getName()));
+                item.set("kind", JSONValue(static_cast<int64_t>(7))); // Class
+                items.push(std::move(item));
             } else if (auto *ed = dynamic_cast<EnumDecl *>(decl)) {
                 auto item = JSONValue::object();
                 item.set("label", JSONValue(ed->getName()));
@@ -961,6 +966,11 @@ JSONValue LSPServer::handleHover(const JSONValue &id,
         }
     } else if (auto *sd = dynamic_cast<const StructDecl *>(node)) {
         hoverText = "struct " + sd->getName();
+    } else if (auto *cd = dynamic_cast<const ClassDecl *>(node)) {
+        hoverText = "class " + cd->getName();
+        if (cd->hasParentClass()) {
+            hoverText += " : " + cd->getParentClass();
+        }
     } else if (auto *ed = dynamic_cast<const EnumDecl *>(node)) {
         hoverText = "enum " + ed->getName();
     } else if (auto *pd = dynamic_cast<const ProtocolDecl *>(node)) {
@@ -1070,6 +1080,9 @@ JSONValue LSPServer::handleDocumentSymbol(const JSONValue &id,
         } else if (auto *sd = dynamic_cast<StructDecl *>(decl)) {
             name = sd->getName();
             kind = 23; // Struct
+        } else if (auto *cd = dynamic_cast<ClassDecl *>(decl)) {
+            name = cd->getName();
+            kind = 5; // Class
         } else if (auto *ed = dynamic_cast<EnumDecl *>(decl)) {
             name = ed->getName();
             kind = 10; // Enum
@@ -2219,6 +2232,8 @@ const Decl *LSPServer::findDeclByName(const TranslationUnit *tu,
             if (fd->getName() == name) return fd;
         } else if (auto *sd = dynamic_cast<StructDecl *>(node.get())) {
             if (sd->getName() == name) return sd;
+        } else if (auto *cd = dynamic_cast<ClassDecl *>(node.get())) {
+            if (cd->getName() == name) return cd;
         } else if (auto *ed = dynamic_cast<EnumDecl *>(node.get())) {
             if (ed->getName() == name) return ed;
         } else if (auto *pd = dynamic_cast<ProtocolDecl *>(node.get())) {
@@ -2244,6 +2259,7 @@ std::string LSPServer::getDeclNameAtPosition(const TranslationUnit *tu,
     if (auto *fd = dynamic_cast<const FuncDecl *>(node)) return fd->getName();
     if (auto *vd = dynamic_cast<const VarDecl *>(node)) return vd->getName();
     if (auto *sd = dynamic_cast<const StructDecl *>(node)) return sd->getName();
+    if (auto *cd = dynamic_cast<const ClassDecl *>(node)) return cd->getName();
     if (auto *ed = dynamic_cast<const EnumDecl *>(node)) return ed->getName();
     if (auto *pd = dynamic_cast<const ProtocolDecl *>(node)) return pd->getName();
     if (auto *td = dynamic_cast<const TypeAliasDecl *>(node)) return td->getName();
@@ -2444,6 +2460,9 @@ JSONValue LSPServer::handleWorkspaceSymbol(const JSONValue &id,
             } else if (auto *sd = dynamic_cast<StructDecl *>(decl)) {
                 name = sd->getName();
                 kind = 23; // Struct
+            } else if (auto *cd = dynamic_cast<ClassDecl *>(decl)) {
+                name = cd->getName();
+                kind = 5; // Class
             } else if (auto *ed = dynamic_cast<EnumDecl *>(decl)) {
                 name = ed->getName();
                 kind = 10; // Enum

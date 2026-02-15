@@ -161,6 +161,7 @@ private:
     std::map<std::string, std::set<int>> breakpoints_;
     std::map<std::string, const FuncDecl *> functions_;
     std::map<std::string, const StructDecl *> structs_;
+    std::map<std::string, const ClassDecl *> classes_;
     std::string outputBuffer_;
     std::string stopReason_;
     std::string runtimeError_;

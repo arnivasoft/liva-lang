@@ -1587,3 +1587,169 @@ TEST_F(OwnershipTest, MoveInMethodDoesNotAffectNext) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// =============================================================================
+// Class System Ownership Tests
+// =============================================================================
+
+TEST_F(OwnershipTest, ClassDecl_BasicOwnership) {
+    auto result = check(R"--(
+        class Foo {
+            var x: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_InitOwnership) {
+    auto result = check(R"--(
+        class Counter {
+            var count: i32
+            init(n: i32) {
+                self.count = n
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_MethodOwnership) {
+    auto result = check(R"--(
+        class Adder {
+            var total: i32
+            func add(n: i32) -> i32 {
+                return self.total + n
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_MultipleMethodsOwnership) {
+    auto result = check(R"--(
+        class Calculator {
+            var value: i32
+            func add(n: i32) -> i32 {
+                return self.value + n
+            }
+            func sub(n: i32) -> i32 {
+                return self.value - n
+            }
+            func reset() {
+                self.value = 0
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_DeinitOwnership) {
+    auto result = check(R"--(
+        class Resource {
+            var handle: i32
+            deinit() {
+                println(self.handle)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_InheritanceOwnership) {
+    auto result = check(R"--(
+        class Animal {
+            var name: string
+            func speak() {
+                println(0)
+            }
+        }
+        class Dog : Animal {
+            var breed: string
+            override func speak() {
+                println(1)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_PrivateFieldOwnership) {
+    auto result = check(R"--(
+        class Account {
+            private var balance: i32
+            var name: string
+            func getBalance() -> i32 {
+                return self.balance
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_InitAndDeinitOwnership) {
+    auto result = check(R"--(
+        class ManagedResource {
+            var id: i32
+            var active: bool
+            init(id: i32) {
+                self.id = id
+                self.active = true
+            }
+            deinit() {
+                self.active = false
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_EmptyClassOwnership) {
+    auto result = check(R"--(
+        class Empty {}
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassDecl_MethodLocalVars) {
+    auto result = check(R"--(
+        class Processor {
+            var factor: i32
+            func process(input: i32) -> i32 {
+                var temp: i32 = input * self.factor
+                let result: i32 = temp + 1
+                return result
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

@@ -26,9 +26,9 @@ static std::string extractDeclName(const std::string &decl) {
         kw = (wend != std::string::npos) ? decl.substr(pos, wend - pos)
                                           : decl.substr(pos);
     }
-    if (kw == "func" || kw == "struct" || kw == "enum" || kw == "protocol" ||
-        kw == "type" || kw == "let" || kw == "var" || kw == "const" ||
-        kw == "macro") {
+    if (kw == "func" || kw == "struct" || kw == "class" || kw == "enum" ||
+        kw == "protocol" || kw == "type" || kw == "let" || kw == "var" ||
+        kw == "const" || kw == "macro") {
         pos = decl.find_first_not_of(" \t", wend);
         if (pos == std::string::npos)
             return "";
@@ -244,10 +244,10 @@ REPLSession::classifyInput(const std::string &input) const {
         (wordEnd != std::string::npos) ? input.substr(0, wordEnd) : input;
 
     // Declaration keywords
-    if (firstWord == "func" || firstWord == "struct" || firstWord == "enum" ||
-        firstWord == "protocol" || firstWord == "impl" || firstWord == "type" ||
-        firstWord == "import" || firstWord == "pub" || firstWord == "let" ||
-        firstWord == "var" || firstWord == "const")
+    if (firstWord == "func" || firstWord == "struct" || firstWord == "class" ||
+        firstWord == "enum" || firstWord == "protocol" || firstWord == "impl" ||
+        firstWord == "type" || firstWord == "import" || firstWord == "pub" ||
+        firstWord == "let" || firstWord == "var" || firstWord == "const")
         return InputKind::Declaration;
 
     // Statement keywords (executed inside main)
@@ -550,13 +550,13 @@ REPLSession::getCompletions(const std::string &lineBuffer,
     } else {
         // Keywords
         static const char *keywords[] = {
-            "as",       "async",    "await",   "break",    "comptime",
-            "const",    "continue", "defer",   "dyn",      "else",
-            "enum",     "false",    "for",     "func",     "guard",
-            "if",       "impl",     "import",  "in",       "let",
-            "match",    "nil",      "protocol","pub",      "ref",
-            "return",   "struct",   "true",    "type",     "var",
-            "while",    "macro"
+            "as",       "async",    "await",   "break",    "class",
+            "comptime", "const",    "continue","defer",    "dyn",
+            "else",     "enum",     "false",   "for",      "func",
+            "guard",    "if",       "impl",    "import",   "in",
+            "let",      "match",    "nil",     "protocol", "pub",
+            "ref",      "return",   "struct",  "true",     "type",
+            "var",      "while",    "macro"
         };
         // Builtins
         static const char *builtins[] = {

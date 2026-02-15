@@ -23,7 +23,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::FuncDecl &&
-               node->getKind() <= NodeKind::MacroDecl;
+               node->getKind() <= NodeKind::ClassDecl;
     }
 
 private:
@@ -379,6 +379,134 @@ private:
     std::string name_;
     bool isPublic_;
     std::string rawSource_;
+};
+
+/// Access modifier for class members
+enum class AccessModifier { Public, Private };
+
+/// A member of a class (field or method with access/override info)
+struct ClassMember {
+    AccessModifier access = AccessModifier::Public;
+    bool isOverride = false;
+    std::unique_ptr<FieldDecl> field;    // non-null if this is a field
+    std::unique_ptr<FuncDecl> method;    // non-null if this is a method
+
+    bool isField() const { return field != nullptr; }
+    bool isMethod() const { return method != nullptr; }
+};
+
+/// Class declaration: class Name [<T>] [: Parent, Protocol1] { members }
+class ClassDecl : public Decl {
+public:
+    ClassDecl(std::string name, std::string parentClass,
+              std::vector<std::string> protocols,
+              std::vector<ClassMember> members,
+              bool isPublic, SourceRange range)
+        : Decl(NodeKind::ClassDecl, range), name_(std::move(name)),
+          parentClass_(std::move(parentClass)),
+          protocols_(std::move(protocols)),
+          members_(std::move(members)), isPublic_(isPublic) {}
+
+    const std::string &getName() const { return name_; }
+    const std::string &getParentClass() const { return parentClass_; }
+    bool hasParentClass() const { return !parentClass_.empty(); }
+    const std::vector<std::string> &getProtocols() const { return protocols_; }
+    const std::vector<ClassMember> &getMembers() const { return members_; }
+    bool isPublic() const { return isPublic_; }
+
+    /// Generic type parameters
+    void setTypeParams(std::vector<std::string> typeParams) {
+        typeParams_ = std::move(typeParams);
+    }
+    const std::vector<std::string> &getTypeParams() const { return typeParams_; }
+    bool isGeneric() const { return !typeParams_.empty(); }
+
+    void setTypeParamBounds(std::unordered_map<std::string, std::vector<std::string>> bounds) {
+        typeParamBounds_ = std::move(bounds);
+    }
+    const std::unordered_map<std::string, std::vector<std::string>> &getTypeParamBounds() const {
+        return typeParamBounds_;
+    }
+
+    /// Convenience: get all fields
+    std::vector<const FieldDecl *> getFields() const {
+        std::vector<const FieldDecl *> result;
+        for (auto &m : members_) {
+            if (m.field) result.push_back(m.field.get());
+        }
+        return result;
+    }
+
+    /// Convenience: get all methods
+    std::vector<const FuncDecl *> getMethods() const {
+        std::vector<const FuncDecl *> result;
+        for (auto &m : members_) {
+            if (m.method && m.method->getName() != "init" && m.method->getName() != "deinit")
+                result.push_back(m.method.get());
+        }
+        return result;
+    }
+
+    /// Convenience: get init method (may be null)
+    const FuncDecl *getInit() const {
+        for (auto &m : members_) {
+            if (m.method && m.method->getName() == "init")
+                return m.method.get();
+        }
+        return nullptr;
+    }
+
+    /// Convenience: get deinit method (may be null)
+    const FuncDecl *getDeinit() const {
+        for (auto &m : members_) {
+            if (m.method && m.method->getName() == "deinit")
+                return m.method.get();
+        }
+        return nullptr;
+    }
+
+    /// Reclassify parentClass as a protocol (when TypeChecker detects it's a protocol, not a class)
+    void reclassifyParentAsProtocol() {
+        if (!parentClass_.empty()) {
+            protocols_.insert(protocols_.begin(), std::move(parentClass_));
+            parentClass_.clear();
+        }
+    }
+
+    std::vector<ClassMember> &getMembers() { return members_; }
+
+    /// Check if a member is marked override
+    bool isOverride(const std::string &methodName) const {
+        for (auto &m : members_) {
+            if (m.method && m.method->getName() == methodName)
+                return m.isOverride;
+        }
+        return false;
+    }
+
+    /// Check if a member is private
+    bool isPrivate(const std::string &memberName) const {
+        for (auto &m : members_) {
+            if (m.field && m.field->getName() == memberName)
+                return m.access == AccessModifier::Private;
+            if (m.method && m.method->getName() == memberName)
+                return m.access == AccessModifier::Private;
+        }
+        return false;
+    }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::ClassDecl;
+    }
+
+private:
+    std::string name_;
+    std::string parentClass_;
+    std::vector<std::string> protocols_;
+    std::vector<ClassMember> members_;
+    bool isPublic_;
+    std::vector<std::string> typeParams_;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
 };
 
 /// Translation unit - the top-level node representing an entire file

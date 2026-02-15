@@ -85,6 +85,40 @@ void IRGen::emitScopeCleanup() {
         }
     }
 
+    // Call deinit for class instances (virtual dispatch through vtable)
+    for (auto &[name, clsTypeName] : varClassTypes_) {
+        if (name == "self") continue; // self is not owned by current scope
+        if (movedVars_.count(name)) continue;
+        auto it = namedValues_.find(name);
+        if (it == namedValues_.end()) continue;
+
+        auto ctIt = classTypes_.find(clsTypeName);
+        if (ctIt == classTypes_.end()) continue;
+        auto *classTy = ctIt->second;
+
+        // Load obj ptr
+        llvm::Value *objPtr = it->second;
+        if (it->second->getAllocatedType()->isPointerTy()) {
+            objPtr = builder_->CreateLoad(ptrTy, it->second, name + ".cls.drop");
+        }
+
+        // Load vtable, call deinit (index 0)
+        auto vtIt = classVtableMethods_.find(clsTypeName);
+        if (vtIt != classVtableMethods_.end() && !vtIt->second.empty()) {
+            auto *vtableGEP = builder_->CreateStructGEP(classTy, objPtr, 0, name + ".vt.gep");
+            auto *vtableArrTy = llvm::ArrayType::get(ptrTy, vtIt->second.size());
+            auto *vtablePtr = builder_->CreateLoad(ptrTy, vtableGEP, name + ".vt.ptr");
+            auto *deinitGEP = builder_->CreateGEP(
+                vtableArrTy, vtablePtr,
+                {builder_->getInt32(0), builder_->getInt32(0)},
+                name + ".deinit.gep");
+            auto *deinitPtr = builder_->CreateLoad(ptrTy, deinitGEP, name + ".deinit.ptr");
+            auto *voidTy = llvm::Type::getVoidTy(*context_);
+            auto *deinitFnTy = llvm::FunctionType::get(voidTy, {ptrTy}, false);
+            builder_->CreateCall(deinitFnTy, deinitPtr, {objPtr});
+        }
+    }
+
     // Free heap-allocated string variables
     auto *freeFn = module_->getFunction("free");
     if (freeFn) {

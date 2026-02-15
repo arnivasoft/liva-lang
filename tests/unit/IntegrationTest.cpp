@@ -1959,3 +1959,341 @@ TEST_F(IntegrationTest, NestedScopeCleanup) {
     EXPECT_TRUE(result.semaSuccess) << "Sema failed";
 }
 
+// =============================================================================
+// Class System Integration Tests (Full Pipeline)
+// =============================================================================
+
+TEST_F(IntegrationTest, ClassDecl_FullPipeline) {
+    std::string source = R"--(
+        class Foo {
+            var x: i32
+            var y: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_basic.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_WithInit_FullPipeline) {
+    std::string source = R"--(
+        class Counter {
+            var count: i32
+            init(n: i32) {
+                self.count = n
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_init.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_WithDeinit_FullPipeline) {
+    std::string source = R"--(
+        class Resource {
+            var handle: i32
+            deinit() {
+                println(self.handle)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_deinit.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_WithMethods_FullPipeline) {
+    std::string source = R"--(
+        class Calculator {
+            var value: i32
+            func add(n: i32) -> i32 {
+                return self.value + n
+            }
+            func reset() {
+                self.value = 0
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_methods.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_Inheritance_FullPipeline) {
+    std::string source = R"--(
+        class Animal {
+            var name: string
+            func speak() {
+                println(0)
+            }
+        }
+        class Dog : Animal {
+            var breed: string
+            override func speak() {
+                println(1)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_inheritance.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_Override_FullPipeline) {
+    std::string source = R"--(
+        class Shape {
+            func area() -> i32 {
+                return 0
+            }
+        }
+        class Rectangle : Shape {
+            var width: i32
+            var height: i32
+            override func area() -> i32 {
+                return self.width * self.height
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_override.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_PrivateAccess_FullPipeline) {
+    std::string source = R"--(
+        class Account {
+            private var balance: i32
+            var name: string
+            func getBalance() -> i32 {
+                return self.balance
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_private.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_DeepInheritance_FullPipeline) {
+    std::string source = R"--(
+        class A {
+            var x: i32
+        }
+        class B : A {
+            var y: i32
+        }
+        class C : B {
+            var z: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_deep_inheritance.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_InitAndDeinit_FullPipeline) {
+    std::string source = R"--(
+        class ManagedResource {
+            var id: i32
+            var active: bool
+            init(id: i32) {
+                self.id = id
+                self.active = true
+            }
+            deinit() {
+                self.active = false
+            }
+            func getId() -> i32 {
+                return self.id
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_init_deinit.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_Empty_FullPipeline) {
+    std::string source = R"--(
+        class Empty {}
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_empty.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_Generic_FullPipeline) {
+    std::string source = R"--(
+        class Box<T> {
+            var value: T
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_generic.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_ExampleFile_FullPipeline) {
+    std::string source;
+    std::string path = projectRoot() + "/examples/classes.liva";
+    if (!readFile(path, source))
+        GTEST_SKIP() << "Example file not found: " << path;
+
+    auto result = runPipeline("classes.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed for classes.liva";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed for classes.liva";
+    for (const auto &err : result.errors) {
+        ADD_FAILURE() << "Error: " << err;
+    }
+}
+
+TEST_F(IntegrationTest, ClassDecl_ProtocolConformance_FullPipeline) {
+    std::string source = R"--(
+        protocol Greetable {
+            func greet(self) -> string
+        }
+        class Person : Greetable {
+            var name: string
+            func greet() -> string {
+                return self.name
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_proto.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_InheritanceWithProtocol_FullPipeline) {
+    std::string source = R"--(
+        protocol Speakable {
+            func speak(self) -> string
+        }
+        class Animal {
+            var name: string
+        }
+        class Dog : Animal, Speakable {
+            var breed: string
+            func speak() -> string {
+                return self.name
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_inherit_proto.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_MultipleProtocols_FullPipeline) {
+    std::string source = R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        protocol Hashable {
+            func hash(self) -> i32
+        }
+        class Item : Printable, Hashable {
+            var id: i32
+            func toString() -> string {
+                return "item"
+            }
+            func hash() -> i32 {
+                return self.id
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_multi_proto.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_MissingProtocolMethod_FullPipeline) {
+    std::string source = R"--(
+        protocol Printable {
+            func toString(self) -> string
+        }
+        class Broken : Printable {
+            var x: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_missing_proto.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail: missing protocol method";
+    EXPECT_FALSE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, ClassDecl_ErrorParentNotFound_FullPipeline) {
+    std::string source = R"--(
+        class Dog : NonExistent {
+            var name: string
+        }
+        func main() {
+            println(0)
+        }
+    )--";
+    auto result = runPipeline("class_error_parent.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse should succeed";
+    EXPECT_FALSE(result.semaSuccess) << "Sema should fail for unknown parent";
+    EXPECT_FALSE(result.errors.empty());
+}
+

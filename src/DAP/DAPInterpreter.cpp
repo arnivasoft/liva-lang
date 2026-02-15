@@ -89,6 +89,7 @@ void DAPInterpreter::load(TranslationUnit *tu) {
     callStack_.clear();
     functions_.clear();
     structs_.clear();
+    classes_.clear();
     outputBuffer_.clear();
     runtimeError_.clear();
     exitCode_ = 0;
@@ -102,6 +103,8 @@ void DAPInterpreter::load(TranslationUnit *tu) {
             functions_[fd->getName()] = fd;
         } else if (auto *sd = dynamic_cast<const StructDecl *>(decl.get())) {
             structs_[sd->getName()] = sd;
+        } else if (auto *cd = dynamic_cast<const ClassDecl *>(decl.get())) {
+            classes_[cd->getName()] = cd;
         }
     }
 }
@@ -758,6 +761,16 @@ DAPValue DAPInterpreter::evaluateCallExpr(const CallExpr *expr) {
             const auto &fieldDecls = sit->second->getFields();
             for (size_t i = 0; i < fieldDecls.size() && i < argVals.size(); ++i) {
                 fields[fieldDecls[i]->getName()] = std::move(argVals[i]);
+            }
+            return DAPValue::makeStruct(funcName, std::move(fields));
+        }
+        // Try class constructor
+        auto cit = classes_.find(funcName);
+        if (cit != classes_.end()) {
+            std::map<std::string, DAPValue> fields;
+            const auto classFields = cit->second->getFields();
+            for (size_t i = 0; i < classFields.size() && i < argVals.size(); ++i) {
+                fields[classFields[i]->getName()] = std::move(argVals[i]);
             }
             return DAPValue::makeStruct(funcName, std::move(fields));
         }

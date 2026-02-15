@@ -310,6 +310,29 @@ void TypeChecker::check(TranslationUnit &tu) {
                              aliasDecl->getName());
             }
             typeAliases_[aliasDecl->getName()] = aliasDecl->getTargetType();
+        } else if (decl->getKind() == ASTNode::NodeKind::ClassDecl) {
+            auto *classDecl = static_cast<ClassDecl *>(decl.get());
+            Symbol sym;
+            sym.name = classDecl->getName();
+            sym.kind = Symbol::Kind::ClassType;
+            sym.classDecl = classDecl;
+            if (!scopes_.declare(sym.name, sym)) {
+                diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
+                             classDecl->getName());
+            }
+            classDecls_[classDecl->getName()] = classDecl;
+            if (classDecl->hasParentClass()) {
+                classParent_[classDecl->getName()] = classDecl->getParentClass();
+            }
+            // Track private members
+            for (auto &m : classDecl->getMembers()) {
+                if (m.access == AccessModifier::Private) {
+                    if (m.field)
+                        classPrivateMembers_[classDecl->getName()].insert(m.field->getName());
+                    if (m.method)
+                        classPrivateMembers_[classDecl->getName()].insert(m.method->getName());
+                }
+            }
         } else if (decl->getKind() == ASTNode::NodeKind::MacroDecl) {
             auto *macroDecl = static_cast<MacroDecl *>(decl.get());
             if (macroExpander_.hasMacro(macroDecl->getName())) {
@@ -655,6 +678,180 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
     scopes_.popScope();
 }
 
+void TypeChecker::visitClassDecl(ClassDecl *node) {
+    scopes_.pushScope();
+    std::string prevClass = currentClassName_;
+    currentClassName_ = node->getName();
+
+    // Register type parameters
+    for (const auto &tp : node->getTypeParams()) {
+        Symbol sym;
+        sym.name = tp;
+        sym.kind = Symbol::Kind::TypeParam;
+        scopes_.declare(tp, sym);
+    }
+
+    // Validate parent class — may be reclassified as protocol
+    if (node->hasParentClass()) {
+        auto parentName = node->getParentClass();
+        auto it = classDecls_.find(parentName);
+        if (it == classDecls_.end()) {
+            auto *parentSym = scopes_.lookup(parentName);
+            if (parentSym && parentSym->kind == Symbol::Kind::StructType) {
+                diag_.report(node->getStartLoc(), DiagID::err_class_inherits_nonclass,
+                             node->getName(), parentName);
+            } else if (parentSym && parentSym->kind == Symbol::Kind::ProtocolType) {
+                // First name is a protocol, not a parent class — reclassify
+                node->reclassifyParentAsProtocol();
+                classParent_.erase(node->getName());
+            } else {
+                diag_.report(node->getStartLoc(), DiagID::err_class_parent_not_found,
+                             parentName);
+            }
+        } else {
+            // Check for circular inheritance
+            std::set<std::string> visited;
+            std::string cur = node->getName();
+            while (!cur.empty()) {
+                if (visited.count(cur)) {
+                    diag_.report(node->getStartLoc(), DiagID::err_class_circular_inheritance,
+                                 node->getName());
+                    break;
+                }
+                visited.insert(cur);
+                auto pit = classParent_.find(cur);
+                if (pit != classParent_.end())
+                    cur = pit->second;
+                else
+                    cur.clear();
+            }
+        }
+    }
+
+    // Validate protocol conformance for class
+    for (auto &protoName : node->getProtocols()) {
+        auto *protoSym = scopes_.lookup(protoName);
+        if (!protoSym || protoSym->kind != Symbol::Kind::ProtocolType) {
+            diag_.report(node->getStartLoc(), DiagID::err_undefined_protocol, protoName);
+            continue;
+        }
+        if (protoSym->protocolDecl) {
+            // Check all required methods are implemented
+            for (auto &protoMethod : protoSym->protocolDecl->getMethods()) {
+                if (protoMethod->hasBody()) continue; // default impl
+                bool found = false;
+                for (auto *classMethod : node->getMethods()) {
+                    if (classMethod->getName() == protoMethod->getName()) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    diag_.report(node->getStartLoc(),
+                                 DiagID::err_missing_protocol_method,
+                                 protoMethod->getName(), protoName);
+                }
+            }
+        }
+        protocolConformances_[protoName].push_back(node->getName());
+    }
+
+    // Register 'self' parameter in scope
+    Symbol selfSym;
+    selfSym.name = "self";
+    selfSym.kind = Symbol::Kind::Parameter;
+    selfSym.isMutable = true;
+    scopes_.declare("self", selfSym);
+
+    // Validate fields
+    std::set<std::string> fieldNames;
+    for (auto &m : node->getMembers()) {
+        if (m.field) {
+            if (fieldNames.count(m.field->getName())) {
+                diag_.report(m.field->getStartLoc(), DiagID::err_class_duplicate_field,
+                             node->getName(), m.field->getName());
+            }
+            fieldNames.insert(m.field->getName());
+            // Check field type is valid
+            if (m.field->getType() && m.field->getType()->getKind() == TypeRepr::Kind::Named) {
+                auto *named = static_cast<const NamedTypeRepr *>(m.field->getType());
+                auto *sym = scopes_.lookup(named->getName());
+                if (!sym) {
+                    diag_.report(m.field->getStartLoc(), DiagID::err_undefined_type,
+                                 named->getName());
+                }
+            }
+        }
+    }
+
+    // Validate methods
+    for (auto &m : node->getMembers()) {
+        if (!m.method) continue;
+
+        // Validate override
+        if (m.isOverride) {
+            if (!node->hasParentClass()) {
+                diag_.report(m.method->getStartLoc(),
+                             DiagID::err_class_override_no_parent_method,
+                             m.method->getName());
+            } else {
+                // Check parent has the method
+                bool foundInParent = false;
+                std::string cur = node->getParentClass();
+                while (!cur.empty() && !foundInParent) {
+                    auto pit = classDecls_.find(cur);
+                    if (pit != classDecls_.end()) {
+                        for (auto *pm : pit->second->getMethods()) {
+                            if (pm->getName() == m.method->getName()) {
+                                foundInParent = true;
+                                break;
+                            }
+                        }
+                        auto ppit = classParent_.find(cur);
+                        cur = (ppit != classParent_.end()) ? ppit->second : "";
+                    } else {
+                        cur.clear();
+                    }
+                }
+                if (!foundInParent) {
+                    diag_.report(m.method->getStartLoc(),
+                                 DiagID::err_class_override_no_parent_method,
+                                 m.method->getName());
+                }
+            }
+        }
+
+        // Validate deinit — should have no params (self is implicit)
+        if (m.method->getName() == "deinit") {
+            auto &params = m.method->getParams();
+            if (!params.empty()) {
+                diag_.report(m.method->getStartLoc(), DiagID::err_class_deinit_params);
+            }
+        }
+
+        // Type-check method body — self is implicit in class methods
+        if (m.method->getBody()) {
+            scopes_.pushScope();
+            for (auto &param : m.method->getParams()) {
+                Symbol paramSym;
+                paramSym.name = param.name;
+                paramSym.kind = Symbol::Kind::Parameter;
+                paramSym.type = param.type.get();
+                paramSym.isMutable = param.isMutRef;
+                scopes_.declare(param.name, paramSym);
+            }
+            auto *prevRetType = currentReturnType_;
+            currentReturnType_ = m.method->getReturnType();
+            visitBlockStmt(const_cast<BlockStmt *>(m.method->getBody()));
+            currentReturnType_ = prevRetType;
+            scopes_.popScope();
+        }
+    }
+
+    currentClassName_ = prevClass;
+    scopes_.popScope();
+}
+
 void TypeChecker::visitTypeAliasDecl(TypeAliasDecl *node) {
     // Validate that target type is a known type
     auto *target = node->getTargetType();
@@ -680,13 +877,14 @@ void TypeChecker::visitEnumDecl(EnumDecl *node) {
 }
 
 void TypeChecker::visitImplDecl(ImplDecl *node) {
-    // Look up the struct type
+    // Look up the type (struct, enum, or class)
     auto *sym = scopes_.lookup(node->getTypeName());
     if (!sym) {
         diag_.report(node->getStartLoc(), DiagID::err_undefined_type, node->getTypeName());
         std::vector<std::string> typeCandidates;
         scopes_.collectNames(Symbol::Kind::StructType, typeCandidates);
         scopes_.collectNames(Symbol::Kind::EnumType, typeCandidates);
+        scopes_.collectNames(Symbol::Kind::ClassType, typeCandidates);
         suggestSimilar(node->getStartLoc(), node->getTypeName(), typeCandidates);
         return;
     }
@@ -1133,6 +1331,17 @@ void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
     // Track usage for unused variable warnings
     usedSymbols_.insert(node->getName());
 
+    // 'super' is valid inside class methods when the class has a parent
+    if (node->getName() == "super") {
+        if (!currentClassName_.empty()) {
+            auto pit = classParent_.find(currentClassName_);
+            if (pit != classParent_.end() && !pit->second.empty()) {
+                node->setResolvedType(makeNamedType(pit->second));
+                return;
+            }
+        }
+    }
+
     auto *sym = scopes_.lookup(node->getName());
     if (!sym) {
         // Result is a built-in type constructor, not a declared identifier
@@ -1331,10 +1540,29 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         }
     }
 
-    // Check argument count for user-defined functions
+    // Check argument count for user-defined functions / class constructors
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *identChk = static_cast<IdentifierExpr *>(node->getCallee());
         auto *symChk = scopes_.lookup(identChk->getName());
+        // Class constructor call: ClassName(args) → delegate to init
+        if (symChk && symChk->kind == Symbol::Kind::ClassType && symChk->classDecl) {
+            auto *initDecl = symChk->classDecl->getInit();
+            if (initDecl) {
+                const auto &params = initDecl->getParams();
+                size_t actualArgs = node->getArgs().size();
+                size_t requiredParams = 0;
+                for (const auto &p : params) {
+                    if (p.isSelf) continue;
+                    if (!p.hasDefault()) requiredParams++;
+                }
+                if (actualArgs < requiredParams) {
+                    diag_.report(node->getStartLoc(), DiagID::err_wrong_arg_count,
+                                 identChk->getName(),
+                                 std::to_string(requiredParams),
+                                 std::to_string(actualArgs));
+                }
+            }
+        }
         if (symChk && symChk->funcDecl) {
             const auto &params = symChk->funcDecl->getParams();
             size_t actualArgs = node->getArgs().size();
@@ -1878,6 +2106,22 @@ void TypeChecker::visitMemberExpr(MemberExpr *node) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
         if (ident->getName() == "Result") {
             // Result.ok or Result.err — accepted
+        }
+    }
+
+    // Class private member access check
+    if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+        auto *sym = scopes_.lookup(ident->getName());
+        if (sym && sym->kind == Symbol::Kind::Parameter && ident->getName() != "self") {
+            // Check if this variable is a class instance with private member
+            // (Simplified: check all known classes for private member)
+            for (auto &[className, privMembers] : classPrivateMembers_) {
+                if (privMembers.count(node->getMember()) && className != currentClassName_) {
+                    diag_.report(node->getStartLoc(), DiagID::err_class_private_access,
+                                 node->getMember(), className);
+                }
+            }
         }
     }
 

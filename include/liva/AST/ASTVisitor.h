@@ -42,6 +42,9 @@ public:
         case ASTNode::NodeKind::MacroDecl:
             return static_cast<Derived *>(this)->visitMacroDecl(
                 static_cast<MacroDecl *>(node));
+        case ASTNode::NodeKind::ClassDecl:
+            return static_cast<Derived *>(this)->visitClassDecl(
+                static_cast<ClassDecl *>(node));
 
         // Statements
         case ASTNode::NodeKind::ExprStmt:
@@ -167,6 +170,7 @@ public:
     RetTy visitImportDecl(ImportDecl *) { return RetTy(); }
     RetTy visitTypeAliasDecl(TypeAliasDecl *) { return RetTy(); }
     RetTy visitMacroDecl(MacroDecl *) { return RetTy(); }
+    RetTy visitClassDecl(ClassDecl *) { return RetTy(); }
 
     RetTy visitExprStmt(ExprStmt *) { return RetTy(); }
     RetTy visitReturnStmt(ReturnStmt *) { return RetTy(); }

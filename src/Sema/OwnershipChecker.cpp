@@ -31,6 +31,15 @@ void OwnershipChecker::visitFuncDecl(FuncDecl *node) {
     popOwnershipScope();
 }
 
+void OwnershipChecker::visitClassDecl(ClassDecl *node) {
+    // Check ownership for each method body
+    for (auto &m : node->getMembers()) {
+        if (m.method) {
+            visitFuncDecl(const_cast<FuncDecl *>(m.method.get()));
+        }
+    }
+}
+
 void OwnershipChecker::visitVarDecl(VarDecl *node) {
     // Visit initializer first
     if (node->hasInit()) {

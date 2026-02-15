@@ -32,6 +32,7 @@ public:
     void visitImplDecl(ImplDecl *node);
     void visitProtocolDecl(ProtocolDecl *node);
     void visitTypeAliasDecl(TypeAliasDecl *node);
+    void visitClassDecl(ClassDecl *node);
 
     void visitExprStmt(ExprStmt *node);
     void visitReturnStmt(ReturnStmt *node);
@@ -161,6 +162,12 @@ private:
     void expandMacros(TranslationUnit &tu);
     void expandMacrosInExpr(std::unique_ptr<Expr> &expr);
     void expandMacrosInStmt(ASTNode *node);
+
+    /// Class declaration tracking
+    std::unordered_map<std::string, const ClassDecl *> classDecls_;
+    std::unordered_map<std::string, std::string> classParent_;
+    std::unordered_map<std::string, std::set<std::string>> classPrivateMembers_;
+    std::string currentClassName_;
 
     /// Unused variable tracking (per function)
     std::set<std::string> usedSymbols_;

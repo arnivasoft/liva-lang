@@ -6859,3 +6859,378 @@ TEST_F(SemaTest, UseAfterDrop_NoRefSuggest) {
     // which is harder to test. Just verify pipeline doesn't crash.
     (void)result;
 }
+
+// =============================================================================
+// Class System Semantic Analysis Tests
+// =============================================================================
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_Simple) {
+    auto result = check(R"--(
+        class Foo {
+            var x: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_WithMethods) {
+    auto result = check(R"--(
+        class Counter {
+            var count: i32
+            func increment() {
+                self.count = self.count + 1
+            }
+            func getCount() -> i32 {
+                return self.count
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_ParentNotFound) {
+    auto result = check(R"--(
+        class Dog : NonExistentParent {
+            var name: string
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_parent_not_found));
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_InheritsNonClass) {
+    auto result = check(R"--(
+        struct Point {
+            var x: i32
+        }
+        class Derived : Point {
+            var z: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_inherits_nonclass));
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_CircularInheritance) {
+    auto result = check(R"--(
+        class A : B {
+            var x: i32
+        }
+        class B : A {
+            var y: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_circular_inheritance));
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_OverrideNoParent) {
+    auto result = check(R"--(
+        class Foo {
+            override func bar() {
+                println(0)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_override_no_parent_method));
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_OverrideMethodNotInParent) {
+    auto result = check(R"--(
+        class Animal {
+            func eat() {
+                println(0)
+            }
+        }
+        class Dog : Animal {
+            override func fly() {
+                println(0)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_override_no_parent_method));
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_DeinitParams) {
+    // deinit should have no parameters (self is implicit)
+    auto result = check(R"--(
+        class Foo {
+            var x: i32
+            deinit(extra: i32) {
+                println(0)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_deinit_params));
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_DuplicateField) {
+    auto result = check(R"--(
+        class Foo {
+            var x: i32
+            var x: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_duplicate_field));
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_ValidOverride) {
+    auto result = check(R"--(
+        class Animal {
+            func speak() {
+                println(0)
+            }
+        }
+        class Dog : Animal {
+            override func speak() {
+                println(1)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_ValidInheritance) {
+    auto result = check(R"--(
+        class Base {
+            var value: i32
+            func getValue() -> i32 {
+                return self.value
+            }
+        }
+        class Derived : Base {
+            var extra: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_InitWithBody) {
+    auto result = check(R"--(
+        class Foo {
+            var x: i32
+            var y: i32
+            init(a: i32, b: i32) {
+                self.x = a
+                self.y = b
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_DeinitValid) {
+    auto result = check(R"--(
+        class Resource {
+            var handle: i32
+            deinit() {
+                println(self.handle)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_MultipleFields) {
+    auto result = check(R"--(
+        class Person {
+            var name: string
+            var age: i32
+            var score: f64
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_EmptyClass) {
+    auto result = check(R"--(
+        class Empty {}
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_PrivateField) {
+    auto result = check(R"--(
+        class Account {
+            private var balance: i32
+            var name: string
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_MultipleClasses) {
+    auto result = check(R"--(
+        class A {
+            var x: i32
+        }
+        class B {
+            var y: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_MethodWithParams) {
+    auto result = check(R"--(
+        class Math {
+            var base: i32
+            func add(a: i32, b: i32) -> i32 {
+                return a + b + self.base
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_DeepInheritance) {
+    auto result = check(R"--(
+        class A {
+            var x: i32
+        }
+        class B : A {
+            var y: i32
+        }
+        class C : B {
+            var z: i32
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_OverrideWithoutKeyword_NoParent) {
+    // A method without override keyword should be fine if class has no parent
+    auto result = check(R"--(
+        class Foo {
+            func bar() {
+                println(0)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_InitAndMethods) {
+    auto result = check(R"--(
+        class Widget {
+            var width: i32
+            var height: i32
+            init(w: i32, h: i32) {
+                self.width = w
+                self.height = h
+            }
+            func area() -> i32 {
+                return self.width * self.height
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_GenericClass) {
+    auto result = check(R"--(
+        class Container<T> {
+            var value: T
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_PublicClass) {
+    auto result = check(R"--(
+        pub class Library {
+            var name: string
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ClassDecl_TypeCheck_DeinitWithStringParam) {
+    // deinit should have no parameters (self is implicit)
+    auto result = check(R"--(
+        class Foo {
+            var x: i32
+            deinit(msg: string) {
+                println(0)
+            }
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_class_deinit_params));
+}

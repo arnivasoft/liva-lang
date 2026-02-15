@@ -40,6 +40,7 @@ public:
     void check(TranslationUnit &tu);
 
     void visitFuncDecl(FuncDecl *node);
+    void visitClassDecl(ClassDecl *node);
     void visitVarDecl(VarDecl *node);
     void visitBlockStmt(BlockStmt *node);
     void visitReturnStmt(ReturnStmt *node);

@@ -35,6 +35,8 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         return parseTypeAliasDecl(isPublic);
     case TokenKind::kw_macro:
         return parseMacroDecl(isPublic);
+    case TokenKind::kw_class:
+        return parseClassDecl(isPublic);
     default: {
         // Detect foreign language keywords used as identifiers
         if (current_.getKind() == TokenKind::identifier) {
@@ -46,13 +48,7 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
                 advance(); // skip the foreign keyword
                 return parseFuncDecl(isPublic);
             }
-            if (text == "class") {
-                diag_.report(current_.getLocation(), DiagID::err_foreign_keyword,
-                             std::string(text), "struct");
-                diag_.report(current_.getLocation(), DiagID::note_use_struct_keyword);
-                advance();
-                return parseStructDecl(isPublic);
-            }
+            // "class" is now a keyword — no need for foreign keyword detection
             if (text == "interface" || text == "trait") {
                 diag_.report(current_.getLocation(), DiagID::err_foreign_keyword,
                              std::string(text), "protocol");
@@ -556,6 +552,177 @@ std::unique_ptr<MacroDecl> Parser::parseMacroDecl(bool isPublic) {
     auto decl = std::make_unique<MacroDecl>(std::move(name), isPublic, rangeFrom(startLoc));
     decl->setRawSource(std::move(rawSource));
     return decl;
+}
+
+std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
+    auto startLoc = current_.getLocation();
+    expect(TokenKind::kw_class);
+
+    auto nameTok = expect(TokenKind::identifier);
+    std::string name(nameTok.getText());
+
+    // Parse optional generic type parameters: <T, U> or <T: Protocol>
+    std::vector<std::string> typeParams;
+    std::unordered_map<std::string, std::vector<std::string>> typeParamBounds;
+    if (match(TokenKind::less)) {
+        if (!check(TokenKind::greater)) {
+            do {
+                auto paramTok = expect(TokenKind::identifier);
+                std::string paramName(paramTok.getText());
+                typeParams.push_back(paramName);
+                if (match(TokenKind::colon)) {
+                    do {
+                        auto boundTok = expect(TokenKind::identifier);
+                        typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                    } while (match(TokenKind::plus));
+                }
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::greater);
+    }
+
+    // Parse optional inheritance/protocol list: : Parent, Protocol1, Protocol2
+    std::string parentClass;
+    std::vector<std::string> protocols;
+    if (match(TokenKind::colon)) {
+        // First name could be parent class or protocol — resolved in TypeChecker
+        auto firstTok = expect(TokenKind::identifier);
+        std::string firstName(firstTok.getText());
+        // Treat the first as parent class; if it's actually a protocol, TypeChecker will handle it
+        parentClass = firstName;
+        while (match(TokenKind::comma)) {
+            auto protoTok = expect(TokenKind::identifier);
+            protocols.push_back(std::string(protoTok.getText()));
+        }
+    }
+
+    expect(TokenKind::l_brace);
+
+    // Parse class members: fields, methods, init, deinit
+    std::vector<ClassMember> members;
+    while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;
+
+        // Skip stray semicolons
+        while (match(TokenKind::semicolon)) {}
+        if (check(TokenKind::r_brace) || check(TokenKind::eof)) break;
+
+        ClassMember member;
+
+        // Parse access modifier: private
+        if (match(TokenKind::kw_private)) {
+            member.access = AccessModifier::Private;
+        } else if (match(TokenKind::kw_pub)) {
+            member.access = AccessModifier::Public;
+        }
+
+        // Parse override keyword
+        if (match(TokenKind::kw_override)) {
+            member.isOverride = true;
+        }
+
+        // Field: var name: Type or let name: Type
+        if (check(TokenKind::kw_var) || check(TokenKind::kw_let)) {
+            bool fieldMutable = current_.is(TokenKind::kw_var);
+            advance();
+
+            auto fieldName = expect(TokenKind::identifier);
+            if (fieldName.is(TokenKind::eof)) { synchronizeBody(); continue; }
+            if (!match(TokenKind::colon)) {
+                diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                             ":", std::string(current_.getText()));
+                synchronizeBody();
+                continue;
+            }
+            auto fieldType = parseType();
+            if (!fieldType) { synchronizeBody(); continue; }
+
+            member.field = std::make_unique<FieldDecl>(
+                std::string(fieldName.getText()), std::move(fieldType),
+                fieldMutable, rangeFrom(fieldName.getLocation()));
+            members.push_back(std::move(member));
+        }
+        // init(params...) { body }  — self is implicit
+        else if (check(TokenKind::kw_init)) {
+            auto initStart = current_.getLocation();
+            advance(); // consume 'init'
+
+            expect(TokenKind::l_paren);
+            std::vector<ParamDecl> params;
+            if (!check(TokenKind::r_paren)) {
+                do {
+                    params.push_back(parseParamDecl());
+                } while (match(TokenKind::comma));
+            }
+            expect(TokenKind::r_paren);
+
+            std::unique_ptr<BlockStmt> body;
+            if (check(TokenKind::l_brace)) {
+                body = parseBlock();
+            }
+
+            member.method = std::make_unique<FuncDecl>(
+                "init", std::move(params), makeVoidType(), std::move(body),
+                member.access == AccessModifier::Public, rangeFrom(initStart));
+            members.push_back(std::move(member));
+        }
+        // deinit { body }  — self is implicit, parens optional
+        else if (check(TokenKind::kw_deinit)) {
+            auto deinitStart = current_.getLocation();
+            advance(); // consume 'deinit'
+
+            // Optional parens: deinit, deinit(), or deinit(params...) — params rejected by sema
+            std::vector<ParamDecl> params;
+            if (match(TokenKind::l_paren)) {
+                if (!check(TokenKind::r_paren)) {
+                    do {
+                        params.push_back(parseParamDecl());
+                    } while (match(TokenKind::comma));
+                }
+                expect(TokenKind::r_paren);
+            }
+
+            std::unique_ptr<BlockStmt> body;
+            if (check(TokenKind::l_brace)) {
+                body = parseBlock();
+            }
+
+            member.method = std::make_unique<FuncDecl>(
+                "deinit", std::move(params), makeVoidType(), std::move(body),
+                false, rangeFrom(deinitStart));
+            members.push_back(std::move(member));
+        }
+        // func method(params...) — self is implicit
+        else if (check(TokenKind::kw_func) || check(TokenKind::kw_async)) {
+            bool isAsync = false;
+            if (match(TokenKind::kw_async)) {
+                isAsync = true;
+            }
+            inClassBody_ = true;
+            member.method = parseFuncDecl(member.access == AccessModifier::Public, isAsync);
+            inClassBody_ = false;
+            members.push_back(std::move(member));
+        }
+        else {
+            diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                         "var/let/func/init/deinit", std::string(current_.getText()));
+            synchronizeBody();
+            continue;
+        }
+    }
+
+    expect(TokenKind::r_brace);
+
+    auto classDecl = std::make_unique<ClassDecl>(
+        std::move(name), std::move(parentClass), std::move(protocols),
+        std::move(members), isPublic, rangeFrom(startLoc));
+    if (!typeParams.empty()) {
+        classDecl->setTypeParams(std::move(typeParams));
+    }
+    if (!typeParamBounds.empty()) {
+        classDecl->setTypeParamBounds(std::move(typeParamBounds));
+    }
+    return classDecl;
 }
 
 } // namespace liva

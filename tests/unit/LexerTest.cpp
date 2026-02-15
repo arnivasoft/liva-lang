@@ -525,3 +525,52 @@ TEST_F(LexerTest, DocCommentNoSpace) {
     expectToken(tokens[0], TokenKind::doc_comment);
     EXPECT_EQ(tokens[0].getText(), "no space");
 }
+
+// =============================================================================
+// Class System Keyword Tests
+// =============================================================================
+
+TEST_F(LexerTest, ClassKeyword) {
+    auto tokens = lex("class");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::kw_class);
+}
+
+TEST_F(LexerTest, InitKeyword) {
+    auto tokens = lex("init");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::kw_init);
+}
+
+TEST_F(LexerTest, DeinitKeyword) {
+    auto tokens = lex("deinit");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::kw_deinit);
+}
+
+TEST_F(LexerTest, OverrideKeyword) {
+    auto tokens = lex("override");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::kw_override);
+}
+
+TEST_F(LexerTest, SuperKeyword) {
+    auto tokens = lex("super");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::kw_super);
+}
+
+TEST_F(LexerTest, PrivateKeyword) {
+    auto tokens = lex("private");
+    ASSERT_GE(tokens.size(), 1);
+    expectToken(tokens[0], TokenKind::kw_private);
+}
+
+TEST_F(LexerTest, ClassKeywordsInContext) {
+    auto tokens = lex("class Foo { private var x: i32; init(self) {} deinit(self) {} override func speak() {} }");
+    ASSERT_GE(tokens.size(), 10);
+    expectToken(tokens[0], TokenKind::kw_class);
+    expectToken(tokens[1], TokenKind::identifier); // Foo
+    expectToken(tokens[2], TokenKind::l_brace);
+    expectToken(tokens[3], TokenKind::kw_private);
+}
