@@ -25,7 +25,8 @@ static TargetInfo resolveTarget(const std::string &targetTriple) {
 
 CompilerInstance::CompilerInstance() {
     diag_.setPrintCallback([this](const Diagnostic &d) {
-        DiagnosticsEngine::printToStderr(d, sourceManager_.get());
+        bool useCol = shouldUseColor(colorMode_);
+        DiagnosticsEngine::printToStderr(d, sourceManager_.get(), useCol);
     });
 }
 

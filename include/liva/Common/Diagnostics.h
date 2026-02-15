@@ -1,6 +1,7 @@
 #pragma once
 
 #include "liva/Common/SourceLocation.h"
+#include "liva/Common/TerminalColors.h"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -83,8 +84,9 @@ public:
     /// Format a diagnostic for display
     std::string formatDiagnostic(const Diagnostic &diag) const;
 
-    /// Default print callback that writes to stderr
-    static void printToStderr(const Diagnostic &diag, const SourceManager *sm);
+    /// Default print callback that writes to stderr (Rust-style format)
+    static void printToStderr(const Diagnostic &diag, const SourceManager *sm,
+                              bool useColor = false);
 
 private:
     struct DiagInfo {

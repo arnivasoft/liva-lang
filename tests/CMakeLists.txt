@@ -59,6 +59,11 @@ liva_add_test(plugin_test
 )
 target_link_libraries(plugin_test PRIVATE liva_plugin liva_sema liva_parser)
 
+liva_add_test(diag_color_test
+    unit/DiagColorTest.cpp
+)
+target_link_libraries(diag_color_test PRIVATE liva_common)
+
 # Performance regression tests
 liva_add_test(benchmark_test
     unit/BenchmarkTest.cpp

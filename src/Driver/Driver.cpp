@@ -282,6 +282,19 @@ bool Driver::parseArgs(int argc, const char **argv) {
             continue;
         }
 
+        if (std::strcmp(arg, "--color=auto") == 0) {
+            options_.colorMode = ColorMode::Auto;
+            continue;
+        }
+        if (std::strcmp(arg, "--color=always") == 0) {
+            options_.colorMode = ColorMode::Always;
+            continue;
+        }
+        if (std::strcmp(arg, "--color=never") == 0) {
+            options_.colorMode = ColorMode::Never;
+            continue;
+        }
+
         // If starts with -, unknown flag
         if (arg[0] == '-') {
             std::cerr << "error: unknown option '" << arg << "'\n";
@@ -346,6 +359,7 @@ int Driver::executeLegacy() {
     compiler.setOptLevel(options_.optLevel);
     compiler.setDebugInfo(options_.debugInfo);
     compiler.setTargetTriple(options_.targetTriple);
+    compiler.setColorMode(options_.colorMode);
     compiler.setPluginRegistry(&pluginRegistry);
     if (!compiler.loadFile(options_.inputFile))
         return 1;
@@ -534,6 +548,7 @@ int Driver::buildProject(bool runAfter) {
         compiler.setPgoProfile(cfg.pgoProfile);
         compiler.setSearchPaths(searchPaths);
         compiler.setTargetTriple(cfg.target);
+        compiler.setColorMode(options_.colorMode);
         compiler.setPluginRegistry(&pluginRegistry);
 
         if (!compiler.loadFile(entryPath))
@@ -682,6 +697,7 @@ int Driver::buildProject(bool runAfter) {
             compiler.setPgoProfile(cfg.pgoProfile);
             compiler.setSearchPaths(searchPaths);
             compiler.setTargetTriple(cfg.target);
+            compiler.setColorMode(options_.colorMode);
             compiler.setPluginRegistry(&pluginRegistry);
 
             if (!compiler.loadFile(sourcePath)) {
@@ -735,6 +751,7 @@ int Driver::buildProject(bool runAfter) {
                 compiler.setPgoProfile(cfg.pgoProfile);
                 compiler.setSearchPaths(searchPaths);
                 compiler.setTargetTriple(cfg.target);
+                compiler.setColorMode(options_.colorMode);
                 compiler.setPluginRegistry(&pluginRegistry);
 
                 if (!compiler.loadFile(sourcePath)) {
@@ -842,6 +859,7 @@ int Driver::executeBench() {
         CompilerInstance compiler;
         compiler.setExecutablePath(executablePath_);
         compiler.setOptLevel(2);  // benchmarks always optimized
+        compiler.setColorMode(options_.colorMode);
         compiler.setPluginRegistry(&pluginRegistry);
         if (!compiler.loadFile(file)) {
             ++failures;
@@ -893,6 +911,7 @@ int Driver::executeTest() {
         CompilerInstance compiler;
         compiler.setExecutablePath(executablePath_);
         compiler.setOptLevel(0);
+        compiler.setColorMode(options_.colorMode);
         compiler.setPluginRegistry(&pluginRegistry);
         if (!compiler.loadFile(file)) {
             ++failures;
@@ -958,6 +977,7 @@ int Driver::executeRepl() {
 #ifdef LIVA_HAS_LLVM
                 CompilerInstance compiler;
                 compiler.setExecutablePath(executablePath_);
+                compiler.setColorMode(options_.colorMode);
                 compiler.setSource("_repl_tmp.liva", result.generatedCode);
 
                 if (jit) {
@@ -1312,8 +1332,10 @@ int Driver::executeLint() {
 
         SourceManager sm(filePath, source);
         DiagnosticsEngine diag(&sm);
-        diag.setPrintCallback([&sm](const Diagnostic &d) {
-            DiagnosticsEngine::printToStderr(d, &sm);
+        ColorMode lintColorMode = options_.colorMode;
+        diag.setPrintCallback([&sm, lintColorMode](const Diagnostic &d) {
+            bool useCol = shouldUseColor(lintColorMode);
+            DiagnosticsEngine::printToStderr(d, &sm, useCol);
         });
 
         Lexer lexer(sm, diag);
@@ -1528,7 +1550,8 @@ void Driver::printHelp() {
               << "  --pgo-profile=PATH  Profile data path (default: default.profdata)\n"
               << "  -j N                Number of parallel compilation jobs (default: auto)\n"
               << "  --rebuild           Force recompile all files (bypass cache)\n"
-              << "  --target <triple>   Cross-compile for target triple\n";
+              << "  --target <triple>   Cross-compile for target triple\n"
+              << "  --color=<mode>      Color output: auto, always, never (default: auto)\n";
 }
 
 } // namespace liva

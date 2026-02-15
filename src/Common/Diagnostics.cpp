@@ -55,20 +55,64 @@ std::string DiagnosticsEngine::formatDiagnostic(const Diagnostic &diag) const {
     return result;
 }
 
-void DiagnosticsEngine::printToStderr(const Diagnostic &diag, const SourceManager *sm) {
-    DiagnosticsEngine temp(sm);
-    std::cerr << temp.formatDiagnostic(diag) << "\n";
+void DiagnosticsEngine::printToStderr(const Diagnostic &diag, const SourceManager *sm,
+                                      bool useColor) {
+    // Color strings — empty if color disabled
+    const char *sevColor = "";
+    const char *blue     = "";
+    const char *white    = "";
+    const char *reset    = "";
 
-    // Print source line and caret if we have a source manager
+    if (useColor) {
+        white = color::BoldWhite;
+        blue  = color::BoldBlue;
+        reset = color::Reset;
+        switch (diag.level) {
+        case DiagLevel::Error:   sevColor = color::BoldRed;    break;
+        case DiagLevel::Warning: sevColor = color::BoldYellow; break;
+        case DiagLevel::Note:    sevColor = color::BoldCyan;   break;
+        }
+    }
+
+    // Severity label
+    const char *label = "error";
+    switch (diag.level) {
+    case DiagLevel::Error:   label = "error";   break;
+    case DiagLevel::Warning: label = "warning"; break;
+    case DiagLevel::Note:    label = "note";    break;
+    }
+
+    // Line 1: severity: message
+    std::cerr << sevColor << label << ": " << white << diag.message << reset << "\n";
+
+    // Source snippet (Rust-style)
     if (sm && diag.location.isValid()) {
-        auto line = sm->getLineContent(diag.location);
-        if (!line.empty()) {
-            std::cerr << "  " << line << "\n";
-            std::cerr << "  ";
-            for (uint32_t i = 1; i < diag.location.column; ++i) {
+        std::string filename(sm->getFilename());
+        std::string lineStr = std::to_string(diag.location.line);
+        std::string colStr  = std::to_string(diag.location.column);
+        size_t gutterWidth  = lineStr.size();
+
+        // --> file:line:col
+        std::cerr << std::string(gutterWidth + 1, ' ')
+                  << blue << "--> " << reset
+                  << filename << ":" << lineStr << ":" << colStr << "\n";
+
+        // Empty gutter line
+        std::cerr << std::string(gutterWidth + 1, ' ')
+                  << blue << "|" << reset << "\n";
+
+        // Source line
+        auto sourceLine = sm->getLineContent(diag.location);
+        if (!sourceLine.empty()) {
+            std::cerr << blue << lineStr << " | " << reset
+                      << sourceLine << "\n";
+
+            // Caret line
+            std::cerr << std::string(gutterWidth + 1, ' ')
+                      << blue << "| " << reset;
+            for (uint32_t i = 1; i < diag.location.column; ++i)
                 std::cerr << ' ';
-            }
-            std::cerr << "^\n";
+            std::cerr << sevColor << "^" << reset << "\n";
         }
     }
 }

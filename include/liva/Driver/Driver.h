@@ -1,5 +1,6 @@
 #pragma once
 
+#include "liva/Common/TerminalColors.h"
 #include "liva/Driver/ProjectConfig.h"
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@ struct DriverOptions {
     bool rebuild = false;  // --rebuild: force recompile all, bypass cache
     std::string targetTriple;       // --target=<triple>
     bool hasTargetOverride = false;
+    ColorMode colorMode = ColorMode::Auto;  // --color=auto|always|never
 };
 
 /// Parses command-line arguments and drives compilation

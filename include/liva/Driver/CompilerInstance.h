@@ -44,6 +44,9 @@ public:
     /// Set cross-compilation target triple
     void setTargetTriple(const std::string &triple) { targetTriple_ = triple; }
 
+    /// Set color mode for diagnostic output
+    void setColorMode(ColorMode mode) { colorMode_ = mode; }
+
     /// Set additional module search paths
     void setSearchPaths(const std::vector<std::string> &paths) {
         searchPaths_ = paths;
@@ -119,6 +122,7 @@ private:
     std::string lastObjPath_;
     std::vector<std::string> searchPaths_;
     std::string targetTriple_;
+    ColorMode colorMode_ = ColorMode::Auto;
     PluginRegistry *pluginRegistry_ = nullptr;
 };
 
