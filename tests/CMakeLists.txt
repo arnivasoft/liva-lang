@@ -80,7 +80,7 @@ target_compile_definitions(integration_test PRIVATE
 )
 if(LIVA_HAS_LLVM AND NOT MINGW)
     target_sources(integration_test PRIVATE ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp)
-    target_link_libraries(integration_test PRIVATE liva_codegen liva_irgen liva_jit liva_runtime)
+    target_link_libraries(integration_test PRIVATE liva_codegen liva_irgen liva_jit liva_runtime liva_plugin)
     target_compile_definitions(integration_test PRIVATE LIVA_HAS_LLVM=1)
     if(WIN32)
         target_link_libraries(integration_test PRIVATE winhttp)
@@ -103,7 +103,7 @@ if(LIVA_HAS_LLVM AND NOT MINGW)
         ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp
     )
     target_link_libraries(selfhost_test PRIVATE
-        liva_codegen liva_irgen liva_sema liva_parser liva_driver)
+        liva_codegen liva_irgen liva_sema liva_parser liva_driver liva_plugin)
     target_compile_definitions(selfhost_test PRIVATE
         LIVA_HAS_LLVM=1
         LIVA_BUILD_DIR="${CMAKE_BINARY_DIR}")
