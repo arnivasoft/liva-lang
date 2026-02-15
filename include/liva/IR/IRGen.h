@@ -54,6 +54,7 @@ public:
     /// Get the generated module
     llvm::Module *getModule() { return module_.get(); }
     std::unique_ptr<llvm::Module> takeModule() { return std::move(module_); }
+    std::unique_ptr<llvm::LLVMContext> takeContext() { return std::move(context_); }
 
     /// Dump IR to stderr
     void dump();
@@ -63,6 +64,7 @@ public:
 
     // Visitor methods
     llvm::Value *visitClassDecl(ClassDecl *node);
+    llvm::Value *visitTestDecl(TestDecl *node);
     llvm::Value *visitFuncDecl(FuncDecl *node);
     llvm::Value *visitVarDecl(VarDecl *node);
     llvm::Value *visitStructDecl(StructDecl *node);
@@ -478,6 +480,12 @@ private:
     /// Get or create a vtable for type conforming to protocol
     llvm::GlobalVariable *getOrCreateVtable(const std::string &protocolName,
                                               const std::string &typeName);
+
+    /// Test framework support
+    struct TestEntry { std::string name; llvm::Function *func; };
+    std::vector<TestEntry> testEntries_;
+    int testCounter_ = 0;
+    void generateTestMain();
 };
 
 #else

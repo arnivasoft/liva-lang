@@ -547,6 +547,14 @@ JSONValue LSPServer::dispatch(const JSONValue &msg) {
             return handleInlayHint(id, params);
         if (method == "workspace/symbol")
             return handleWorkspaceSymbol(id, params);
+        if (method == "textDocument/codeLens")
+            return handleCodeLens(id, params);
+        if (method == "textDocument/prepareCallHierarchy")
+            return handleCallHierarchyPrepare(id, params);
+        if (method == "callHierarchy/incomingCalls")
+            return handleCallHierarchyIncoming(id, params);
+        if (method == "callHierarchy/outgoingCalls")
+            return handleCallHierarchyOutgoing(id, params);
         // Unknown request → method not found
         return makeError(id, -32601, "method not found: " + method);
     }
@@ -677,8 +685,14 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
     // Document formatting
     capabilities.set("documentFormattingProvider", JSONValue(true));
 
-    // Code actions
-    capabilities.set("codeActionProvider", JSONValue(true));
+    // Code actions — with resolve support and kinds
+    {
+        auto codeActionOpts = JSONValue::object();
+        auto kinds = JSONValue::array();
+        kinds.push(JSONValue("quickfix"));
+        codeActionOpts.set("codeActionKinds", std::move(kinds));
+        capabilities.set("codeActionProvider", std::move(codeActionOpts));
+    }
 
     // Folding range
     capabilities.set("foldingRangeProvider", JSONValue(true));
@@ -691,6 +705,12 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
 
     // Inlay hints
     capabilities.set("inlayHintProvider", JSONValue(true));
+
+    // Code Lens
+    capabilities.set("codeLensProvider", JSONValue::object());
+
+    // Call Hierarchy
+    capabilities.set("callHierarchyProvider", JSONValue(true));
 
     auto serverInfo = JSONValue::object();
     serverInfo.set("name", JSONValue("liva-lsp"));
@@ -1793,9 +1813,94 @@ JSONValue LSPServer::handleFormatting(const JSONValue &id,
 // ============================================================
 
 JSONValue LSPServer::handleCodeAction(const JSONValue &id,
-                                      const JSONValue & /*params*/) {
-    // Infrastructure: return empty array (no quick fixes implemented yet)
-    return makeResponse(id, JSONValue::array());
+                                      const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end())
+        return makeResponse(id, JSONValue::array());
+
+    auto actions = JSONValue::array();
+    const auto &doc = it->second;
+
+    int rangeStartLine = static_cast<int>(params["range"]["start"]["line"].getInteger());
+    int rangeEndLine = static_cast<int>(params["range"]["end"]["line"].getInteger());
+
+    for (const auto &d : doc.diag.getDiagnostics()) {
+        int diagLine = (d.location.line > 0) ? static_cast<int>(d.location.line) - 1 : 0;
+        if (diagLine < rangeStartLine || diagLine > rangeEndLine)
+            continue;
+
+        if (d.id == DiagID::warn_unused_variable) {
+            // Extract variable name from message "unused variable 'NAME'"
+            std::string varName;
+            auto q1 = d.message.find('\'');
+            auto q2 = d.message.rfind('\'');
+            if (q1 != std::string::npos && q2 > q1)
+                varName = d.message.substr(q1 + 1, q2 - q1 - 1);
+
+            if (!varName.empty()) {
+                // Action 1: Prefix with _
+                {
+                    auto action = JSONValue::object();
+                    action.set("title", JSONValue("Prefix '" + varName + "' with _"));
+                    action.set("kind", JSONValue("quickfix"));
+
+                    // Build workspace edit: rename varName → _varName on that line
+                    auto edit = JSONValue::object();
+                    auto changes = JSONValue::object();
+                    auto edits = JSONValue::array();
+                    auto textEdit = JSONValue::object();
+                    // Find variable name on the diagnostic line
+                    int col = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
+                    auto startPos = JSONValue::object();
+                    startPos.set("line", JSONValue(static_cast<int64_t>(diagLine)));
+                    startPos.set("character", JSONValue(static_cast<int64_t>(col)));
+                    auto endPos = JSONValue::object();
+                    endPos.set("line", JSONValue(static_cast<int64_t>(diagLine)));
+                    endPos.set("character", JSONValue(static_cast<int64_t>(col + static_cast<int>(varName.size()))));
+                    auto range = JSONValue::object();
+                    range.set("start", std::move(startPos));
+                    range.set("end", std::move(endPos));
+                    textEdit.set("range", std::move(range));
+                    textEdit.set("newText", JSONValue("_" + varName));
+                    edits.push(std::move(textEdit));
+                    changes.set(uri, std::move(edits));
+                    edit.set("changes", std::move(changes));
+                    action.set("edit", std::move(edit));
+                    actions.push(std::move(action));
+                }
+                // Action 2: Remove unused variable line
+                {
+                    auto action = JSONValue::object();
+                    action.set("title", JSONValue("Remove unused variable '" + varName + "'"));
+                    action.set("kind", JSONValue("quickfix"));
+
+                    auto edit = JSONValue::object();
+                    auto changes = JSONValue::object();
+                    auto edits = JSONValue::array();
+                    auto textEdit = JSONValue::object();
+                    // Delete the entire line
+                    auto startPos = JSONValue::object();
+                    startPos.set("line", JSONValue(static_cast<int64_t>(diagLine)));
+                    startPos.set("character", JSONValue(static_cast<int64_t>(0)));
+                    auto endPos = JSONValue::object();
+                    endPos.set("line", JSONValue(static_cast<int64_t>(diagLine + 1)));
+                    endPos.set("character", JSONValue(static_cast<int64_t>(0)));
+                    auto range = JSONValue::object();
+                    range.set("start", std::move(startPos));
+                    range.set("end", std::move(endPos));
+                    textEdit.set("range", std::move(range));
+                    textEdit.set("newText", JSONValue(""));
+                    edits.push(std::move(textEdit));
+                    changes.set(uri, std::move(edits));
+                    edit.set("changes", std::move(changes));
+                    action.set("edit", std::move(edit));
+                    actions.push(std::move(action));
+                }
+            }
+        }
+    }
+    return makeResponse(id, std::move(actions));
 }
 
 // ============================================================
@@ -2544,6 +2649,334 @@ JSONValue LSPServer::handleInlayHint(const JSONValue &id,
     }
 
     return makeResponse(id, std::move(hints));
+}
+
+// ============================================================
+// Code Lens
+// ============================================================
+
+int LSPServer::countReferences(const std::string &name) const {
+    int count = 0;
+    for (const auto &[docUri, docState] : documents_) {
+        auto locs = findNameOccurrences(docState.content, name);
+        count += static_cast<int>(locs.size());
+    }
+    // Subtract 1 for the declaration itself (if it was found)
+    return count > 0 ? count - 1 : 0;
+}
+
+JSONValue LSPServer::handleCodeLens(const JSONValue &id,
+                                     const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end() || !it->second.tu)
+        return makeResponse(id, JSONValue::array());
+
+    auto lenses = JSONValue::array();
+    for (const auto &node : it->second.tu->getDeclarations()) {
+        std::string name;
+        int declLine = 0;
+        if (auto *fd = dynamic_cast<FuncDecl *>(node.get())) {
+            name = fd->getName();
+            declLine = fd->getRange().start.line;
+        } else if (auto *sd = dynamic_cast<StructDecl *>(node.get())) {
+            name = sd->getName();
+            declLine = sd->getRange().start.line;
+        } else if (auto *cd = dynamic_cast<ClassDecl *>(node.get())) {
+            name = cd->getName();
+            declLine = cd->getRange().start.line;
+        } else if (auto *ed = dynamic_cast<EnumDecl *>(node.get())) {
+            name = ed->getName();
+            declLine = ed->getRange().start.line;
+        }
+        if (name.empty()) continue;
+
+        int refs = countReferences(name);
+
+        auto lens = JSONValue::object();
+        auto range = JSONValue::object();
+        auto startPos = JSONValue::object();
+        int line0 = declLine > 0 ? declLine - 1 : 0;
+        startPos.set("line", JSONValue(static_cast<int64_t>(line0)));
+        startPos.set("character", JSONValue(static_cast<int64_t>(0)));
+        auto endPos = JSONValue::object();
+        endPos.set("line", JSONValue(static_cast<int64_t>(line0)));
+        endPos.set("character", JSONValue(static_cast<int64_t>(0)));
+        range.set("start", std::move(startPos));
+        range.set("end", std::move(endPos));
+        lens.set("range", std::move(range));
+
+        auto cmd = JSONValue::object();
+        cmd.set("title", JSONValue(std::to_string(refs) + " references"));
+        cmd.set("command", JSONValue("liva.showReferences"));
+        lens.set("command", std::move(cmd));
+        lenses.push(std::move(lens));
+    }
+    return makeResponse(id, std::move(lenses));
+}
+
+// ============================================================
+// Call Hierarchy
+// ============================================================
+
+void LSPServer::collectCallsInExpr(const Expr *expr,
+                                    std::vector<CallInfo> &calls) const {
+    if (!expr) return;
+    if (auto *ce = dynamic_cast<const CallExpr *>(expr)) {
+        std::string name;
+        if (auto *ie = dynamic_cast<const IdentifierExpr *>(ce->getCallee()))
+            name = ie->getName();
+        if (!name.empty())
+            calls.push_back({name, ce->getRange()});
+        // Recurse into args
+        for (const auto &arg : ce->getArgs())
+            collectCallsInExpr(arg.get(), calls);
+    } else if (auto *be = dynamic_cast<const BinaryExpr *>(expr)) {
+        collectCallsInExpr(be->getLHS(), calls);
+        collectCallsInExpr(be->getRHS(), calls);
+    } else if (auto *ue = dynamic_cast<const UnaryExpr *>(expr)) {
+        collectCallsInExpr(ue->getOperand(), calls);
+    }
+}
+
+void LSPServer::collectCalls(const ASTNode *node,
+                              std::vector<CallInfo> &calls) const {
+    if (!node) return;
+    if (auto *es = dynamic_cast<const ExprStmt *>(node)) {
+        collectCallsInExpr(es->getExpr(), calls);
+    } else if (auto *rs = dynamic_cast<const ReturnStmt *>(node)) {
+        if (rs->hasValue()) collectCallsInExpr(rs->getValue(), calls);
+    } else if (auto *bs = dynamic_cast<const BlockStmt *>(node)) {
+        for (const auto &s : bs->getStatements())
+            collectCalls(s.get(), calls);
+    } else if (auto *is = dynamic_cast<const IfStmt *>(node)) {
+        collectCallsInExpr(is->getCondition(), calls);
+        collectCalls(is->getThenBody(), calls);
+        if (is->hasElse()) collectCalls(is->getElseBody(), calls);
+    } else if (auto *ws = dynamic_cast<const WhileStmt *>(node)) {
+        collectCallsInExpr(ws->getCondition(), calls);
+        collectCalls(ws->getBody(), calls);
+    } else if (auto *fs = dynamic_cast<const ForStmt *>(node)) {
+        collectCallsInExpr(fs->getIterable(), calls);
+        collectCalls(fs->getBody(), calls);
+    } else if (auto *vd = dynamic_cast<const VarDecl *>(node)) {
+        if (vd->getInit()) collectCallsInExpr(vd->getInit(), calls);
+    }
+}
+
+JSONValue LSPServer::handleCallHierarchyPrepare(const JSONValue &id,
+                                                 const JSONValue &params) {
+    std::string uri = params["textDocument"]["uri"].getString();
+    auto it = documents_.find(uri);
+    if (it == documents_.end() || !it->second.tu)
+        return makeResponse(id, JSONValue::array());
+
+    uint32_t line = static_cast<uint32_t>(
+        params["position"]["line"].getInteger()) + 1;
+    uint32_t col = static_cast<uint32_t>(
+        params["position"]["character"].getInteger()) + 1;
+
+    const ASTNode *node = findNodeAtPosition(it->second.tu.get(), line, col);
+    auto *fd = node ? dynamic_cast<const FuncDecl *>(node) : nullptr;
+    if (!fd)
+        return makeResponse(id, JSONValue::array());
+
+    auto items = JSONValue::array();
+    auto item = JSONValue::object();
+    item.set("name", JSONValue(fd->getName()));
+    item.set("kind", JSONValue(static_cast<int64_t>(12))); // Function
+    item.set("uri", JSONValue(uri));
+
+    int startLine = fd->getRange().start.line > 0
+                        ? static_cast<int>(fd->getRange().start.line) - 1 : 0;
+    int endLine = fd->getRange().end.line > 0
+                      ? static_cast<int>(fd->getRange().end.line) - 1 : 0;
+
+    auto range = JSONValue::object();
+    auto rs = JSONValue::object();
+    rs.set("line", JSONValue(static_cast<int64_t>(startLine)));
+    rs.set("character", JSONValue(static_cast<int64_t>(0)));
+    auto re = JSONValue::object();
+    re.set("line", JSONValue(static_cast<int64_t>(endLine)));
+    re.set("character", JSONValue(static_cast<int64_t>(0)));
+    range.set("start", std::move(rs));
+    range.set("end", std::move(re));
+    item.set("range", JSONValue(range));
+    item.set("selectionRange", std::move(range));
+
+    items.push(std::move(item));
+    return makeResponse(id, std::move(items));
+}
+
+JSONValue LSPServer::handleCallHierarchyIncoming(const JSONValue &id,
+                                                  const JSONValue &params) {
+    std::string targetName = params["item"]["name"].getString();
+    if (targetName.empty())
+        return makeResponse(id, JSONValue::array());
+
+    auto result = JSONValue::array();
+
+    for (const auto &[docUri, docState] : documents_) {
+        if (!docState.tu) continue;
+        for (const auto &node : docState.tu->getDeclarations()) {
+            auto *fd = dynamic_cast<FuncDecl *>(node.get());
+            if (!fd || !fd->getBody()) continue;
+
+            std::vector<CallInfo> calls;
+            collectCalls(fd->getBody(), calls);
+
+            // Check if any call targets the function we're looking for
+            std::vector<CallInfo> matchingCalls;
+            for (const auto &c : calls) {
+                if (c.callee == targetName)
+                    matchingCalls.push_back(c);
+            }
+            if (matchingCalls.empty()) continue;
+
+            // Build the "from" CallHierarchyItem
+            auto from = JSONValue::object();
+            from.set("name", JSONValue(fd->getName()));
+            from.set("kind", JSONValue(static_cast<int64_t>(12)));
+            from.set("uri", JSONValue(docUri));
+
+            int fStartLine = fd->getRange().start.line > 0
+                                 ? static_cast<int>(fd->getRange().start.line) - 1 : 0;
+            int fEndLine = fd->getRange().end.line > 0
+                               ? static_cast<int>(fd->getRange().end.line) - 1 : 0;
+            auto fRange = JSONValue::object();
+            auto frs = JSONValue::object();
+            frs.set("line", JSONValue(static_cast<int64_t>(fStartLine)));
+            frs.set("character", JSONValue(static_cast<int64_t>(0)));
+            auto fre = JSONValue::object();
+            fre.set("line", JSONValue(static_cast<int64_t>(fEndLine)));
+            fre.set("character", JSONValue(static_cast<int64_t>(0)));
+            fRange.set("start", std::move(frs));
+            fRange.set("end", std::move(fre));
+            from.set("range", JSONValue(fRange));
+            from.set("selectionRange", std::move(fRange));
+
+            // Build fromRanges
+            auto fromRanges = JSONValue::array();
+            for (const auto &mc : matchingCalls) {
+                auto cr = JSONValue::object();
+                auto crs = JSONValue::object();
+                int cLine = mc.range.start.line > 0
+                                ? static_cast<int>(mc.range.start.line) - 1 : 0;
+                int cCol = mc.range.start.column > 0
+                               ? static_cast<int>(mc.range.start.column) - 1 : 0;
+                int ceCol = mc.range.end.column > 0
+                                ? static_cast<int>(mc.range.end.column) - 1 : 0;
+                crs.set("line", JSONValue(static_cast<int64_t>(cLine)));
+                crs.set("character", JSONValue(static_cast<int64_t>(cCol)));
+                auto cre = JSONValue::object();
+                cre.set("line", JSONValue(static_cast<int64_t>(cLine)));
+                cre.set("character", JSONValue(static_cast<int64_t>(ceCol)));
+                cr.set("start", std::move(crs));
+                cr.set("end", std::move(cre));
+                fromRanges.push(std::move(cr));
+            }
+
+            auto incoming = JSONValue::object();
+            incoming.set("from", std::move(from));
+            incoming.set("fromRanges", std::move(fromRanges));
+            result.push(std::move(incoming));
+        }
+    }
+    return makeResponse(id, std::move(result));
+}
+
+JSONValue LSPServer::handleCallHierarchyOutgoing(const JSONValue &id,
+                                                  const JSONValue &params) {
+    std::string funcName = params["item"]["name"].getString();
+    std::string itemUri = params["item"]["uri"].getString();
+    if (funcName.empty())
+        return makeResponse(id, JSONValue::array());
+
+    auto result = JSONValue::array();
+
+    // Find the function in the specified document
+    auto it = documents_.find(itemUri);
+    if (it == documents_.end() || !it->second.tu)
+        return makeResponse(id, JSONValue::array());
+
+    for (const auto &node : it->second.tu->getDeclarations()) {
+        auto *fd = dynamic_cast<FuncDecl *>(node.get());
+        if (!fd || fd->getName() != funcName || !fd->getBody()) continue;
+
+        std::vector<CallInfo> calls;
+        collectCalls(fd->getBody(), calls);
+
+        // Deduplicate by callee name
+        std::map<std::string, std::vector<CallInfo>> callsByName;
+        for (const auto &c : calls)
+            callsByName[c.callee].push_back(c);
+
+        for (const auto &[calleeName, calleeCalls] : callsByName) {
+            // Build the "to" CallHierarchyItem
+            auto to = JSONValue::object();
+            to.set("name", JSONValue(calleeName));
+            to.set("kind", JSONValue(static_cast<int64_t>(12)));
+
+            // Try to find the declaration for the callee
+            std::string toUri = itemUri;
+            int toStartLine = 0, toEndLine = 0;
+            for (const auto &[dUri, dState] : documents_) {
+                if (!dState.tu) continue;
+                for (const auto &dn : dState.tu->getDeclarations()) {
+                    if (auto *tfd = dynamic_cast<FuncDecl *>(dn.get())) {
+                        if (tfd->getName() == calleeName) {
+                            toUri = dUri;
+                            toStartLine = tfd->getRange().start.line > 0
+                                              ? static_cast<int>(tfd->getRange().start.line) - 1 : 0;
+                            toEndLine = tfd->getRange().end.line > 0
+                                            ? static_cast<int>(tfd->getRange().end.line) - 1 : 0;
+                        }
+                    }
+                }
+            }
+            to.set("uri", JSONValue(toUri));
+
+            auto toRange = JSONValue::object();
+            auto trs = JSONValue::object();
+            trs.set("line", JSONValue(static_cast<int64_t>(toStartLine)));
+            trs.set("character", JSONValue(static_cast<int64_t>(0)));
+            auto tre = JSONValue::object();
+            tre.set("line", JSONValue(static_cast<int64_t>(toEndLine)));
+            tre.set("character", JSONValue(static_cast<int64_t>(0)));
+            toRange.set("start", std::move(trs));
+            toRange.set("end", std::move(tre));
+            to.set("range", JSONValue(toRange));
+            to.set("selectionRange", std::move(toRange));
+
+            // Build fromRanges (call sites)
+            auto fromRanges = JSONValue::array();
+            for (const auto &cc : calleeCalls) {
+                auto cr = JSONValue::object();
+                auto crs = JSONValue::object();
+                int cLine = cc.range.start.line > 0
+                                ? static_cast<int>(cc.range.start.line) - 1 : 0;
+                int cCol = cc.range.start.column > 0
+                               ? static_cast<int>(cc.range.start.column) - 1 : 0;
+                int ceCol = cc.range.end.column > 0
+                                ? static_cast<int>(cc.range.end.column) - 1 : 0;
+                crs.set("line", JSONValue(static_cast<int64_t>(cLine)));
+                crs.set("character", JSONValue(static_cast<int64_t>(cCol)));
+                auto cre = JSONValue::object();
+                cre.set("line", JSONValue(static_cast<int64_t>(cLine)));
+                cre.set("character", JSONValue(static_cast<int64_t>(ceCol)));
+                cr.set("start", std::move(crs));
+                cr.set("end", std::move(cre));
+                fromRanges.push(std::move(cr));
+            }
+
+            auto outgoing = JSONValue::object();
+            outgoing.set("to", std::move(to));
+            outgoing.set("fromRanges", std::move(fromRanges));
+            result.push(std::move(outgoing));
+        }
+        break; // Found the function
+    }
+    return makeResponse(id, std::move(result));
 }
 
 } // namespace liva

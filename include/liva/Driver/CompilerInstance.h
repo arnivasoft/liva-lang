@@ -3,13 +3,20 @@
 #include "liva/Common/Diagnostics.h"
 #include "liva/Common/SourceLocation.h"
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
+
+#ifdef LIVA_HAS_LLVM
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#endif
 
 namespace liva {
 
 class TranslationUnit;
 class ModuleLoader;
+class PluginRegistry;
 
 /// Manages a single compilation
 class CompilerInstance {
@@ -75,12 +82,23 @@ public:
     CompileResult compileToObjectWithMeta(const std::string &outputObjPath, bool isEntryFile,
                                           ModuleLoader *sharedLoader = nullptr);
 
+#ifdef LIVA_HAS_LLVM
+    /// Compile to IR module (for JIT). Returns {context, module} pair.
+    struct IRResult {
+        std::unique_ptr<llvm::LLVMContext> context;
+        std::unique_ptr<llvm::Module> module;
+    };
+    std::optional<IRResult> compileToIR();
+#endif
+
     /// Emit LLVM IR
     bool emitIR(const std::string &outputPath);
 
     /// Keep object file after linking (for build cache)
     void setKeepObjectFile(bool keep) { keepObjectFile_ = keep; }
     const std::string &getObjectFilePath() const { return lastObjPath_; }
+
+    void setPluginRegistry(PluginRegistry *registry) { pluginRegistry_ = registry; }
 
     DiagnosticsEngine &getDiag() { return diag_; }
     const SourceManager *getSourceManager() const { return sourceManager_.get(); }
@@ -101,6 +119,7 @@ private:
     std::string lastObjPath_;
     std::vector<std::string> searchPaths_;
     std::string targetTriple_;
+    PluginRegistry *pluginRegistry_ = nullptr;
 };
 
 } // namespace liva

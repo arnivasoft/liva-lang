@@ -242,6 +242,11 @@ bool IRGen::generate(TranslationUnit &tu) {
 
     finalizeDebugInfo();
 
+    // Generate synthetic test main if we have test entries and no user-defined main
+    if (!testEntries_.empty() && !module_->getFunction("main")) {
+        generateTestMain();
+    }
+
     // Check for main function (skip if not required, e.g. non-entry separate compilation)
     if (requireMain_ && !module_->getFunction("main")) {
         diag_.report(SourceLocation{}, DiagID::err_main_not_found);
@@ -690,6 +695,21 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_assert_eq_str", assertEqStrTy);
     auto *assertEqFloatTy = llvm::FunctionType::get(builder_->getVoidTy(), {f64Ty, f64Ty}, false);
     module_->getOrInsertFunction("liva_assert_eq_float", assertEqFloatTy);
+
+    // === Test Runner ===
+    auto *testBeginTy = llvm::FunctionType::get(builder_->getVoidTy(), {}, false);
+    module_->getOrInsertFunction("liva_test_begin", testBeginTy);
+
+    // liva_test_run(name, fn_ptr) — fn_ptr is void(*)()
+    auto *testFnPtrTy = llvm::PointerType::getUnqual(*context_);
+    auto *testRunTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy, testFnPtrTy}, false);
+    module_->getOrInsertFunction("liva_test_run", testRunTy);
+
+    auto *testEndTy = llvm::FunctionType::get(i32Ty, {}, false);
+    module_->getOrInsertFunction("liva_test_end", testEndTy);
+
+    auto *testFailTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_test_fail", testFailTy);
 
     // === DateTime ===
     auto *dateNowTy = llvm::FunctionType::get(i8PtrTy, {}, false);

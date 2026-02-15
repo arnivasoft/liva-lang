@@ -54,6 +54,11 @@ liva_add_test(macro_test
 )
 target_link_libraries(macro_test PRIVATE liva_macro liva_sema liva_parser)
 
+liva_add_test(plugin_test
+    unit/PluginTest.cpp
+)
+target_link_libraries(plugin_test PRIVATE liva_plugin liva_sema liva_parser)
+
 # Performance regression tests
 liva_add_test(benchmark_test
     unit/BenchmarkTest.cpp
@@ -69,8 +74,12 @@ target_compile_definitions(integration_test PRIVATE
     LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
 )
 if(LIVA_HAS_LLVM AND NOT MINGW)
-    target_link_libraries(integration_test PRIVATE liva_codegen liva_irgen)
+    target_sources(integration_test PRIVATE ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp)
+    target_link_libraries(integration_test PRIVATE liva_codegen liva_irgen liva_jit liva_runtime)
     target_compile_definitions(integration_test PRIVATE LIVA_HAS_LLVM=1)
+    if(WIN32)
+        target_link_libraries(integration_test PRIVATE winhttp)
+    endif()
 endif()
 
 # CodeGen cross-compilation target tests (LLVM only)

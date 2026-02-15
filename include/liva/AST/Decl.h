@@ -37,7 +37,7 @@ public:
 
     static bool classof(const ASTNode *node) {
         return node->getKind() >= NodeKind::FuncDecl &&
-               node->getKind() <= NodeKind::ClassDecl;
+               node->getKind() <= NodeKind::TestDecl;
     }
 
 private:
@@ -535,6 +535,23 @@ private:
     bool isPublic_;
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
+};
+
+/// Test declaration: test "name" { body }
+class TestDecl : public Decl {
+public:
+    TestDecl(std::string name, std::unique_ptr<BlockStmt> body, SourceRange range)
+        : Decl(NodeKind::TestDecl, range), name_(std::move(name)),
+          body_(std::move(body)) {}
+    const std::string &getName() const { return name_; }
+    const BlockStmt *getBody() const { return body_.get(); }
+    BlockStmt *getBody() { return body_.get(); }
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::TestDecl;
+    }
+private:
+    std::string name_;
+    std::unique_ptr<BlockStmt> body_;
 };
 
 /// Translation unit - the top-level node representing an entire file

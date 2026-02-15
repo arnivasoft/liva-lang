@@ -8141,3 +8141,25 @@ TEST_F(SemaTest, BenchReset_Void) {
     auto result = check("func main() { let h = benchStart()\nbenchReset(h) }");
     EXPECT_TRUE(result.passed);
 }
+
+// ========== O3: Test Framework ==========
+
+TEST_F(SemaTest, TestDeclWithAssert) {
+    auto result = check("test \"basic\" {\n  assert(true)\n}");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TestDeclEmpty) {
+    auto result = check("test \"empty\" {\n}");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TestDeclMultiple) {
+    auto result = check("test \"a\" {\n  assert(true)\n}\ntest \"b\" {\n  assert(true)\n}");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TestDeclAssertEq) {
+    auto result = check("test \"eq\" {\n  assertEq(1, 1)\n}");
+    EXPECT_TRUE(result.passed);
+}

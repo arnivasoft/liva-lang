@@ -1110,7 +1110,11 @@ TEST_F(LSPTest, CodeActionEmpty) {
 TEST_F(LSPTest, CodeActionCapability) {
     auto resp = parseResponse(server.handleMessage(initRequest()));
     const auto &caps = resp["result"]["capabilities"];
-    EXPECT_TRUE(caps["codeActionProvider"].getBool());
+    // codeActionProvider is now an object with codeActionKinds
+    EXPECT_TRUE(caps["codeActionProvider"].isObject());
+    const auto &kinds = caps["codeActionProvider"]["codeActionKinds"].getArray();
+    ASSERT_GE(kinds.size(), 1u);
+    EXPECT_EQ(kinds[0].getString(), "quickfix");
 }
 
 // ============================================================
@@ -1502,4 +1506,249 @@ TEST_F(LSPTest, WorkspaceSymbolCapability) {
     auto resp = parseResponse(server.handleMessage(initRequest()));
     const auto &caps = resp["result"]["capabilities"];
     EXPECT_TRUE(caps["workspaceSymbolProvider"].getBool());
+}
+
+// ============================================================
+// Code Action — Quick Fix Tests
+// ============================================================
+
+TEST_F(LSPTest, CodeActionUnusedVarPrefix) {
+    // "let x = 5" without using x should trigger unused variable warning
+    initAndOpen("file:///test.liva", "func main() {\n    let x = 5\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    // Look for prefix action
+    bool hasPrefix = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Prefix") != std::string::npos && title.find("_") != std::string::npos) {
+            hasPrefix = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+            EXPECT_TRUE(a["edit"].isObject());
+        }
+    }
+    EXPECT_TRUE(hasPrefix);
+}
+
+TEST_F(LSPTest, CodeActionUnusedVarRemove) {
+    initAndOpen("file:///test.liva", "func main() {\n    let x = 5\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasRemove = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Remove") != std::string::npos) {
+            hasRemove = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+            EXPECT_TRUE(a["edit"].isObject());
+        }
+    }
+    EXPECT_TRUE(hasRemove);
+}
+
+TEST_F(LSPTest, CodeActionNoFixForClean) {
+    // Clean code with no warnings should produce empty actions
+    initAndOpen("file:///test.liva", "func main() {\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    EXPECT_TRUE(resp["result"].isArray());
+    EXPECT_TRUE(resp["result"].getArray().empty());
+}
+
+TEST_F(LSPTest, CodeActionOutOfRange) {
+    // Unused variable on line 1, but request range only covers line 0
+    initAndOpen("file:///test.liva", "func main() {\n    let x = 5\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 0, 10)));
+    const auto &actions = resp["result"].getArray();
+    // The diagnostic is on line 1 (let x), but range only covers line 0
+    // So no actions should match
+    EXPECT_TRUE(actions.empty());
+}
+
+TEST_F(LSPTest, CodeActionKindQuickfix) {
+    initAndOpen("file:///test.liva", "func main() {\n    let x = 5\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    for (const auto &a : actions) {
+        EXPECT_EQ(a["kind"].getString(), "quickfix");
+    }
+}
+
+TEST_F(LSPTest, CodeActionCapabilityObject) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["codeActionProvider"].isObject());
+    EXPECT_TRUE(caps["codeActionProvider"].hasKey("codeActionKinds"));
+}
+
+// ============================================================
+// Code Lens Tests
+// ============================================================
+
+static std::string codeLensRequest(const std::string &uri, int id = 140) {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+           ",\"method\":\"textDocument/codeLens\","
+           "\"params\":{\"textDocument\":{\"uri\":\"" + uri + "\"}}}";
+}
+
+TEST_F(LSPTest, CodeLensBasic) {
+    initAndOpen("file:///test.liva", "func foo() {}\nfunc bar() {\n    foo()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeLensRequest("file:///test.liva")));
+    const auto &lenses = resp["result"].getArray();
+    ASSERT_GE(lenses.size(), 2u);
+    // Find lens for foo — should have at least 1 reference (called from bar)
+    bool foundFoo = false;
+    for (const auto &l : lenses) {
+        std::string title = l["command"]["title"].getString();
+        if (title.find("1 references") != std::string::npos) {
+            foundFoo = true;
+        }
+    }
+    EXPECT_TRUE(foundFoo);
+}
+
+TEST_F(LSPTest, CodeLensNoReferences) {
+    initAndOpen("file:///test.liva", "func lonely() {}");
+    auto resp = parseResponse(
+        server.handleMessage(codeLensRequest("file:///test.liva")));
+    const auto &lenses = resp["result"].getArray();
+    ASSERT_GE(lenses.size(), 1u);
+    EXPECT_EQ(lenses[0]["command"]["title"].getString(), "0 references");
+}
+
+TEST_F(LSPTest, CodeLensMultipleDecls) {
+    initAndOpen("file:///test.liva",
+                "struct Point {\n    var x: i32\n}\nfunc greet() {}");
+    auto resp = parseResponse(
+        server.handleMessage(codeLensRequest("file:///test.liva")));
+    const auto &lenses = resp["result"].getArray();
+    // Should have at least 2 lenses: one for Point, one for greet
+    ASSERT_GE(lenses.size(), 2u);
+}
+
+TEST_F(LSPTest, CodeLensCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["codeLensProvider"].isObject());
+}
+
+TEST_F(LSPTest, CodeLensEmptyFile) {
+    initAndOpen("file:///test.liva", "");
+    auto resp = parseResponse(
+        server.handleMessage(codeLensRequest("file:///test.liva")));
+    EXPECT_TRUE(resp["result"].isArray());
+    EXPECT_TRUE(resp["result"].getArray().empty());
+}
+
+// ============================================================
+// Call Hierarchy Tests
+// ============================================================
+
+static std::string callHierarchyPrepareRequest(const std::string &uri,
+                                                int line, int col,
+                                                int id = 150) {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+           ",\"method\":\"textDocument/prepareCallHierarchy\","
+           "\"params\":{\"textDocument\":{\"uri\":\"" + uri +
+           "\"},\"position\":{\"line\":" + std::to_string(line) +
+           ",\"character\":" + std::to_string(col) + "}}}";
+}
+
+static std::string callHierarchyIncomingRequest(const std::string &name,
+                                                 const std::string &uri,
+                                                 int id = 160) {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+           ",\"method\":\"callHierarchy/incomingCalls\","
+           "\"params\":{\"item\":{\"name\":\"" + name +
+           "\",\"kind\":12,\"uri\":\"" + uri +
+           "\",\"range\":{\"start\":{\"line\":0,\"character\":0},"
+           "\"end\":{\"line\":0,\"character\":0}},"
+           "\"selectionRange\":{\"start\":{\"line\":0,\"character\":0},"
+           "\"end\":{\"line\":0,\"character\":0}}}}}";
+}
+
+static std::string callHierarchyOutgoingRequest(const std::string &name,
+                                                 const std::string &uri,
+                                                 int id = 170) {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
+           ",\"method\":\"callHierarchy/outgoingCalls\","
+           "\"params\":{\"item\":{\"name\":\"" + name +
+           "\",\"kind\":12,\"uri\":\"" + uri +
+           "\",\"range\":{\"start\":{\"line\":0,\"character\":0},"
+           "\"end\":{\"line\":0,\"character\":0}},"
+           "\"selectionRange\":{\"start\":{\"line\":0,\"character\":0},"
+           "\"end\":{\"line\":0,\"character\":0}}}}}";
+}
+
+TEST_F(LSPTest, CallHierarchyPrepare) {
+    initAndOpen("file:///test.liva", "func hello() {\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(callHierarchyPrepareRequest("file:///test.liva", 0, 5)));
+    const auto &items = resp["result"].getArray();
+    ASSERT_GE(items.size(), 1u);
+    EXPECT_EQ(items[0]["name"].getString(), "hello");
+    EXPECT_EQ(items[0]["kind"].getInteger(), 12);
+    EXPECT_EQ(items[0]["uri"].getString(), "file:///test.liva");
+}
+
+TEST_F(LSPTest, CallHierarchyPrepareNotFunction) {
+    initAndOpen("file:///test.liva", "let x = 42");
+    auto resp = parseResponse(
+        server.handleMessage(callHierarchyPrepareRequest("file:///test.liva", 0, 4)));
+    const auto &items = resp["result"].getArray();
+    // x is a VarDecl, not a FuncDecl — should return empty
+    EXPECT_TRUE(items.empty());
+}
+
+TEST_F(LSPTest, CallHierarchyIncoming) {
+    initAndOpen("file:///test.liva",
+                "func target() {}\nfunc caller() {\n    target()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(callHierarchyIncomingRequest("target", "file:///test.liva")));
+    const auto &incoming = resp["result"].getArray();
+    ASSERT_GE(incoming.size(), 1u);
+    EXPECT_EQ(incoming[0]["from"]["name"].getString(), "caller");
+}
+
+TEST_F(LSPTest, CallHierarchyIncomingNone) {
+    initAndOpen("file:///test.liva", "func alone() {}");
+    auto resp = parseResponse(
+        server.handleMessage(callHierarchyIncomingRequest("alone", "file:///test.liva")));
+    const auto &incoming = resp["result"].getArray();
+    EXPECT_TRUE(incoming.empty());
+}
+
+TEST_F(LSPTest, CallHierarchyOutgoing) {
+    initAndOpen("file:///test.liva",
+                "func aaa() {}\nfunc bbb() {}\nfunc caller() {\n    aaa()\n    bbb()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(callHierarchyOutgoingRequest("caller", "file:///test.liva")));
+    const auto &outgoing = resp["result"].getArray();
+    ASSERT_GE(outgoing.size(), 2u);
+    bool hasA = false, hasB = false;
+    for (const auto &o : outgoing) {
+        if (o["to"]["name"].getString() == "aaa") hasA = true;
+        if (o["to"]["name"].getString() == "bbb") hasB = true;
+    }
+    EXPECT_TRUE(hasA);
+    EXPECT_TRUE(hasB);
+}
+
+TEST_F(LSPTest, CallHierarchyOutgoingNone) {
+    initAndOpen("file:///test.liva", "func noop() {\n    return\n}");
+    auto resp = parseResponse(
+        server.handleMessage(callHierarchyOutgoingRequest("noop", "file:///test.liva")));
+    const auto &outgoing = resp["result"].getArray();
+    EXPECT_TRUE(outgoing.empty());
+}
+
+TEST_F(LSPTest, CallHierarchyCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    EXPECT_TRUE(caps["callHierarchyProvider"].getBool());
 }

@@ -591,3 +591,14 @@ TEST_F(LexerTest, FFI_ExternCBlock) {
     expectToken(tokens[2], TokenKind::l_brace);
     expectToken(tokens[3], TokenKind::kw_func);
 }
+
+// ========== O3: Test Framework ==========
+
+TEST_F(LexerTest, TestKeyword) {
+    auto tokens = lex("test \"hello\" { }");
+    ASSERT_GE(tokens.size(), 4u);
+    expectToken(tokens[0], TokenKind::kw_test);
+    expectToken(tokens[1], TokenKind::string_literal);
+    expectToken(tokens[2], TokenKind::l_brace);
+    expectToken(tokens[3], TokenKind::r_brace);
+}

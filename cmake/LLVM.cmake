@@ -87,6 +87,12 @@ if(LLVM_FOUND)
         CodeGen
         AsmPrinter
         ObjCARCOpts
+        OrcJIT
+        OrcShared
+        OrcTargetProcess
+        JITLink
+        ExecutionEngine
+        RuntimeDyld
     )
     llvm_map_components_to_libnames(LIVA_LLVM_LIBS ${_LIVA_LLVM_COMPONENTS})
 

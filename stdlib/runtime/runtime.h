@@ -491,6 +491,20 @@ void liva_assert_eq_str(const char *a, const char *b);
 /// Assert two f64 values are approximately equal (epsilon = 1e-9)
 void liva_assert_eq_float(double a, double b);
 
+// === Test Runner ===
+
+/// Begin a test run (reset counters)
+void liva_test_begin();
+
+/// Run a single test: setjmp + call test_fn, print PASS/FAIL
+void liva_test_run(const char *name, void (*test_fn)(void));
+
+/// End a test run: print summary, return 0 if all passed, 1 if any failed
+int32_t liva_test_end();
+
+/// Fail the current test (longjmp if in test context, abort otherwise)
+void liva_test_fail(const char *msg);
+
 // === DateTime ===
 
 /// Current date as "YYYY-MM-DD", returns malloc'd string

@@ -22,6 +22,7 @@ public:
         TypeAliasDecl,
         MacroDecl,
         ClassDecl,
+        TestDecl,
 
         // Statements
         ExprStmt,

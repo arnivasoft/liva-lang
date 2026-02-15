@@ -61,6 +61,7 @@ void Parser::synchronize() {
             case TokenKind::kw_pub:
             case TokenKind::kw_async:
             case TokenKind::kw_extern:
+            case TokenKind::kw_test:
                 return;
             default:
                 advance();

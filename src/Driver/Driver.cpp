@@ -9,8 +9,12 @@
 #include "liva/Lexer/Lexer.h"
 #include "liva/LSP/LSPServer.h"
 #include "liva/Parser/Parser.h"
+#include "liva/Plugin/PluginRegistry.h"
 #include "liva/DAP/DAPServer.h"
 #include "liva/REPL/REPL.h"
+#ifdef LIVA_HAS_LLVM
+#include "liva/JIT/JITEngine.h"
+#endif
 #include "liva/REPL/LineEditor.h"
 #include "liva/Sema/ModuleLoader.h"
 #include <atomic>
@@ -110,6 +114,14 @@ bool Driver::parseArgs(int argc, const char **argv) {
             return true;
         } else if (std::strcmp(argv[1], "bench") == 0) {
             options_.subcommand = Subcommand::Bench;
+            startIdx = 2;
+            if (argc > 2 && argv[2][0] != '-') {
+                options_.inputFile = argv[2];
+                startIdx = 3;
+            }
+            return true;
+        } else if (std::strcmp(argv[1], "test") == 0) {
+            options_.subcommand = Subcommand::Test;
             startIdx = 2;
             if (argc > 2 && argv[2][0] != '-') {
                 options_.inputFile = argv[2];
@@ -312,6 +324,7 @@ int Driver::execute() {
     case Subcommand::Lint:    return executeLint();
     case Subcommand::Dap:     return executeDap();
     case Subcommand::Bench:   return executeBench();
+    case Subcommand::Test:    return executeTest();
     case Subcommand::None:    return executeLegacy();
     }
 
@@ -326,11 +339,14 @@ int Driver::executeLegacy() {
         return 1;
     }
 
+    PluginRegistry pluginRegistry = PluginRegistry::createWithBuiltins();
+
     CompilerInstance compiler;
     compiler.setExecutablePath(executablePath_);
     compiler.setOptLevel(options_.optLevel);
     compiler.setDebugInfo(options_.debugInfo);
     compiler.setTargetTriple(options_.targetTriple);
+    compiler.setPluginRegistry(&pluginRegistry);
     if (!compiler.loadFile(options_.inputFile))
         return 1;
 
@@ -420,6 +436,9 @@ int Driver::buildProject(bool runAfter) {
 
     auto cfg = loadProjectConfig(parseResult.doc);
     cfg.projectRoot = getDirectoryOf(tomlPath);
+
+    PluginRegistry pluginRegistry = PluginRegistry::createWithBuiltins();
+    pluginRegistry.configureFromTOML(parseResult.doc);
 
     // Apply CLI overrides
     if (options_.hasOptLevelOverride)
@@ -515,6 +534,7 @@ int Driver::buildProject(bool runAfter) {
         compiler.setPgoProfile(cfg.pgoProfile);
         compiler.setSearchPaths(searchPaths);
         compiler.setTargetTriple(cfg.target);
+        compiler.setPluginRegistry(&pluginRegistry);
 
         if (!compiler.loadFile(entryPath))
             return 1;
@@ -662,6 +682,7 @@ int Driver::buildProject(bool runAfter) {
             compiler.setPgoProfile(cfg.pgoProfile);
             compiler.setSearchPaths(searchPaths);
             compiler.setTargetTriple(cfg.target);
+            compiler.setPluginRegistry(&pluginRegistry);
 
             if (!compiler.loadFile(sourcePath)) {
                 compileFailed = true;
@@ -714,6 +735,7 @@ int Driver::buildProject(bool runAfter) {
                 compiler.setPgoProfile(cfg.pgoProfile);
                 compiler.setSearchPaths(searchPaths);
                 compiler.setTargetTriple(cfg.target);
+                compiler.setPluginRegistry(&pluginRegistry);
 
                 if (!compiler.loadFile(sourcePath)) {
                     failed.store(true);
@@ -815,9 +837,12 @@ int Driver::executeBench() {
     for (auto &file : benchFiles) {
         std::cout << "--- " << file << " ---\n";
 
+        PluginRegistry pluginRegistry = PluginRegistry::createWithBuiltins();
+
         CompilerInstance compiler;
         compiler.setExecutablePath(executablePath_);
         compiler.setOptLevel(2);  // benchmarks always optimized
+        compiler.setPluginRegistry(&pluginRegistry);
         if (!compiler.loadFile(file)) {
             ++failures;
             continue;
@@ -836,8 +861,65 @@ int Driver::executeBench() {
     return failures > 0 ? 1 : 0;
 }
 
+int Driver::executeTest() {
+    // 1. Find test files: test/ directory or specific file
+    std::vector<std::string> testFiles;
+    if (!options_.inputFile.empty()) {
+        testFiles.push_back(options_.inputFile);
+    } else {
+        namespace fs = std::filesystem;
+        fs::path testDir = "test";
+        if (fs::exists(testDir) && fs::is_directory(testDir)) {
+            for (auto &entry : fs::directory_iterator(testDir)) {
+                if (entry.path().extension() == ".liva")
+                    testFiles.push_back(entry.path().string());
+            }
+            std::sort(testFiles.begin(), testFiles.end());
+        }
+    }
+    if (testFiles.empty()) {
+        std::cerr << "error: no test files found (use test/ directory or specify file)\n";
+        return 1;
+    }
+
+    // 2. For each test file: compile → run
+    std::cout << "Running " << testFiles.size() << " test file(s)...\n\n";
+    int failures = 0;
+    for (auto &file : testFiles) {
+        std::cout << "--- " << file << " ---\n";
+
+        PluginRegistry pluginRegistry = PluginRegistry::createWithBuiltins();
+
+        CompilerInstance compiler;
+        compiler.setExecutablePath(executablePath_);
+        compiler.setOptLevel(0);
+        compiler.setPluginRegistry(&pluginRegistry);
+        if (!compiler.loadFile(file)) {
+            ++failures;
+            continue;
+        }
+
+        std::string exePath = file + ".test.exe";
+        if (!compiler.compile(exePath)) {
+            ++failures;
+            continue;
+        }
+
+        int ret = std::system(exePath.c_str());
+        std::remove(exePath.c_str());
+        if (ret != 0) ++failures;
+    }
+    return failures > 0 ? 1 : 0;
+}
+
 int Driver::executeRepl() {
     std::cout << "Liva REPL (type :help for help, :quit to exit)\n";
+
+#ifdef LIVA_HAS_LLVM
+    auto jit = JITEngine::create();
+    if (!jit)
+        std::cerr << "  (JIT unavailable, using compile-to-disk fallback)\n";
+#endif
 
     REPLSession session;
     LineEditor editor;
@@ -874,20 +956,36 @@ int Driver::executeRepl() {
         case REPLResult::Expression:
             if (result.needsExecution) {
 #ifdef LIVA_HAS_LLVM
-                // Compile and execute
                 CompilerInstance compiler;
                 compiler.setExecutablePath(executablePath_);
                 compiler.setSource("_repl_tmp.liva", result.generatedCode);
 
-                std::string tmpExe = "_repl_tmp";
+                if (jit) {
+                    // JIT path — fast in-process execution
+                    auto irResult = compiler.compileToIR();
+                    if (irResult) {
+                        std::string errMsg;
+                        int exitCode = jit->evaluate(
+                            std::move(irResult->context),
+                            std::move(irResult->module),
+                            errMsg);
+                        if (exitCode < 0)
+                            std::cerr << "  JIT error: " << errMsg << "\n";
+                        else if (exitCode != 0)
+                            std::cerr << "  (exited with code " << exitCode << ")\n";
+                    }
+                } else {
+                    // AOT fallback — compile to disk
+                    std::string tmpExe = "_repl_tmp";
 #ifdef _WIN32
-                tmpExe += ".exe";
+                    tmpExe += ".exe";
 #endif
-                if (compiler.compile(tmpExe)) {
-                    int exitCode = std::system(tmpExe.c_str());
-                    std::remove(tmpExe.c_str());
-                    if (exitCode != 0)
-                        std::cerr << "  (process exited with code " << exitCode << ")\n";
+                    if (compiler.compile(tmpExe)) {
+                        int exitCode = std::system(tmpExe.c_str());
+                        std::remove(tmpExe.c_str());
+                        if (exitCode != 0)
+                            std::cerr << "  (process exited with code " << exitCode << ")\n";
+                    }
                 }
 #else
                 std::cout << "Semantic analysis passed.\n";
@@ -1393,6 +1491,7 @@ void Driver::printHelp() {
               << "       livac lint <files...>\n"
               << "       livac lsp\n"
               << "       livac bench [file]\n"
+              << "       livac test [file]\n"
               << "       livac dap\n"
               << "\n"
               << "Subcommands:\n"
@@ -1407,6 +1506,7 @@ void Driver::printHelp() {
               << "  lsp                 Start Language Server Protocol server\n"
               << "  dap                 Start Debug Adapter Protocol server\n"
               << "  bench [file]        Run benchmarks (bench/ directory or file)\n"
+              << "  test [file]         Run tests (test/ directory or file)\n"
               << "  repl                Start interactive REPL\n"
               << "\n"
               << "Options:\n"

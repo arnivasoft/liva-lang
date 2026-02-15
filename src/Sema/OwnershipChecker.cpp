@@ -31,6 +31,13 @@ void OwnershipChecker::visitFuncDecl(FuncDecl *node) {
     popOwnershipScope();
 }
 
+void OwnershipChecker::visitTestDecl(TestDecl *node) {
+    pushOwnershipScope();
+    if (node->getBody())
+        visitBlockStmt(const_cast<BlockStmt *>(node->getBody()));
+    popOwnershipScope();
+}
+
 void OwnershipChecker::visitClassDecl(ClassDecl *node) {
     // Check ownership for each method body
     for (auto &m : node->getMembers()) {

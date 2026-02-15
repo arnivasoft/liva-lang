@@ -3219,4 +3219,11 @@ bool TypeChecker::isObjectSafe(const std::string &protocolName, std::string &uns
     return true;
 }
 
+void TypeChecker::visitTestDecl(TestDecl *node) {
+    scopes_.pushScope();
+    if (node->getBody())
+        visitBlockStmt(const_cast<BlockStmt *>(node->getBody()));
+    scopes_.popScope();
+}
+
 } // namespace liva

@@ -41,6 +41,7 @@ public:
 
     void visitFuncDecl(FuncDecl *node);
     void visitClassDecl(ClassDecl *node);
+    void visitTestDecl(TestDecl *node);
     void visitVarDecl(VarDecl *node);
     void visitBlockStmt(BlockStmt *node);
     void visitReturnStmt(ReturnStmt *node);

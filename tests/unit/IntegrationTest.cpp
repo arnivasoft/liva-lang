@@ -8,6 +8,7 @@
 #ifdef LIVA_HAS_LLVM
 #include "liva/CodeGen/TargetInfo.h"
 #include "liva/Driver/CompilerInstance.h"
+#include "liva/JIT/JITEngine.h"
 #endif
 #include <fstream>
 #include <gtest/gtest.h>
@@ -2840,4 +2841,161 @@ TEST(BenchCommandTest, BenchDriverOptionsWithFile) {
     EXPECT_EQ(opts.subcommand, liva::Subcommand::Bench);
     EXPECT_EQ(opts.inputFile, "mybench.liva");
 }
+
+// ========== O3: Test Framework ==========
+
+TEST(TestCommandTest, TestSubcommandEnumExists) {
+    liva::Subcommand test = liva::Subcommand::Test;
+    EXPECT_NE(test, liva::Subcommand::None);
+    EXPECT_NE(test, liva::Subcommand::Build);
+    EXPECT_NE(test, liva::Subcommand::Bench);
+}
+
+TEST(TestCommandTest, TestDriverOptionsDefault) {
+    liva::DriverOptions opts;
+    EXPECT_EQ(opts.subcommand, liva::Subcommand::None);
+    opts.subcommand = liva::Subcommand::Test;
+    EXPECT_EQ(opts.subcommand, liva::Subcommand::Test);
+}
+
+TEST(TestCommandTest, TestDriverOptionsWithFile) {
+    liva::DriverOptions opts;
+    opts.subcommand = liva::Subcommand::Test;
+    opts.inputFile = "mytest.liva";
+    EXPECT_EQ(opts.subcommand, liva::Subcommand::Test);
+    EXPECT_EQ(opts.inputFile, "mytest.liva");
+}
+
+// ========== D1: JIT Compilation ==========
+
+#ifdef LIVA_HAS_LLVM
+
+TEST(JITTest, JITEngineCreate) {
+    auto jit = JITEngine::create();
+    EXPECT_NE(jit, nullptr);
+}
+
+TEST(JITTest, JITEngineEvalSimple) {
+    auto jit = JITEngine::create();
+    ASSERT_NE(jit, nullptr);
+
+    CompilerInstance compiler;
+    compiler.setSource("jit_simple.liva", "func main() { println(\"hello\") }");
+    auto ir = compiler.compileToIR();
+    ASSERT_TRUE(ir.has_value());
+
+    std::string err;
+    int code = jit->evaluate(std::move(ir->context), std::move(ir->module), err);
+    EXPECT_EQ(code, 0) << "JIT error: " << err;
+}
+
+TEST(JITTest, JITEngineEvalArithmetic) {
+    auto jit = JITEngine::create();
+    ASSERT_NE(jit, nullptr);
+
+    CompilerInstance compiler;
+    compiler.setSource("jit_arith.liva",
+        "func main() {\n    let x = 2 + 3\n    println(x)\n}");
+    auto ir = compiler.compileToIR();
+    ASSERT_TRUE(ir.has_value());
+
+    std::string err;
+    int code = jit->evaluate(std::move(ir->context), std::move(ir->module), err);
+    EXPECT_EQ(code, 0) << "JIT error: " << err;
+}
+
+TEST(JITTest, JITEngineEvalMultiple) {
+    auto jit = JITEngine::create();
+    ASSERT_NE(jit, nullptr);
+
+    // First evaluation
+    {
+        CompilerInstance compiler;
+        compiler.setSource("jit_multi1.liva", "func main() { println(1) }");
+        auto ir = compiler.compileToIR();
+        ASSERT_TRUE(ir.has_value());
+
+        std::string err;
+        int code = jit->evaluate(std::move(ir->context), std::move(ir->module), err);
+        EXPECT_EQ(code, 0) << "First eval error: " << err;
+    }
+
+    // Second evaluation on same engine
+    {
+        CompilerInstance compiler;
+        compiler.setSource("jit_multi2.liva", "func main() { println(2) }");
+        auto ir = compiler.compileToIR();
+        ASSERT_TRUE(ir.has_value());
+
+        std::string err;
+        int code = jit->evaluate(std::move(ir->context), std::move(ir->module), err);
+        EXPECT_EQ(code, 0) << "Second eval error: " << err;
+    }
+}
+
+TEST(JITTest, JITEngineEvalMissedMain) {
+    auto jit = JITEngine::create();
+    ASSERT_NE(jit, nullptr);
+
+    // Module without main — compileToIR should fail because IRGen requires main by default
+    CompilerInstance compiler;
+    compiler.setSource("jit_nomain.liva", "func helper() -> i32 { return 42 }");
+    auto ir = compiler.compileToIR();
+    // IRGen requires main(), so compileToIR should return nullopt
+    EXPECT_FALSE(ir.has_value());
+}
+
+TEST(JITTest, JITEngineEvalBadIR) {
+    auto jit = JITEngine::create();
+    ASSERT_NE(jit, nullptr);
+
+    // Syntax error — compileToIR should fail
+    CompilerInstance compiler;
+    compiler.setSource("jit_bad.liva", "func main( { }");
+    auto ir = compiler.compileToIR();
+    EXPECT_FALSE(ir.has_value());
+}
+
+TEST(JITTest, CompileToIRSimple) {
+    CompilerInstance compiler;
+    compiler.setSource("ir_simple.liva", "func main() { println(0) }");
+    auto ir = compiler.compileToIR();
+    ASSERT_TRUE(ir.has_value());
+    EXPECT_NE(ir->context, nullptr);
+    EXPECT_NE(ir->module, nullptr);
+}
+
+TEST(JITTest, CompileToIRError) {
+    CompilerInstance compiler;
+    compiler.setSource("ir_err.liva", "func main( { }");
+    auto ir = compiler.compileToIR();
+    EXPECT_FALSE(ir.has_value());
+}
+
+TEST(JITTest, CompileToIRPreservesFunction) {
+    CompilerInstance compiler;
+    compiler.setSource("ir_func.liva", "func main() { println(42) }");
+    auto ir = compiler.compileToIR();
+    ASSERT_TRUE(ir.has_value());
+    // Module should contain a "main" function
+    auto *mainFn = ir->module->getFunction("main");
+    EXPECT_NE(mainFn, nullptr);
+}
+
+TEST(JITTest, JITEngineEvalWithRuntime) {
+    auto jit = JITEngine::create();
+    ASSERT_NE(jit, nullptr);
+
+    CompilerInstance compiler;
+    compiler.setSource("jit_runtime.liva",
+        "func main() {\n    assert(true)\n    println(\"runtime ok\")\n}");
+    auto ir = compiler.compileToIR();
+    ASSERT_TRUE(ir.has_value());
+
+    std::string err;
+    int code = jit->evaluate(std::move(ir->context), std::move(ir->module), err);
+    EXPECT_EQ(code, 0) << "JIT error: " << err;
+}
+
+#endif // LIVA_HAS_LLVM
 

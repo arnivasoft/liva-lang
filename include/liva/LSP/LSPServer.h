@@ -158,6 +158,14 @@ private:
     JSONValue handleInlayHint(const JSONValue &id, const JSONValue &params);
     JSONValue handleWorkspaceSymbol(const JSONValue &id, const JSONValue &params);
 
+    // Code Lens
+    JSONValue handleCodeLens(const JSONValue &id, const JSONValue &params);
+
+    // Call Hierarchy
+    JSONValue handleCallHierarchyPrepare(const JSONValue &id, const JSONValue &params);
+    JSONValue handleCallHierarchyIncoming(const JSONValue &id, const JSONValue &params);
+    JSONValue handleCallHierarchyOutgoing(const JSONValue &id, const JSONValue &params);
+
     // Inlay hint helpers
     void collectVarDeclHints(const ASTNode *node, uint32_t startLine,
                              uint32_t endLine, JSONValue &hints);
@@ -182,6 +190,14 @@ private:
     // Get declaration name at cursor position
     std::string getDeclNameAtPosition(const TranslationUnit *tu,
                                       uint32_t line, uint32_t col) const;
+
+    // Collect all call expressions in a function body
+    struct CallInfo { std::string callee; SourceRange range; };
+    void collectCalls(const ASTNode *node, std::vector<CallInfo> &calls) const;
+    void collectCallsInExpr(const Expr *expr, std::vector<CallInfo> &calls) const;
+
+    // Count references to a name across all documents (excluding declarations)
+    int countReferences(const std::string &name) const;
 
     // State
     std::map<std::string, DocumentState> documents_;

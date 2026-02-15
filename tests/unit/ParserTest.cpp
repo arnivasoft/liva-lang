@@ -1978,3 +1978,35 @@ TEST_F(ParserTest, FFI_ExternCMultipleParams) {
     EXPECT_EQ(func->getParams().size(), 3u);
     EXPECT_TRUE(func->isExtern());
 }
+
+// ========== O3: Test Framework ==========
+
+TEST_F(ParserTest, TestDeclSingle) {
+    auto result = parse("test \"addition\" {\n  let x = 1\n}");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1u);
+    auto *td = dynamic_cast<TestDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(td, nullptr);
+    EXPECT_EQ(td->getName(), "addition");
+    EXPECT_NE(td->getBody(), nullptr);
+}
+
+TEST_F(ParserTest, TestDeclMultiple) {
+    auto result = parse("test \"a\" {\n  let x = 1\n}\ntest \"b\" {\n  let y = 2\n}");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 2u);
+    auto *t1 = dynamic_cast<TestDecl *>(result.tu->getDeclarations()[0].get());
+    auto *t2 = dynamic_cast<TestDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(t1, nullptr);
+    ASSERT_NE(t2, nullptr);
+    EXPECT_EQ(t1->getName(), "a");
+    EXPECT_EQ(t2->getName(), "b");
+}
+
+TEST_F(ParserTest, TestDeclMixedWithFunc) {
+    auto result = parse("func foo() -> i32 { return 42 }\ntest \"check\" {\n  let x = 1\n}");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 2u);
+    EXPECT_NE(dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get()), nullptr);
+    EXPECT_NE(dynamic_cast<TestDecl *>(result.tu->getDeclarations()[1].get()), nullptr);
+}

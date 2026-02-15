@@ -106,6 +106,14 @@ if(LIVA_HAS_LLVM)
     target_link_libraries(liva_codegen PUBLIC liva_irgen ${LIVA_LLVM_LIBS})
     liva_set_compiler_flags(liva_codegen)
     target_compile_definitions(liva_codegen PUBLIC LIVA_HAS_LLVM=1)
+
+    add_library(liva_jit STATIC
+        src/JIT/JITEngine.cpp
+    )
+    target_link_libraries(liva_jit PUBLIC liva_common ${LIVA_LLVM_LIBS})
+    target_include_directories(liva_jit PRIVATE ${PROJECT_SOURCE_DIR}/stdlib/runtime)
+    liva_set_compiler_flags(liva_jit)
+    target_compile_definitions(liva_jit PUBLIC LIVA_HAS_LLVM=1)
 endif()
 
 # === Runtime Library (linked into compiled Liva programs) ===
@@ -170,6 +178,14 @@ add_library(liva_driver STATIC
 target_link_libraries(liva_driver PUBLIC liva_common liva_parser)
 liva_set_compiler_flags(liva_driver)
 
+# liva_plugin
+add_library(liva_plugin STATIC
+    src/Plugin/PluginRegistry.cpp
+    src/Plugin/BuiltinPlugins.cpp
+)
+target_link_libraries(liva_plugin PUBLIC liva_ast liva_common liva_driver)
+liva_set_compiler_flags(liva_plugin)
+
 # === Main Executable ===
 add_executable(livac
     src/Driver/main.cpp
@@ -177,6 +193,7 @@ add_executable(livac
     src/Driver/CompilerInstance.cpp
 )
 target_link_libraries(livac PRIVATE
+    liva_plugin
     liva_driver
     liva_lsp
     liva_dap
@@ -185,9 +202,12 @@ target_link_libraries(livac PRIVATE
     liva_sema
 )
 if(LIVA_HAS_LLVM)
-    target_link_libraries(livac PRIVATE liva_codegen liva_irgen)
+    target_link_libraries(livac PRIVATE liva_codegen liva_irgen liva_jit liva_runtime)
     target_compile_definitions(livac PRIVATE LIVA_HAS_LLVM=1)
-    add_dependencies(livac liva_runtime)
+    # Windows: winhttp for runtime HTTP support (linked into livac for JIT symbol resolution)
+    if(WIN32)
+        target_link_libraries(livac PRIVATE winhttp)
+    endif()
 endif()
 liva_set_compiler_flags(livac)
 

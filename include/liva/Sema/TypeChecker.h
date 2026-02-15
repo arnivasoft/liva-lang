@@ -33,6 +33,7 @@ public:
     void visitProtocolDecl(ProtocolDecl *node);
     void visitTypeAliasDecl(TypeAliasDecl *node);
     void visitClassDecl(ClassDecl *node);
+    void visitTestDecl(TestDecl *node);
 
     void visitExprStmt(ExprStmt *node);
     void visitReturnStmt(ReturnStmt *node);

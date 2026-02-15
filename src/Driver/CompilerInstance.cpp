@@ -7,6 +7,7 @@
 #include "liva/IR/IRGen.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
+#include "liva/Plugin/PluginRegistry.h"
 #include "liva/Sema/ModuleLoader.h"
 #include "liva/Sema/Sema.h"
 #include <cstdio>
@@ -85,21 +86,7 @@ bool CompilerInstance::checkOnly() {
     if (!tu || diag_.hasErrors())
         return false;
 
-    ModuleLoader loader;
-    std::string fname(sourceManager_->getFilename());
-    auto pos = fname.find_last_of("/\\");
-    if (pos != std::string::npos)
-        loader.setBasePath(fname.substr(0, pos + 1));
-    for (const auto &sp : searchPaths_)
-        loader.addSearchPath(sp);
-
-    Sema sema(diag_, &loader);
-    return sema.analyze(*tu);
-}
-
-bool CompilerInstance::emitIR(const std::string &outputPath) {
-    auto tu = parseSource();
-    if (!tu || diag_.hasErrors())
+    if (pluginRegistry_ && !pluginRegistry_->runAfterParse(*tu, diag_))
         return false;
 
     ModuleLoader loader;
@@ -112,6 +99,68 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
 
     Sema sema(diag_, &loader);
     if (!sema.analyze(*tu))
+        return false;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterSema(*tu, diag_))
+        return false;
+
+    return true;
+}
+
+#ifdef LIVA_HAS_LLVM
+std::optional<CompilerInstance::IRResult> CompilerInstance::compileToIR() {
+    auto tu = parseSource();
+    if (!tu || diag_.hasErrors())
+        return std::nullopt;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterParse(*tu, diag_))
+        return std::nullopt;
+
+    ModuleLoader loader;
+    std::string fname(sourceManager_->getFilename());
+    auto pos = fname.find_last_of("/\\");
+    if (pos != std::string::npos)
+        loader.setBasePath(fname.substr(0, pos + 1));
+    for (const auto &sp : searchPaths_)
+        loader.addSearchPath(sp);
+
+    Sema sema(diag_, &loader);
+    if (!sema.analyze(*tu))
+        return std::nullopt;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterSema(*tu, diag_))
+        return std::nullopt;
+
+    IRGen irgen(sourceManager_->getFilename().data(), diag_);
+    irgen.setModuleLoader(&loader);
+    if (!irgen.generate(*tu))
+        return std::nullopt;
+
+    return IRResult{irgen.takeContext(), irgen.takeModule()};
+}
+#endif
+
+bool CompilerInstance::emitIR(const std::string &outputPath) {
+    auto tu = parseSource();
+    if (!tu || diag_.hasErrors())
+        return false;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterParse(*tu, diag_))
+        return false;
+
+    ModuleLoader loader;
+    std::string fname(sourceManager_->getFilename());
+    auto pos = fname.find_last_of("/\\");
+    if (pos != std::string::npos)
+        loader.setBasePath(fname.substr(0, pos + 1));
+    for (const auto &sp : searchPaths_)
+        loader.addSearchPath(sp);
+
+    Sema sema(diag_, &loader);
+    if (!sema.analyze(*tu))
+        return false;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterSema(*tu, diag_))
         return false;
 
     IRGen irgen(sourceManager_->getFilename().data(), diag_);
@@ -136,6 +185,9 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
     if (!tu || diag_.hasErrors())
         return false;
 
+    if (pluginRegistry_ && !pluginRegistry_->runAfterParse(*tu, diag_))
+        return false;
+
     // Use shared or local ModuleLoader
     ModuleLoader localLoader;
     ModuleLoader *loader = sharedLoader;
@@ -151,6 +203,9 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
 
     Sema sema(diag_, loader);
     if (!sema.analyze(*tu))
+        return false;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterSema(*tu, diag_))
         return false;
 
 #ifdef LIVA_HAS_LLVM
@@ -195,6 +250,9 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
     if (!tu || diag_.hasErrors())
         return result;
 
+    if (pluginRegistry_ && !pluginRegistry_->runAfterParse(*tu, diag_))
+        return result;
+
     // Use shared or local ModuleLoader
     ModuleLoader localLoader;
     ModuleLoader *loader = sharedLoader;
@@ -210,6 +268,9 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
 
     Sema sema(diag_, loader);
     if (!sema.analyze(*tu))
+        return result;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterSema(*tu, diag_))
         return result;
 
     // Compute interface hash from parsed+checked AST
@@ -260,6 +321,9 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     if (!tu || diag_.hasErrors())
         return false;
 
+    if (pluginRegistry_ && !pluginRegistry_->runAfterParse(*tu, diag_))
+        return false;
+
     ModuleLoader loader;
     std::string fname(sourceManager_->getFilename());
     auto pos = fname.find_last_of("/\\");
@@ -270,6 +334,9 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
     Sema sema(diag_, &loader);
     if (!sema.analyze(*tu))
+        return false;
+
+    if (pluginRegistry_ && !pluginRegistry_->runAfterSema(*tu, diag_))
         return false;
 
 #ifdef LIVA_HAS_LLVM

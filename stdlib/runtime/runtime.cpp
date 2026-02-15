@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csetjmp>
 #include <ctime>
 #include <cmath>
 #include <mutex>
@@ -2893,36 +2894,88 @@ void liva_log_set_level(int32_t level) {
                           std::memory_order_relaxed);
 }
 
-// === Testing ===
+// === Test Runner ===
+
+static thread_local int liva_test_total = 0;
+static thread_local int liva_test_passed = 0;
+static thread_local int liva_test_failed_count = 0;
+static thread_local bool liva_test_active = false;
+static thread_local jmp_buf liva_test_jmpbuf;
+
+void liva_test_begin() {
+    liva_test_total = 0;
+    liva_test_passed = 0;
+    liva_test_failed_count = 0;
+}
+
+void liva_test_run(const char *name, void (*test_fn)(void)) {
+    liva_test_total++;
+    liva_test_active = true;
+    if (setjmp(liva_test_jmpbuf) == 0) {
+        test_fn();
+        liva_test_passed++;
+        fprintf(stderr, "  PASS: %s\n", name);
+    } else {
+        liva_test_failed_count++;
+        fprintf(stderr, "  FAIL: %s\n", name);
+    }
+    liva_test_active = false;
+}
+
+int32_t liva_test_end() {
+    fprintf(stderr, "\n%d/%d tests passed", liva_test_passed, liva_test_total);
+    if (liva_test_failed_count > 0) {
+        fprintf(stderr, ", %d failed\n", liva_test_failed_count);
+        return 1;
+    }
+    fprintf(stderr, "\n");
+    return 0;
+}
+
+void liva_test_fail(const char *msg) {
+    if (liva_test_active) {
+        if (msg) fprintf(stderr, "    %s\n", msg);
+        longjmp(liva_test_jmpbuf, 1);
+    } else {
+        fprintf(stderr, "ASSERTION FAILED");
+        if (msg) fprintf(stderr, ": %s", msg);
+        fprintf(stderr, "\n");
+        abort();
+    }
+}
+
+// === Testing (assert functions) ===
 
 void liva_assert(int8_t condition) {
     if (!condition) {
-        fprintf(stderr, "ASSERTION FAILED\n");
-        abort();
+        liva_test_fail("ASSERTION FAILED");
     }
 }
 
 void liva_assert_msg(int8_t condition, const char *msg) {
     if (!condition) {
-        fprintf(stderr, "ASSERTION FAILED: %s\n", msg ? msg : "(no message)");
-        abort();
+        static thread_local char buf[512];
+        snprintf(buf, sizeof(buf), "ASSERTION FAILED: %s", msg ? msg : "(no message)");
+        liva_test_fail(buf);
     }
 }
 
 void liva_assert_eq(int64_t a, int64_t b) {
     if (a != b) {
-        fprintf(stderr, "ASSERTION FAILED: expected %lld == %lld\n",
-                (long long)a, (long long)b);
-        abort();
+        static thread_local char buf[256];
+        snprintf(buf, sizeof(buf), "ASSERTION FAILED: expected %lld == %lld",
+                 (long long)a, (long long)b);
+        liva_test_fail(buf);
     }
 }
 
 void liva_assert_eq_str(const char *a, const char *b) {
     if (!a && !b) return;
     if (!a || !b || strcmp(a, b) != 0) {
-        fprintf(stderr, "ASSERTION FAILED: expected \"%s\" == \"%s\"\n",
-                a ? a : "(null)", b ? b : "(null)");
-        abort();
+        static thread_local char buf[512];
+        snprintf(buf, sizeof(buf), "ASSERTION FAILED: expected \"%s\" == \"%s\"",
+                 a ? a : "(null)", b ? b : "(null)");
+        liva_test_fail(buf);
     }
 }
 
@@ -2930,8 +2983,9 @@ void liva_assert_eq_float(double a, double b) {
     double diff = a - b;
     if (diff < 0) diff = -diff;
     if (diff > 1e-9) {
-        fprintf(stderr, "ASSERTION FAILED: expected %g == %g\n", a, b);
-        abort();
+        static thread_local char buf[256];
+        snprintf(buf, sizeof(buf), "ASSERTION FAILED: expected %g == %g", a, b);
+        liva_test_fail(buf);
     }
 }
 

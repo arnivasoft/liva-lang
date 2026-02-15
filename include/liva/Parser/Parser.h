@@ -32,6 +32,7 @@ public:
     std::unique_ptr<TypeAliasDecl> parseTypeAliasDecl(bool isPublic = false);
     std::unique_ptr<MacroDecl> parseMacroDecl(bool isPublic = false);
     std::unique_ptr<ClassDecl> parseClassDecl(bool isPublic = false);
+    std::unique_ptr<TestDecl> parseTestDecl();
     std::vector<std::unique_ptr<FuncDecl>> parseExternBlock(bool isPublic);
 
     // Statement parsing (ParseStmt.cpp)

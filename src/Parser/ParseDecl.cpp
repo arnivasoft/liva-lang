@@ -37,6 +37,11 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         return parseMacroDecl(isPublic);
     case TokenKind::kw_class:
         return parseClassDecl(isPublic);
+    case TokenKind::kw_test:
+        if (isPublic) {
+            diag_.report(current_.getLocation(), DiagID::err_expected_declaration);
+        }
+        return parseTestDecl();
     case TokenKind::kw_extern: {
         auto funcs = parseExternBlock(isPublic);
         if (funcs.empty()) return nullptr;
@@ -560,12 +565,20 @@ std::unique_ptr<ImportDecl> Parser::parseImportDecl() {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_import);
 
+    // Accept identifiers and 'test' keyword in import paths (std::test)
+    auto consumePathSegment = [&]() -> Token {
+        if (check(TokenKind::kw_test)) {
+            return advance();
+        }
+        return expect(TokenKind::identifier);
+    };
+
     std::vector<std::string> path;
-    auto first = expect(TokenKind::identifier);
+    auto first = consumePathSegment();
     path.push_back(std::string(first.getText()));
 
     while (match(TokenKind::coloncolon)) {
-        auto next = expect(TokenKind::identifier);
+        auto next = consumePathSegment();
         path.push_back(std::string(next.getText()));
     }
 
@@ -878,6 +891,19 @@ std::vector<std::unique_ptr<FuncDecl>> Parser::parseExternBlock(bool isPublic) {
     }
 
     return result;
+}
+
+std::unique_ptr<TestDecl> Parser::parseTestDecl() {
+    auto startLoc = current_.getLocation();
+    expect(TokenKind::kw_test);
+
+    auto nameTok = expect(TokenKind::string_literal);
+    std::string name(nameTok.getStringValue());
+
+    auto body = parseBlock();
+    if (!body) return nullptr;
+
+    return std::make_unique<TestDecl>(std::move(name), std::move(body), rangeFrom(startLoc));
 }
 
 } // namespace liva

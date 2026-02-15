@@ -2121,6 +2121,68 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
     return nullptr;
 }
 
+llvm::Value *IRGen::visitTestDecl(TestDecl *node) {
+    // Create a void() function: __liva_test_N
+    std::string funcName = "__liva_test_" + std::to_string(testCounter_++);
+    auto *funcTy = llvm::FunctionType::get(builder_->getVoidTy(), {}, false);
+    auto *func = llvm::Function::Create(funcTy, llvm::Function::InternalLinkage,
+                                         funcName, module_.get());
+
+    auto *entry = llvm::BasicBlock::Create(*context_, "entry", func);
+    auto *prevBB = builder_->GetInsertBlock();
+    auto *prevFn = prevBB ? prevBB->getParent() : nullptr;
+
+    builder_->SetInsertPoint(entry);
+
+    // Save/restore named values
+    auto savedNamedValues = namedValues_;
+
+    if (node->getBody()) {
+        for (auto &stmt : node->getBody()->getStatements()) {
+            visit(stmt.get());
+            if (builder_->GetInsertBlock()->getTerminator())
+                break;
+        }
+    }
+
+    // Add return if no terminator
+    if (!builder_->GetInsertBlock()->getTerminator()) {
+        builder_->CreateRetVoid();
+    }
+
+    namedValues_ = savedNamedValues;
+
+    // Restore insert point
+    if (prevBB)
+        builder_->SetInsertPoint(prevBB);
+
+    testEntries_.push_back({node->getName(), func});
+    return nullptr;
+}
+
+void IRGen::generateTestMain() {
+    auto *i32Ty = builder_->getInt32Ty();
+    auto *mainTy = llvm::FunctionType::get(i32Ty, {}, false);
+    auto *mainFn = llvm::Function::Create(mainTy, llvm::Function::ExternalLinkage,
+                                            "main", module_.get());
+    auto *entry = llvm::BasicBlock::Create(*context_, "entry", mainFn);
+    builder_->SetInsertPoint(entry);
+
+    // Call liva_test_begin()
+    builder_->CreateCall(getOrPanic("liva_test_begin"));
+
+    // Call liva_test_run(name, fn_ptr) for each test
+    auto *testRunFn = getOrPanic("liva_test_run");
+    for (auto &te : testEntries_) {
+        auto *nameStr = builder_->CreateGlobalStringPtr(te.name);
+        builder_->CreateCall(testRunFn, {nameStr, te.func});
+    }
+
+    // return liva_test_end()
+    auto *result = builder_->CreateCall(getOrPanic("liva_test_end"));
+    builder_->CreateRet(result);
+}
+
 } // namespace liva
 
 #endif // LIVA_HAS_LLVM
