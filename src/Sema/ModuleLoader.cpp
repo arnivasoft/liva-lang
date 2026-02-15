@@ -93,7 +93,11 @@ void ModuleLoader::registerBuiltinModules() {
     cache_["std::sync"] = createBuiltinModule("std::sync",
         {"mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",
          "atomicCreate", "atomicLoad", "atomicStore",
-         "atomicAdd", "atomicSub", "atomicCas", "atomicFree"});
+         "atomicAdd", "atomicSub", "atomicCas", "atomicFree",
+         "channelCreate", "channelSend", "channelReceive",
+         "channelClose", "channelLen", "channelFree",
+         "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
+         "taskGroupCancelAll", "taskGroupCount", "taskGroupFree"});
 
     // std::collections — collection utility functions
     cache_["std::collections"] = createBuiltinModule("std::collections",

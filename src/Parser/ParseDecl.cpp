@@ -37,6 +37,14 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         return parseMacroDecl(isPublic);
     case TokenKind::kw_class:
         return parseClassDecl(isPublic);
+    case TokenKind::kw_extern: {
+        auto funcs = parseExternBlock(isPublic);
+        if (funcs.empty()) return nullptr;
+        for (size_t i = 1; i < funcs.size(); ++i) {
+            pendingDecls_.push_back(std::move(funcs[i]));
+        }
+        return std::move(funcs[0]);
+    }
     default: {
         // Detect foreign language keywords used as identifiers
         if (current_.getKind() == TokenKind::identifier) {
@@ -92,8 +100,15 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     // Parse parameter list
     expect(TokenKind::l_paren);
     std::vector<ParamDecl> params;
+    bool hasCVarargs = false;
     if (!check(TokenKind::r_paren)) {
         do {
+            // Standalone ... → C varargs
+            if (check(TokenKind::ellipsis)) {
+                hasCVarargs = true;
+                advance();
+                break;
+            }
             params.push_back(parseParamDecl());
         } while (match(TokenKind::comma));
     }
@@ -161,6 +176,9 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     auto funcDecl = std::make_unique<FuncDecl>(std::move(name), std::move(params),
                                                 std::move(returnType), std::move(body),
                                                 isPublic, rangeFrom(startLoc), isAsync);
+    if (hasCVarargs) {
+        funcDecl->setCVarargs(true);
+    }
     if (!typeParams.empty()) {
         funcDecl->setTypeParams(std::move(typeParams));
     }
@@ -805,6 +823,61 @@ std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
         classDecl->setTypeParamBounds(std::move(typeParamBounds));
     }
     return classDecl;
+}
+
+std::vector<std::unique_ptr<FuncDecl>> Parser::parseExternBlock(bool isPublic) {
+    auto startLoc = current_.getLocation();
+    advance(); // consume 'extern'
+
+    // Expect "C" string literal
+    auto strTok = expect(TokenKind::string_literal);
+    if (strTok.getStringValue() != "C") {
+        diag_.report(strTok.getLocation(), DiagID::err_extern_unsupported_abi,
+                     strTok.getStringValue());
+        return {};
+    }
+
+    std::vector<std::unique_ptr<FuncDecl>> result;
+
+    if (match(TokenKind::l_brace)) {
+        // Block form: extern "C" { func ...; func ...; }
+        while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+            if (diag_.hasMaxErrors()) break;
+            while (match(TokenKind::semicolon)) {}
+            if (check(TokenKind::r_brace) || check(TokenKind::eof)) break;
+
+            bool isAsync = false;
+            if (match(TokenKind::kw_async)) {
+                isAsync = true;
+            }
+            if (!check(TokenKind::kw_func)) {
+                diag_.report(current_.getLocation(), DiagID::err_extern_only_func);
+                synchronizeBody();
+                continue;
+            }
+            auto func = parseFuncDecl(isPublic, isAsync);
+            if (func) {
+                func->setExtern(true);
+                result.push_back(std::move(func));
+            }
+        }
+        expect(TokenKind::r_brace);
+    } else if (check(TokenKind::kw_func) || check(TokenKind::kw_async)) {
+        // Single form: extern "C" func ...
+        bool isAsync = false;
+        if (match(TokenKind::kw_async)) {
+            isAsync = true;
+        }
+        auto func = parseFuncDecl(isPublic, isAsync);
+        if (func) {
+            func->setExtern(true);
+            result.push_back(std::move(func));
+        }
+    } else {
+        diag_.report(current_.getLocation(), DiagID::err_extern_only_func);
+    }
+
+    return result;
 }
 
 } // namespace liva

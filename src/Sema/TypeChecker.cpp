@@ -148,11 +148,24 @@ void TypeChecker::registerBuiltins() {
         scopes_.declare(name, sym);
     }
 
-    // Stdlib: Synchronization (Mutex + Atomic)
+    // Stdlib: Benchmarking
+    for (auto &name : {"benchStart", "benchIter", "benchDone",
+                        "benchReport", "benchReset"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
+    // Stdlib: Synchronization (Mutex + Atomic + Channel + TaskGroup)
     for (auto &name : {"mutexCreate", "mutexLock", "mutexUnlock",
                         "mutexTryLock", "mutexFree",
                         "atomicCreate", "atomicLoad", "atomicStore",
-                        "atomicAdd", "atomicSub", "atomicCas", "atomicFree"}) {
+                        "atomicAdd", "atomicSub", "atomicCas", "atomicFree",
+                        "channelCreate", "channelSend", "channelReceive",
+                        "channelClose", "channelLen", "channelFree",
+                        "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
+                        "taskGroupCancelAll", "taskGroupCount", "taskGroupFree"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -369,6 +382,41 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     usedSymbols_.clear();
     currentFuncVars_.clear();
     forLoopVars_.clear();
+
+    // Validate extern function constraints
+    if (node->isExtern()) {
+        if (node->hasBody()) {
+            diag_.report(node->getStartLoc(), DiagID::err_extern_with_body, node->getName());
+        }
+        if (node->isAsync()) {
+            diag_.report(node->getStartLoc(), DiagID::err_extern_async, node->getName());
+        }
+        if (node->isGeneric()) {
+            diag_.report(node->getStartLoc(), DiagID::err_extern_generic, node->getName());
+        }
+        // Register params in scope but skip body analysis
+        for (auto &param : node->getParams()) {
+            Symbol sym;
+            sym.name = param.name;
+            sym.kind = Symbol::Kind::Parameter;
+            sym.type = param.type.get();
+            sym.isMutable = param.isMutRef;
+            scopes_.declare(sym.name, sym);
+        }
+        currentReturnType_ = node->getReturnType();
+        // Restore state and return early
+        currentIsAsync_ = prevIsAsync;
+        usedSymbols_ = std::move(prevUsedSymbols);
+        currentFuncVars_ = std::move(prevFuncVars);
+        forLoopVars_ = std::move(prevForLoopVars);
+        scopes_.popScope();
+        return;
+    }
+
+    // Validate C varargs only in extern
+    if (node->isCVarargs() && !node->isExtern()) {
+        diag_.report(node->getStartLoc(), DiagID::err_cvarargs_not_extern, node->getName());
+    }
 
     // Register type parameters in scope
     for (const auto &tp : node->getTypeParams()) {
@@ -1674,6 +1722,13 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "sleep") {
             // void — no resolved type needed
+        // Stdlib: Benchmarking
+        } else if (ident->getName() == "benchStart") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "benchIter" || ident->getName() == "benchDone") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "benchReport" || ident->getName() == "benchReset") {
+            // void — no resolved type needed
         } else if (ident->getName() == "isCancelled") {
             if (!currentIsAsync_) {
                 diag_.report(node->getStartLoc(), DiagID::err_is_cancelled_outside_async);
@@ -1813,6 +1868,26 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "mutexFree" ||
                    ident->getName() == "atomicStore" ||
                    ident->getName() == "atomicFree") {
+            // void — no resolved type
+        // Stdlib: Channel
+        } else if (ident->getName() == "channelCreate" ||
+                   ident->getName() == "channelLen") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "channelReceive") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeI64Type());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "channelSend" ||
+                   ident->getName() == "channelClose" ||
+                   ident->getName() == "channelFree") {
+            // void — no resolved type
+        // Stdlib: TaskGroup
+        } else if (ident->getName() == "taskGroupCreate" ||
+                   ident->getName() == "taskGroupCount") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "taskGroupSpawn" ||
+                   ident->getName() == "taskGroupAwaitAll" ||
+                   ident->getName() == "taskGroupCancelAll" ||
+                   ident->getName() == "taskGroupFree") {
             // void — no resolved type
         // Stdlib: Collections utility functions
         } else if (ident->getName() == "sorted" || ident->getName() == "reversed" ||

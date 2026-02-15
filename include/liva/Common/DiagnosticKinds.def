@@ -116,6 +116,14 @@ DIAG(err_class_deinit_params,        error,   "deinit must only have 'self' para
 DIAG(err_class_private_access,       error,   "cannot access private member '%0' of class '%1'")
 DIAG(err_class_duplicate_field,      error,   "class '%0' already has a field named '%1'")
 
+// === Sema - FFI / Extern ===
+DIAG(err_extern_with_body,           error,   "extern function '%0' must not have a body")
+DIAG(err_extern_async,               error,   "extern function '%0' cannot be declared async")
+DIAG(err_extern_generic,             error,   "extern function '%0' cannot be generic")
+DIAG(err_cvarargs_not_extern,        error,   "C-style varargs '...' can only be used in extern functions")
+DIAG(err_extern_unsupported_abi,     error,   "unsupported extern ABI '%0'; only \"C\" is supported")
+DIAG(err_extern_only_func,           error,   "only function declarations are allowed in extern blocks")
+
 // === Sema - Object Safety ===
 DIAG(err_protocol_not_object_safe, error, "protocol '%0' cannot be used as a trait object because it has generic method '%1'")
 

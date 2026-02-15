@@ -1909,3 +1909,72 @@ TEST_F(ParserTest, PostfixQuestion_WithSemicolon) {
     )--");
     ASSERT_FALSE(result.hasErrors);
 }
+
+// === FFI Tests ===
+
+TEST_F(ParserTest, FFI_ExternCSingleFunc) {
+    auto result = parse(R"--(extern "C" func c_abs(x: i32) -> i32)--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1u);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "c_abs");
+    EXPECT_TRUE(func->isExtern());
+    EXPECT_FALSE(func->hasBody());
+}
+
+TEST_F(ParserTest, FFI_ExternCBlock) {
+    auto result = parse(R"--(extern "C" {
+        func malloc(size: u64) -> ref i8
+        func free(ptr: ref i8)
+    })--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 2u);
+    auto *f1 = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    auto *f2 = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(f1, nullptr);
+    ASSERT_NE(f2, nullptr);
+    EXPECT_EQ(f1->getName(), "malloc");
+    EXPECT_TRUE(f1->isExtern());
+    EXPECT_EQ(f2->getName(), "free");
+    EXPECT_TRUE(f2->isExtern());
+}
+
+TEST_F(ParserTest, FFI_ExternCVarargs) {
+    auto result = parse(R"--(extern "C" func printf(fmt: string, ...) -> i32)--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_EQ(result.tu->getDeclarations().size(), 1u);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "printf");
+    EXPECT_TRUE(func->isExtern());
+    EXPECT_TRUE(func->isCVarargs());
+    EXPECT_EQ(func->getParams().size(), 1u);
+}
+
+TEST_F(ParserTest, FFI_ExternCNoBody) {
+    auto result = parse(R"--(extern "C" func strlen(str: ref i8) -> u64)--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_FALSE(func->hasBody());
+    EXPECT_TRUE(func->isExtern());
+}
+
+TEST_F(ParserTest, FFI_ExternCWithPub) {
+    auto result = parse(R"--(pub extern "C" func c_abs(x: i32) -> i32)--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_TRUE(func->isPublic());
+    EXPECT_TRUE(func->isExtern());
+}
+
+TEST_F(ParserTest, FFI_ExternCMultipleParams) {
+    auto result = parse(R"--(extern "C" func memcpy(dst: ref i8, src: ref i8, n: u64) -> ref i8)--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getParams().size(), 3u);
+    EXPECT_TRUE(func->isExtern());
+}

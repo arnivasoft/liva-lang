@@ -1471,6 +1471,49 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(fn, {}, "clockms");
     }
 
+    // === Stdlib: Benchmarking ===
+    if (funcName == "benchStart") {
+        auto *fn = getOrPanic("liva_bench_start");
+        return builder_->CreateCall(fn, {}, "bench.start");
+    }
+
+    if (funcName == "benchIter") {
+        auto *arg = visit(node->getArgs()[0].get());
+        if (!arg) return nullptr;
+        if (arg->getType()->isIntegerTy(32))
+            arg = builder_->CreateSExt(arg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_bench_iter");
+        return builder_->CreateCall(fn, {arg}, "bench.iter");
+    }
+
+    if (funcName == "benchDone") {
+        auto *arg = visit(node->getArgs()[0].get());
+        if (!arg) return nullptr;
+        if (arg->getType()->isIntegerTy(32))
+            arg = builder_->CreateSExt(arg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_bench_done");
+        return builder_->CreateCall(fn, {arg}, "bench.done");
+    }
+
+    if (funcName == "benchReport") {
+        auto *nameArg = visit(node->getArgs()[0].get());
+        auto *handleArg = visit(node->getArgs()[1].get());
+        if (!nameArg || !handleArg) return nullptr;
+        if (handleArg->getType()->isIntegerTy(32))
+            handleArg = builder_->CreateSExt(handleArg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_bench_report");
+        return builder_->CreateCall(fn, {nameArg, handleArg});
+    }
+
+    if (funcName == "benchReset") {
+        auto *arg = visit(node->getArgs()[0].get());
+        if (!arg) return nullptr;
+        if (arg->getType()->isIntegerTy(32))
+            arg = builder_->CreateSExt(arg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_bench_reset");
+        return builder_->CreateCall(fn, {arg});
+    }
+
     if (funcName == "sleep" && !node->getArgs().empty()) {
         auto *msArg = visit(node->getArgs()[0].get());
         if (!msArg) return nullptr;
@@ -1780,6 +1823,130 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!handleArg) return nullptr;
         auto *fn = getOrPanic("liva_atomic_free");
         builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // === Stdlib: Channel ===
+
+    // channelCreate(capacity) -> i64
+    if (funcName == "channelCreate" && !node->getArgs().empty()) {
+        auto *capArg = visit(node->getArgs()[0].get());
+        if (!capArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_create");
+        return builder_->CreateCall(fn, {capArg}, "channel.create");
+    }
+
+    // channelSend(handle, value) -> void
+    if (funcName == "channelSend" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *valArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_send");
+        builder_->CreateCall(fn, {handleArg, valArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // channelReceive(handle) -> i64? (Optional<i64>)
+    if (funcName == "channelReceive" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_receive");
+        // Allocate ok flag on stack
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *okAlloca = createEntryBlockAlloca(curFunc, "ch.recv.ok", builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *result = builder_->CreateCall(fn, {handleArg, okAlloca}, "ch.recv.val");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "ch.recv.ok.val");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0), "ch.recv.hasval");
+        // Wrap in Optional<i64> {i1, i64}
+        auto *optTy = getOptionalType(builder_->getInt64Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "ch.recv.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "ch.recv.result");
+    }
+
+    // channelClose(handle) -> void
+    if (funcName == "channelClose" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_close");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // channelLen(handle) -> i64
+    if (funcName == "channelLen" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_len");
+        return builder_->CreateCall(fn, {handleArg}, "channel.len");
+    }
+
+    // channelFree(handle) -> void
+    if (funcName == "channelFree" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_free");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // === Stdlib: TaskGroup ===
+
+    // taskGroupCreate() -> i64
+    if (funcName == "taskGroupCreate") {
+        auto *fn = getOrPanic("liva_task_group_create");
+        return builder_->CreateCall(fn, {}, "tg.create");
+    }
+
+    // taskGroupSpawn(group, task) -> void
+    if (funcName == "taskGroupSpawn" && node->getArgs().size() >= 2) {
+        auto *groupArg = visit(node->getArgs()[0].get());
+        auto *taskArg = visit(node->getArgs()[1].get());
+        if (!groupArg || !taskArg) return nullptr;
+        auto *fn = getOrPanic("liva_task_group_spawn");
+        // taskArg is a ptr (LivaTask*), cast to i8* for the function signature
+        auto *taskPtr = builder_->CreateBitOrPointerCast(taskArg,
+            llvm::PointerType::getUnqual(*context_), "tg.task.ptr");
+        builder_->CreateCall(fn, {groupArg, taskPtr});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // taskGroupAwaitAll(group) -> void
+    if (funcName == "taskGroupAwaitAll" && !node->getArgs().empty()) {
+        auto *groupArg = visit(node->getArgs()[0].get());
+        if (!groupArg) return nullptr;
+        auto *fn = getOrPanic("liva_task_group_await_all");
+        builder_->CreateCall(fn, {groupArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // taskGroupCancelAll(group) -> void
+    if (funcName == "taskGroupCancelAll" && !node->getArgs().empty()) {
+        auto *groupArg = visit(node->getArgs()[0].get());
+        if (!groupArg) return nullptr;
+        auto *fn = getOrPanic("liva_task_group_cancel_all");
+        builder_->CreateCall(fn, {groupArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // taskGroupCount(group) -> i64
+    if (funcName == "taskGroupCount" && !node->getArgs().empty()) {
+        auto *groupArg = visit(node->getArgs()[0].get());
+        if (!groupArg) return nullptr;
+        auto *fn = getOrPanic("liva_task_group_count");
+        return builder_->CreateCall(fn, {groupArg}, "tg.count");
+    }
+
+    // taskGroupFree(group) -> void
+    if (funcName == "taskGroupFree" && !node->getArgs().empty()) {
+        auto *groupArg = visit(node->getArgs()[0].get());
+        if (!groupArg) return nullptr;
+        auto *fn = getOrPanic("liva_task_group_free");
+        builder_->CreateCall(fn, {groupArg});
         return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 

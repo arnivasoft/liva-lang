@@ -117,6 +117,7 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
     IRGen irgen(sourceManager_->getFilename().data(), diag_);
     irgen.setModuleLoader(&loader);
     irgen.setDebugInfo(debugInfo_);
+    irgen.setTargetTriple(targetTriple_);
     if (!irgen.generate(*tu))
         return false;
 
@@ -158,6 +159,7 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
     irgen.setDebugInfo(debugInfo_);
     irgen.setSeparateCompilation(true);
     irgen.setRequireMain(isEntryFile);
+    irgen.setTargetTriple(targetTriple_);
     if (!irgen.generate(*tu))
         return false;
 
@@ -227,6 +229,7 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
     irgen.setDebugInfo(debugInfo_);
     irgen.setSeparateCompilation(true);
     irgen.setRequireMain(isEntryFile);
+    irgen.setTargetTriple(targetTriple_);
     if (!irgen.generate(*tu))
         return result;
 
@@ -294,43 +297,48 @@ bool CompilerInstance::compile(const std::string &outputPath) {
         return false;
     }
 
-    // Find pre-built runtime library relative to livac executable
-    auto fileExists = [](const std::string &path) {
-        std::ifstream f(path);
-        return f.is_open();
-    };
-    auto dirOfPath = [](const std::string &path) -> std::string {
-        auto pos = path.find_last_of("/\\");
-        return (pos != std::string::npos) ? path.substr(0, pos) : ".";
-    };
+    TargetInfo target = resolveTarget(targetTriple_);
 
-    std::string exeDir = dirOfPath(executablePath_);
-    std::string runtimeLib;
-    // Search for both .lib (Windows) and .a (Linux/macOS) variants
-    std::string candidates[] = {
-        exeDir + "/lib/liva_runtime.lib",
-        exeDir + "/../lib/liva_runtime.lib",
-        exeDir + "/lib/libliva_runtime.a",
-        exeDir + "/../lib/libliva_runtime.a",
-    };
-    for (auto &c : candidates) {
-        if (fileExists(c)) { runtimeLib = c; break; }
-    }
-    if (runtimeLib.empty()) {
-        std::cerr << "error: cannot find runtime library\n";
-        std::cerr << "  searched paths:\n";
-        for (auto &c : candidates)
-            std::cerr << "    " << c << "\n";
-        std::remove(objPath.c_str());
-        return false;
-    }
-
-    // Link object file + runtime → executable
-    std::vector<std::string> objects = { objPath, runtimeLib };
+    std::vector<std::string> objects = { objPath };
     std::vector<std::string> flags;
+
+    if (!target.isWasm()) {
+        // Find pre-built runtime library relative to livac executable
+        auto fileExists = [](const std::string &path) {
+            std::ifstream f(path);
+            return f.is_open();
+        };
+        auto dirOfPath = [](const std::string &path) -> std::string {
+            auto pos = path.find_last_of("/\\");
+            return (pos != std::string::npos) ? path.substr(0, pos) : ".";
+        };
+
+        std::string exeDir = dirOfPath(executablePath_);
+        std::string runtimeLib;
+        // Search for both .lib (Windows) and .a (Linux/macOS) variants
+        std::string candidates[] = {
+            exeDir + "/lib/liva_runtime.lib",
+            exeDir + "/../lib/liva_runtime.lib",
+            exeDir + "/lib/libliva_runtime.a",
+            exeDir + "/../lib/libliva_runtime.a",
+        };
+        for (auto &c : candidates) {
+            if (fileExists(c)) { runtimeLib = c; break; }
+        }
+        if (runtimeLib.empty()) {
+            std::cerr << "error: cannot find runtime library\n";
+            std::cerr << "  searched paths:\n";
+            for (auto &c : candidates)
+                std::cerr << "    " << c << "\n";
+            std::remove(objPath.c_str());
+            return false;
+        }
+        objects.push_back(runtimeLib);
 #ifdef _WIN32
-    flags.push_back("-lwinhttp");
+        flags.push_back("-lwinhttp");
 #endif
+    }
+
     if (debugInfo_)
         flags.push_back("-g");
 
@@ -342,7 +350,10 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
     if (!linkOk) {
         std::cerr << "error: linking failed for '" << outputPath << "'\n";
-        std::cerr << "  objects: " << objPath << " " << runtimeLib << "\n";
+        std::cerr << "  objects:";
+        for (const auto &o : objects)
+            std::cerr << " " << o;
+        std::cerr << "\n";
         return false;
     }
 

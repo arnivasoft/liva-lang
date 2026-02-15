@@ -67,7 +67,143 @@ void IRGen::emitDebugLocation(const SourceLocation &loc) {
         llvm::DILocation::get(*context_, loc.line, loc.column, scope));
 }
 
+llvm::DIType *IRGen::toDIType(const TypeRepr *type) {
+    if (!type || !diBuilder_) return nullptr;
+    switch (type->getKind()) {
+    case TypeRepr::Kind::Bool:
+        return diBuilder_->createBasicType("bool", 8, llvm::dwarf::DW_ATE_boolean);
+    case TypeRepr::Kind::I8:
+        return diBuilder_->createBasicType("i8", 8, llvm::dwarf::DW_ATE_signed);
+    case TypeRepr::Kind::U8:
+        return diBuilder_->createBasicType("u8", 8, llvm::dwarf::DW_ATE_unsigned);
+    case TypeRepr::Kind::I16:
+        return diBuilder_->createBasicType("i16", 16, llvm::dwarf::DW_ATE_signed);
+    case TypeRepr::Kind::U16:
+        return diBuilder_->createBasicType("u16", 16, llvm::dwarf::DW_ATE_unsigned);
+    case TypeRepr::Kind::I32:
+        return diBuilder_->createBasicType("i32", 32, llvm::dwarf::DW_ATE_signed);
+    case TypeRepr::Kind::U32:
+        return diBuilder_->createBasicType("u32", 32, llvm::dwarf::DW_ATE_unsigned);
+    case TypeRepr::Kind::I64:
+        return diBuilder_->createBasicType("i64", 64, llvm::dwarf::DW_ATE_signed);
+    case TypeRepr::Kind::U64:
+        return diBuilder_->createBasicType("u64", 64, llvm::dwarf::DW_ATE_unsigned);
+    case TypeRepr::Kind::F32:
+        return diBuilder_->createBasicType("f32", 32, llvm::dwarf::DW_ATE_float);
+    case TypeRepr::Kind::F64:
+        return diBuilder_->createBasicType("f64", 64, llvm::dwarf::DW_ATE_float);
+    case TypeRepr::Kind::String:
+        return diBuilder_->createPointerType(
+            diBuilder_->createBasicType("char", 8, llvm::dwarf::DW_ATE_signed_char), 64);
+    case TypeRepr::Kind::Named: {
+        auto *named = static_cast<const NamedTypeRepr *>(type);
+        auto it = diStructTypes_.find(named->getName());
+        if (it != diStructTypes_.end()) return it->second;
+        return nullptr;
+    }
+    case TypeRepr::Kind::Void:
+    default:
+        return nullptr;
+    }
+}
+
+llvm::DISubroutineType *IRGen::createFunctionDebugType(const FuncDecl *funcDecl) {
+    if (!diBuilder_ || !funcDecl) return createFunctionDebugType();
+    llvm::SmallVector<llvm::Metadata *, 8> types;
+    // First element is return type
+    types.push_back(toDIType(funcDecl->getReturnType()));
+    // Then parameter types
+    for (auto &param : funcDecl->getParams()) {
+        if (param.isSelf) {
+            // self is a pointer
+            auto *charTy = diBuilder_->createBasicType("char", 8, llvm::dwarf::DW_ATE_signed_char);
+            types.push_back(diBuilder_->createPointerType(charTy, 64));
+        } else {
+            types.push_back(toDIType(param.type.get()));
+        }
+    }
+    return diBuilder_->createSubroutineType(diBuilder_->getOrCreateTypeArray(types));
+}
+
+void IRGen::emitLocalVarDebugInfo(const std::string &name, llvm::AllocaInst *alloca,
+                                   llvm::DIType *diType, const SourceLocation &loc) {
+    if (!diBuilder_ || !diType || !alloca) return;
+    auto *bb = builder_->GetInsertBlock();
+    if (!bb) return;
+    auto *func = bb->getParent();
+    if (!func) return;
+    auto *sp = func->getSubprogram();
+    if (!sp) return;
+    unsigned line = loc.isValid() ? loc.line : 0;
+    auto *varInfo = diBuilder_->createAutoVariable(sp, name, diFile_, line, diType);
+    diBuilder_->insertDeclare(
+        alloca, varInfo, diBuilder_->createExpression(),
+        llvm::DILocation::get(*context_, line, 0, sp),
+        bb);
+}
+
+void IRGen::emitParamDebugInfo(const std::string &name, unsigned argNo, llvm::AllocaInst *alloca,
+                                llvm::DIType *diType, const SourceLocation &loc) {
+    if (!diBuilder_ || !diType || !alloca) return;
+    auto *bb = builder_->GetInsertBlock();
+    if (!bb) return;
+    auto *func = bb->getParent();
+    if (!func) return;
+    auto *sp = func->getSubprogram();
+    if (!sp) return;
+    unsigned line = loc.isValid() ? loc.line : 0;
+    auto *varInfo = diBuilder_->createParameterVariable(sp, name, argNo, diFile_, line, diType);
+    diBuilder_->insertDeclare(
+        alloca, varInfo, diBuilder_->createExpression(),
+        llvm::DILocation::get(*context_, line, 0, sp),
+        bb);
+}
+
+llvm::DICompositeType *IRGen::getOrCreateStructDIType(const std::string &structName) {
+    if (!diBuilder_) return nullptr;
+    auto it = diStructTypes_.find(structName);
+    if (it != diStructTypes_.end()) return it->second;
+
+    auto stIt = structTypes_.find(structName);
+    if (stIt == structTypes_.end()) return nullptr;
+    auto fnIt = structFieldNames_.find(structName);
+    if (fnIt == structFieldNames_.end()) return nullptr;
+    auto ftrIt = structFieldTypeReprs_.find(structName);
+    if (ftrIt == structFieldTypeReprs_.end()) return nullptr;
+
+    auto *structTy = stIt->second;
+    const auto &fieldNames = fnIt->second;
+    const auto &fieldTypeReprs = ftrIt->second;
+    const llvm::DataLayout &dl = module_->getDataLayout();
+    const auto *layout = dl.getStructLayout(structTy);
+    uint64_t totalSize = dl.getTypeAllocSize(structTy) * 8; // in bits
+
+    llvm::SmallVector<llvm::Metadata *, 8> members;
+    for (size_t i = 0; i < fieldNames.size(); ++i) {
+        auto *fieldDITy = toDIType(fieldTypeReprs[i]);
+        if (!fieldDITy) continue;
+        uint64_t fieldSize = dl.getTypeAllocSize(structTy->getElementType(static_cast<unsigned>(i))) * 8;
+        uint64_t fieldOffset = layout->getElementOffsetInBits(static_cast<unsigned>(i));
+        auto *member = diBuilder_->createMemberType(
+            diFile_, fieldNames[i], diFile_, 0, fieldSize, 0, fieldOffset,
+            llvm::DINode::FlagZero, fieldDITy);
+        members.push_back(member);
+    }
+
+    auto *diStructTy = diBuilder_->createStructType(
+        diFile_, structName, diFile_, 0, totalSize, 0,
+        llvm::DINode::FlagZero, nullptr,
+        diBuilder_->getOrCreateArray(members));
+    diStructTypes_[structName] = diStructTy;
+    return diStructTy;
+}
+
 bool IRGen::generate(TranslationUnit &tu) {
+    // Override module target triple if cross-compiling
+    if (!targetTriple_.empty()) {
+        module_->setTargetTriple(llvm::Triple(targetTriple_));
+    }
+
     initDebugInfo(module_->getModuleIdentifier());
     createRuntimeDecls();
 
@@ -337,6 +473,22 @@ void IRGen::createRuntimeDecls() {
 
     auto *sleepTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
     module_->getOrInsertFunction("liva_sleep", sleepTy);
+
+    // === Stdlib: Benchmarking ===
+    auto *benchStartTy = llvm::FunctionType::get(i64Ty, {}, false);
+    module_->getOrInsertFunction("liva_bench_start", benchStartTy);
+
+    auto *benchIterTy = llvm::FunctionType::get(i64Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_bench_iter", benchIterTy);
+
+    auto *benchDoneTy = llvm::FunctionType::get(i64Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_bench_done", benchDoneTy);
+
+    auto *benchReportTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_bench_report", benchReportTy);
+
+    auto *benchResetTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
+    module_->getOrInsertFunction("liva_bench_reset", benchResetTy);
 
     // === Stdlib: Regex ===
     auto *regexMatchTy = llvm::FunctionType::get(i8Ty, {i8PtrTy, i8PtrTy}, false);
@@ -614,6 +766,48 @@ void IRGen::createRuntimeDecls() {
 
     // atomicFree(handle) -> void
     module_->getOrInsertFunction("liva_atomic_free", voidI64Ty);
+
+    // === Stdlib: Channel ===
+
+    // channelCreate(capacity) -> i64
+    module_->getOrInsertFunction("liva_channel_create", i64FromI64Ty);
+
+    // channelSend(handle, value) -> void
+    module_->getOrInsertFunction("liva_channel_send", voidI64I64Ty);
+
+    // channelReceive(handle, &ok) -> i64
+    auto *chRecvTy = llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_channel_receive", chRecvTy);
+
+    // channelClose(handle) -> void
+    module_->getOrInsertFunction("liva_channel_close", voidI64Ty);
+
+    // channelLen(handle) -> i64
+    module_->getOrInsertFunction("liva_channel_len", i64FromI64Ty);
+
+    // channelFree(handle) -> void
+    module_->getOrInsertFunction("liva_channel_free", voidI64Ty);
+
+    // === Stdlib: TaskGroup ===
+
+    // taskGroupCreate() -> i64
+    module_->getOrInsertFunction("liva_task_group_create", noArgI64Ty);
+
+    // taskGroupSpawn(group, task*) -> void
+    auto *tgSpawnTy = llvm::FunctionType::get(voidTy, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_task_group_spawn", tgSpawnTy);
+
+    // taskGroupAwaitAll(group) -> void
+    module_->getOrInsertFunction("liva_task_group_await_all", voidI64Ty);
+
+    // taskGroupCancelAll(group) -> void
+    module_->getOrInsertFunction("liva_task_group_cancel_all", voidI64Ty);
+
+    // taskGroupCount(group) -> i64
+    module_->getOrInsertFunction("liva_task_group_count", i64FromI64Ty);
+
+    // taskGroupFree(group) -> void
+    module_->getOrInsertFunction("liva_task_group_free", voidI64Ty);
 
     // === Stdlib: String utility functions ===
 

@@ -35,4 +35,8 @@ bool TargetInfo::isCrossCompiling() const {
     return triple != host.triple;
 }
 
+bool TargetInfo::isWasm() const {
+    return triple.find("wasm32") == 0 || triple.find("wasm64") == 0;
+}
+
 } // namespace liva

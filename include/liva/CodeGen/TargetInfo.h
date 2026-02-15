@@ -20,6 +20,9 @@ struct TargetInfo {
 
     /// Returns true if this target differs from the host
     bool isCrossCompiling() const;
+
+    /// Returns true if this target is WebAssembly
+    bool isWasm() const;
 };
 
 } // namespace liva

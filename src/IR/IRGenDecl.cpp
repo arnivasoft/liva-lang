@@ -217,7 +217,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     // For async main, the coroutine is named "liva_async_main"
     std::string funcName = isAsyncMain ? "liva_async_main" : node->getName();
 
-    auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+    auto *funcType = llvm::FunctionType::get(returnType, paramTypes, node->isCVarargs());
     auto *func = llvm::Function::Create(
         funcType, llvm::Function::ExternalLinkage, funcName, *module_);
 
@@ -238,7 +238,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     // Attach debug info subprogram to the function
     if (diBuilder_) {
-        auto *funcDbgType = createFunctionDebugType();
+        auto *funcDbgType = createFunctionDebugType(node);
         unsigned lineNo = node->getStartLoc().isValid() ? node->getStartLoc().line : 0;
         auto *sp = diBuilder_->createFunction(
             diFile_,                           // scope
@@ -420,6 +420,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
             builder_->CreateStore(&arg, alloca);
             namedValues_[std::string(arg.getName())] = alloca;
+            if (diBuilder_) {
+                unsigned argIdx = arg.getArgNo();
+                if (argIdx < node->getParams().size()) {
+                    auto &pd = node->getParams()[argIdx];
+                    auto *diTy = toDIType(pd.type.get());
+                    emitParamDebugInfo(pd.name, argIdx + 1, alloca, diTy, pd.location);
+                }
+            }
         }
     }
 
@@ -827,6 +835,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         }
         namedValues_[node->getName()] = alloca;
         varOptionalTypes_[node->getName()] = innerLLVM;
+        if (diBuilder_) {
+            auto *diTy = toDIType(optTypeRepr->getInner());
+            emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
+        }
         // Register struct type name for optional chaining support
         if (optTypeRepr->getInner()->getKind() == TypeRepr::Kind::Named) {
             auto *namedInner = static_cast<const NamedTypeRepr *>(optTypeRepr->getInner());
@@ -896,6 +908,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
             namedValues_[node->getName()] = alloca;
             varStructTypes_[node->getName()] = typeName;
+            if (diBuilder_) {
+                auto *diTy = getOrCreateStructDIType(typeName);
+                emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
+            }
             return alloca;
         }
     }
@@ -1243,6 +1259,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         if (initVal)
             builder_->CreateStore(initVal, alloca);
         namedValues_[node->getName()] = alloca;
+        if (diBuilder_) {
+            auto *diTy = toDIType(node->getType());
+            emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
+        }
 
         // Track heap string ownership (explicit String type or inferred from string init)
         if (initVal && type->isPointerTy()) {
@@ -1263,6 +1283,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     auto *type = toLLVMType(node->getType());
     auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
     namedValues_[node->getName()] = alloca;
+    if (diBuilder_) {
+        auto *diTy = toDIType(node->getType());
+        emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
+    }
     return alloca;
 }
 
@@ -1290,6 +1314,9 @@ llvm::Value *IRGen::visitStructDecl(StructDecl *node) {
     structTypes_[node->getName()] = structType;
     structFieldNames_[node->getName()] = std::move(fieldNames);
     structFieldTypeReprs_[node->getName()] = std::move(fieldTypeReprs);
+    if (diBuilder_) {
+        getOrCreateStructDIType(node->getName());
+    }
     return nullptr;
 }
 
@@ -1348,8 +1375,24 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         if (!method->hasBody())
             continue;
 
+        // Attach debug info subprogram to impl method
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType(method.get());
+            unsigned lineNo = method->getStartLoc().isValid() ? method->getStartLoc().line : 0;
+            auto *sp = diBuilder_->createFunction(
+                diFile_, mangledName, mangledName, diFile_, lineNo,
+                funcDbgType, lineNo,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            func->setSubprogram(sp);
+        }
+
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         builder_->SetInsertPoint(entryBB);
+
+        if (diBuilder_) {
+            emitDebugLocation(method->getStartLoc());
+        }
 
         // Save and clear scope
         auto oldNamedValues = namedValues_;
@@ -1412,6 +1455,11 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 } else {
                     varStructTypes_["self"] = typeName;
                 }
+            }
+            if (diBuilder_) {
+                auto &pd = method->getParams()[i];
+                auto *diTy = toDIType(pd.type.get());
+                emitParamDebugInfo(pd.name, static_cast<unsigned>(i) + 1, alloca, diTy, pd.location);
             }
             ++i;
         }

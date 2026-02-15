@@ -60,6 +60,7 @@ void Parser::synchronize() {
             case TokenKind::kw_type:
             case TokenKind::kw_pub:
             case TokenKind::kw_async:
+            case TokenKind::kw_extern:
                 return;
             default:
                 advance();
@@ -99,6 +100,12 @@ std::unique_ptr<TranslationUnit> Parser::parseTranslationUnit() {
     auto tu = std::make_unique<TranslationUnit>();
 
     while (!current_.is(TokenKind::eof)) {
+        // Drain pending declarations (from extern blocks)
+        while (!pendingDecls_.empty()) {
+            tu->addDeclaration(std::move(pendingDecls_.front()));
+            pendingDecls_.erase(pendingDecls_.begin());
+        }
+
         if (diag_.hasMaxErrors()) break;  // stop after too many errors
 
         // Collect consecutive doc comments before a declaration
@@ -123,6 +130,12 @@ std::unique_ptr<TranslationUnit> Parser::parseTranslationUnit() {
             // Error recovery: skip to next declaration boundary
             synchronize();
         }
+    }
+
+    // Drain any remaining pending declarations (e.g., from extern blocks at end of file)
+    while (!pendingDecls_.empty()) {
+        tu->addDeclaration(std::move(pendingDecls_.front()));
+        pendingDecls_.erase(pendingDecls_.begin());
     }
 
     return tu;

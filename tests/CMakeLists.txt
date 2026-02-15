@@ -78,7 +78,7 @@ if(LIVA_HAS_LLVM AND NOT MINGW)
     liva_add_test(codegen_test
         unit/CodeGenTest.cpp
     )
-    target_link_libraries(codegen_test PRIVATE liva_codegen liva_driver)
+    target_link_libraries(codegen_test PRIVATE liva_codegen liva_irgen liva_sema liva_parser liva_driver)
     target_compile_definitions(codegen_test PRIVATE LIVA_HAS_LLVM=1)
 endif()
 

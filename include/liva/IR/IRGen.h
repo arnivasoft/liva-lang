@@ -45,6 +45,9 @@ public:
     /// Control whether main() is required
     void setRequireMain(bool require) { requireMain_ = require; }
 
+    /// Set the target triple for the generated module
+    void setTargetTriple(const std::string &triple) { targetTriple_ = triple; }
+
     /// Generate IR for a translation unit
     bool generate(TranslationUnit &tu);
 
@@ -124,7 +127,15 @@ private:
     void initDebugInfo(const std::string &filename);
     void finalizeDebugInfo();
     llvm::DISubroutineType *createFunctionDebugType();
+    llvm::DISubroutineType *createFunctionDebugType(const FuncDecl *funcDecl);
     void emitDebugLocation(const SourceLocation &loc);
+    llvm::DIType *toDIType(const TypeRepr *type);
+    llvm::DICompositeType *getOrCreateStructDIType(const std::string &structName);
+    void emitLocalVarDebugInfo(const std::string &name, llvm::AllocaInst *alloca,
+                               llvm::DIType *diType, const SourceLocation &loc);
+    void emitParamDebugInfo(const std::string &name, unsigned argNo, llvm::AllocaInst *alloca,
+                            llvm::DIType *diType, const SourceLocation &loc);
+    std::unordered_map<std::string, llvm::DICompositeType *> diStructTypes_;
 
     /// Convert Liva type to LLVM type
     llvm::Type *toLLVMType(const TypeRepr *type);
@@ -147,6 +158,7 @@ private:
     ModuleLoader *moduleLoader_ = nullptr;
     bool separateCompilation_ = false;
     bool requireMain_ = true;
+    std::string targetTriple_;
     std::set<std::string> processedModules_;
 
     /// Extern declaration helpers for separate compilation
@@ -479,6 +491,7 @@ public:
     void setDebugInfo(bool) {}
     void setSeparateCompilation(bool) {}
     void setRequireMain(bool) {}
+    void setTargetTriple(const std::string &) {}
 
     bool generate(TranslationUnit &) {
         diag_.report(SourceLocation{}, DiagID::err_main_not_found);

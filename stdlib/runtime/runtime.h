@@ -427,6 +427,22 @@ void liva_scheduler_run(LivaTask *root);
 /// Async sleep: register timer and suspend coroutine
 void liva_async_sleep(LivaTask *task, int64_t ms);
 
+// === Channel Runtime ===
+int64_t liva_channel_create(int64_t capacity);
+void liva_channel_send(int64_t handle, int64_t value);
+int64_t liva_channel_receive(int64_t handle, int8_t *ok);
+void liva_channel_close(int64_t handle);
+int64_t liva_channel_len(int64_t handle);
+void liva_channel_free(int64_t handle);
+
+// === TaskGroup Runtime ===
+int64_t liva_task_group_create();
+void liva_task_group_spawn(int64_t group, LivaTask *task);
+void liva_task_group_await_all(int64_t group);
+void liva_task_group_cancel_all(int64_t group);
+int64_t liva_task_group_count(int64_t group);
+void liva_task_group_free(int64_t group);
+
 // === JSON ===
 
 /// Get string value by key from JSON object, returns malloc'd string or NULL
@@ -609,6 +625,23 @@ int8_t liva_array_all(const void *data, int64_t len, int64_t elem_size,
 /// Count elements matching predicate
 int64_t liva_array_count(const void *data, int64_t len, int64_t elem_size,
                           int8_t (*pred)(const void *));
+
+// === Benchmarking ===
+
+/// Start benchmark timer — returns opaque handle (nanosecond precision)
+int64_t liva_bench_start();
+
+/// Complete one iteration, returns elapsed nanoseconds since start
+int64_t liva_bench_iter(int64_t handle);
+
+/// Finish benchmark, returns average nanoseconds per iteration
+int64_t liva_bench_done(int64_t handle);
+
+/// Report benchmark results to stdout: "name: avg ns/iter (N iterations)"
+void liva_bench_report(const char *name, int64_t handle);
+
+/// Reset benchmark handle for reuse
+void liva_bench_reset(int64_t handle);
 
 // === Panic ===
 

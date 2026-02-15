@@ -1753,3 +1753,37 @@ TEST_F(OwnershipTest, ClassDecl_MethodLocalVars) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === FFI Tests ===
+
+TEST_F(OwnershipTest, FFI_ExternFuncNoOwnershipCheck) {
+    auto result = check(R"--(
+        extern "C" func c_abs(x: i32) -> i32
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, FFI_ExternCallOwnership) {
+    auto result = check(R"--(
+        extern "C" func c_abs(x: i32) -> i32
+        func main() {
+            let val: i32 = 42
+            let r: i32 = c_abs(val)
+            println(r)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, FFI_ExternRefParam) {
+    auto result = check(R"--(
+        extern "C" func strlen(str: ref i8) -> u64
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

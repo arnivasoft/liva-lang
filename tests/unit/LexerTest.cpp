@@ -574,3 +574,20 @@ TEST_F(LexerTest, ClassKeywordsInContext) {
     expectToken(tokens[2], TokenKind::l_brace);
     expectToken(tokens[3], TokenKind::kw_private);
 }
+
+// === FFI Tests ===
+
+TEST_F(LexerTest, FFI_ExternKeyword) {
+    auto tokens = lex("extern");
+    ASSERT_GE(tokens.size(), 1u);
+    expectToken(tokens[0], TokenKind::kw_extern);
+}
+
+TEST_F(LexerTest, FFI_ExternCBlock) {
+    auto tokens = lex(R"--(extern "C" { func abs(x: i32) -> i32 })--");
+    ASSERT_GE(tokens.size(), 4u);
+    expectToken(tokens[0], TokenKind::kw_extern);
+    expectToken(tokens[1], TokenKind::string_literal);
+    expectToken(tokens[2], TokenKind::l_brace);
+    expectToken(tokens[3], TokenKind::kw_func);
+}

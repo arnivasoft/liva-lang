@@ -32,6 +32,7 @@ public:
     std::unique_ptr<TypeAliasDecl> parseTypeAliasDecl(bool isPublic = false);
     std::unique_ptr<MacroDecl> parseMacroDecl(bool isPublic = false);
     std::unique_ptr<ClassDecl> parseClassDecl(bool isPublic = false);
+    std::vector<std::unique_ptr<FuncDecl>> parseExternBlock(bool isPublic);
 
     // Statement parsing (ParseStmt.cpp)
     std::unique_ptr<ASTNode> parseStatement();
@@ -99,6 +100,7 @@ private:
     DiagnosticsEngine &diag_;
     Token current_;
     bool inClassBody_ = false;
+    std::vector<std::unique_ptr<ASTNode>> pendingDecls_;
 };
 
 } // namespace liva

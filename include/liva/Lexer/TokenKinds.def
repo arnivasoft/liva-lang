@@ -72,6 +72,7 @@ KEYWORD(deinit,     "deinit")
 KEYWORD(override,   "override")
 KEYWORD(super,      "super")
 KEYWORD(private,    "private")
+KEYWORD(extern,     "extern")
 
 // === Type keywords ===
 KEYWORD(i8,         "i8")

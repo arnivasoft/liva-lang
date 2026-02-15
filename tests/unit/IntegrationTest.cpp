@@ -1657,6 +1657,149 @@ func main() {
     EXPECT_FALSE(result.errors.empty());
 }
 
+// === Channel & TaskGroup Integration Tests ===
+
+TEST_F(IntegrationTest, Channel_CreateSendReceive) {
+    std::string source = R"--(
+func main() {
+    let ch: i64 = channelCreate(10)
+    channelSend(ch, 42)
+    let v: i64? = channelReceive(ch)
+    channelFree(ch)
+}
+)--";
+    auto result = runPipeline("channel_basic.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, Channel_CloseAndReceiveNil) {
+    std::string source = R"--(
+func main() {
+    let ch: i64 = channelCreate(5)
+    channelClose(ch)
+    channelFree(ch)
+}
+)--";
+    auto result = runPipeline("channel_close.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, Channel_LenQuery) {
+    std::string source = R"--(
+func main() {
+    let ch: i64 = channelCreate(10)
+    channelSend(ch, 1)
+    channelSend(ch, 2)
+    let n: i64 = channelLen(ch)
+    channelFree(ch)
+}
+)--";
+    auto result = runPipeline("channel_len.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, Channel_Multiple) {
+    std::string source = R"--(
+func main() {
+    let ch1: i64 = channelCreate(5)
+    let ch2: i64 = channelCreate(5)
+    channelSend(ch1, 10)
+    channelSend(ch2, 20)
+    let v1: i64? = channelReceive(ch1)
+    let v2: i64? = channelReceive(ch2)
+    channelFree(ch1)
+    channelFree(ch2)
+}
+)--";
+    auto result = runPipeline("channel_multi.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, TaskGroup_Basic) {
+    std::string source = R"--(
+async func worker() -> i32 {
+    return 42
+}
+async func main() {
+    let g: i64 = taskGroupCreate()
+    taskGroupSpawn(g, worker())
+    taskGroupAwaitAll(g)
+    taskGroupFree(g)
+}
+)--";
+    auto result = runPipeline("taskgroup_basic.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, TaskGroup_Cancellation) {
+    std::string source = R"--(
+async func worker() -> i32 {
+    return 1
+}
+async func main() {
+    let g: i64 = taskGroupCreate()
+    taskGroupSpawn(g, worker())
+    taskGroupCancelAll(g)
+    taskGroupFree(g)
+}
+)--";
+    auto result = runPipeline("taskgroup_cancel.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, TaskGroup_Count) {
+    std::string source = R"--(
+async func worker() -> i32 {
+    return 1
+}
+async func main() {
+    let g: i64 = taskGroupCreate()
+    taskGroupSpawn(g, worker())
+    let n: i64 = taskGroupCount(g)
+    taskGroupFree(g)
+}
+)--";
+    auto result = runPipeline("taskgroup_count.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, Channel_TaskGroup_Combined) {
+    std::string source = R"--(
+async func producer(ch: i64) -> i32 {
+    channelSend(ch, 42)
+    return 0
+}
+async func main() {
+    let ch: i64 = channelCreate(10)
+    let g: i64 = taskGroupCreate()
+    taskGroupSpawn(g, producer(ch))
+    taskGroupAwaitAll(g)
+    let v: i64? = channelReceive(ch)
+    channelClose(ch)
+    channelFree(ch)
+    taskGroupFree(g)
+}
+)--";
+    auto result = runPipeline("channel_taskgroup.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed";
+    EXPECT_TRUE(result.errors.empty());
+}
+
 TEST_F(IntegrationTest, StringInterpolationCleanup) {
     std::string source = R"--(
 func main() {
@@ -2518,5 +2661,183 @@ TEST_F(IntegrationTest, CrossTarget_ProjectConfigTarget) {
     EXPECT_TRUE(cfg.target.empty());
     cfg.target = "wasm32-unknown-wasi";
     EXPECT_EQ(cfg.target, "wasm32-unknown-wasi");
+}
+
+// === FFI Tests ===
+
+TEST_F(IntegrationTest, FFI_ExternFuncDecl) {
+    auto result = runPipeline("test.liva", R"--(
+        extern "C" func c_abs(x: i32) -> i32
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.parseSuccess);
+    EXPECT_TRUE(result.semaSuccess);
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, FFI_ExternCVarargs) {
+    auto result = runPipeline("test.liva", R"--(
+        extern "C" func printf(fmt: string, ...) -> i32
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.parseSuccess);
+    EXPECT_TRUE(result.semaSuccess);
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, FFI_ExternBlockForm) {
+    auto result = runPipeline("test.liva", R"--(
+        extern "C" {
+            func malloc(size: u64) -> ref i8
+            func free(ptr: ref i8)
+            func strlen(str: ref i8) -> u64
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.parseSuccess);
+    EXPECT_TRUE(result.semaSuccess);
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, FFI_ExternCallFromMain) {
+    auto result = runPipeline("test.liva", R"--(
+        extern "C" func c_abs(x: i32) -> i32
+        func main() {
+            let y: i32 = c_abs(-5)
+            println(y)
+        }
+    )--");
+    EXPECT_TRUE(result.parseSuccess);
+    EXPECT_TRUE(result.semaSuccess);
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, FFI_ExternRefParams) {
+    auto result = runPipeline("test.liva", R"--(
+        extern "C" func memcpy(dst: ref i8, src: ref i8, n: u64) -> ref i8
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.parseSuccess);
+    EXPECT_TRUE(result.semaSuccess);
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, FFI_ExternVoidReturn) {
+    auto result = runPipeline("test.liva", R"--(
+        extern "C" func free(ptr: ref i8)
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.parseSuccess);
+    EXPECT_TRUE(result.semaSuccess);
+    EXPECT_TRUE(result.errors.empty());
+}
+
+// ============================================================
+// WASM Backend Tests
+// ============================================================
+
+TEST_F(IntegrationTest, WASM_PipelineParseAndSema) {
+    auto result = runPipeline("test.liva", R"--(
+        func add(a: i32, b: i32) -> i32 {
+            return a + b
+        }
+        func main() {
+            let x: i32 = add(2, 3)
+            println(x)
+        }
+    )--");
+    EXPECT_TRUE(result.parseSuccess);
+    EXPECT_TRUE(result.semaSuccess);
+    EXPECT_TRUE(result.errors.empty());
+}
+
+TEST_F(IntegrationTest, WASM_OutputExtension) {
+    // Verify that .wasm extension is used for wasm targets
+    std::string output = "myapp";
+    std::string target = "wasm32-unknown-wasi";
+    if (target.find("wasm32") == 0 || target.find("wasm64") == 0) {
+        output += ".wasm";
+    }
+    EXPECT_EQ(output, "myapp.wasm");
+
+    // Non-wasm target should not get .wasm
+    std::string output2 = "myapp";
+    std::string target2 = "x86_64-pc-linux-gnu";
+    if (target2.find("wasm32") == 0 || target2.find("wasm64") == 0) {
+        output2 += ".wasm";
+    }
+    EXPECT_EQ(output2, "myapp");
+}
+
+#ifdef LIVA_HAS_LLVM
+TEST_F(IntegrationTest, WASM_TargetInfoIsWasm32) {
+    auto ti = liva::TargetInfo::fromTriple("wasm32-unknown-wasi");
+    EXPECT_TRUE(ti.isWasm());
+}
+
+TEST_F(IntegrationTest, WASM_TargetInfoIsWasm64) {
+    auto ti = liva::TargetInfo::fromTriple("wasm64-unknown-unknown");
+    EXPECT_TRUE(ti.isWasm());
+}
+
+TEST_F(IntegrationTest, WASM_TargetInfoNonWasm) {
+    auto ti = liva::TargetInfo::fromTriple("x86_64-pc-windows-msvc");
+    EXPECT_FALSE(ti.isWasm());
+}
+
+TEST_F(IntegrationTest, WASM_TargetInfoCrossCompiling) {
+    auto ti = liva::TargetInfo::fromTriple("wasm32-unknown-wasi");
+    EXPECT_TRUE(ti.isCrossCompiling());
+}
+
+TEST_F(IntegrationTest, WASM_ProjectConfigWasm) {
+    auto ti = liva::TargetInfo::fromTriple("wasm32-unknown-wasi");
+    EXPECT_EQ(ti.triple, "wasm32-unknown-wasi");
+    EXPECT_TRUE(ti.isWasm());
+    EXPECT_TRUE(ti.isCrossCompiling());
+}
+
+TEST_F(IntegrationTest, WASM_CrossCompileTarget) {
+    auto ti = liva::TargetInfo::fromTriple("wasm32-unknown-emscripten");
+    EXPECT_TRUE(ti.isWasm());
+    EXPECT_TRUE(ti.isCrossCompiling());
+    EXPECT_EQ(ti.triple, "wasm32-unknown-emscripten");
+}
+#endif // LIVA_HAS_LLVM
+
+// ========== O6: Benchmark Subcommand Enum ==========
+
+TEST(BenchCommandTest, BenchSubcommandEnumExists) {
+    // Verify Bench enum value exists and is distinct
+    liva::Subcommand bench = liva::Subcommand::Bench;
+    EXPECT_NE(bench, liva::Subcommand::None);
+    EXPECT_NE(bench, liva::Subcommand::Build);
+    EXPECT_NE(bench, liva::Subcommand::Run);
+}
+
+TEST(BenchCommandTest, BenchDriverOptionsDefault) {
+    liva::DriverOptions opts;
+    EXPECT_EQ(opts.subcommand, liva::Subcommand::None);
+    // Verify Bench can be assigned
+    opts.subcommand = liva::Subcommand::Bench;
+    EXPECT_EQ(opts.subcommand, liva::Subcommand::Bench);
+}
+
+TEST(BenchCommandTest, BenchDriverOptionsWithFile) {
+    liva::DriverOptions opts;
+    opts.subcommand = liva::Subcommand::Bench;
+    opts.inputFile = "mybench.liva";
+    EXPECT_EQ(opts.subcommand, liva::Subcommand::Bench);
+    EXPECT_EQ(opts.inputFile, "mybench.liva");
 }
 

@@ -247,7 +247,8 @@ REPLSession::classifyInput(const std::string &input) const {
     if (firstWord == "func" || firstWord == "struct" || firstWord == "class" ||
         firstWord == "enum" || firstWord == "protocol" || firstWord == "impl" ||
         firstWord == "type" || firstWord == "import" || firstWord == "pub" ||
-        firstWord == "let" || firstWord == "var" || firstWord == "const")
+        firstWord == "let" || firstWord == "var" || firstWord == "const" ||
+        firstWord == "extern")
         return InputKind::Declaration;
 
     // Statement keywords (executed inside main)
@@ -552,7 +553,7 @@ REPLSession::getCompletions(const std::string &lineBuffer,
         static const char *keywords[] = {
             "as",       "async",    "await",   "break",    "class",
             "comptime", "const",    "continue","defer",    "dyn",
-            "else",     "enum",     "false",   "for",      "func",
+            "else",     "enum",     "extern",  "false",    "for",      "func",
             "guard",    "if",       "impl",    "import",   "in",
             "let",      "match",    "nil",     "protocol", "pub",
             "ref",      "return",   "struct",  "true",     "type",

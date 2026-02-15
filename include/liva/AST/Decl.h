@@ -75,6 +75,10 @@ public:
     bool isPublic() const { return isPublic_; }
     bool isAsync() const { return isAsync_; }
     bool hasBody() const { return body_ != nullptr; }
+    void setExtern(bool v) { isExtern_ = v; }
+    bool isExtern() const { return isExtern_; }
+    void setCVarargs(bool v) { isCVarargs_ = v; }
+    bool isCVarargs() const { return isCVarargs_; }
 
     /// Check if this is a method (has self parameter)
     bool isMethod() const {
@@ -109,6 +113,8 @@ private:
     std::unique_ptr<BlockStmt> body_;
     bool isPublic_;
     bool isAsync_ = false;
+    bool isExtern_ = false;
+    bool isCVarargs_ = false;
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
     std::vector<WhereConstraint> whereConstraints_;

@@ -235,6 +235,11 @@ bool CodeGen::link(const std::vector<std::string> &objectFiles,
     if (target_.isCrossCompiling())
         cmd += " --target=" + target_.triple;
 
+    // WASM-specific flags
+    if (target_.isWasm()) {
+        cmd += " -nostdlib -Wl,--no-entry -Wl,--export-all";
+    }
+
     // LTO flags
     if (ltoMode == "thin")
         cmd += " -flto=thin";
@@ -249,8 +254,15 @@ bool CodeGen::link(const std::vector<std::string> &objectFiles,
         cmd += " \"" + obj + "\"";
     for (auto &flag : extraFlags)
         cmd += " " + flag;
+
+    // Platform-specific flags (not for WASM)
+    if (!target_.isWasm()) {
 #ifdef _WIN32
-    cmd += " -lmsvcrt -Wl,/NODEFAULTLIB:libcmt";
+        cmd += " -lmsvcrt -Wl,/NODEFAULTLIB:libcmt";
+#endif
+    }
+
+#ifdef _WIN32
     // Wrap entire command for cmd.exe /c quoting rules
     cmd = "\"" + cmd + "\"";
 #endif

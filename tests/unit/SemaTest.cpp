@@ -6365,6 +6365,181 @@ TEST_F(SemaTest, SyncViaStdUmbrella) {
     EXPECT_TRUE(result.passed);
 }
 
+// === Channel Tests ===
+
+TEST_F(SemaTest, ChannelCreateReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(10)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelSendIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(10)
+            channelSend(ch, 42)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelReceiveReturnsOptionalI64) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(10)
+            let v: i64? = channelReceive(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelCloseIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(10)
+            channelClose(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelLenReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(10)
+            let n: i64 = channelLen(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelFreeIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(10)
+            channelFree(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelFullWorkflow) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(5)
+            channelSend(ch, 100)
+            let v: i64? = channelReceive(ch)
+            let n: i64 = channelLen(ch)
+            channelClose(ch)
+            channelFree(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === TaskGroup Tests ===
+
+TEST_F(SemaTest, TaskGroupCreateReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let g: i64 = taskGroupCreate()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskGroupSpawnIsVoid) {
+    auto result = check(R"--(
+        async func worker() -> i32 {
+            return 1
+        }
+        async func main() {
+            let g: i64 = taskGroupCreate()
+            taskGroupSpawn(g, worker())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskGroupAwaitAllIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let g: i64 = taskGroupCreate()
+            taskGroupAwaitAll(g)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskGroupCancelAllIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let g: i64 = taskGroupCreate()
+            taskGroupCancelAll(g)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskGroupCountReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let g: i64 = taskGroupCreate()
+            let n: i64 = taskGroupCount(g)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskGroupFreeIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let g: i64 = taskGroupCreate()
+            taskGroupFree(g)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskGroupFullWorkflow) {
+    auto result = check(R"--(
+        async func worker() -> i32 {
+            return 42
+        }
+        async func main() {
+            let g: i64 = taskGroupCreate()
+            taskGroupSpawn(g, worker())
+            taskGroupAwaitAll(g)
+            taskGroupFree(g)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConcurrencyViaStdSync) {
+    auto result = checkWithModules(R"--(
+        import std::sync
+        async func worker() -> i32 {
+            return 1
+        }
+        async func main() {
+            let ch: i64 = channelCreate(10)
+            channelSend(ch, 42)
+            let v: i64? = channelReceive(ch)
+            channelClose(ch)
+            channelFree(ch)
+            let g: i64 = taskGroupCreate()
+            taskGroupSpawn(g, worker())
+            taskGroupAwaitAll(g)
+            taskGroupFree(g)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
 // === "Did you mean?" Suggestion Tests ===
 
 TEST_F(SemaTest, DidYouMeanUndeclaredVariable) {
@@ -7804,4 +7979,165 @@ TEST_F(SemaTest, AssocTypeRef_UnknownAssocType) {
     )--");
     // Should not crash — graceful handling
     EXPECT_TRUE(result.passed || !result.passed);
+}
+
+// === FFI Tests ===
+
+TEST_F(SemaTest, FFI_ExternFuncValid) {
+    auto result = check(R"--(
+        extern "C" func c_abs(x: i32) -> i32
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FFI_ExternFuncWithBody) {
+    auto result = check(R"--(
+        extern "C" func c_abs(x: i32) -> i32 {
+            return x
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_extern_with_body));
+}
+
+TEST_F(SemaTest, FFI_ExternFuncAsync) {
+    auto result = check(R"--(
+        extern "C" async func fetch(url: string) -> i32
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_extern_async));
+}
+
+TEST_F(SemaTest, FFI_ExternFuncGeneric) {
+    auto result = check(R"--(
+        extern "C" func convert<T>(x: T) -> T
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_extern_generic));
+}
+
+TEST_F(SemaTest, FFI_CVarargsNotExtern) {
+    auto result = check(R"--(
+        func myprintf(fmt: string, ...) -> i32 {
+            return 0
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_cvarargs_not_extern));
+}
+
+TEST_F(SemaTest, FFI_ExternFuncCallValid) {
+    auto result = check(R"--(
+        extern "C" func c_abs(x: i32) -> i32
+        func main() {
+            let y: i32 = c_abs(-5)
+            println(y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FFI_ExternBlockMultiple) {
+    auto result = check(R"--(
+        extern "C" {
+            func malloc(size: u64) -> ref i8
+            func free(ptr: ref i8)
+        }
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, FFI_ExternUnsupportedABI) {
+    auto result = check(R"--(
+        extern "Rust" func foo(x: i32) -> i32
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+// ============================================================
+// WASM Backend — Sema Tests
+// ============================================================
+
+TEST_F(SemaTest, WASM_SimpleProgram) {
+    auto result = check(R"--(
+        func main() {
+            println(0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WASM_ExternCWithWasm) {
+    auto result = check(R"--(
+        extern "C" func wasm_import(x: i32) -> i32
+        func main() {
+            let y: i32 = wasm_import(42)
+            println(y)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WASM_PureFunctions) {
+    auto result = check(R"--(
+        func fibonacci(n: i32) -> i32 {
+            if n <= 1 {
+                return n
+            }
+            return fibonacci(n - 1) + fibonacci(n - 2)
+        }
+        func main() {
+            let result: i32 = fibonacci(10)
+            println(result)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ========== O6: Benchmark Builtins ==========
+
+TEST_F(SemaTest, BenchStart_ResolvesI64) {
+    auto result = check("func main() { let h = benchStart() }");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, BenchIter_ResolvesI64) {
+    auto result = check("func main() { let h = benchStart()\nlet ns = benchIter(h) }");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, BenchDone_ResolvesI64) {
+    auto result = check("func main() { let h = benchStart()\nlet avg = benchDone(h) }");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, BenchReport_Void) {
+    auto result = check("func main() { let h = benchStart()\nbenchReport(\"test\", h) }");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, BenchReset_Void) {
+    auto result = check("func main() { let h = benchStart()\nbenchReset(h) }");
+    EXPECT_TRUE(result.passed);
 }

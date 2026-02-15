@@ -3229,6 +3229,187 @@ void liva_atomic_free(int64_t handle) {
     delete val;
 }
 
+// === Channel Runtime ===
+
+struct LivaChannel {
+    int64_t *buffer;
+    int64_t capacity;
+    int64_t head;
+    int64_t tail;
+    int64_t count;
+    int8_t closed;
+    std::mutex mtx;
+};
+
+int64_t liva_channel_create(int64_t capacity) {
+    if (capacity <= 0) capacity = 1;
+    auto *ch = new LivaChannel();
+    ch->buffer = (int64_t *)calloc((size_t)capacity, sizeof(int64_t));
+    ch->capacity = capacity;
+    ch->head = 0;
+    ch->tail = 0;
+    ch->count = 0;
+    ch->closed = 0;
+    return (int64_t)(intptr_t)ch;
+}
+
+void liva_channel_send(int64_t handle, int64_t value) {
+    if (!handle) return;
+    auto *ch = (LivaChannel *)(intptr_t)handle;
+    // Spin-wait until space available or channel closed
+    for (;;) {
+        {
+            std::lock_guard<std::mutex> lock(ch->mtx);
+            if (ch->closed) return;
+            if (ch->count < ch->capacity) {
+                ch->buffer[ch->tail] = value;
+                ch->tail = (ch->tail + 1) % ch->capacity;
+                ch->count++;
+                return;
+            }
+        }
+#ifdef _WIN32
+        Sleep(0);
+#else
+        usleep(100);
+#endif
+    }
+}
+
+int64_t liva_channel_receive(int64_t handle, int8_t *ok) {
+    if (!handle) { if (ok) *ok = 0; return 0; }
+    auto *ch = (LivaChannel *)(intptr_t)handle;
+    // Spin-wait until data available or channel closed+empty
+    for (;;) {
+        {
+            std::lock_guard<std::mutex> lock(ch->mtx);
+            if (ch->count > 0) {
+                int64_t value = ch->buffer[ch->head];
+                ch->head = (ch->head + 1) % ch->capacity;
+                ch->count--;
+                if (ok) *ok = 1;
+                return value;
+            }
+            if (ch->closed) {
+                if (ok) *ok = 0;
+                return 0;
+            }
+        }
+#ifdef _WIN32
+        Sleep(0);
+#else
+        usleep(100);
+#endif
+    }
+}
+
+void liva_channel_close(int64_t handle) {
+    if (!handle) return;
+    auto *ch = (LivaChannel *)(intptr_t)handle;
+    std::lock_guard<std::mutex> lock(ch->mtx);
+    ch->closed = 1;
+}
+
+int64_t liva_channel_len(int64_t handle) {
+    if (!handle) return 0;
+    auto *ch = (LivaChannel *)(intptr_t)handle;
+    std::lock_guard<std::mutex> lock(ch->mtx);
+    return ch->count;
+}
+
+void liva_channel_free(int64_t handle) {
+    if (!handle) return;
+    auto *ch = (LivaChannel *)(intptr_t)handle;
+    free(ch->buffer);
+    delete ch;
+}
+
+// === TaskGroup Runtime ===
+
+struct LivaTaskGroup {
+    LivaTask **tasks;
+    int64_t count;
+    int64_t capacity;
+};
+
+int64_t liva_task_group_create() {
+    auto *g = new LivaTaskGroup();
+    g->capacity = 8;
+    g->tasks = (LivaTask **)calloc((size_t)g->capacity, sizeof(LivaTask *));
+    g->count = 0;
+    return (int64_t)(intptr_t)g;
+}
+
+void liva_task_group_spawn(int64_t group, LivaTask *task) {
+    if (!group || !task) return;
+    auto *g = (LivaTaskGroup *)(intptr_t)group;
+    // Grow array if needed
+    if (g->count >= g->capacity) {
+        g->capacity *= 2;
+        g->tasks = (LivaTask **)realloc(g->tasks, (size_t)g->capacity * sizeof(LivaTask *));
+    }
+    g->tasks[g->count++] = task;
+    // Start the coroutine
+    if (task->handle) {
+        liva_coro_resume(task->handle);
+    }
+}
+
+void liva_task_group_await_all(int64_t group) {
+    if (!group) return;
+    auto *g = (LivaTaskGroup *)(intptr_t)group;
+    // Poll loop: resume suspended tasks until all done
+    for (;;) {
+        bool allDone = true;
+        for (int64_t i = 0; i < g->count; i++) {
+            if (g->tasks[i] && !liva_task_is_done(g->tasks[i])) {
+                allDone = false;
+                if (g->tasks[i]->handle) {
+                    liva_coro_resume(g->tasks[i]->handle);
+                }
+            }
+        }
+        if (allDone) break;
+#ifdef _WIN32
+        Sleep(0);
+#else
+        usleep(100);
+#endif
+    }
+}
+
+void liva_task_group_cancel_all(int64_t group) {
+    if (!group) return;
+    auto *g = (LivaTaskGroup *)(intptr_t)group;
+    for (int64_t i = 0; i < g->count; i++) {
+        if (g->tasks[i]) {
+            liva_task_cancel(g->tasks[i]);
+        }
+    }
+}
+
+int64_t liva_task_group_count(int64_t group) {
+    if (!group) return 0;
+    auto *g = (LivaTaskGroup *)(intptr_t)group;
+    return g->count;
+}
+
+void liva_task_group_free(int64_t group) {
+    if (!group) return;
+    auto *g = (LivaTaskGroup *)(intptr_t)group;
+    for (int64_t i = 0; i < g->count; i++) {
+        if (g->tasks[i]) {
+            if (g->tasks[i]->handle) {
+                liva_coro_destroy(g->tasks[i]->handle);
+                g->tasks[i]->handle = nullptr;
+            }
+            liva_task_destroy(g->tasks[i]);
+        }
+    }
+    free(g->tasks);
+    delete g;
+}
+
 // === String Utility Functions (std::string) ===
 
 char *liva_str_repeat(const char *s, int64_t n) {
@@ -3465,6 +3646,102 @@ int64_t liva_array_count(const void *data, int64_t len, int64_t elem_size,
             n++;
     }
     return n;
+}
+
+// === Benchmarking ===
+
+struct BenchState {
+    int64_t startTick;   // platform tick at start
+    int64_t totalNs;     // accumulated nanoseconds
+    int64_t iterCount;   // iteration count
+#ifdef _WIN32
+    int64_t freq;        // QPC frequency (cached)
+#endif
+};
+
+static BenchState benchSlots[16];
+static int benchNextSlot = 0;
+
+#ifdef _WIN32
+static int64_t benchTickToNs(int64_t ticks, int64_t freq) {
+    // Convert QPC ticks to nanoseconds: ticks * 1e9 / freq
+    return (int64_t)((double)ticks * 1000000000.0 / (double)freq);
+}
+#endif
+
+int64_t liva_bench_start() {
+    int slot = benchNextSlot++;
+    if (slot >= 16) {
+        fprintf(stderr, "BENCH: too many concurrent benchmarks (max 16)\n");
+        abort();
+    }
+    BenchState &s = benchSlots[slot];
+    s.totalNs = 0;
+    s.iterCount = 0;
+#ifdef _WIN32
+    LARGE_INTEGER f, t;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&t);
+    s.freq = f.QuadPart;
+    s.startTick = t.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    s.startTick = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+#endif
+    return (int64_t)slot;
+}
+
+int64_t liva_bench_iter(int64_t handle) {
+    if (handle < 0 || handle >= 16) return 0;
+    BenchState &s = benchSlots[handle];
+    int64_t elapsedNs;
+#ifdef _WIN32
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    elapsedNs = benchTickToNs(t.QuadPart - s.startTick, s.freq);
+    s.startTick = t.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t now = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    elapsedNs = now - s.startTick;
+    s.startTick = now;
+#endif
+    s.totalNs += elapsedNs;
+    s.iterCount++;
+    return elapsedNs;
+}
+
+int64_t liva_bench_done(int64_t handle) {
+    if (handle < 0 || handle >= 16) return 0;
+    BenchState &s = benchSlots[handle];
+    if (s.iterCount == 0) return 0;
+    return s.totalNs / s.iterCount;
+}
+
+void liva_bench_report(const char *name, int64_t handle) {
+    if (handle < 0 || handle >= 16) return;
+    BenchState &s = benchSlots[handle];
+    int64_t avg = (s.iterCount > 0) ? (s.totalNs / s.iterCount) : 0;
+    printf("%s: %lld ns/iter (%lld iterations)\n",
+           name, (long long)avg, (long long)s.iterCount);
+}
+
+void liva_bench_reset(int64_t handle) {
+    if (handle < 0 || handle >= 16) return;
+    BenchState &s = benchSlots[handle];
+    s.totalNs = 0;
+    s.iterCount = 0;
+#ifdef _WIN32
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    s.startTick = t.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    s.startTick = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+#endif
 }
 
 // === Panic ===

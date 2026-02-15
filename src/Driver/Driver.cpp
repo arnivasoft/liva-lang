@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -105,6 +106,14 @@ bool Driver::parseArgs(int argc, const char **argv) {
             } else {
                 std::cerr << "error: livac remove requires a package name\n";
                 return false;
+            }
+            return true;
+        } else if (std::strcmp(argv[1], "bench") == 0) {
+            options_.subcommand = Subcommand::Bench;
+            startIdx = 2;
+            if (argc > 2 && argv[2][0] != '-') {
+                options_.inputFile = argv[2];
+                startIdx = 3;
             }
             return true;
         }
@@ -302,6 +311,7 @@ int Driver::execute() {
     case Subcommand::Fmt:     return executeFmt();
     case Subcommand::Lint:    return executeLint();
     case Subcommand::Dap:     return executeDap();
+    case Subcommand::Bench:   return executeBench();
     case Subcommand::None:    return executeLegacy();
     }
 
@@ -352,8 +362,14 @@ int Driver::executeLegacy() {
         auto dot = output.rfind('.');
         if (dot != std::string::npos)
             output = output.substr(0, dot);
+        if (options_.targetTriple.find("wasm32") == 0 ||
+            options_.targetTriple.find("wasm64") == 0) {
+            output += ".wasm";
+        }
 #ifdef _WIN32
-        output += ".exe";
+        else {
+            output += ".exe";
+        }
 #endif
     }
 
@@ -478,8 +494,13 @@ int Driver::buildProject(bool runAfter) {
     if (output.empty()) {
         createDirectories(buildDir);
         output = joinPath(buildDir, cfg.name);
+        if (cfg.target.find("wasm32") == 0 || cfg.target.find("wasm64") == 0) {
+            output += ".wasm";
+        }
 #ifdef _WIN32
-        output += ".exe";
+        else {
+            output += ".exe";
+        }
 #endif
     }
 
@@ -765,6 +786,54 @@ int Driver::executeLsp() {
 int Driver::executeDap() {
     DAPServer server;
     return server.run();
+}
+
+int Driver::executeBench() {
+    // 1. Find bench files: bench/ directory or specific file
+    std::vector<std::string> benchFiles;
+    if (!options_.inputFile.empty()) {
+        benchFiles.push_back(options_.inputFile);
+    } else {
+        namespace fs = std::filesystem;
+        fs::path benchDir = "bench";
+        if (fs::exists(benchDir) && fs::is_directory(benchDir)) {
+            for (auto &entry : fs::directory_iterator(benchDir)) {
+                if (entry.path().extension() == ".liva")
+                    benchFiles.push_back(entry.path().string());
+            }
+            std::sort(benchFiles.begin(), benchFiles.end());
+        }
+    }
+    if (benchFiles.empty()) {
+        std::cerr << "error: no benchmark files found (use bench/ directory or specify file)\n";
+        return 1;
+    }
+
+    // 2. For each bench file: compile → run
+    std::cout << "Running " << benchFiles.size() << " benchmark file(s)...\n\n";
+    int failures = 0;
+    for (auto &file : benchFiles) {
+        std::cout << "--- " << file << " ---\n";
+
+        CompilerInstance compiler;
+        compiler.setExecutablePath(executablePath_);
+        compiler.setOptLevel(2);  // benchmarks always optimized
+        if (!compiler.loadFile(file)) {
+            ++failures;
+            continue;
+        }
+
+        std::string exePath = file + ".bench.exe";
+        if (!compiler.compile(exePath)) {
+            ++failures;
+            continue;
+        }
+
+        int ret = std::system(exePath.c_str());
+        std::remove(exePath.c_str());
+        if (ret != 0) ++failures;
+    }
+    return failures > 0 ? 1 : 0;
 }
 
 int Driver::executeRepl() {
@@ -1251,29 +1320,6 @@ int Driver::linkObjects(const std::vector<std::string> &objPaths,
                          const std::string &ltoMode,
                          const std::string &pgoMode) {
 #ifdef LIVA_HAS_LLVM
-    // Find runtime library relative to livac executable
-    auto dirOfPath = [](const std::string &path) -> std::string {
-        auto pos = path.find_last_of("/\\");
-        return (pos != std::string::npos) ? path.substr(0, pos) : ".";
-    };
-
-    std::string exeDir = dirOfPath(executablePath_);
-    std::string runtimeLib;
-    std::string candidates[] = {
-        exeDir + "/lib/liva_runtime.lib",
-        exeDir + "/../lib/liva_runtime.lib",
-        exeDir + "/lib/libliva_runtime.a",
-        exeDir + "/../lib/libliva_runtime.a",
-    };
-    for (auto &c : candidates) {
-        std::ifstream f(c);
-        if (f.is_open()) { runtimeLib = c; break; }
-    }
-    if (runtimeLib.empty()) {
-        std::cerr << "error: cannot find runtime library for linking\n";
-        return 1;
-    }
-
     DiagnosticsEngine diag;
     TargetInfo linkTarget = options_.hasTargetOverride
         ? TargetInfo::fromTriple(options_.targetTriple)
@@ -1281,11 +1327,37 @@ int Driver::linkObjects(const std::vector<std::string> &objPaths,
     CodeGen codegen(diag, linkTarget);
 
     std::vector<std::string> objects = objPaths;
-    objects.push_back(runtimeLib);
     std::vector<std::string> flags;
+
+    if (!linkTarget.isWasm()) {
+        // Find runtime library relative to livac executable
+        auto dirOfPath = [](const std::string &path) -> std::string {
+            auto pos = path.find_last_of("/\\");
+            return (pos != std::string::npos) ? path.substr(0, pos) : ".";
+        };
+
+        std::string exeDir = dirOfPath(executablePath_);
+        std::string runtimeLib;
+        std::string candidates[] = {
+            exeDir + "/lib/liva_runtime.lib",
+            exeDir + "/../lib/liva_runtime.lib",
+            exeDir + "/lib/libliva_runtime.a",
+            exeDir + "/../lib/libliva_runtime.a",
+        };
+        for (auto &c : candidates) {
+            std::ifstream f(c);
+            if (f.is_open()) { runtimeLib = c; break; }
+        }
+        if (runtimeLib.empty()) {
+            std::cerr << "error: cannot find runtime library for linking\n";
+            return 1;
+        }
+        objects.push_back(runtimeLib);
 #ifdef _WIN32
-    flags.push_back("-lwinhttp");
+        flags.push_back("-lwinhttp");
 #endif
+    }
+
     if (debugInfo)
         flags.push_back("-g");
 
@@ -1320,6 +1392,7 @@ void Driver::printHelp() {
               << "       livac fmt [--check] <files...>\n"
               << "       livac lint <files...>\n"
               << "       livac lsp\n"
+              << "       livac bench [file]\n"
               << "       livac dap\n"
               << "\n"
               << "Subcommands:\n"
@@ -1333,6 +1406,7 @@ void Driver::printHelp() {
               << "  lint                Lint Liva source files\n"
               << "  lsp                 Start Language Server Protocol server\n"
               << "  dap                 Start Debug Adapter Protocol server\n"
+              << "  bench [file]        Run benchmarks (bench/ directory or file)\n"
               << "  repl                Start interactive REPL\n"
               << "\n"
               << "Options:\n"

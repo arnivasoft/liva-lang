@@ -7,6 +7,7 @@ namespace liva {
 llvm::Value *IRGen::visitBlockStmt(BlockStmt *node) {
     llvm::Value *last = nullptr;
     for (auto &stmt : node->getStatements()) {
+        if (diBuilder_) emitDebugLocation(stmt->getStartLoc());
         last = visit(stmt.get());
         // Free string temporaries created during this statement
         emitTempStringCleanup();
@@ -187,6 +188,7 @@ void IRGen::emitStructFieldCleanup(const std::string &varName,
 }
 
 llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     if (node->hasValue()) {
         // Check for 'return nil' in optional-returning function
         bool isReturnNil = node->getValue()->getKind() ==
@@ -248,6 +250,7 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
 }
 
 llvm::Value *IRGen::visitIfStmt(IfStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     auto *condVal = visit(const_cast<Expr *>(node->getCondition()));
     if (!condVal)
         return nullptr;
@@ -417,6 +420,7 @@ llvm::Value *IRGen::visitWhileStmt(WhileStmt *node) {
 
     // Condition
     builder_->SetInsertPoint(condBB);
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     auto *condVal = visit(const_cast<Expr *>(node->getCondition()));
     builder_->CreateCondBr(condVal, bodyBB, exitBB);
 
@@ -434,6 +438,7 @@ llvm::Value *IRGen::visitWhileStmt(WhileStmt *node) {
 }
 
 llvm::Value *IRGen::visitForStmt(ForStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     auto *func = builder_->GetInsertBlock()->getParent();
 
     // Check if iterable is a RangeExpr
@@ -809,19 +814,22 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
     return nullptr;
 }
 
-llvm::Value *IRGen::visitBreakStmt(BreakStmt *) {
+llvm::Value *IRGen::visitBreakStmt(BreakStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     if (!loopStack_.empty())
         builder_->CreateBr(loopStack_.back().breakBB);
     return nullptr;
 }
 
-llvm::Value *IRGen::visitContinueStmt(ContinueStmt *) {
+llvm::Value *IRGen::visitContinueStmt(ContinueStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     if (!loopStack_.empty())
         builder_->CreateBr(loopStack_.back().continueBB);
     return nullptr;
 }
 
 llvm::Value *IRGen::visitExprStmt(ExprStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     return visit(node->getExpr());
 }
 
