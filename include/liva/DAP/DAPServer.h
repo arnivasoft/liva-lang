@@ -2,7 +2,7 @@
 
 #include "liva/AST/Decl.h"
 #include "liva/Common/SourceLocation.h"
-#include "liva/LSP/LSPServer.h" // JSONValue, parseJSON
+#include "liva/Common/JSON.h"
 #include <cstdint>
 #include <map>
 #include <memory>

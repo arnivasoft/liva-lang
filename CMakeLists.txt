@@ -32,6 +32,7 @@ include_directories(${PROJECT_BINARY_DIR}/include)
 add_library(liva_common STATIC
     src/Common/SourceLocation.cpp
     src/Common/Diagnostics.cpp
+    src/Common/JSON.cpp
 )
 liva_set_compiler_flags(liva_common)
 

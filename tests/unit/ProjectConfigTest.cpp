@@ -963,6 +963,44 @@ TEST(JsonHelpers, NestedObjects) {
     EXPECT_EQ(liva::json::getString(json, "version"), "1.0.0");
 }
 
+TEST(JsonHelpers, NestedAccess) {
+    std::string json = R"({"meta":{"author":"John","tags":["lang","compiler"]}})";
+    auto result = liva::parseJSON(json);
+    ASSERT_TRUE(result.success);
+    EXPECT_EQ(result.value["meta"]["author"].getString(), "John");
+    auto &tags = result.value["meta"]["tags"].getArray();
+    ASSERT_EQ(tags.size(), 2u);
+    EXPECT_EQ(tags[0].getString(), "lang");
+    EXPECT_EQ(tags[1].getString(), "compiler");
+}
+
+TEST(JsonHelpers, DeeplyNested) {
+    std::string json = R"({"a":{"b":{"c":{"d":"deep"}}}})";
+    auto result = liva::parseJSON(json);
+    ASSERT_TRUE(result.success);
+    EXPECT_EQ(result.value["a"]["b"]["c"]["d"].getString(), "deep");
+}
+
+TEST(JsonHelpers, RawStringOverloadCompat) {
+    std::string json = R"({"name":"test","version":"1.0"})";
+    EXPECT_EQ(liva::json::getString(json, "name"), "test");
+    EXPECT_EQ(liva::json::getString(json, "version"), "1.0");
+}
+
+TEST(JsonHelpers, JSONValueBasedHelpers) {
+    std::string json = R"({"name":"pkg","tags":["a","b"],"deps":{"x":"1.0","y":"2.0"}})";
+    auto result = liva::parseJSON(json);
+    ASSERT_TRUE(result.success);
+    EXPECT_EQ(liva::json::getString(result.value, "name"), "pkg");
+    auto tags = liva::json::getStringArray(result.value, "tags");
+    ASSERT_EQ(tags.size(), 2u);
+    EXPECT_EQ(tags[0], "a");
+    EXPECT_EQ(tags[1], "b");
+    auto deps = liva::json::getObject(result.value, "deps");
+    EXPECT_EQ(deps["x"], "1.0");
+    EXPECT_EQ(deps["y"], "2.0");
+}
+
 // === Registry Entry Parsing ===
 
 TEST(RegistryEntry, ParseValid) {

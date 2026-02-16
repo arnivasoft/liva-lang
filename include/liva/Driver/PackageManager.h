@@ -1,7 +1,7 @@
 #pragma once
+#include "liva/Common/JSON.h"
 #include "liva/Driver/ProjectConfig.h"
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -96,14 +96,5 @@ private:
         std::string &errorMsg);
 
 };
-
-// --- Simple JSON helpers for registry responses ---
-namespace json {
-    std::string getString(const std::string &json, const std::string &key);
-    std::vector<std::string> getStringArray(const std::string &json,
-                                            const std::string &key);
-    std::unordered_map<std::string, std::string> getObject(
-        const std::string &json, const std::string &key);
-}
 
 } // namespace liva
