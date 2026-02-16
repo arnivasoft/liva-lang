@@ -100,6 +100,15 @@ protected:
                std::to_string(varRef) + "}}";
     }
 
+    std::string evaluateRequest(const std::string &expr, int frameId, int seq,
+                                   const std::string &context = "hover") {
+        return R"({"seq":)" + std::to_string(seq) +
+               R"(,"type":"request","command":"evaluate","arguments":{)"
+               R"("expression":")" + escapeForJSON(expr) +
+               R"(","frameId":)" + std::to_string(frameId) +
+               R"(,"context":")" + context + R"("}})";
+    }
+
     std::string disconnectRequest(int seq) {
         return R"({"seq":)" + std::to_string(seq) +
                R"(,"type":"request","command":"disconnect","arguments":{}})";
@@ -976,6 +985,136 @@ TEST_F(DAPTest, IfLetOptional) {
         }
     }
     EXPECT_TRUE(foundResult);
+}
+
+TEST_F(DAPTest, StructExpand) {
+    std::string src = "struct Point { var x: i32; var y: i32 }\n"
+                      "func main() {\n"
+                      "    let p: Point = Point { x: 10, y: 20 }\n"
+                      "    let z: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {4});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    // p should have variablesReference > 0
+    int structRef = 0;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "p") {
+            structRef = static_cast<int>(v["variablesReference"].getInteger());
+            EXPECT_GT(structRef, 0);
+        }
+    }
+    ASSERT_GT(structRef, 0);
+
+    // Expand struct: second variables request with structRef
+    auto subResp = parseResponse(server.handleMessage(variablesRequest(structRef, 13)));
+    EXPECT_TRUE(subResp["success"].getBool());
+    const auto &fields = subResp["body"]["variables"].getArray();
+    bool foundX = false, foundY = false;
+    for (const auto &f : fields) {
+        if (f["name"].getString() == "x") {
+            EXPECT_EQ(f["value"].getString(), "10");
+            foundX = true;
+        }
+        if (f["name"].getString() == "y") {
+            EXPECT_EQ(f["value"].getString(), "20");
+            foundY = true;
+        }
+    }
+    EXPECT_TRUE(foundX);
+    EXPECT_TRUE(foundY);
+}
+
+TEST_F(DAPTest, ArrayExpand) {
+    std::string src = "func main() {\n"
+                      "    let arr: [i32] = [1, 2, 3]\n"
+                      "    let x: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto scResp = parseResponse(server.handleMessage(scopesRequest(frameId, 11)));
+    auto varRef = static_cast<int>(
+        scResp["body"]["scopes"].getArray()[0]["variablesReference"].getInteger());
+    auto varResp = parseResponse(server.handleMessage(variablesRequest(varRef, 12)));
+
+    // arr should have variablesReference > 0
+    int arrayRef = 0;
+    for (const auto &v : varResp["body"]["variables"].getArray()) {
+        if (v["name"].getString() == "arr") {
+            arrayRef = static_cast<int>(v["variablesReference"].getInteger());
+            EXPECT_GT(arrayRef, 0);
+        }
+    }
+    ASSERT_GT(arrayRef, 0);
+
+    // Expand array
+    auto subResp = parseResponse(server.handleMessage(variablesRequest(arrayRef, 13)));
+    EXPECT_TRUE(subResp["success"].getBool());
+    const auto &elems = subResp["body"]["variables"].getArray();
+    ASSERT_EQ(elems.size(), 3u);
+    EXPECT_EQ(elems[0]["name"].getString(), "[0]");
+    EXPECT_EQ(elems[0]["value"].getString(), "1");
+    EXPECT_EQ(elems[1]["name"].getString(), "[1]");
+    EXPECT_EQ(elems[1]["value"].getString(), "2");
+    EXPECT_EQ(elems[2]["name"].getString(), "[2]");
+    EXPECT_EQ(elems[2]["value"].getString(), "3");
+}
+
+TEST_F(DAPTest, EvaluateHoverSimple) {
+    std::string src = "func main() {\n"
+                      "    let x: i32 = 42\n"
+                      "    let y: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {3});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+
+    auto resp = parseResponse(server.handleMessage(evaluateRequest("x", frameId, 11)));
+    EXPECT_TRUE(resp["success"].getBool());
+    EXPECT_EQ(resp["body"]["result"].getString(), "42");
+    EXPECT_EQ(resp["body"]["type"].getString(), "i64");
+    EXPECT_EQ(resp["body"]["variablesReference"].getInteger(), 0);
+}
+
+TEST_F(DAPTest, EvaluateHoverMember) {
+    std::string src = "struct Point { var x: i32; var y: i32 }\n"
+                      "func main() {\n"
+                      "    let p: Point = Point { x: 10, y: 20 }\n"
+                      "    let z: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {4});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+
+    auto resp = parseResponse(server.handleMessage(evaluateRequest("p.x", frameId, 11)));
+    EXPECT_TRUE(resp["success"].getBool());
+    EXPECT_EQ(resp["body"]["result"].getString(), "10");
+
+    auto resp2 = parseResponse(server.handleMessage(evaluateRequest("p.y", frameId, 12)));
+    EXPECT_TRUE(resp2["success"].getBool());
+    EXPECT_EQ(resp2["body"]["result"].getString(), "20");
 }
 
 TEST_F(DAPTest, StringInterpolationWithMemberAccess) {

@@ -148,7 +148,7 @@ endif()
 add_library(liva_lsp STATIC
     src/LSP/LSPServer.cpp
 )
-target_link_libraries(liva_lsp PUBLIC liva_sema liva_parser liva_common)
+target_link_libraries(liva_lsp PUBLIC liva_sema liva_parser liva_common liva_driver)
 liva_set_compiler_flags(liva_lsp)
 
 # liva_dap

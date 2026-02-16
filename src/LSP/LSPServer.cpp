@@ -1272,30 +1272,189 @@ JSONValue LSPServer::handleHover(const JSONValue &id,
 // Go to Definition
 // ============================================================
 
+std::string LSPServer::getWordAtPosition(const std::string &content,
+                                         uint32_t line, uint32_t col) const {
+    // Find the target line (0-indexed)
+    uint32_t curLine = 0;
+    size_t lineStart = 0;
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (curLine == line) {
+            lineStart = i;
+            break;
+        }
+        if (content[i] == '\n') {
+            ++curLine;
+        }
+    }
+    if (curLine != line)
+        return "";
+
+    // Find end of line
+    size_t lineEnd = content.find('\n', lineStart);
+    if (lineEnd == std::string::npos)
+        lineEnd = content.size();
+
+    if (lineStart + col >= lineEnd)
+        return "";
+
+    size_t pos = lineStart + col;
+
+    // Scan backward to find word start
+    size_t wordStart = pos;
+    while (wordStart > lineStart &&
+           (std::isalnum(static_cast<unsigned char>(content[wordStart - 1])) ||
+            content[wordStart - 1] == '_'))
+        --wordStart;
+
+    // Scan forward to find word end
+    size_t wordEnd = pos;
+    while (wordEnd < lineEnd &&
+           (std::isalnum(static_cast<unsigned char>(content[wordEnd])) ||
+            content[wordEnd] == '_'))
+        ++wordEnd;
+
+    if (wordStart == wordEnd)
+        return "";
+
+    return content.substr(wordStart, wordEnd - wordStart);
+}
+
+SourceLocation LSPServer::findDefinitionLocation(const TranslationUnit *tu,
+                                                  const std::string &name,
+                                                  uint32_t cursorLine) const {
+    if (!tu || name.empty())
+        return {};
+
+    // 1-indexed line for SourceRange comparison
+    uint32_t srcLine = cursorLine + 1;
+
+    // Helper: walk a block recursively to find VarDecl before cursor
+    std::function<SourceLocation(const BlockStmt *)> searchBlock;
+    searchBlock = [&](const BlockStmt *block) -> SourceLocation {
+        if (!block)
+            return {};
+        for (const auto &stmt : block->getStatements()) {
+            if (auto *vd = dynamic_cast<const VarDecl *>(stmt.get())) {
+                if (vd->getName() == name)
+                    return vd->getRange().start;
+            }
+            // Recurse into nested blocks (if/while/for bodies)
+            if (auto *bs = dynamic_cast<const BlockStmt *>(stmt.get())) {
+                auto r = searchBlock(bs);
+                if (r.isValid())
+                    return r;
+            }
+        }
+        return {};
+    };
+
+    // Search: find function containing cursor, then search params + body
+    for (const auto &node : tu->getDeclarations()) {
+        auto *decl = node.get();
+
+        // Check FuncDecl
+        if (auto *fd = dynamic_cast<const FuncDecl *>(decl)) {
+            auto range = fd->getRange();
+            if (range.isValid() && srcLine >= range.start.line &&
+                srcLine <= range.end.line) {
+                // Search parameters
+                for (const auto &param : fd->getParams()) {
+                    if (param.name == name && param.location.isValid())
+                        return param.location;
+                }
+                // Search body
+                if (fd->getBody()) {
+                    auto r = searchBlock(fd->getBody());
+                    if (r.isValid())
+                        return r;
+                }
+            }
+        }
+
+        // Check ImplDecl methods
+        if (auto *impl = dynamic_cast<const ImplDecl *>(decl)) {
+            for (const auto &method : impl->getMethods()) {
+                auto range = method->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    for (const auto &param : method->getParams()) {
+                        if (param.name == name && param.location.isValid())
+                            return param.location;
+                    }
+                    if (method->getBody()) {
+                        auto r = searchBlock(method->getBody());
+                        if (r.isValid())
+                            return r;
+                    }
+                }
+            }
+        }
+
+        // Check ClassDecl methods + init
+        if (auto *cd = dynamic_cast<const ClassDecl *>(decl)) {
+            for (const auto *method : cd->getMethods()) {
+                auto range = method->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    for (const auto &param : method->getParams()) {
+                        if (param.name == name && param.location.isValid())
+                            return param.location;
+                    }
+                    if (method->getBody()) {
+                        auto r = searchBlock(method->getBody());
+                        if (r.isValid())
+                            return r;
+                    }
+                }
+            }
+            if (auto *init = cd->getInit()) {
+                auto range = init->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    for (const auto &param : init->getParams()) {
+                        if (param.name == name && param.location.isValid())
+                            return param.location;
+                    }
+                    if (init->getBody()) {
+                        auto r = searchBlock(init->getBody());
+                        if (r.isValid())
+                            return r;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: top-level declaration by name
+    const Decl *topDecl = findDeclByName(tu, name);
+    if (topDecl) {
+        auto loc = topDecl->getRange().start;
+        if (loc.isValid())
+            return loc;
+    }
+
+    return {};
+}
+
 JSONValue LSPServer::handleDefinition(const JSONValue &id,
                                       const JSONValue &params) {
     std::string uri = params["textDocument"]["uri"].getString();
-    uint32_t line = static_cast<uint32_t>(params["position"]["line"].getInteger()) + 1;
-    uint32_t col = static_cast<uint32_t>(params["position"]["character"].getInteger()) + 1;
+    uint32_t lspLine = static_cast<uint32_t>(params["position"]["line"].getInteger());
+    uint32_t lspCol = static_cast<uint32_t>(params["position"]["character"].getInteger());
 
     auto it = documents_.find(uri);
     if (it == documents_.end() || !it->second.tu) {
         return makeResponse(id, JSONValue());
     }
 
-    // Find the node at the cursor position
-    const ASTNode *node = findNodeAtPosition(it->second.tu.get(), line, col);
-    if (!node) {
+    // Extract the word at cursor
+    std::string word = getWordAtPosition(it->second.content, lspLine, lspCol);
+    if (word.empty()) {
         return makeResponse(id, JSONValue());
     }
 
-    // If it's already a declaration, jump to its start
-    const Decl *targetDecl = dynamic_cast<const Decl *>(node);
-    if (!targetDecl) {
-        return makeResponse(id, JSONValue());
-    }
-
-    SourceLocation loc = targetDecl->getRange().start;
+    // Find definition location
+    SourceLocation loc = findDefinitionLocation(it->second.tu.get(), word, lspLine);
     if (!loc.isValid()) {
         return makeResponse(id, JSONValue());
     }

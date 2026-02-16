@@ -831,6 +831,51 @@ TEST_F(LSPTest, DefNotFound) {
     EXPECT_TRUE(resp["result"].isNull());
 }
 
+TEST_F(LSPTest, DefFunctionCall) {
+    // greet() is defined on line 0, called on line 1
+    initAndOpen("file:///test.liva", "func greet() {}\nfunc main() { greet() }");
+    auto resp = parseResponse(
+        server.handleMessage(definitionRequest("file:///test.liva", 1, 15)));
+    ASSERT_FALSE(resp["result"].isNull());
+    EXPECT_EQ(resp["result"]["range"]["start"]["line"].getInteger(), 0);
+}
+
+TEST_F(LSPTest, DefVariableUsage) {
+    // let x on line 1 (inside main body), usage of x on line 2
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 5\n    print(x)\n}");
+    // Click on 'x' in print(x) — line 2, col 10
+    auto resp = parseResponse(
+        server.handleMessage(definitionRequest("file:///test.liva", 2, 10)));
+    ASSERT_FALSE(resp["result"].isNull());
+    // x is declared on line 1
+    EXPECT_EQ(resp["result"]["range"]["start"]["line"].getInteger(), 1);
+}
+
+TEST_F(LSPTest, DefParamUsage) {
+    // param n on line 0, usage on line 1
+    initAndOpen("file:///test.liva",
+                "func foo(n: i32) {\n    print(n)\n}");
+    // Click on 'n' in print(n) — line 1, col 10
+    auto resp = parseResponse(
+        server.handleMessage(definitionRequest("file:///test.liva", 1, 10)));
+    ASSERT_FALSE(resp["result"].isNull());
+    // n param is on line 0
+    EXPECT_EQ(resp["result"]["range"]["start"]["line"].getInteger(), 0);
+}
+
+TEST_F(LSPTest, DefStructType) {
+    // struct Pt on line 0, usage on line 1
+    initAndOpen("file:///test.liva",
+                "struct Pt {\n    var x: i32\n}\nfunc f() {\n    let p: Pt\n}");
+    // Click on 'Pt' in let p: Pt — line 4, col 11
+    auto resp = parseResponse(
+        server.handleMessage(definitionRequest("file:///test.liva", 4, 11)));
+    ASSERT_FALSE(resp["result"].isNull());
+    // Pt struct is defined on line 0
+    EXPECT_EQ(resp["result"]["range"]["start"]["line"].getInteger(), 0);
+}
+
 // ============================================================
 // Document Symbol Tests
 // ============================================================

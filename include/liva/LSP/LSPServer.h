@@ -110,6 +110,13 @@ private:
     const Decl *findDeclByName(const TranslationUnit *tu,
                                const std::string &name) const;
 
+    // Go-to-definition helpers
+    std::string getWordAtPosition(const std::string &content,
+                                  uint32_t line, uint32_t col) const;
+    SourceLocation findDefinitionLocation(const TranslationUnit *tu,
+                                          const std::string &name,
+                                          uint32_t cursorLine) const;
+
     // Find the declaration location of a variable (for let→var fixes)
     struct VarDeclLoc { int line = -1; int col = 0; int keywordLen = 3; };
     VarDeclLoc findVarDeclLoc(const std::string &content,

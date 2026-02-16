@@ -225,6 +225,7 @@ private:
     JSONValue handleStackTrace(int64_t seq, const JSONValue &args);
     JSONValue handleScopes(int64_t seq, const JSONValue &args);
     JSONValue handleVariables(int64_t seq, const JSONValue &args);
+    JSONValue handleEvaluate(int64_t seq, const JSONValue &args);
 
     // Compile source to AST
     bool compileSource(const std::string &source, const std::string &filename);
@@ -237,6 +238,7 @@ private:
     bool useStdio_ = true;
     std::vector<std::string> pendingEvents_;
     std::map<int, int> variableRefs_; // varRef -> frameId
+    std::map<int, DAPValue> structVarRefs_; // varRef -> DAPValue (struct/array)
     int nextVarRef_ = 1;
     std::string launchedFile_;
     std::string sourceContent_;
