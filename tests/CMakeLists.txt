@@ -101,9 +101,14 @@ if(LIVA_HAS_LLVM AND NOT MINGW)
     liva_add_test(selfhost_test
         unit/SelfHostTest.cpp
         ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/Driver.cpp
     )
     target_link_libraries(selfhost_test PRIVATE
-        liva_codegen liva_irgen liva_sema liva_parser liva_driver liva_plugin)
+        liva_codegen liva_irgen liva_sema liva_parser liva_driver liva_plugin
+        liva_lsp liva_dap liva_repl liva_jit liva_runtime)
+    if(WIN32)
+        target_link_libraries(selfhost_test PRIVATE winhttp)
+    endif()
     target_compile_definitions(selfhost_test PRIVATE
         LIVA_HAS_LLVM=1
         LIVA_BUILD_DIR="${CMAKE_BINARY_DIR}")

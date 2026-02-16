@@ -7,7 +7,7 @@
 
 namespace liva {
 
-enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean, Install, Remove, Fmt, Lint, Dap, Bench, Test };
+enum class Subcommand { None, Build, Run, Init, Lsp, Repl, Clean, Install, Remove, Fmt, Lint, Dap, Bench, Test, Link };
 
 /// Command-line options
 struct DriverOptions {
@@ -34,6 +34,7 @@ struct DriverOptions {
     std::string removePkgName;       // package name to remove
     std::vector<std::string> fmtFiles;
     std::vector<std::string> lintFiles;
+    std::vector<std::string> objectFiles;  // for 'link' subcommand
     bool fmtCheck = false;
     bool hasOptLevelOverride = false;
     bool hasDebugOverride = false;
@@ -76,6 +77,7 @@ private:
     int executeDap();
     int executeBench();
     int executeTest();
+    int executeLink();
     int executeLegacy();
 
     int buildProject(bool runAfter);

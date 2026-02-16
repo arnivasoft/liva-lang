@@ -112,6 +112,43 @@ bool Driver::parseArgs(int argc, const char **argv) {
                 return false;
             }
             return true;
+        } else if (std::strcmp(argv[1], "link") == 0) {
+            options_.subcommand = Subcommand::Link;
+            startIdx = 2;
+            // Collect .o/.obj files and flags
+            for (int i = 2; i < argc; ++i) {
+                if (std::strcmp(argv[i], "-o") == 0) {
+                    if (i + 1 < argc) {
+                        options_.outputFile = argv[++i];
+                    } else {
+                        std::cerr << "error: -o requires an argument\n";
+                        return false;
+                    }
+                } else if (std::strcmp(argv[i], "-g") == 0) {
+                    options_.debugInfo = true;
+                    options_.hasDebugOverride = true;
+                } else if (std::strcmp(argv[i], "--lto") == 0 || std::strcmp(argv[i], "--lto=full") == 0) {
+                    options_.lto = "full";
+                    options_.hasLtoOverride = true;
+                } else if (std::strcmp(argv[i], "--lto=thin") == 0) {
+                    options_.lto = "thin";
+                    options_.hasLtoOverride = true;
+                } else if (std::strncmp(argv[i], "--target=", 9) == 0) {
+                    options_.targetTriple = argv[i] + 9;
+                    options_.hasTargetOverride = true;
+                } else if (std::strcmp(argv[i], "--target") == 0) {
+                    if (i + 1 < argc) {
+                        options_.targetTriple = argv[++i];
+                        options_.hasTargetOverride = true;
+                    }
+                } else if (argv[i][0] == '-') {
+                    std::cerr << "error: unknown option '" << argv[i] << "'\n";
+                    return false;
+                } else {
+                    options_.objectFiles.push_back(argv[i]);
+                }
+            }
+            return true;
         } else if (std::strcmp(argv[1], "bench") == 0) {
             options_.subcommand = Subcommand::Bench;
             startIdx = 2;
@@ -338,6 +375,7 @@ int Driver::execute() {
     case Subcommand::Dap:     return executeDap();
     case Subcommand::Bench:   return executeBench();
     case Subcommand::Test:    return executeTest();
+    case Subcommand::Link:    return executeLink();
     case Subcommand::None:    return executeLegacy();
     }
 
@@ -382,6 +420,21 @@ int Driver::executeLegacy() {
 
     if (options_.emitIR) {
         return compiler.emitIR(options_.outputFile) ? 0 : 1;
+    }
+
+    if (options_.emitObj) {
+        std::string objOut = options_.outputFile;
+        if (objOut.empty()) {
+            objOut = options_.inputFile;
+            auto dot = objOut.rfind('.');
+            if (dot != std::string::npos)
+                objOut = objOut.substr(0, dot);
+            objOut += ".o";
+        }
+        if (!compiler.compileToObject(objOut, /*isEntryFile=*/false))
+            return 1;
+        std::cout << "Emitted " << objOut << "\n";
+        return 0;
     }
 
     // Default: full compilation
@@ -537,7 +590,54 @@ int Driver::buildProject(bool runAfter) {
 #endif
     }
 
-    // Handle emitIR and checkOnly modes (single-file, no separate compilation)
+    // Handle emitIR, emitObj, and checkOnly modes
+    if (options_.emitObj) {
+        // Scan dependencies to find all source files
+        BuildCache cache2(cfg.projectRoot);
+        auto depFiles2 = cache2.scanDependencies(entryPath, searchPaths);
+
+        // Determine output directory
+        std::string objDir = options_.outputFile;
+        if (objDir.empty())
+            objDir = joinPath(cfg.projectRoot, "build-obj");
+        createDirectories(objDir);
+
+        for (size_t i = 0; i < depFiles2.size(); ++i) {
+            CompilerInstance compiler;
+            compiler.setExecutablePath(executablePath_);
+            compiler.setOptLevel(cfg.optLevel);
+            compiler.setDebugInfo(cfg.debugInfo);
+            compiler.setLtoMode(cfg.lto);
+            compiler.setPgoMode(cfg.pgo);
+            compiler.setPgoProfile(cfg.pgoProfile);
+            compiler.setSearchPaths(searchPaths);
+            compiler.setTargetTriple(cfg.target);
+            compiler.setColorMode(options_.colorMode);
+            compiler.setPluginRegistry(&pluginRegistry);
+
+            if (!compiler.loadFile(depFiles2[i]))
+                return 1;
+
+            // Derive .o name from source filename
+            std::string srcBase = depFiles2[i];
+            auto slash = srcBase.find_last_of("/\\");
+            if (slash != std::string::npos)
+                srcBase = srcBase.substr(slash + 1);
+            auto dot = srcBase.rfind('.');
+            if (dot != std::string::npos)
+                srcBase = srcBase.substr(0, dot);
+            std::string objOut = joinPath(objDir, srcBase + ".o");
+
+            bool isEntry = (depFiles2[i] == entryPath);
+            if (!compiler.compileToObject(objOut, isEntry))
+                return 1;
+
+            std::cout << "  " << depFiles2[i] << " -> " << objOut << "\n";
+        }
+        std::cout << "Emitted " << depFiles2.size() << " object file(s).\n";
+        return 0;
+    }
+
     if (options_.emitIR || options_.checkOnly) {
         CompilerInstance compiler;
         compiler.setExecutablePath(executablePath_);
@@ -1352,6 +1452,25 @@ int Driver::executeLint() {
     return totalWarnings > 0 ? 1 : 0;
 }
 
+int Driver::executeLink() {
+    if (options_.objectFiles.empty()) {
+        std::cerr << "error: no object files specified\n"
+                  << "usage: livac link <file.o ...> [-o output]\n";
+        return 1;
+    }
+
+    std::string output = options_.outputFile;
+    if (output.empty()) {
+        output = "a";
+#ifdef _WIN32
+        output += ".exe";
+#endif
+    }
+
+    return linkObjects(options_.objectFiles, output, options_.debugInfo,
+                       options_.lto, options_.pgo);
+}
+
 int Driver::executeClean() {
     std::string cwd = getCurrentDirectory();
     std::string tomlPath = findProjectFile(cwd);
@@ -1514,6 +1633,7 @@ void Driver::printHelp() {
               << "       livac lsp\n"
               << "       livac bench [file]\n"
               << "       livac test [file]\n"
+              << "       livac link <files...> [-o output]\n"
               << "       livac dap\n"
               << "\n"
               << "Subcommands:\n"
@@ -1529,6 +1649,7 @@ void Driver::printHelp() {
               << "  dap                 Start Debug Adapter Protocol server\n"
               << "  bench [file]        Run benchmarks (bench/ directory or file)\n"
               << "  test [file]         Run tests (test/ directory or file)\n"
+              << "  link <files...>     Link object files into executable\n"
               << "  repl                Start interactive REPL\n"
               << "\n"
               << "Options:\n"
@@ -1539,7 +1660,7 @@ void Driver::printHelp() {
               << "  --dump-ast          Dump parsed AST and exit\n"
               << "  --check-only        Run semantic analysis only\n"
               << "  --emit-ir           Emit LLVM IR\n"
-              << "  --emit-obj          Emit object file\n"
+              << "  --emit-obj          Compile to object file (no linking)\n"
               << "  -O0/-O1/-O2/-O3     Optimization level\n"
               << "  -g                  Generate debug information\n"
               << "  --debug             Debug build (O0, debug info)\n"

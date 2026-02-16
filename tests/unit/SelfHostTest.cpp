@@ -4,8 +4,10 @@
 #ifdef LIVA_HAS_LLVM
 
 #include "liva/Driver/CompilerInstance.h"
+#include "liva/Driver/Driver.h"
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <sstream>
@@ -486,6 +488,120 @@ func main() {
     showGreet(w)
 }
 )--", "10\n20\n");
+}
+
+// ============================================================
+// 9. Separate Compilation (--emit-obj + link)
+// ============================================================
+
+TEST_F(SelfHostTest, EmitObjLegacy) {
+    // Write a temp .liva file
+    std::string livaFile = buildDir_ + "/_emitobj_test.liva";
+    std::string objFile = buildDir_ + "/_emitobj_test.o";
+    {
+        std::ofstream f(livaFile);
+        f << "func main() {\n    println(\"emit-obj works\")\n}\n";
+    }
+
+    // Use Driver with --emit-obj
+    const char *args[] = {"livac", "--emit-obj", livaFile.c_str(), "-o", objFile.c_str()};
+    liva::Driver driver;
+    ASSERT_TRUE(driver.parseArgs(5, args));
+    int ret = driver.execute();
+    EXPECT_EQ(ret, 0);
+
+    // Check .o file was created
+    std::ifstream check(objFile);
+    EXPECT_TRUE(check.is_open()) << "Object file not created: " << objFile;
+    check.close();
+
+    // Cleanup
+    std::remove(livaFile.c_str());
+    std::remove(objFile.c_str());
+}
+
+TEST_F(SelfHostTest, EmitObjNoMain) {
+    // A file without main() should also emit .o successfully
+    std::string livaFile = buildDir_ + "/_emitobj_nomain.liva";
+    std::string objFile = buildDir_ + "/_emitobj_nomain.o";
+    {
+        std::ofstream f(livaFile);
+        f << "func helper() -> i32 {\n    return 42\n}\n";
+    }
+
+    const char *args[] = {"livac", "--emit-obj", livaFile.c_str(), "-o", objFile.c_str()};
+    liva::Driver driver;
+    ASSERT_TRUE(driver.parseArgs(5, args));
+    int ret = driver.execute();
+    EXPECT_EQ(ret, 0);
+
+    std::ifstream check(objFile);
+    EXPECT_TRUE(check.is_open()) << "Object file not created: " << objFile;
+    check.close();
+
+    std::remove(livaFile.c_str());
+    std::remove(objFile.c_str());
+}
+
+TEST_F(SelfHostTest, LinkSubcommand) {
+    // First, compile a .liva to .o
+    std::string livaFile = buildDir_ + "/_link_test.liva";
+    std::string objFile = buildDir_ + "/_link_test.o";
+    std::string exeFile = buildDir_ + "/_link_test";
+#ifdef _WIN32
+    exeFile += ".exe";
+#endif
+    {
+        std::ofstream f(livaFile);
+        f << "func main() {\n    println(\"linked ok\")\n}\n";
+    }
+
+    // Step 1: --emit-obj
+    {
+        const char *args[] = {"livac", "--emit-obj", livaFile.c_str(), "-o", objFile.c_str()};
+        liva::Driver driver;
+        ASSERT_TRUE(driver.parseArgs(5, args));
+        ASSERT_EQ(driver.execute(), 0);
+    }
+
+    // Step 2: link
+    {
+        const char *args[] = {"livac", "link", objFile.c_str(), "-o", exeFile.c_str()};
+        liva::Driver driver;
+        ASSERT_TRUE(driver.parseArgs(5, args));
+        int ret = driver.execute();
+        EXPECT_EQ(ret, 0);
+
+        std::ifstream check(exeFile);
+        EXPECT_TRUE(check.is_open()) << "Executable not created: " << exeFile;
+    }
+
+    // Step 3: Run and verify output
+    {
+        std::string cmd = "\"" + exeFile + "\"" + " > " + "\"" + tmpOut_ + "\"" + " 2>&1";
+#ifdef _WIN32
+        cmd = "\"" + cmd + "\"";
+#endif
+        std::system(cmd.c_str());
+
+        std::ifstream ifs(tmpOut_);
+        std::stringstream ss;
+        ss << ifs.rdbuf();
+        EXPECT_EQ(ss.str(), "linked ok\n");
+    }
+
+    std::remove(livaFile.c_str());
+    std::remove(objFile.c_str());
+    std::remove(exeFile.c_str());
+}
+
+TEST_F(SelfHostTest, LinkSubcommandParseError) {
+    // link with no files should fail
+    const char *args[] = {"livac", "link"};
+    liva::Driver driver;
+    ASSERT_TRUE(driver.parseArgs(2, args));
+    int ret = driver.execute();
+    EXPECT_NE(ret, 0);
 }
 
 #endif // LIVA_HAS_LLVM
