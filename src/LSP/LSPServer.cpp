@@ -855,6 +855,577 @@ void LSPServer::publishDiagnostics(const DocumentState &doc) {
 }
 
 // ============================================================
+// Completion helpers
+// ============================================================
+
+LSPServer::CompletionContext
+LSPServer::extractCompletionContext(const std::string &content,
+                                    uint32_t line, uint32_t col) {
+    CompletionContext ctx;
+    ctx.line = line;
+    ctx.col = col;
+
+    // Extract the line at the given position
+    uint32_t curLine = 0;
+    size_t lineStart = 0;
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (curLine == line) {
+            lineStart = i;
+            break;
+        }
+        if (content[i] == '\n')
+            ++curLine;
+    }
+    if (curLine != line)
+        return ctx;
+
+    // Get text up to cursor column
+    size_t end = lineStart + col;
+    if (end > content.size())
+        end = content.size();
+    std::string before = content.substr(lineStart, end - lineStart);
+
+    // Walk backwards from cursor to build chain
+    // e.g. "    student.grades." → chain=["student","grades"], isMemberAccess=true
+    int pos = static_cast<int>(before.size()) - 1;
+
+    // Skip trailing dot
+    if (pos >= 0 && before[pos] == '.') {
+        ctx.isMemberAccess = true;
+        --pos;
+    } else {
+        return ctx; // no dot → not member access
+    }
+
+    // Parse identifier chain backwards
+    while (pos >= 0) {
+        // Collect identifier
+        int idEnd = pos + 1;
+        while (pos >= 0 && (std::isalnum(static_cast<unsigned char>(before[pos])) ||
+                            before[pos] == '_'))
+            --pos;
+        int idStart = pos + 1;
+        if (idStart < idEnd) {
+            ctx.chain.insert(ctx.chain.begin(),
+                             before.substr(idStart, idEnd - idStart));
+        }
+        // Check for another dot to continue chain
+        if (pos >= 0 && before[pos] == '.') {
+            --pos;
+        } else {
+            break;
+        }
+    }
+
+    return ctx;
+}
+
+std::string LSPServer::resolveTypeName(const TranslationUnit *tu,
+                                        const std::string &varName,
+                                        uint32_t line, uint32_t col) {
+    if (!tu)
+        return "";
+
+    // 1-indexed line for SourceRange comparison
+    uint32_t srcLine = line + 1;
+
+    // Helper: resolve type from a TypeRepr
+    auto typeReprToName = [](const TypeRepr *tr) -> std::string {
+        if (!tr)
+            return "";
+        if (auto *named = dynamic_cast<const NamedTypeRepr *>(tr))
+            return named->getName();
+        if (tr->getKind() == TypeRepr::Kind::String)
+            return "String";
+        if (tr->getKind() == TypeRepr::Kind::Array)
+            return "Array";
+        if (tr->getKind() == TypeRepr::Kind::Bool)
+            return "Bool";
+        if (tr->getKind() == TypeRepr::Kind::I32 || tr->getKind() == TypeRepr::Kind::I64 ||
+            tr->getKind() == TypeRepr::Kind::I8 || tr->getKind() == TypeRepr::Kind::I16)
+            return "Int";
+        if (tr->getKind() == TypeRepr::Kind::F32 || tr->getKind() == TypeRepr::Kind::F64)
+            return "Float";
+        return tr->toString();
+    };
+
+    // Helper: resolve type from an initializer expression
+    auto typeFromInit = [](const Expr *init) -> std::string {
+        if (!init)
+            return "";
+        if (auto *sl = dynamic_cast<const StructLiteralExpr *>(init))
+            return sl->getTypeName();
+        // CallExpr where callee is MemberExpr like Type.new(...)
+        if (auto *call = dynamic_cast<const CallExpr *>(init)) {
+            if (auto *member = dynamic_cast<const MemberExpr *>(call->getCallee())) {
+                // e.g. Student.new() → "Student"
+                if (auto *ident = dynamic_cast<const IdentifierExpr *>(member->getObject()))
+                    return ident->getName();
+            }
+            // Direct call: Student(...) constructor
+            if (auto *ident = dynamic_cast<const IdentifierExpr *>(call->getCallee()))
+                return ident->getName();
+        }
+        // String literal
+        if (dynamic_cast<const StringLiteralExpr *>(init))
+            return "String";
+        // Array literal
+        if (dynamic_cast<const ArrayLiteralExpr *>(init))
+            return "Array";
+        return "";
+    };
+
+    // Helper: walk a block recursively to find VarDecl before cursor
+    std::function<std::string(const BlockStmt *)> searchBlock;
+    searchBlock = [&](const BlockStmt *block) -> std::string {
+        if (!block)
+            return "";
+        for (const auto &stmt : block->getStatements()) {
+            // Only look at declarations before cursor line
+            if (stmt->getRange().isValid() && stmt->getRange().start.line > srcLine)
+                break;
+            if (auto *vd = dynamic_cast<const VarDecl *>(stmt.get())) {
+                if (vd->getName() == varName) {
+                    if (vd->getType())
+                        return typeReprToName(vd->getType());
+                    if (vd->hasInit())
+                        return typeFromInit(vd->getInit());
+                }
+            }
+            // Recurse into nested blocks (if/while/for bodies)
+            if (auto *bs = dynamic_cast<const BlockStmt *>(stmt.get())) {
+                auto r = searchBlock(bs);
+                if (!r.empty())
+                    return r;
+            }
+        }
+        return "";
+    };
+
+    // Search: find function containing cursor, then search params + body
+    for (const auto &node : tu->getDeclarations()) {
+        auto *decl = node.get();
+
+        // Check FuncDecl
+        if (auto *fd = dynamic_cast<const FuncDecl *>(decl)) {
+            auto range = fd->getRange();
+            if (range.isValid() && srcLine >= range.start.line &&
+                srcLine <= range.end.line) {
+                // Search parameters
+                for (const auto &param : fd->getParams()) {
+                    if (param.name == varName && param.type)
+                        return typeReprToName(param.type.get());
+                }
+                // Search body
+                if (fd->getBody()) {
+                    auto r = searchBlock(fd->getBody());
+                    if (!r.empty())
+                        return r;
+                }
+            }
+        }
+
+        // Check ImplDecl methods
+        if (auto *impl = dynamic_cast<const ImplDecl *>(decl)) {
+            for (const auto &method : impl->getMethods()) {
+                auto range = method->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    // "self" → impl type name
+                    if (varName == "self")
+                        return impl->getTypeName();
+                    // Search parameters
+                    for (const auto &param : method->getParams()) {
+                        if (param.name == varName && param.type)
+                            return typeReprToName(param.type.get());
+                    }
+                    // Search body
+                    if (method->getBody()) {
+                        auto r = searchBlock(method->getBody());
+                        if (!r.empty())
+                            return r;
+                    }
+                }
+            }
+        }
+
+        // Check ClassDecl methods
+        if (auto *cd = dynamic_cast<const ClassDecl *>(decl)) {
+            for (const auto *method : cd->getMethods()) {
+                auto range = method->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    if (varName == "self")
+                        return cd->getName();
+                    for (const auto &param : method->getParams()) {
+                        if (param.name == varName && param.type)
+                            return typeReprToName(param.type.get());
+                    }
+                    if (method->getBody()) {
+                        auto r = searchBlock(method->getBody());
+                        if (!r.empty())
+                            return r;
+                    }
+                }
+            }
+            // Check class init
+            if (auto *init = cd->getInit()) {
+                auto range = init->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    if (varName == "self")
+                        return cd->getName();
+                    for (const auto &param : init->getParams()) {
+                        if (param.name == varName && param.type)
+                            return typeReprToName(param.type.get());
+                    }
+                    if (init->getBody()) {
+                        auto r = searchBlock(init->getBody());
+                        if (!r.empty())
+                            return r;
+                    }
+                }
+            }
+        }
+
+        // Top-level VarDecl
+        if (auto *vd = dynamic_cast<const VarDecl *>(decl)) {
+            if (vd->getName() == varName) {
+                if (vd->getType())
+                    return typeReprToName(vd->getType());
+                if (vd->hasInit())
+                    return typeFromInit(vd->getInit());
+            }
+        }
+    }
+
+    return "";
+}
+
+void LSPServer::collectStructMembers(JSONValue &items,
+                                      const TranslationUnit *tu,
+                                      const std::string &typeName) {
+    if (!tu || typeName.empty())
+        return;
+
+    for (const auto &node : tu->getDeclarations()) {
+        auto *decl = node.get();
+
+        // StructDecl fields
+        if (auto *sd = dynamic_cast<const StructDecl *>(decl)) {
+            if (sd->getName() == typeName) {
+                for (const auto &field : sd->getFields()) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(field->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(5))); // Field
+                    if (field->getType())
+                        item.set("detail", JSONValue(field->getType()->toString()));
+                    items.push(std::move(item));
+                }
+            }
+        }
+
+        // ClassDecl fields + methods
+        if (auto *cd = dynamic_cast<const ClassDecl *>(decl)) {
+            if (cd->getName() == typeName) {
+                for (const auto *field : cd->getFields()) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(field->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(5))); // Field
+                    if (field->getType())
+                        item.set("detail", JSONValue(field->getType()->toString()));
+                    items.push(std::move(item));
+                }
+                for (const auto *method : cd->getMethods()) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(method->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(2))); // Method
+                    // Build signature (exclude self param)
+                    std::string sig = "(";
+                    bool first = true;
+                    for (const auto &p : method->getParams()) {
+                        if (p.isSelf)
+                            continue;
+                        if (!first)
+                            sig += ", ";
+                        sig += p.name + ": " + (p.type ? p.type->toString() : "?");
+                        first = false;
+                    }
+                    sig += ")";
+                    if (method->getReturnType() && !method->getReturnType()->isVoid())
+                        sig += " -> " + method->getReturnType()->toString();
+                    item.set("detail", JSONValue(sig));
+                    items.push(std::move(item));
+                }
+            }
+        }
+
+        // ImplDecl methods for this type
+        if (auto *impl = dynamic_cast<const ImplDecl *>(decl)) {
+            if (impl->getTypeName() == typeName) {
+                for (const auto &method : impl->getMethods()) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(method->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(2))); // Method
+                    std::string sig = "(";
+                    bool first = true;
+                    for (const auto &p : method->getParams()) {
+                        if (p.isSelf)
+                            continue;
+                        if (!first)
+                            sig += ", ";
+                        sig += p.name + ": " + (p.type ? p.type->toString() : "?");
+                        first = false;
+                    }
+                    sig += ")";
+                    if (method->getReturnType() && !method->getReturnType()->isVoid())
+                        sig += " -> " + method->getReturnType()->toString();
+                    item.set("detail", JSONValue(sig));
+                    items.push(std::move(item));
+                }
+            }
+        }
+    }
+}
+
+void LSPServer::collectBuiltinMembers(JSONValue &items,
+                                       const std::string &typeName) {
+    struct MemberInfo {
+        const char *label;
+        int kind; // 5=Field, 2=Method
+        const char *detail;
+    };
+
+    std::vector<MemberInfo> members;
+
+    if (typeName == "String") {
+        members = {
+            {"length", 5, "i64"},
+            {"isEmpty", 2, "() -> Bool"},
+            {"contains", 2, "(s: String) -> Bool"},
+            {"startsWith", 2, "(s: String) -> Bool"},
+            {"endsWith", 2, "(s: String) -> Bool"},
+            {"toUpper", 2, "() -> String"},
+            {"toLower", 2, "() -> String"},
+            {"trim", 2, "() -> String"},
+            {"split", 2, "(sep: String) -> [String]"},
+            {"substring", 2, "(start: i64, end: i64) -> String"},
+            {"indexOf", 2, "(s: String) -> i64"},
+            {"replace", 2, "(old: String, new: String) -> String"},
+        };
+    } else if (typeName == "Array") {
+        members = {
+            {"length", 5, "i64"},
+            {"isEmpty", 2, "() -> Bool"},
+            {"push", 2, "(element)"},
+            {"pop", 2, "() -> T"},
+            {"contains", 2, "(element) -> Bool"},
+            {"indexOf", 2, "(element) -> i64"},
+            {"reverse", 2, "()"},
+            {"map", 2, "(f: (T) -> U) -> [U]"},
+            {"filter", 2, "(f: (T) -> Bool) -> [T]"},
+            {"forEach", 2, "(f: (T) -> Void)"},
+        };
+    } else if (typeName == "Map") {
+        members = {
+            {"size", 5, "i64"},
+            {"isEmpty", 2, "() -> Bool"},
+            {"insert", 2, "(key: K, value: V)"},
+            {"remove", 2, "(key: K)"},
+            {"contains", 2, "(key: K) -> Bool"},
+            {"get", 2, "(key: K) -> V?"},
+            {"keys", 2, "() -> [K]"},
+            {"values", 2, "() -> [V]"},
+        };
+    } else if (typeName == "Set") {
+        members = {
+            {"size", 5, "i64"},
+            {"isEmpty", 2, "() -> Bool"},
+            {"insert", 2, "(element: T)"},
+            {"remove", 2, "(element: T)"},
+            {"contains", 2, "(element: T) -> Bool"},
+        };
+    }
+
+    for (const auto &m : members) {
+        auto item = JSONValue::object();
+        item.set("label", JSONValue(m.label));
+        item.set("kind", JSONValue(static_cast<int64_t>(m.kind)));
+        item.set("detail", JSONValue(m.detail));
+        items.push(std::move(item));
+    }
+}
+
+void LSPServer::addMemberCompletions(JSONValue &items,
+                                      const TranslationUnit *tu,
+                                      const CompletionContext &ctx) {
+    if (!tu || ctx.chain.empty())
+        return;
+
+    // Resolve the type of the first identifier in chain
+    std::string typeName = resolveTypeName(tu, ctx.chain[0], ctx.line, ctx.col);
+    if (typeName.empty())
+        return;
+
+    // Walk subsequent chain elements to resolve nested types
+    for (size_t i = 1; i < ctx.chain.size(); ++i) {
+        const std::string &member = ctx.chain[i];
+        std::string nextType;
+
+        // Search struct/class fields for this member
+        for (const auto &node : tu->getDeclarations()) {
+            if (auto *sd = dynamic_cast<const StructDecl *>(node.get())) {
+                if (sd->getName() == typeName) {
+                    for (const auto &field : sd->getFields()) {
+                        if (field->getName() == member && field->getType()) {
+                            auto *tr = field->getType();
+                            if (auto *named = dynamic_cast<const NamedTypeRepr *>(tr))
+                                nextType = named->getName();
+                            else if (tr->getKind() == TypeRepr::Kind::Array)
+                                nextType = "Array";
+                            else if (tr->getKind() == TypeRepr::Kind::String)
+                                nextType = "String";
+                            else
+                                nextType = tr->toString();
+                        }
+                    }
+                }
+            }
+            if (auto *cd = dynamic_cast<const ClassDecl *>(node.get())) {
+                if (cd->getName() == typeName) {
+                    for (const auto *field : cd->getFields()) {
+                        if (field->getName() == member && field->getType()) {
+                            auto *tr = field->getType();
+                            if (auto *named = dynamic_cast<const NamedTypeRepr *>(tr))
+                                nextType = named->getName();
+                            else if (tr->getKind() == TypeRepr::Kind::Array)
+                                nextType = "Array";
+                            else if (tr->getKind() == TypeRepr::Kind::String)
+                                nextType = "String";
+                            else
+                                nextType = tr->toString();
+                        }
+                    }
+                }
+            }
+        }
+        if (nextType.empty())
+            return; // can't resolve further
+        typeName = nextType;
+    }
+
+    // Collect members for the resolved type
+    collectBuiltinMembers(items, typeName);
+    collectStructMembers(items, tu, typeName);
+}
+
+void LSPServer::addLocalCompletions(JSONValue &items,
+                                     const TranslationUnit *tu,
+                                     uint32_t line, uint32_t col) {
+    if (!tu)
+        return;
+
+    uint32_t srcLine = line + 1; // 1-indexed
+
+    // Helper: walk block to collect VarDecls before cursor
+    std::function<void(const BlockStmt *)> collectFromBlock;
+    collectFromBlock = [&](const BlockStmt *block) {
+        if (!block)
+            return;
+        for (const auto &stmt : block->getStatements()) {
+            if (stmt->getRange().isValid() && stmt->getRange().start.line > srcLine)
+                break;
+            if (auto *vd = dynamic_cast<const VarDecl *>(stmt.get())) {
+                auto item = JSONValue::object();
+                item.set("label", JSONValue(vd->getName()));
+                item.set("kind", JSONValue(static_cast<int64_t>(6))); // Variable
+                if (vd->getType())
+                    item.set("detail", JSONValue(vd->getType()->toString()));
+                items.push(std::move(item));
+            }
+        }
+    };
+
+    for (const auto &node : tu->getDeclarations()) {
+        auto *decl = node.get();
+
+        // FuncDecl containing cursor
+        if (auto *fd = dynamic_cast<const FuncDecl *>(decl)) {
+            auto range = fd->getRange();
+            if (range.isValid() && srcLine >= range.start.line &&
+                srcLine <= range.end.line) {
+                // Add parameters
+                for (const auto &param : fd->getParams()) {
+                    if (param.isSelf)
+                        continue;
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(param.name));
+                    item.set("kind", JSONValue(static_cast<int64_t>(6))); // Variable
+                    if (param.type)
+                        item.set("detail", JSONValue(param.type->toString()));
+                    items.push(std::move(item));
+                }
+                collectFromBlock(fd->getBody());
+            }
+        }
+
+        // ImplDecl methods
+        if (auto *impl = dynamic_cast<const ImplDecl *>(decl)) {
+            for (const auto &method : impl->getMethods()) {
+                auto range = method->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    // Add self
+                    auto selfItem = JSONValue::object();
+                    selfItem.set("label", JSONValue("self"));
+                    selfItem.set("kind", JSONValue(static_cast<int64_t>(6)));
+                    selfItem.set("detail", JSONValue(impl->getTypeName()));
+                    items.push(std::move(selfItem));
+                    // Add parameters
+                    for (const auto &param : method->getParams()) {
+                        if (param.isSelf)
+                            continue;
+                        auto item = JSONValue::object();
+                        item.set("label", JSONValue(param.name));
+                        item.set("kind", JSONValue(static_cast<int64_t>(6)));
+                        if (param.type)
+                            item.set("detail", JSONValue(param.type->toString()));
+                        items.push(std::move(item));
+                    }
+                    collectFromBlock(method->getBody());
+                }
+            }
+        }
+
+        // ClassDecl methods
+        if (auto *cd = dynamic_cast<const ClassDecl *>(decl)) {
+            for (const auto *method : cd->getMethods()) {
+                auto range = method->getRange();
+                if (range.isValid() && srcLine >= range.start.line &&
+                    srcLine <= range.end.line) {
+                    auto selfItem = JSONValue::object();
+                    selfItem.set("label", JSONValue("self"));
+                    selfItem.set("kind", JSONValue(static_cast<int64_t>(6)));
+                    selfItem.set("detail", JSONValue(cd->getName()));
+                    items.push(std::move(selfItem));
+                    for (const auto &param : method->getParams()) {
+                        if (param.isSelf)
+                            continue;
+                        auto item = JSONValue::object();
+                        item.set("label", JSONValue(param.name));
+                        item.set("kind", JSONValue(static_cast<int64_t>(6)));
+                        if (param.type)
+                            item.set("detail", JSONValue(param.type->toString()));
+                        items.push(std::move(item));
+                    }
+                    collectFromBlock(method->getBody());
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
 // Completion
 // ============================================================
 
@@ -862,79 +1433,102 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
                                       const JSONValue &params) {
     auto items = JSONValue::array();
 
-    // 1. Keywords (CompletionItemKind::Keyword = 14)
-    static const char *keywords[] = {
-        "func", "struct", "let", "var", "if", "else", "while", "for",
-        "return", "match", "enum", "impl", "protocol", "ref", "mut", "as",
-        "import", "pub", "self", "break", "continue", "nil", "where",
-        "async", "await", "const", "try", "type", "true", "false", "in", "case",
-        "dyn", "extern"
-    };
-    for (const char *kw : keywords) {
-        auto item = JSONValue::object();
-        item.set("label", JSONValue(kw));
-        item.set("kind", JSONValue(static_cast<int64_t>(14)));
-        items.push(std::move(item));
-    }
-
-    // 2. Built-in functions (CompletionItemKind::Function = 3)
-    static const char *builtins[] = {
-        "println", "print", "len", "toString", "abs", "sqrt", "pow",
-        "min", "max", "readLine", "format", "parseInt", "parseFloat",
-        "randInt", "randFloat",
-        "sorted", "reversed", "enumerate", "zip", "flatten",
-        "any", "all", "count", "forEach",
-        "strRepeat", "strPadLeft", "strPadRight", "strJoin",
-        "strTrim", "strTrimLeft", "strTrimRight",
-        "strReverse", "strChars", "strLines",
-        "strContains", "strStartsWith", "strEndsWith",
-        "strReplace", "strSplit", "strToUpper", "strToLower"
-    };
-    for (const char *bi : builtins) {
-        auto item = JSONValue::object();
-        item.set("label", JSONValue(bi));
-        item.set("kind", JSONValue(static_cast<int64_t>(3)));
-        items.push(std::move(item));
-    }
-
-    // 3. Symbols from the document
     std::string uri = params["textDocument"]["uri"].getString();
-    auto it = documents_.find(uri);
-    if (it != documents_.end() && it->second.tu) {
-        for (const auto &node : it->second.tu->getDeclarations()) {
-            auto *decl = node.get();
-            if (auto *fd = dynamic_cast<FuncDecl *>(decl)) {
-                auto item = JSONValue::object();
-                item.set("label", JSONValue(fd->getName()));
-                item.set("kind", JSONValue(static_cast<int64_t>(3))); // Function
-                items.push(std::move(item));
-            } else if (auto *sd = dynamic_cast<StructDecl *>(decl)) {
-                auto item = JSONValue::object();
-                item.set("label", JSONValue(sd->getName()));
-                item.set("kind", JSONValue(static_cast<int64_t>(22))); // Struct
-                items.push(std::move(item));
-            } else if (auto *cd = dynamic_cast<ClassDecl *>(decl)) {
-                auto item = JSONValue::object();
-                item.set("label", JSONValue(cd->getName()));
-                item.set("kind", JSONValue(static_cast<int64_t>(7))); // Class
-                items.push(std::move(item));
-            } else if (auto *ed = dynamic_cast<EnumDecl *>(decl)) {
-                auto item = JSONValue::object();
-                item.set("label", JSONValue(ed->getName()));
-                item.set("kind", JSONValue(static_cast<int64_t>(13))); // Enum
-                items.push(std::move(item));
-            } else if (auto *vd = dynamic_cast<VarDecl *>(decl)) {
-                auto item = JSONValue::object();
-                item.set("label", JSONValue(vd->getName()));
-                item.set("kind", JSONValue(static_cast<int64_t>(6))); // Variable
-                items.push(std::move(item));
-            } else if (auto *pd = dynamic_cast<ProtocolDecl *>(decl)) {
-                auto item = JSONValue::object();
-                item.set("label", JSONValue(pd->getName()));
-                item.set("kind", JSONValue(static_cast<int64_t>(8))); // Interface
-                items.push(std::move(item));
+    uint32_t line = static_cast<uint32_t>(params["position"]["line"].getInteger());
+    uint32_t col = static_cast<uint32_t>(params["position"]["character"].getInteger());
+
+    auto docIt = documents_.find(uri);
+    const TranslationUnit *tu = nullptr;
+    std::string content;
+    if (docIt != documents_.end()) {
+        tu = docIt->second.tu.get();
+        content = docIt->second.content;
+    }
+
+    // Detect if this is a member access (dot-triggered)
+    auto ctx = extractCompletionContext(content, line, col);
+
+    if (ctx.isMemberAccess) {
+        // Member access: only show fields/methods
+        addMemberCompletions(items, tu, ctx);
+    } else {
+        // Normal completion: keywords + builtins + symbols + locals
+
+        // 1. Keywords (CompletionItemKind::Keyword = 14)
+        static const char *keywords[] = {
+            "func", "struct", "let", "var", "if", "else", "while", "for",
+            "return", "match", "enum", "impl", "protocol", "ref", "mut", "as",
+            "import", "pub", "self", "break", "continue", "nil", "where",
+            "async", "await", "const", "try", "type", "true", "false", "in",
+            "case", "dyn", "extern"
+        };
+        for (const char *kw : keywords) {
+            auto item = JSONValue::object();
+            item.set("label", JSONValue(kw));
+            item.set("kind", JSONValue(static_cast<int64_t>(14)));
+            items.push(std::move(item));
+        }
+
+        // 2. Built-in functions (CompletionItemKind::Function = 3)
+        static const char *builtins[] = {
+            "println", "print", "len", "toString", "abs", "sqrt", "pow",
+            "min", "max", "readLine", "format", "parseInt", "parseFloat",
+            "randInt", "randFloat",
+            "sorted", "reversed", "enumerate", "zip", "flatten",
+            "any", "all", "count", "forEach",
+            "strRepeat", "strPadLeft", "strPadRight", "strJoin",
+            "strTrim", "strTrimLeft", "strTrimRight",
+            "strReverse", "strChars", "strLines",
+            "strContains", "strStartsWith", "strEndsWith",
+            "strReplace", "strSplit", "strToUpper", "strToLower"
+        };
+        for (const char *bi : builtins) {
+            auto item = JSONValue::object();
+            item.set("label", JSONValue(bi));
+            item.set("kind", JSONValue(static_cast<int64_t>(3)));
+            items.push(std::move(item));
+        }
+
+        // 3. Top-level symbols from the document
+        if (tu) {
+            for (const auto &node : tu->getDeclarations()) {
+                auto *decl = node.get();
+                if (auto *fd = dynamic_cast<FuncDecl *>(decl)) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(fd->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(3)));
+                    items.push(std::move(item));
+                } else if (auto *sd = dynamic_cast<StructDecl *>(decl)) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(sd->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(22)));
+                    items.push(std::move(item));
+                } else if (auto *cd = dynamic_cast<ClassDecl *>(decl)) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(cd->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(7)));
+                    items.push(std::move(item));
+                } else if (auto *ed = dynamic_cast<EnumDecl *>(decl)) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(ed->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(13)));
+                    items.push(std::move(item));
+                } else if (auto *vd = dynamic_cast<VarDecl *>(decl)) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(vd->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(6)));
+                    items.push(std::move(item));
+                } else if (auto *pd = dynamic_cast<ProtocolDecl *>(decl)) {
+                    auto item = JSONValue::object();
+                    item.set("label", JSONValue(pd->getName()));
+                    item.set("kind", JSONValue(static_cast<int64_t>(8)));
+                    items.push(std::move(item));
+                }
             }
         }
+
+        // 4. Local variables (params + locals in current function)
+        addLocalCompletions(items, tu, line, col);
     }
 
     return makeResponse(id, std::move(items));

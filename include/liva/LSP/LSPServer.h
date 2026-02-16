@@ -199,6 +199,26 @@ private:
     // Count references to a name across all documents (excluding declarations)
     int countReferences(const std::string &name) const;
 
+    // Completion helpers
+    struct CompletionContext {
+        bool isMemberAccess = false;
+        std::vector<std::string> chain; // e.g. ["student", "grades"]
+        uint32_t line = 0, col = 0;
+    };
+
+    CompletionContext extractCompletionContext(const std::string &content,
+                                               uint32_t line, uint32_t col);
+    void addMemberCompletions(JSONValue &items, const TranslationUnit *tu,
+                              const CompletionContext &ctx);
+    void addLocalCompletions(JSONValue &items, const TranslationUnit *tu,
+                             uint32_t line, uint32_t col);
+    std::string resolveTypeName(const TranslationUnit *tu,
+                                const std::string &varName,
+                                uint32_t line, uint32_t col);
+    void collectStructMembers(JSONValue &items, const TranslationUnit *tu,
+                              const std::string &typeName);
+    void collectBuiltinMembers(JSONValue &items, const std::string &typeName);
+
     // State
     std::map<std::string, DocumentState> documents_;
     std::vector<std::string> pendingNotifications_;

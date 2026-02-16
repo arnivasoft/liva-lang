@@ -585,6 +585,180 @@ TEST_F(LSPTest, CompletionEmpty) {
 }
 
 // ============================================================
+// Member Completion Tests
+// ============================================================
+
+TEST_F(LSPTest, CompletionMemberAccessStructFields) {
+    // struct Point with fields x, y → "p." should show x, y
+    std::string code =
+        "struct Point {\n"
+        "    var x: i32\n"
+        "    var y: i32\n"
+        "}\n"
+        "func main() {\n"
+        "    let p: Point = Point { x: 1, y: 2 }\n"
+        "    p.\n"
+        "}\n";
+    initAndOpen("file:///test.liva", code);
+    // line 6 is "    p.", col=6 is right after the dot
+    auto resp = parseResponse(
+        server.handleMessage(completionRequest("file:///test.liva", 6, 6)));
+    const auto &items = resp["result"].getArray();
+
+    bool hasX = false, hasY = false;
+    for (const auto &item : items) {
+        std::string label = item["label"].getString();
+        if (label == "x") hasX = true;
+        if (label == "y") hasY = true;
+    }
+    EXPECT_TRUE(hasX);
+    EXPECT_TRUE(hasY);
+    // Should NOT contain keywords
+    bool hasFunc = false;
+    for (const auto &item : items) {
+        if (item["label"].getString() == "func") hasFunc = true;
+    }
+    EXPECT_FALSE(hasFunc);
+}
+
+TEST_F(LSPTest, CompletionMemberAccessImplMethods) {
+    // struct + impl with method → "p." should show method
+    std::string code =
+        "struct Point {\n"
+        "    var x: i32\n"
+        "    var y: i32\n"
+        "}\n"
+        "impl Point {\n"
+        "    func distance(self) -> f64 {\n"
+        "        return 0.0\n"
+        "    }\n"
+        "}\n"
+        "func main() {\n"
+        "    let p: Point = Point { x: 1, y: 2 }\n"
+        "    p.\n"
+        "}\n";
+    initAndOpen("file:///test.liva", code);
+    // line 11 is "    p.", col=6
+    auto resp = parseResponse(
+        server.handleMessage(completionRequest("file:///test.liva", 11, 6)));
+    const auto &items = resp["result"].getArray();
+
+    bool hasX = false, hasDistance = false;
+    for (const auto &item : items) {
+        std::string label = item["label"].getString();
+        if (label == "x") hasX = true;
+        if (label == "distance") hasDistance = true;
+    }
+    EXPECT_TRUE(hasX);
+    EXPECT_TRUE(hasDistance);
+}
+
+TEST_F(LSPTest, CompletionMemberAccessParamType) {
+    // Function parameter with type annotation → "p." should show fields
+    std::string code =
+        "struct Point {\n"
+        "    var x: i32\n"
+        "    var y: i32\n"
+        "}\n"
+        "func show(p: Point) {\n"
+        "    p.\n"
+        "}\n";
+    initAndOpen("file:///test.liva", code);
+    // line 5 is "    p.", col=6
+    auto resp = parseResponse(
+        server.handleMessage(completionRequest("file:///test.liva", 5, 6)));
+    const auto &items = resp["result"].getArray();
+
+    bool hasX = false, hasY = false;
+    for (const auto &item : items) {
+        std::string label = item["label"].getString();
+        if (label == "x") hasX = true;
+        if (label == "y") hasY = true;
+    }
+    EXPECT_TRUE(hasX);
+    EXPECT_TRUE(hasY);
+}
+
+TEST_F(LSPTest, CompletionMemberAccessStringBuiltin) {
+    // String variable → "s." should show string members
+    std::string code =
+        "func main() {\n"
+        "    let s: string = \"hello\"\n"
+        "    s.\n"
+        "}\n";
+    initAndOpen("file:///test.liva", code);
+    // line 2 is "    s.", col=6
+    auto resp = parseResponse(
+        server.handleMessage(completionRequest("file:///test.liva", 2, 6)));
+    const auto &items = resp["result"].getArray();
+
+    bool hasLength = false, hasContains = false, hasToUpper = false;
+    for (const auto &item : items) {
+        std::string label = item["label"].getString();
+        if (label == "length") hasLength = true;
+        if (label == "contains") hasContains = true;
+        if (label == "toUpper") hasToUpper = true;
+    }
+    EXPECT_TRUE(hasLength);
+    EXPECT_TRUE(hasContains);
+    EXPECT_TRUE(hasToUpper);
+}
+
+TEST_F(LSPTest, CompletionLocalVariables) {
+    // Local variables should appear in non-member completion
+    std::string code =
+        "func main() {\n"
+        "    let x: i32 = 42\n"
+        "    let y: i32 = 10\n"
+        "    \n"
+        "}\n";
+    initAndOpen("file:///test.liva", code);
+    // line 3 (empty line inside function), col=4
+    auto resp = parseResponse(
+        server.handleMessage(completionRequest("file:///test.liva", 3, 4)));
+    const auto &items = resp["result"].getArray();
+
+    bool hasX = false, hasY = false;
+    for (const auto &item : items) {
+        std::string label = item["label"].getString();
+        if (label == "x") hasX = true;
+        if (label == "y") hasY = true;
+    }
+    EXPECT_TRUE(hasX);
+    EXPECT_TRUE(hasY);
+}
+
+TEST_F(LSPTest, CompletionMemberAccessNoKeywords) {
+    // After dot, no keywords should appear
+    std::string code =
+        "struct Foo {\n"
+        "    var name: string\n"
+        "}\n"
+        "func main() {\n"
+        "    let f: Foo = Foo { name: \"hi\" }\n"
+        "    f.\n"
+        "}\n";
+    initAndOpen("file:///test.liva", code);
+    auto resp = parseResponse(
+        server.handleMessage(completionRequest("file:///test.liva", 5, 6)));
+    const auto &items = resp["result"].getArray();
+
+    // Should have "name" field
+    bool hasName = false;
+    for (const auto &item : items) {
+        if (item["label"].getString() == "name") hasName = true;
+    }
+    EXPECT_TRUE(hasName);
+
+    // Should NOT have keywords like "func", "let"
+    for (const auto &item : items) {
+        EXPECT_NE(item["label"].getString(), "func");
+        EXPECT_NE(item["label"].getString(), "let");
+        EXPECT_NE(item["label"].getString(), "println");
+    }
+}
+
+// ============================================================
 // Hover Tests
 // ============================================================
 
