@@ -2,6 +2,7 @@
 
 #include "liva/Common/Diagnostics.h"
 #include "liva/Lexer/Token.h"
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -39,6 +40,19 @@ struct MacroFragment {
     std::vector<Token> tokens;
 };
 
+/// Trace event emitted during macro expansion
+struct MacroTraceEvent {
+    enum Phase { Invocation, ArmMatched, ArmFailed, NoMatch, Completed };
+    Phase phase;
+    std::string macroName;
+    SourceLocation invokeLoc;
+    size_t armIndex = 0;
+    std::map<std::string, std::string> captures;   // varName → token text
+    std::map<std::string, size_t> repCaptures;      // varName → repetition count
+    std::string expandedSource;
+};
+using MacroTraceCallback = std::function<void(const MacroTraceEvent &)>;
+
 /// Expands macro invocations by pattern matching and token substitution
 class MacroExpander {
 public:
@@ -47,6 +61,9 @@ public:
 
     /// Check if a macro is registered
     bool hasMacro(const std::string &name) const;
+
+    /// Set a callback to receive trace events during expansion
+    void setTraceCallback(MacroTraceCallback cb) { traceCallback_ = std::move(cb); }
 
     /// Expand a macro invocation, returning the expanded source string.
     /// Returns empty string on failure (no matching arm).
@@ -85,6 +102,7 @@ private:
                          MacroFragment &out) const;
 
     std::map<std::string, MacroDef> macros_;
+    mutable MacroTraceCallback traceCallback_;
 };
 
 } // namespace liva

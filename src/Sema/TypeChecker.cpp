@@ -3168,6 +3168,8 @@ void TypeChecker::visitMacroInvokeExpr(MacroInvokeExpr *node) {
         if (expanded.empty())
             return;
 
+        node->setExpandedSource(expanded);
+
         // Re-lex and re-parse the expanded source as an expression
         SourceManager sm("<macro-expansion>", expanded);
         DiagnosticsEngine tempDiag(&sm);

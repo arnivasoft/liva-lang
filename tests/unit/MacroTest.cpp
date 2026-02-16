@@ -609,3 +609,135 @@ TEST_F(MacroTest, MacroKeyword) {
     Token t = lexer.nextToken();
     EXPECT_EQ(t.getKind(), TokenKind::kw_macro);
 }
+
+// ============================================================
+// Trace callback tests
+// ============================================================
+
+TEST_F(MacroTest, MacroTraceCallbackBasic) {
+    MacroExpander expander;
+    auto def = MacroExpander::parseMacroDef("add1", false,
+        "($x:expr) => { $x + 1 }", SourceRange());
+    expander.registerMacro(def);
+
+    std::vector<MacroTraceEvent> events;
+    expander.setTraceCallback([&](const MacroTraceEvent &ev) {
+        events.push_back(ev);
+    });
+
+    SourceManager sm("test", "add1!(42)");
+    DiagnosticsEngine diag(&sm);
+    std::string result = expander.expand("add1", {}, diag, SourceLocation{1, 1});
+    // Even with empty args, callback is invoked
+    ASSERT_GE(events.size(), 1u);
+    EXPECT_EQ(events[0].phase, MacroTraceEvent::Invocation);
+    EXPECT_EQ(events[0].macroName, "add1");
+}
+
+TEST_F(MacroTest, MacroTraceCallbackCaptures) {
+    MacroExpander expander;
+    auto def = MacroExpander::parseMacroDef("double", false,
+        "($x:expr) => { $x + $x }", SourceRange());
+    expander.registerMacro(def);
+
+    std::vector<MacroTraceEvent> events;
+    expander.setTraceCallback([&](const MacroTraceEvent &ev) {
+        events.push_back(ev);
+    });
+
+    // Create a token for "42"
+    SourceManager sm("test", "42");
+    DiagnosticsEngine diag(&sm);
+    Lexer lexer(sm, diag);
+    std::vector<Token> args;
+    args.push_back(lexer.nextToken());
+
+    std::string result = expander.expand("double", args, diag, SourceLocation{1, 1});
+    EXPECT_FALSE(result.empty());
+
+    // Find ArmMatched event
+    bool foundMatch = false;
+    for (const auto &ev : events) {
+        if (ev.phase == MacroTraceEvent::ArmMatched) {
+            foundMatch = true;
+            EXPECT_EQ(ev.armIndex, 0u);
+            EXPECT_EQ(ev.captures.count("x"), 1u);
+            EXPECT_EQ(ev.captures.at("x"), "42");
+        }
+    }
+    EXPECT_TRUE(foundMatch);
+
+    // Find Completed event
+    bool foundComplete = false;
+    for (const auto &ev : events) {
+        if (ev.phase == MacroTraceEvent::Completed) {
+            foundComplete = true;
+            EXPECT_FALSE(ev.expandedSource.empty());
+        }
+    }
+    EXPECT_TRUE(foundComplete);
+}
+
+TEST_F(MacroTest, MacroTraceCallbackNoMatch) {
+    MacroExpander expander;
+    // Macro expects an ident, but we'll pass a literal
+    auto def = MacroExpander::parseMacroDef("id_only", false,
+        "($x:ident) => { $x }", SourceRange());
+    expander.registerMacro(def);
+
+    std::vector<MacroTraceEvent> events;
+    expander.setTraceCallback([&](const MacroTraceEvent &ev) {
+        events.push_back(ev);
+    });
+
+    // Pass a string literal token — won't match ident fragment
+    SourceManager sm("test", "\"hello\"");
+    DiagnosticsEngine diag(&sm);
+    Lexer lexer(sm, diag);
+    std::vector<Token> args;
+    args.push_back(lexer.nextToken());
+
+    std::string result = expander.expand("id_only", args, diag, SourceLocation{1, 1});
+    EXPECT_TRUE(result.empty());
+
+    // Should have ArmFailed + NoMatch
+    bool foundFailed = false, foundNoMatch = false;
+    for (const auto &ev : events) {
+        if (ev.phase == MacroTraceEvent::ArmFailed) foundFailed = true;
+        if (ev.phase == MacroTraceEvent::NoMatch) foundNoMatch = true;
+    }
+    EXPECT_TRUE(foundFailed);
+    EXPECT_TRUE(foundNoMatch);
+}
+
+TEST_F(MacroTest, MacroTraceCallbackMultiArm) {
+    MacroExpander expander;
+    auto def = MacroExpander::parseMacroDef("overload", false,
+        "($a:ident, $b:ident) => { $a + $b },\n"
+        "($x:expr) => { $x }", SourceRange());
+    expander.registerMacro(def);
+
+    std::vector<MacroTraceEvent> events;
+    expander.setTraceCallback([&](const MacroTraceEvent &ev) {
+        events.push_back(ev);
+    });
+
+    // Pass single expr — first arm should fail, second should match
+    SourceManager sm("test", "42");
+    DiagnosticsEngine diag(&sm);
+    Lexer lexer(sm, diag);
+    std::vector<Token> args;
+    args.push_back(lexer.nextToken());
+
+    std::string result = expander.expand("overload", args, diag, SourceLocation{1, 1});
+    EXPECT_FALSE(result.empty());
+
+    // Verify: Invocation, ArmFailed(0), ArmMatched(1), Completed
+    ASSERT_GE(events.size(), 4u);
+    EXPECT_EQ(events[0].phase, MacroTraceEvent::Invocation);
+    EXPECT_EQ(events[1].phase, MacroTraceEvent::ArmFailed);
+    EXPECT_EQ(events[1].armIndex, 0u);
+    EXPECT_EQ(events[2].phase, MacroTraceEvent::ArmMatched);
+    EXPECT_EQ(events[2].armIndex, 1u);
+    EXPECT_EQ(events[3].phase, MacroTraceEvent::Completed);
+}

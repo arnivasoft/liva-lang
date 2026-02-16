@@ -24,13 +24,68 @@ std::string MacroExpander::expand(const std::string &name,
 
     const auto &def = it->second;
 
-    for (const auto &arm : def.arms) {
+    // Emit Invocation trace event
+    if (traceCallback_) {
+        MacroTraceEvent ev;
+        ev.phase = MacroTraceEvent::Invocation;
+        ev.macroName = name;
+        ev.invokeLoc = invokeLoc;
+        traceCallback_(ev);
+    }
+
+    for (size_t armIdx = 0; armIdx < def.arms.size(); ++armIdx) {
+        const auto &arm = def.arms[armIdx];
         std::map<std::string, MacroFragment> captures;
         std::map<std::string, std::vector<MacroFragment>> repCaptures;
 
         if (matchArm(arm, argTokens, captures, repCaptures)) {
-            return substituteArm(arm, captures, repCaptures);
+            // Emit ArmMatched trace event
+            if (traceCallback_) {
+                MacroTraceEvent ev;
+                ev.phase = MacroTraceEvent::ArmMatched;
+                ev.macroName = name;
+                ev.invokeLoc = invokeLoc;
+                ev.armIndex = armIdx;
+                for (const auto &[k, v] : captures)
+                    ev.captures[k] = tokensToString(v.tokens);
+                for (const auto &[k, v] : repCaptures)
+                    ev.repCaptures[k] = v.size();
+                traceCallback_(ev);
+            }
+
+            std::string result = substituteArm(arm, captures, repCaptures);
+
+            // Emit Completed trace event
+            if (traceCallback_) {
+                MacroTraceEvent ev;
+                ev.phase = MacroTraceEvent::Completed;
+                ev.macroName = name;
+                ev.invokeLoc = invokeLoc;
+                ev.expandedSource = result;
+                traceCallback_(ev);
+            }
+
+            return result;
+        } else {
+            // Emit ArmFailed trace event
+            if (traceCallback_) {
+                MacroTraceEvent ev;
+                ev.phase = MacroTraceEvent::ArmFailed;
+                ev.macroName = name;
+                ev.invokeLoc = invokeLoc;
+                ev.armIndex = armIdx;
+                traceCallback_(ev);
+            }
         }
+    }
+
+    // Emit NoMatch trace event
+    if (traceCallback_) {
+        MacroTraceEvent ev;
+        ev.phase = MacroTraceEvent::NoMatch;
+        ev.macroName = name;
+        ev.invokeLoc = invokeLoc;
+        traceCallback_(ev);
     }
 
     diag.report(invokeLoc, DiagID::err_macro_no_matching_arm, name);

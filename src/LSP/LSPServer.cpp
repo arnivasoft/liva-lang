@@ -1,4 +1,5 @@
 #include "liva/LSP/LSPServer.h"
+#include "liva/Driver/Driver.h"
 #include "liva/Lexer/Lexer.h"
 #include "liva/Parser/Parser.h"
 #include "liva/Sema/Sema.h"
@@ -281,6 +282,7 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
         auto codeActionOpts = JSONValue::object();
         auto kinds = JSONValue::array();
         kinds.push(JSONValue("quickfix"));
+        kinds.push(JSONValue("refactor.extract"));
         codeActionOpts.set("codeActionKinds", std::move(kinds));
         capabilities.set("codeActionProvider", std::move(codeActionOpts));
     }
@@ -399,6 +401,10 @@ void LSPServer::analyzeDocument(DocumentState &doc) {
     if (!doc.diag.hasErrors() && doc.tu) {
         Sema sema(doc.diag, nullptr); // no ModuleLoader for single-file
         sema.analyze(*doc.tu);
+    }
+    // Run linter for additional warnings (bool comparison, empty func, etc.)
+    if (doc.tu) {
+        lintLivaSource(*doc.tu, doc.diag);
     }
     doc.analysisValid = (doc.tu != nullptr);
 }
@@ -1140,50 +1146,100 @@ JSONValue LSPServer::handleHover(const JSONValue &id,
         return makeResponse(id, JSONValue());
     }
 
-    const ASTNode *node = findNodeAtPosition(it->second.tu.get(), line, col);
-    if (!node) {
-        return makeResponse(id, JSONValue());
-    }
-
     std::string hoverText;
 
-    if (auto *fd = dynamic_cast<const FuncDecl *>(node)) {
-        hoverText = "func " + fd->getName() + "(";
-        bool first = true;
-        for (const auto &p : fd->getParams()) {
-            if (p.isSelf) continue;
-            if (!first) hoverText += ", ";
-            first = false;
-            hoverText += p.name;
-            if (p.type) {
-                hoverText += ": " + p.type->toString();
+    // Macro invocation hover (priority): search AST for MacroInvokeExpr at this line
+    {
+        auto findMacroAtLine = [](const ASTNode *n, uint32_t targetLine,
+                                   auto &self) -> const MacroInvokeExpr * {
+            if (!n) return nullptr;
+            if (auto *es = dynamic_cast<const ExprStmt *>(n)) {
+                auto *result = self(reinterpret_cast<const ASTNode *>(es->getExpr()), targetLine, self);
+                if (result) return result;
+            }
+            if (auto *me = dynamic_cast<const MacroInvokeExpr *>(n)) {
+                if (me->getRange().start.line == targetLine)
+                    return me;
+            }
+            if (auto *vd = dynamic_cast<const VarDecl *>(n)) {
+                if (vd->hasInit())
+                    return self(reinterpret_cast<const ASTNode *>(vd->getInit()), targetLine, self);
+            }
+            if (auto *bs = dynamic_cast<const BlockStmt *>(n)) {
+                for (const auto &s : bs->getStatements()) {
+                    auto *r = self(s.get(), targetLine, self);
+                    if (r) return r;
+                }
+            }
+            if (auto *fd = dynamic_cast<const FuncDecl *>(n)) {
+                if (fd->getBody())
+                    return self(fd->getBody(), targetLine, self);
+            }
+            if (auto *rs = dynamic_cast<const ReturnStmt *>(n)) {
+                if (rs->hasValue())
+                    return self(reinterpret_cast<const ASTNode *>(rs->getValue()), targetLine, self);
+            }
+            if (auto *is = dynamic_cast<const IfStmt *>(n)) {
+                auto *r = self(is->getThenBody(), targetLine, self);
+                if (r) return r;
+                if (is->hasElse())
+                    return self(is->getElseBody(), targetLine, self);
+            }
+            return nullptr;
+        };
+        for (const auto &decl : it->second.tu->getDeclarations()) {
+            auto *me = findMacroAtLine(decl.get(), line, findMacroAtLine);
+            if (me && !me->getExpandedSource().empty()) {
+                hoverText = "macro " + me->getName() + "! => " + me->getExpandedSource();
+                break;
             }
         }
-        hoverText += ")";
-        if (fd->getReturnType() && !fd->getReturnType()->isVoid()) {
-            hoverText += " -> " + fd->getReturnType()->toString();
-        }
-    } else if (auto *vd = dynamic_cast<const VarDecl *>(node)) {
-        hoverText = vd->isMutable() ? "var " : "let ";
-        hoverText += vd->getName();
-        if (vd->hasTypeAnnotation()) {
-            hoverText += ": " + vd->getType()->toString();
-        }
-    } else if (auto *sd = dynamic_cast<const StructDecl *>(node)) {
-        hoverText = "struct " + sd->getName();
-    } else if (auto *cd = dynamic_cast<const ClassDecl *>(node)) {
-        hoverText = "class " + cd->getName();
-        if (cd->hasParentClass()) {
-            hoverText += " : " + cd->getParentClass();
-        }
-    } else if (auto *ed = dynamic_cast<const EnumDecl *>(node)) {
-        hoverText = "enum " + ed->getName();
-    } else if (auto *pd = dynamic_cast<const ProtocolDecl *>(node)) {
-        hoverText = "protocol " + pd->getName();
-    } else if (auto *td = dynamic_cast<const TypeAliasDecl *>(node)) {
-        hoverText = "type " + td->getName();
-        if (td->getTargetType()) {
-            hoverText += " = " + td->getTargetType()->toString();
+    }
+
+    // General declaration hover
+    const ASTNode *hoverNode = nullptr;
+    if (hoverText.empty()) {
+        hoverNode = findNodeAtPosition(it->second.tu.get(), line, col);
+        if (hoverNode) {
+            if (auto *fd = dynamic_cast<const FuncDecl *>(hoverNode)) {
+                hoverText = "func " + fd->getName() + "(";
+                bool first = true;
+                for (const auto &p : fd->getParams()) {
+                    if (p.isSelf) continue;
+                    if (!first) hoverText += ", ";
+                    first = false;
+                    hoverText += p.name;
+                    if (p.type) {
+                        hoverText += ": " + p.type->toString();
+                    }
+                }
+                hoverText += ")";
+                if (fd->getReturnType() && !fd->getReturnType()->isVoid()) {
+                    hoverText += " -> " + fd->getReturnType()->toString();
+                }
+            } else if (auto *vd = dynamic_cast<const VarDecl *>(hoverNode)) {
+                hoverText = vd->isMutable() ? "var " : "let ";
+                hoverText += vd->getName();
+                if (vd->hasTypeAnnotation()) {
+                    hoverText += ": " + vd->getType()->toString();
+                }
+            } else if (auto *sd = dynamic_cast<const StructDecl *>(hoverNode)) {
+                hoverText = "struct " + sd->getName();
+            } else if (auto *cd = dynamic_cast<const ClassDecl *>(hoverNode)) {
+                hoverText = "class " + cd->getName();
+                if (cd->hasParentClass()) {
+                    hoverText += " : " + cd->getParentClass();
+                }
+            } else if (auto *ed = dynamic_cast<const EnumDecl *>(hoverNode)) {
+                hoverText = "enum " + ed->getName();
+            } else if (auto *pd = dynamic_cast<const ProtocolDecl *>(hoverNode)) {
+                hoverText = "protocol " + pd->getName();
+            } else if (auto *td = dynamic_cast<const TypeAliasDecl *>(hoverNode)) {
+                hoverText = "type " + td->getName();
+                if (td->getTargetType()) {
+                    hoverText += " = " + td->getTargetType()->toString();
+                }
+            }
         }
     }
 
@@ -1193,9 +1249,11 @@ JSONValue LSPServer::handleHover(const JSONValue &id,
 
     // Append doc comment if available
     std::string docComment;
-    if (auto *decl = dynamic_cast<const Decl *>(node)) {
-        if (decl->hasDocComment())
-            docComment = decl->getDocComment();
+    if (hoverNode) {
+        if (auto *decl = dynamic_cast<const Decl *>(hoverNode)) {
+            if (decl->hasDocComment())
+                docComment = decl->getDocComment();
+        }
     }
 
     auto contents = JSONValue::object();
@@ -1994,6 +2052,138 @@ JSONValue LSPServer::handleFormatting(const JSONValue &id,
 }
 
 // ============================================================
+// Code Action — helpers
+// ============================================================
+
+static JSONValue makeTextEdit(int line, int startCol, int endCol,
+                               const std::string &newText) {
+    auto textEdit = JSONValue::object();
+    auto startPos = JSONValue::object();
+    startPos.set("line", JSONValue(static_cast<int64_t>(line)));
+    startPos.set("character", JSONValue(static_cast<int64_t>(startCol)));
+    auto endPos = JSONValue::object();
+    endPos.set("line", JSONValue(static_cast<int64_t>(line)));
+    endPos.set("character", JSONValue(static_cast<int64_t>(endCol)));
+    auto range = JSONValue::object();
+    range.set("start", std::move(startPos));
+    range.set("end", std::move(endPos));
+    textEdit.set("range", std::move(range));
+    textEdit.set("newText", JSONValue(newText));
+    return textEdit;
+}
+
+static JSONValue makeTextEditMultiLine(int startLine, int startCol,
+                                        int endLine, int endCol,
+                                        const std::string &newText) {
+    auto textEdit = JSONValue::object();
+    auto startPos = JSONValue::object();
+    startPos.set("line", JSONValue(static_cast<int64_t>(startLine)));
+    startPos.set("character", JSONValue(static_cast<int64_t>(startCol)));
+    auto endPos = JSONValue::object();
+    endPos.set("line", JSONValue(static_cast<int64_t>(endLine)));
+    endPos.set("character", JSONValue(static_cast<int64_t>(endCol)));
+    auto range = JSONValue::object();
+    range.set("start", std::move(startPos));
+    range.set("end", std::move(endPos));
+    textEdit.set("range", std::move(range));
+    textEdit.set("newText", JSONValue(newText));
+    return textEdit;
+}
+
+static JSONValue makeCodeAction(const std::string &title,
+                                 const std::string &kind,
+                                 const std::string &uri,
+                                 JSONValue textEdit) {
+    auto action = JSONValue::object();
+    action.set("title", JSONValue(title));
+    action.set("kind", JSONValue(kind));
+    auto edit = JSONValue::object();
+    auto changes = JSONValue::object();
+    auto edits = JSONValue::array();
+    edits.push(std::move(textEdit));
+    changes.set(uri, std::move(edits));
+    edit.set("changes", std::move(changes));
+    action.set("edit", std::move(edit));
+    return action;
+}
+
+static JSONValue makeCodeActionMultiEdit(const std::string &title,
+                                          const std::string &kind,
+                                          const std::string &uri,
+                                          JSONValue editsArray) {
+    auto action = JSONValue::object();
+    action.set("title", JSONValue(title));
+    action.set("kind", JSONValue(kind));
+    auto edit = JSONValue::object();
+    auto changes = JSONValue::object();
+    changes.set(uri, std::move(editsArray));
+    edit.set("changes", std::move(changes));
+    action.set("edit", std::move(edit));
+    return action;
+}
+
+/// Extract first single-quoted string from a message
+static std::string extractFirstQuoted(const std::string &msg) {
+    auto q1 = msg.find('\'');
+    if (q1 == std::string::npos) return "";
+    auto q2 = msg.find('\'', q1 + 1);
+    if (q2 == std::string::npos) return "";
+    return msg.substr(q1 + 1, q2 - q1 - 1);
+}
+
+/// Extract second single-quoted string from a message
+static std::string extractSecondQuoted(const std::string &msg) {
+    auto q1 = msg.find('\'');
+    if (q1 == std::string::npos) return "";
+    auto q2 = msg.find('\'', q1 + 1);
+    if (q2 == std::string::npos) return "";
+    auto q3 = msg.find('\'', q2 + 1);
+    if (q3 == std::string::npos) return "";
+    auto q4 = msg.find('\'', q3 + 1);
+    if (q4 == std::string::npos) return "";
+    return msg.substr(q3 + 1, q4 - q3 - 1);
+}
+
+LSPServer::VarDeclLoc LSPServer::findVarDeclLoc(const std::string &content,
+                                                  const std::string &varName) const {
+    VarDeclLoc result;
+    int line = 0;
+    size_t lineStart = 0;
+    for (size_t i = 0; i <= content.size(); ++i) {
+        if (i == content.size() || content[i] == '\n') {
+            std::string lineStr = content.substr(lineStart, i - lineStart);
+            // Search for "let <varName>" or "let mut <varName>"
+            std::string letPat = "let " + varName;
+            std::string letMutPat = "let mut " + varName;
+            auto pos = lineStr.find(letMutPat);
+            if (pos != std::string::npos) {
+                // Check that the character after varName is not alphanumeric
+                size_t endPos = pos + letMutPat.size();
+                if (endPos >= lineStr.size() || !std::isalnum(static_cast<unsigned char>(lineStr[endPos]))) {
+                    result.line = line;
+                    result.col = static_cast<int>(pos);
+                    result.keywordLen = 7; // "let mut"
+                    return result;
+                }
+            }
+            pos = lineStr.find(letPat);
+            if (pos != std::string::npos) {
+                size_t endPos = pos + letPat.size();
+                if (endPos >= lineStr.size() || !std::isalnum(static_cast<unsigned char>(lineStr[endPos]))) {
+                    result.line = line;
+                    result.col = static_cast<int>(pos);
+                    result.keywordLen = 3; // "let"
+                    return result;
+                }
+            }
+            lineStart = i + 1;
+            ++line;
+        }
+    }
+    return result; // line == -1 means not found
+}
+
+// ============================================================
 // Code Action
 // ============================================================
 
@@ -2009,82 +2199,216 @@ JSONValue LSPServer::handleCodeAction(const JSONValue &id,
 
     int rangeStartLine = static_cast<int>(params["range"]["start"]["line"].getInteger());
     int rangeEndLine = static_cast<int>(params["range"]["end"]["line"].getInteger());
+    int rangeStartCol = static_cast<int>(params["range"]["start"]["character"].getInteger());
+    int rangeEndCol = static_cast<int>(params["range"]["end"]["character"].getInteger());
 
-    for (const auto &d : doc.diag.getDiagnostics()) {
+    const auto &diags = doc.diag.getDiagnostics();
+
+    for (size_t di = 0; di < diags.size(); ++di) {
+        const auto &d = diags[di];
         int diagLine = (d.location.line > 0) ? static_cast<int>(d.location.line) - 1 : 0;
         if (diagLine < rangeStartLine || diagLine > rangeEndLine)
             continue;
 
+        // --- warn_unused_variable: prefix _ / remove line ---
         if (d.id == DiagID::warn_unused_variable) {
-            // Extract variable name from message "unused variable 'NAME'"
-            std::string varName;
-            auto q1 = d.message.find('\'');
-            auto q2 = d.message.rfind('\'');
-            if (q1 != std::string::npos && q2 > q1)
-                varName = d.message.substr(q1 + 1, q2 - q1 - 1);
-
+            std::string varName = extractFirstQuoted(d.message);
             if (!varName.empty()) {
-                // Action 1: Prefix with _
-                {
-                    auto action = JSONValue::object();
-                    action.set("title", JSONValue("Prefix '" + varName + "' with _"));
-                    action.set("kind", JSONValue("quickfix"));
+                int col = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
+                actions.push(makeCodeAction(
+                    "Prefix '" + varName + "' with _", "quickfix", uri,
+                    makeTextEdit(diagLine, col, col + static_cast<int>(varName.size()),
+                                 "_" + varName)));
+                actions.push(makeCodeAction(
+                    "Remove unused variable '" + varName + "'", "quickfix", uri,
+                    makeTextEditMultiLine(diagLine, 0, diagLine + 1, 0, "")));
+            }
+        }
 
-                    // Build workspace edit: rename varName → _varName on that line
-                    auto edit = JSONValue::object();
-                    auto changes = JSONValue::object();
-                    auto edits = JSONValue::array();
-                    auto textEdit = JSONValue::object();
-                    // Find variable name on the diagnostic line
-                    int col = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
-                    auto startPos = JSONValue::object();
-                    startPos.set("line", JSONValue(static_cast<int64_t>(diagLine)));
-                    startPos.set("character", JSONValue(static_cast<int64_t>(col)));
-                    auto endPos = JSONValue::object();
-                    endPos.set("line", JSONValue(static_cast<int64_t>(diagLine)));
-                    endPos.set("character", JSONValue(static_cast<int64_t>(col + static_cast<int>(varName.size()))));
-                    auto range = JSONValue::object();
-                    range.set("start", std::move(startPos));
-                    range.set("end", std::move(endPos));
-                    textEdit.set("range", std::move(range));
-                    textEdit.set("newText", JSONValue("_" + varName));
-                    edits.push(std::move(textEdit));
-                    changes.set(uri, std::move(edits));
-                    edit.set("changes", std::move(changes));
-                    action.set("edit", std::move(edit));
-                    actions.push(std::move(action));
+        // --- err_assign_to_immutable / err_mut_ref_to_immutable: let → var ---
+        if (d.id == DiagID::err_assign_to_immutable ||
+            d.id == DiagID::err_mut_ref_to_immutable) {
+            std::string varName = extractFirstQuoted(d.message);
+            if (!varName.empty()) {
+                auto loc = findVarDeclLoc(doc.content, varName);
+                if (loc.line >= 0) {
+                    actions.push(makeCodeAction(
+                        "Change 'let' to 'var' for '" + varName + "'",
+                        "quickfix", uri,
+                        makeTextEdit(loc.line, loc.col,
+                                     loc.col + loc.keywordLen, "var")));
                 }
-                // Action 2: Remove unused variable line
-                {
-                    auto action = JSONValue::object();
-                    action.set("title", JSONValue("Remove unused variable '" + varName + "'"));
-                    action.set("kind", JSONValue("quickfix"));
+            }
+        }
 
-                    auto edit = JSONValue::object();
-                    auto changes = JSONValue::object();
-                    auto edits = JSONValue::array();
-                    auto textEdit = JSONValue::object();
-                    // Delete the entire line
-                    auto startPos = JSONValue::object();
-                    startPos.set("line", JSONValue(static_cast<int64_t>(diagLine)));
-                    startPos.set("character", JSONValue(static_cast<int64_t>(0)));
-                    auto endPos = JSONValue::object();
-                    endPos.set("line", JSONValue(static_cast<int64_t>(diagLine + 1)));
-                    endPos.set("character", JSONValue(static_cast<int64_t>(0)));
-                    auto range = JSONValue::object();
-                    range.set("start", std::move(startPos));
-                    range.set("end", std::move(endPos));
-                    textEdit.set("range", std::move(range));
-                    textEdit.set("newText", JSONValue(""));
-                    edits.push(std::move(textEdit));
-                    changes.set(uri, std::move(edits));
-                    edit.set("changes", std::move(changes));
-                    action.set("edit", std::move(edit));
-                    actions.push(std::move(action));
+        // --- err_let_mut_not_supported: "let mut" → "var" ---
+        if (d.id == DiagID::err_let_mut_not_supported) {
+            int col = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
+            actions.push(makeCodeAction(
+                "Replace 'let mut' with 'var'", "quickfix", uri,
+                makeTextEdit(diagLine, col, col + 7, "var")));
+        }
+
+        // --- err_foreign_keyword: fn→func, trait→protocol, etc. ---
+        if (d.id == DiagID::err_foreign_keyword) {
+            std::string foreignKw = extractFirstQuoted(d.message);
+            std::string correctKw = extractSecondQuoted(d.message);
+            if (!foreignKw.empty() && !correctKw.empty()) {
+                int col = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
+                actions.push(makeCodeAction(
+                    "Replace '" + foreignKw + "' with '" + correctKw + "'",
+                    "quickfix", uri,
+                    makeTextEdit(diagLine, col,
+                                 col + static_cast<int>(foreignKw.size()),
+                                 correctKw)));
+            }
+        }
+
+        // --- warn_shadowed_variable: rename to _varName ---
+        if (d.id == DiagID::warn_shadowed_variable) {
+            std::string varName = extractFirstQuoted(d.message);
+            if (!varName.empty()) {
+                int col = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
+                actions.push(makeCodeAction(
+                    "Rename to '_" + varName + "' to avoid shadowing",
+                    "quickfix", uri,
+                    makeTextEdit(diagLine, col,
+                                 col + static_cast<int>(varName.size()),
+                                 "_" + varName)));
+            }
+        }
+
+        // --- err_undeclared_identifier + note_did_you_mean: replace with suggestion ---
+        if (d.id == DiagID::err_undeclared_identifier) {
+            std::string wrongName = extractFirstQuoted(d.message);
+            // Look ahead for a note_did_you_mean
+            if (di + 1 < diags.size() &&
+                diags[di + 1].id == DiagID::note_did_you_mean) {
+                std::string suggested = extractFirstQuoted(diags[di + 1].message);
+                if (!wrongName.empty() && !suggested.empty()) {
+                    int col = (d.location.column > 0)
+                                  ? static_cast<int>(d.location.column) - 1 : 0;
+                    actions.push(makeCodeAction(
+                        "Replace '" + wrongName + "' with '" + suggested + "'",
+                        "quickfix", uri,
+                        makeTextEdit(diagLine, col,
+                                     col + static_cast<int>(wrongName.size()),
+                                     suggested)));
+                }
+            }
+        }
+
+        // --- warn_lint_bool_comparison: simplify boolean comparison ---
+        if (d.id == DiagID::warn_lint_bool_comparison) {
+            // Find the comparison on the diagnostic line
+            // Split content into lines
+            std::string lineStr;
+            {
+                int curLine = 0;
+                size_t lineStart = 0;
+                for (size_t i = 0; i <= doc.content.size(); ++i) {
+                    if (i == doc.content.size() || doc.content[i] == '\n') {
+                        if (curLine == diagLine) {
+                            lineStr = doc.content.substr(lineStart, i - lineStart);
+                            break;
+                        }
+                        lineStart = i + 1;
+                        ++curLine;
+                    }
+                }
+            }
+            // Search for patterns: "== true", "== false", "!= true", "!= false"
+            struct BoolPat { const char *pat; const char *prefix; const char *suffix; };
+            BoolPat patterns[] = {
+                {"== true",  "",  ""},   // x == true → x
+                {"== false", "!", ""},   // x == false → !x
+                {"!= true",  "!", ""},   // x != true → !x
+                {"!= false", "",  ""},   // x != false → x
+            };
+            for (const auto &bp : patterns) {
+                auto pos = lineStr.find(bp.pat);
+                if (pos != std::string::npos) {
+                    // Find the start of the expression before the comparison
+                    // Walk backwards from pos to find the variable/expr
+                    size_t exprStart = pos;
+                    // skip whitespace before operator
+                    while (exprStart > 0 && lineStr[exprStart - 1] == ' ')
+                        --exprStart;
+                    // find start of identifier
+                    size_t idStart = exprStart;
+                    while (idStart > 0 && (std::isalnum(static_cast<unsigned char>(lineStr[idStart - 1])) ||
+                                           lineStr[idStart - 1] == '_'))
+                        --idStart;
+                    std::string exprName = lineStr.substr(idStart, exprStart - idStart);
+                    size_t patEnd = pos + std::strlen(bp.pat);
+                    std::string replacement = std::string(bp.prefix) + exprName + bp.suffix;
+                    actions.push(makeCodeAction(
+                        "Simplify boolean comparison",
+                        "quickfix", uri,
+                        makeTextEdit(diagLine, static_cast<int>(idStart),
+                                     static_cast<int>(patEnd), replacement)));
+                    break;
                 }
             }
         }
     }
+
+    // --- Refactoring: Extract Function ---
+    if (rangeEndLine > rangeStartLine) {
+        // Extract selected lines into a new function
+        std::vector<std::string> lines;
+        {
+            std::string currentLine;
+            for (size_t i = 0; i <= doc.content.size(); ++i) {
+                if (i == doc.content.size() || doc.content[i] == '\n') {
+                    lines.push_back(currentLine);
+                    currentLine.clear();
+                } else if (doc.content[i] != '\r') {
+                    currentLine += doc.content[i];
+                }
+            }
+        }
+
+        if (rangeEndLine < static_cast<int>(lines.size())) {
+            // Collect selected lines
+            std::string body;
+            for (int i = rangeStartLine; i <= rangeEndLine; ++i) {
+                body += "    " + lines[i] + "\n";
+            }
+
+            // Find enclosing function to insert before it
+            int insertLine = 0;
+            for (int i = rangeStartLine; i >= 0; --i) {
+                if (lines[i].find("func ") != std::string::npos) {
+                    insertLine = i;
+                    break;
+                }
+            }
+
+            std::string newFunc = "func extracted() {\n" + body + "}\n\n";
+            std::string callStr = "    extracted()";
+
+            auto editsArr = JSONValue::array();
+            // Insert new function before enclosing function
+            editsArr.push(makeTextEditMultiLine(insertLine, 0, insertLine, 0, newFunc));
+            // Replace selected lines with call (adjust for inserted lines)
+            int offset = 0;
+            // Count newlines in newFunc
+            for (char c : newFunc) {
+                if (c == '\n') ++offset;
+            }
+            editsArr.push(makeTextEditMultiLine(
+                rangeStartLine + offset, 0,
+                rangeEndLine + offset,
+                static_cast<int>(lines[rangeEndLine].size()),
+                callStr));
+
+            actions.push(makeCodeActionMultiEdit(
+                "Extract to function 'extracted()'",
+                "refactor.extract", uri, std::move(editsArr)));
+        }
+    }
+
     return makeResponse(id, std::move(actions));
 }
 
@@ -2722,6 +3046,84 @@ void LSPServer::collectVarDeclHints(const ASTNode *node, uint32_t startLine,
     }
 }
 
+void LSPServer::collectMacroHints(const ASTNode *node, uint32_t startLine,
+                                   uint32_t endLine, JSONValue &hints) {
+    if (!node) return;
+
+    // Helper to emit a macro hint for a MacroInvokeExpr
+    auto emitMacroHint = [&](const MacroInvokeExpr *me) {
+        uint32_t line = me->getRange().start.line;
+        if (line >= startLine && line <= endLine && !me->getExpandedSource().empty()) {
+            auto hint = JSONValue::object();
+            auto pos = JSONValue::object();
+            pos.set("line", JSONValue(static_cast<int64_t>(line - 1)));
+            uint32_t endCol = me->getRange().end.column > 0 ? me->getRange().end.column : me->getRange().start.column + 1;
+            pos.set("character", JSONValue(static_cast<int64_t>(endCol)));
+            hint.set("position", std::move(pos));
+
+            std::string label = me->getExpandedSource();
+            if (label.size() > 50)
+                label = label.substr(0, 47) + "...";
+            hint.set("label", JSONValue("\xe2\x86\x92 " + label));
+            hint.set("kind", JSONValue(static_cast<int64_t>(2)));
+            hints.push(std::move(hint));
+        }
+    };
+
+    if (auto *es = dynamic_cast<const ExprStmt *>(node)) {
+        if (auto *me = dynamic_cast<const MacroInvokeExpr *>(es->getExpr()))
+            emitMacroHint(me);
+        return;
+    }
+
+    if (auto *vd = dynamic_cast<const VarDecl *>(node)) {
+        if (vd->hasInit()) {
+            if (auto *me = dynamic_cast<const MacroInvokeExpr *>(vd->getInit()))
+                emitMacroHint(me);
+        }
+        return;
+    }
+
+    if (auto *rs = dynamic_cast<const ReturnStmt *>(node)) {
+        if (rs->hasValue()) {
+            if (auto *me = dynamic_cast<const MacroInvokeExpr *>(rs->getValue()))
+                emitMacroHint(me);
+        }
+        return;
+    }
+
+    if (auto *fd = dynamic_cast<const FuncDecl *>(node)) {
+        if (fd->getBody()) {
+            for (const auto &stmt : fd->getBody()->getStatements())
+                collectMacroHints(stmt.get(), startLine, endLine, hints);
+        }
+        return;
+    }
+
+    if (auto *bs = dynamic_cast<const BlockStmt *>(node)) {
+        for (const auto &stmt : bs->getStatements())
+            collectMacroHints(stmt.get(), startLine, endLine, hints);
+        return;
+    }
+
+    if (auto *is = dynamic_cast<const IfStmt *>(node)) {
+        collectMacroHints(is->getThenBody(), startLine, endLine, hints);
+        if (is->hasElse())
+            collectMacroHints(is->getElseBody(), startLine, endLine, hints);
+        return;
+    }
+
+    if (auto *ws = dynamic_cast<const WhileStmt *>(node)) {
+        collectMacroHints(ws->getBody(), startLine, endLine, hints);
+        return;
+    }
+
+    if (auto *fs = dynamic_cast<const ForStmt *>(node)) {
+        collectMacroHints(fs->getBody(), startLine, endLine, hints);
+        return;
+    }
+}
+
 // ============================================================
 // Workspace Symbol
 // ============================================================
@@ -2831,6 +3233,7 @@ JSONValue LSPServer::handleInlayHint(const JSONValue &id,
     auto hints = JSONValue::array();
     for (const auto &decl : it->second.tu->getDeclarations()) {
         collectVarDeclHints(decl.get(), startLine, endLine, hints);
+        collectMacroHints(decl.get(), startLine, endLine, hints);
     }
 
     return makeResponse(id, std::move(hints));

@@ -95,6 +95,8 @@ private:
     // Inlay hint helpers
     void collectVarDeclHints(const ASTNode *node, uint32_t startLine,
                              uint32_t endLine, JSONValue &hints);
+    void collectMacroHints(const ASTNode *node, uint32_t startLine,
+                           uint32_t endLine, JSONValue &hints);
 
     // Analysis helpers
     void analyzeDocument(DocumentState &doc);
@@ -107,6 +109,11 @@ private:
                                       uint32_t line, uint32_t col) const;
     const Decl *findDeclByName(const TranslationUnit *tu,
                                const std::string &name) const;
+
+    // Find the declaration location of a variable (for let→var fixes)
+    struct VarDeclLoc { int line = -1; int col = 0; int keywordLen = 3; };
+    VarDeclLoc findVarDeclLoc(const std::string &content,
+                               const std::string &varName) const;
 
     // Find all occurrences of a name in document text (line/col are 0-indexed)
     struct TextLocation { uint32_t line; uint32_t col; uint32_t endCol; };

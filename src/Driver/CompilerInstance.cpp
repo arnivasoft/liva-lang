@@ -9,6 +9,7 @@
 #include "liva/Parser/Parser.h"
 #include "liva/Plugin/PluginRegistry.h"
 #include "liva/Sema/ModuleLoader.h"
+#include "liva/Macro/MacroExpander.h"
 #include "liva/Sema/Sema.h"
 #include <cstdio>
 #include <fstream>
@@ -16,6 +17,37 @@
 #include <sstream>
 
 namespace liva {
+
+static void installTraceMacros(Sema &sema) {
+    sema.getTypeChecker().getMacroExpander().setTraceCallback(
+        [](const MacroTraceEvent &ev) {
+            fprintf(stderr, "[macro-trace] ");
+            switch (ev.phase) {
+            case MacroTraceEvent::Invocation:
+                fprintf(stderr, "expanding %s! at %u:%u\n",
+                        ev.macroName.c_str(), ev.invokeLoc.line, ev.invokeLoc.column);
+                break;
+            case MacroTraceEvent::ArmMatched:
+                fprintf(stderr, "  arm #%zu matched", ev.armIndex);
+                if (!ev.captures.empty()) {
+                    fprintf(stderr, " captures:");
+                    for (const auto &[k, v] : ev.captures)
+                        fprintf(stderr, " $%s=%s", k.c_str(), v.c_str());
+                }
+                fprintf(stderr, "\n");
+                break;
+            case MacroTraceEvent::ArmFailed:
+                fprintf(stderr, "  arm #%zu failed\n", ev.armIndex);
+                break;
+            case MacroTraceEvent::NoMatch:
+                fprintf(stderr, "  no matching arm\n");
+                break;
+            case MacroTraceEvent::Completed:
+                fprintf(stderr, "  => %s\n", ev.expandedSource.c_str());
+                break;
+            }
+        });
+}
 
 static TargetInfo resolveTarget(const std::string &targetTriple) {
     if (!targetTriple.empty())
@@ -99,6 +131,8 @@ bool CompilerInstance::checkOnly() {
         loader.addSearchPath(sp);
 
     Sema sema(diag_, &loader);
+    if (traceMacros_)
+        installTraceMacros(sema);
     if (!sema.analyze(*tu))
         return false;
 
@@ -126,6 +160,8 @@ std::optional<CompilerInstance::IRResult> CompilerInstance::compileToIR() {
         loader.addSearchPath(sp);
 
     Sema sema(diag_, &loader);
+    if (traceMacros_)
+        installTraceMacros(sema);
     if (!sema.analyze(*tu))
         return std::nullopt;
 
@@ -158,6 +194,8 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
         loader.addSearchPath(sp);
 
     Sema sema(diag_, &loader);
+    if (traceMacros_)
+        installTraceMacros(sema);
     if (!sema.analyze(*tu))
         return false;
 
@@ -203,6 +241,8 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
     }
 
     Sema sema(diag_, loader);
+    if (traceMacros_)
+        installTraceMacros(sema);
     if (!sema.analyze(*tu))
         return false;
 
@@ -268,6 +308,8 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
     }
 
     Sema sema(diag_, loader);
+    if (traceMacros_)
+        installTraceMacros(sema);
     if (!sema.analyze(*tu))
         return result;
 
@@ -334,6 +376,8 @@ bool CompilerInstance::compile(const std::string &outputPath) {
         loader.addSearchPath(sp);
 
     Sema sema(diag_, &loader);
+    if (traceMacros_)
+        installTraceMacros(sema);
     if (!sema.analyze(*tu))
         return false;
 

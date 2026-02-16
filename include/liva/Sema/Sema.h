@@ -26,6 +26,8 @@ public:
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
+    TypeChecker &getTypeChecker() { return typeChecker_; }
+
 private:
     DiagnosticsEngine &diag_;
     TypeChecker typeChecker_;

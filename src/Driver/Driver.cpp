@@ -332,6 +332,11 @@ bool Driver::parseArgs(int argc, const char **argv) {
             continue;
         }
 
+        if (std::strcmp(arg, "--trace-macros") == 0) {
+            options_.traceMacros = true;
+            continue;
+        }
+
         // If starts with -, unknown flag
         if (arg[0] == '-') {
             std::cerr << "error: unknown option '" << arg << "'\n";
@@ -398,6 +403,7 @@ int Driver::executeLegacy() {
     compiler.setDebugInfo(options_.debugInfo);
     compiler.setTargetTriple(options_.targetTriple);
     compiler.setColorMode(options_.colorMode);
+    compiler.setTraceMacros(options_.traceMacros);
     compiler.setPluginRegistry(&pluginRegistry);
     if (!compiler.loadFile(options_.inputFile))
         return 1;
@@ -1672,7 +1678,8 @@ void Driver::printHelp() {
               << "  -j N                Number of parallel compilation jobs (default: auto)\n"
               << "  --rebuild           Force recompile all files (bypass cache)\n"
               << "  --target <triple>   Cross-compile for target triple\n"
-              << "  --color=<mode>      Color output: auto, always, never (default: auto)\n";
+              << "  --color=<mode>      Color output: auto, always, never (default: auto)\n"
+              << "  --trace-macros      Trace macro expansions to stderr\n";
 }
 
 } // namespace liva

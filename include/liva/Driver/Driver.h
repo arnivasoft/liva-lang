@@ -44,6 +44,7 @@ struct DriverOptions {
     std::string targetTriple;       // --target=<triple>
     bool hasTargetOverride = false;
     ColorMode colorMode = ColorMode::Auto;  // --color=auto|always|never
+    bool traceMacros = false;
 };
 
 /// Parses command-line arguments and drives compilation

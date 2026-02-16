@@ -47,6 +47,9 @@ public:
     /// Set color mode for diagnostic output
     void setColorMode(ColorMode mode) { colorMode_ = mode; }
 
+    /// Enable macro expansion tracing to stderr
+    void setTraceMacros(bool v) { traceMacros_ = v; }
+
     /// Set additional module search paths
     void setSearchPaths(const std::vector<std::string> &paths) {
         searchPaths_ = paths;
@@ -123,6 +126,7 @@ private:
     std::vector<std::string> searchPaths_;
     std::string targetTriple_;
     ColorMode colorMode_ = ColorMode::Auto;
+    bool traceMacros_ = false;
     PluginRegistry *pluginRegistry_ = nullptr;
 };
 

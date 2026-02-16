@@ -77,6 +77,9 @@ public:
 
     bool hasErrors() const { return diag_.hasErrors(); }
 
+    /// Access the macro expander
+    MacroExpander &getMacroExpander() { return macroExpander_; }
+
 private:
     /// Register built-in types and functions
     void registerBuiltins();

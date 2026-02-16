@@ -564,6 +564,9 @@ public:
     Expr *getExpanded() { return expanded_.get(); }
     const Expr *getExpanded() const { return expanded_.get(); }
 
+    void setExpandedSource(std::string src) { expandedSource_ = std::move(src); }
+    const std::string &getExpandedSource() const { return expandedSource_; }
+
     static bool classof(const ASTNode *n) {
         return n->getKind() == NodeKind::MacroInvokeExpr;
     }
@@ -572,6 +575,7 @@ private:
     std::string name_;
     std::vector<Token> argTokens_;
     std::unique_ptr<Expr> expanded_;
+    std::string expandedSource_;
 };
 
 } // namespace liva

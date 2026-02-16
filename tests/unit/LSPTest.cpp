@@ -1274,11 +1274,17 @@ TEST_F(LSPTest, FormattingCapability) {
 // ============================================================
 
 TEST_F(LSPTest, CodeActionEmpty) {
+    // Single-line range with no diagnostics → no quickfix actions
     initAndOpen("file:///test.liva", "func main() {\n    return\n}");
     auto resp = parseResponse(
-        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+        server.handleMessage(codeActionRequest("file:///test.liva", 1, 0, 1, 10)));
     EXPECT_TRUE(resp["result"].isArray());
-    EXPECT_TRUE(resp["result"].getArray().empty());
+    // No quickfix actions expected on a clean single line
+    bool hasQuickfix = false;
+    for (const auto &a : resp["result"].getArray()) {
+        if (a["kind"].getString() == "quickfix") hasQuickfix = true;
+    }
+    EXPECT_FALSE(hasQuickfix);
 }
 
 TEST_F(LSPTest, CodeActionCapability) {
@@ -1723,12 +1729,16 @@ TEST_F(LSPTest, CodeActionUnusedVarRemove) {
 }
 
 TEST_F(LSPTest, CodeActionNoFixForClean) {
-    // Clean code with no warnings should produce empty actions
+    // Clean code with no warnings should produce no quickfix actions
     initAndOpen("file:///test.liva", "func main() {\n    return\n}");
     auto resp = parseResponse(
-        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+        server.handleMessage(codeActionRequest("file:///test.liva", 1, 0, 1, 10)));
     EXPECT_TRUE(resp["result"].isArray());
-    EXPECT_TRUE(resp["result"].getArray().empty());
+    bool hasQuickfix = false;
+    for (const auto &a : resp["result"].getArray()) {
+        if (a["kind"].getString() == "quickfix") hasQuickfix = true;
+    }
+    EXPECT_FALSE(hasQuickfix);
 }
 
 TEST_F(LSPTest, CodeActionOutOfRange) {
@@ -1743,9 +1753,10 @@ TEST_F(LSPTest, CodeActionOutOfRange) {
 }
 
 TEST_F(LSPTest, CodeActionKindQuickfix) {
+    // Diagnostic-triggered actions should all be "quickfix" kind
     initAndOpen("file:///test.liva", "func main() {\n    let x = 5\n    return\n}");
     auto resp = parseResponse(
-        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+        server.handleMessage(codeActionRequest("file:///test.liva", 1, 0, 1, 14)));
     const auto &actions = resp["result"].getArray();
     for (const auto &a : actions) {
         EXPECT_EQ(a["kind"].getString(), "quickfix");
@@ -1757,6 +1768,337 @@ TEST_F(LSPTest, CodeActionCapabilityObject) {
     const auto &caps = resp["result"]["capabilities"];
     EXPECT_TRUE(caps["codeActionProvider"].isObject());
     EXPECT_TRUE(caps["codeActionProvider"].hasKey("codeActionKinds"));
+}
+
+// ============================================================
+// Code Action — let → var (err_assign_to_immutable)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionLetToVar) {
+    // "let x = 5; x = 10" triggers err_assign_to_immutable
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 5\n    x = 10\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasLetToVar = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Change 'let' to 'var'") != std::string::npos) {
+            hasLetToVar = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+        }
+    }
+    EXPECT_TRUE(hasLetToVar);
+}
+
+TEST_F(LSPTest, CodeActionLetToVarEdit) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 5\n    x = 10\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Change 'let' to 'var'") != std::string::npos) {
+            // Check edit replaces "let" (3 chars) with "var"
+            const auto &changes = a["edit"]["changes"]["file:///test.liva"].getArray();
+            ASSERT_GE(changes.size(), 1u);
+            EXPECT_EQ(changes[0]["newText"].getString(), "var");
+            // "let" is at line 1, col 4
+            EXPECT_EQ(changes[0]["range"]["start"]["line"].getInteger(), 1);
+            EXPECT_EQ(changes[0]["range"]["start"]["character"].getInteger(), 4);
+            int endCol = static_cast<int>(changes[0]["range"]["end"]["character"].getInteger());
+            int startCol = static_cast<int>(changes[0]["range"]["start"]["character"].getInteger());
+            EXPECT_EQ(endCol - startCol, 3); // "let" = 3 chars
+        }
+    }
+}
+
+// ============================================================
+// Code Action — let → var (err_mut_ref_to_immutable)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionMutRefToVar) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 5\n    let r = ref mut x\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasLetToVar = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Change 'let' to 'var'") != std::string::npos &&
+            title.find("'x'") != std::string::npos) {
+            hasLetToVar = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+        }
+    }
+    EXPECT_TRUE(hasLetToVar);
+}
+
+// ============================================================
+// Code Action — let mut → var (err_let_mut_not_supported)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionLetMutToVar) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let mut x = 5\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasLetMutToVar = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Replace 'let mut' with 'var'") != std::string::npos) {
+            hasLetMutToVar = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+        }
+    }
+    EXPECT_TRUE(hasLetMutToVar);
+}
+
+TEST_F(LSPTest, CodeActionLetMutEdit) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let mut x = 5\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    const auto &actions = resp["result"].getArray();
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Replace 'let mut' with 'var'") != std::string::npos) {
+            const auto &changes = a["edit"]["changes"]["file:///test.liva"].getArray();
+            ASSERT_GE(changes.size(), 1u);
+            EXPECT_EQ(changes[0]["newText"].getString(), "var");
+            // "let mut" = 7 chars
+            int endCol = static_cast<int>(changes[0]["range"]["end"]["character"].getInteger());
+            int startCol = static_cast<int>(changes[0]["range"]["start"]["character"].getInteger());
+            EXPECT_EQ(endCol - startCol, 7);
+        }
+    }
+}
+
+// ============================================================
+// Code Action — foreign keyword (err_foreign_keyword)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionForeignKeyword) {
+    initAndOpen("file:///test.liva", "fn foo() {}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 0, 11)));
+    const auto &actions = resp["result"].getArray();
+    bool hasFix = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Replace 'fn' with 'func'") != std::string::npos) {
+            hasFix = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+            const auto &changes = a["edit"]["changes"]["file:///test.liva"].getArray();
+            ASSERT_GE(changes.size(), 1u);
+            EXPECT_EQ(changes[0]["newText"].getString(), "func");
+        }
+    }
+    EXPECT_TRUE(hasFix);
+}
+
+TEST_F(LSPTest, CodeActionForeignTrait) {
+    initAndOpen("file:///test.liva", "trait Foo {\n    func bar(self) -> i32\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasFix = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Replace 'trait' with 'protocol'") != std::string::npos) {
+            hasFix = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+            const auto &changes = a["edit"]["changes"]["file:///test.liva"].getArray();
+            ASSERT_GE(changes.size(), 1u);
+            EXPECT_EQ(changes[0]["newText"].getString(), "protocol");
+        }
+    }
+    EXPECT_TRUE(hasFix);
+}
+
+// ============================================================
+// Code Action — shadowed variable (warn_shadowed_variable)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionShadowedVar) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 1\n    if true {\n        let x: i32 = 2\n        println(x)\n    }\n    println(x)\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 7, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasShadowFix = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Rename to '_x'") != std::string::npos) {
+            hasShadowFix = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+        }
+    }
+    EXPECT_TRUE(hasShadowFix);
+}
+
+// ============================================================
+// Code Action — did you mean (err_undeclared_identifier + note_did_you_mean)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionDidYouMean) {
+    // "prinln" is close enough to "println" (edit distance 1)
+    initAndOpen("file:///test.liva",
+                "func main() {\n    prinln(42)\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasDidYouMean = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Replace 'prinln' with 'println'") != std::string::npos) {
+            hasDidYouMean = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+            const auto &changes = a["edit"]["changes"]["file:///test.liva"].getArray();
+            ASSERT_GE(changes.size(), 1u);
+            EXPECT_EQ(changes[0]["newText"].getString(), "println");
+        }
+    }
+    EXPECT_TRUE(hasDidYouMean);
+}
+
+// ============================================================
+// Code Action — bool comparison (warn_lint_bool_comparison)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionBoolComparison) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x = true\n    let y = x == true\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasBoolFix = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Simplify boolean comparison") != std::string::npos) {
+            hasBoolFix = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+        }
+    }
+    EXPECT_TRUE(hasBoolFix);
+}
+
+TEST_F(LSPTest, CodeActionBoolCompFalse) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x = true\n    let y = x == false\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasBoolFix = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Simplify boolean comparison") != std::string::npos) {
+            hasBoolFix = true;
+            // The edit should contain "!" prefix
+            const auto &changes = a["edit"]["changes"]["file:///test.liva"].getArray();
+            ASSERT_GE(changes.size(), 1u);
+            std::string newText = changes[0]["newText"].getString();
+            EXPECT_TRUE(newText.find("!") != std::string::npos);
+        }
+    }
+    EXPECT_TRUE(hasBoolFix);
+}
+
+// ============================================================
+// Code Action — Extract Function (refactor.extract)
+// ============================================================
+
+TEST_F(LSPTest, CodeActionExtractFunction) {
+    // Select lines 1-2 (two statements inside function body)
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 1\n    let y: i32 = 2\n    println(x)\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 1, 0, 2, 18)));
+    const auto &actions = resp["result"].getArray();
+    bool hasExtract = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Extract to function") != std::string::npos) {
+            hasExtract = true;
+            EXPECT_EQ(a["kind"].getString(), "refactor.extract");
+            EXPECT_TRUE(a["edit"].isObject());
+        }
+    }
+    EXPECT_TRUE(hasExtract);
+}
+
+TEST_F(LSPTest, CodeActionExtractFuncEdit) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 1\n    let y: i32 = 2\n    println(x)\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 1, 0, 2, 18)));
+    const auto &actions = resp["result"].getArray();
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Extract to function") != std::string::npos) {
+            const auto &changes = a["edit"]["changes"]["file:///test.liva"].getArray();
+            // Should have 2 edits: insert function + replace with call
+            EXPECT_GE(changes.size(), 2u);
+            // First edit: insert new function (contains "func extracted()")
+            std::string insertText = changes[0]["newText"].getString();
+            EXPECT_TRUE(insertText.find("func extracted()") != std::string::npos);
+            // Second edit: replace with call
+            std::string callText = changes[1]["newText"].getString();
+            EXPECT_TRUE(callText.find("extracted()") != std::string::npos);
+        }
+    }
+}
+
+TEST_F(LSPTest, CodeActionExtractNoSelection) {
+    // Single line selection (startLine == endLine) → no extract action
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 1\n    println(x)\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 1, 0, 1, 18)));
+    const auto &actions = resp["result"].getArray();
+    bool hasExtract = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("Extract to function") != std::string::npos) {
+            hasExtract = true;
+        }
+    }
+    EXPECT_FALSE(hasExtract);
+}
+
+// ============================================================
+// Code Action — Capability: refactor.extract
+// ============================================================
+
+TEST_F(LSPTest, CodeActionCapabilityRefactor) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    const auto &caps = resp["result"]["capabilities"];
+    const auto &kinds = caps["codeActionProvider"]["codeActionKinds"].getArray();
+    bool hasRefactorExtract = false;
+    for (const auto &k : kinds) {
+        if (k.getString() == "refactor.extract")
+            hasRefactorExtract = true;
+    }
+    EXPECT_TRUE(hasRefactorExtract);
+}
+
+// ============================================================
+// Code Action — Multiple diagnostics → multiple actions
+// ============================================================
+
+TEST_F(LSPTest, CodeActionMultipleDiags) {
+    // Two issues: unused variable + immutable assignment
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let x: i32 = 5\n    let y: i32 = 10\n    x = 20\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 4, 1)));
+    const auto &actions = resp["result"].getArray();
+    // Should have at least 3 actions: prefix _ for y, remove y, let→var for x
+    EXPECT_GE(actions.size(), 3u);
 }
 
 // ============================================================
@@ -1925,4 +2267,88 @@ TEST_F(LSPTest, CallHierarchyCapability) {
     auto resp = parseResponse(server.handleMessage(initRequest()));
     const auto &caps = resp["result"]["capabilities"];
     EXPECT_TRUE(caps["callHierarchyProvider"].getBool());
+}
+
+// ============================================================
+// Macro Hover Tests
+// ============================================================
+
+TEST_F(LSPTest, HoverMacroExpansion) {
+    // Macro definition + invocation in a function
+    std::string code = "macro double {\n"
+                       "    ($x:expr) => { $x + $x }\n"
+                       "}\n"
+                       "func foo() -> i32 {\n"
+                       "    return double!(5)\n"
+                       "}";
+    initAndOpen("file:///test.liva", code);
+    // Hover on line 4 (0-indexed) where macro invocation is
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 4, 11)));
+    // Should have hover content with macro expansion
+    if (resp["result"].isObject()) {
+        std::string content = resp["result"]["contents"]["value"].getString();
+        EXPECT_TRUE(content.find("double") != std::string::npos ||
+                    content.find("5") != std::string::npos);
+    }
+}
+
+TEST_F(LSPTest, HoverMacroNoExpansion) {
+    // Hover on a regular function — no macro hover
+    initAndOpen("file:///test.liva", "func greet() {}");
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 0, 6)));
+    if (resp["result"].isObject()) {
+        std::string content = resp["result"]["contents"]["value"].getString();
+        EXPECT_TRUE(content.find("macro") == std::string::npos);
+    }
+}
+
+// ============================================================
+// Macro InlayHint Tests
+// ============================================================
+
+TEST_F(LSPTest, InlayHintMacro) {
+    std::string code = "macro id {\n"
+                       "    ($x:expr) => { $x }\n"
+                       "}\n"
+                       "func foo() -> i32 {\n"
+                       "    return id!(42)\n"
+                       "}";
+    initAndOpen("file:///test.liva", code);
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 6)));
+    // Look for a macro hint containing the arrow symbol
+    const auto &hints = resp["result"].getArray();
+    bool foundMacroHint = false;
+    for (const auto &h : hints) {
+        std::string label = h["label"].getString();
+        // Check for arrow UTF-8 (→) in label
+        if (label.find("\xe2\x86\x92") != std::string::npos) {
+            foundMacroHint = true;
+        }
+    }
+    EXPECT_TRUE(foundMacroHint);
+}
+
+TEST_F(LSPTest, InlayHintMacroTruncated) {
+    // A macro that expands to a very long string — should be truncated with "..."
+    std::string code = "macro longmac {\n"
+                       "    ($x:expr) => { $x + $x + $x + $x + $x + $x + $x + $x + $x + $x + $x + $x + $x + $x + $x }\n"
+                       "}\n"
+                       "func foo() -> i32 {\n"
+                       "    return longmac!(100)\n"
+                       "}";
+    initAndOpen("file:///test.liva", code);
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 6)));
+    const auto &hints = resp["result"].getArray();
+    bool foundTruncated = false;
+    for (const auto &h : hints) {
+        std::string label = h["label"].getString();
+        if (label.find("...") != std::string::npos) {
+            foundTruncated = true;
+        }
+    }
+    EXPECT_TRUE(foundTruncated);
 }
