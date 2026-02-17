@@ -420,12 +420,24 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
             builder_->CreateStore(&arg, alloca);
             namedValues_[std::string(arg.getName())] = alloca;
+            // Register struct/enum-typed parameters for member access
+            unsigned argIdx = arg.getArgNo();
+            if (argIdx < node->getParams().size()) {
+                auto &pd = node->getParams()[argIdx];
+                if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
+                    if (structTypes_.count(named->getName()))
+                        varStructTypes_[pd.name] = named->getName();
+                    else if (enumTypes_.count(named->getName()))
+                        varEnumTypes_[pd.name] = named->getName();
+                }
+            }
             if (diBuilder_) {
-                unsigned argIdx = arg.getArgNo();
-                if (argIdx < node->getParams().size()) {
-                    auto &pd = node->getParams()[argIdx];
+                unsigned argIdx2 = arg.getArgNo();
+                if (argIdx2 < node->getParams().size()) {
+                    auto &pd = node->getParams()[argIdx2];
                     auto *diTy = toDIType(pd.type.get());
-                    emitParamDebugInfo(pd.name, argIdx + 1, alloca, diTy, pd.location);
+                    emitParamDebugInfo(pd.name, argIdx2 + 1, alloca, diTy, pd.location);
                 }
             }
         }
@@ -1462,6 +1474,16 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 } else {
                     varStructTypes_["self"] = typeName;
                 }
+            } else {
+                // Register struct/enum-typed parameters for member access
+                auto &pd = method->getParams()[i];
+                if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
+                    if (structTypes_.count(named->getName()))
+                        varStructTypes_[pd.name] = named->getName();
+                    else if (enumTypes_.count(named->getName()))
+                        varEnumTypes_[pd.name] = named->getName();
+                }
             }
             if (diBuilder_) {
                 auto &pd = method->getParams()[i];
@@ -1593,6 +1615,16 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                             varClassTypes_["self"] = typeName;
                         } else {
                             varStructTypes_["self"] = typeName;
+                        }
+                    } else {
+                        // Register struct/enum-typed parameters for member access
+                        auto &pd = protoMethod->getParams()[i];
+                        if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
+                            auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
+                            if (structTypes_.count(named->getName()))
+                                varStructTypes_[pd.name] = named->getName();
+                            else if (enumTypes_.count(named->getName()))
+                                varEnumTypes_[pd.name] = named->getName();
                         }
                     }
                     ++i;

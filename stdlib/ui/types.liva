@@ -90,6 +90,9 @@ impl Canvas {
     func text(ref self, msg: string, x: i32, y: i32, size: i32, c: Color) {
         drawText(msg, x, y, size, c.r, c.g, c.b, c.a)
     }
+    func fillRoundedRect(ref self, r: Rect, roundness: f64, c: Color) {
+        drawRectRounded(r.x, r.y, r.w, r.h, roundness, c.r, c.g, c.b, c.a)
+    }
     func textWidth(ref self, msg: string, size: i32) -> i32 {
         return measureText(msg, size)
     }

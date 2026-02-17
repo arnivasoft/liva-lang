@@ -4,6 +4,7 @@
 import std::ui
 import ui::types
 import ui::widgets
+import ui::theme
 
 // ---- Vertical Stack ----
 
@@ -66,4 +67,18 @@ pub func layoutVStackCentered(items: [dyn Widget], y: i32, spacing: i32) {
         item.draw(ix, cy)
         cy = cy + item.getHeight() + spacing
     }
+}
+
+// ---- Themed Convenience Functions ----
+
+pub func layoutVStackThemed(items: [dyn Widget], x: i32, y: i32, theme: Theme) {
+    layoutVStack(items, x, y, theme.spacing)
+}
+
+pub func layoutHStackThemed(items: [dyn Widget], x: i32, y: i32, theme: Theme) {
+    layoutHStack(items, x, y, theme.spacing)
+}
+
+pub func layoutVStackCenteredThemed(items: [dyn Widget], y: i32, theme: Theme) {
+    layoutVStackCentered(items, y, theme.spacing)
 }

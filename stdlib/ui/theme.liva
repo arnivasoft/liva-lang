@@ -1,0 +1,79 @@
+// Theming System — Theme struct with semantic colors and dimensions
+// Import with: import ui::theme
+
+import ui::types
+
+pub struct Theme {
+    // Surface colors
+    var background: Color
+    var surface: Color
+    var surfaceAlt: Color
+
+    // Accent colors
+    var primary: Color
+    var primaryHover: Color
+    var onPrimary: Color
+
+    // Text colors
+    var text: Color
+    var textSecondary: Color
+
+    // Semantic colors
+    var success: Color
+    var error: Color
+    var border: Color
+    var borderFocused: Color
+    var divider: Color
+
+    // Dimensions
+    var fontSize: i32
+    var padding: i32
+    var spacing: i32
+    var scrollSpeed: i32
+}
+
+impl Theme {
+    func dark() -> Theme {
+        return Theme {
+            background: Color { r: 30, g: 30, b: 30, a: 255 },
+            surface: Color { r: 50, g: 50, b: 50, a: 255 },
+            surfaceAlt: Color { r: 40, g: 40, b: 40, a: 255 },
+            primary: Color { r: 80, g: 80, b: 200, a: 255 },
+            primaryHover: Color { r: 100, g: 100, b: 230, a: 255 },
+            onPrimary: Color { r: 255, g: 255, b: 255, a: 255 },
+            text: Color { r: 255, g: 255, b: 255, a: 255 },
+            textSecondary: Color { r: 120, g: 120, b: 120, a: 255 },
+            success: Color { r: 80, g: 200, b: 80, a: 255 },
+            error: Color { r: 220, g: 60, b: 60, a: 255 },
+            border: Color { r: 100, g: 100, b: 100, a: 255 },
+            borderFocused: Color { r: 100, g: 150, b: 255, a: 255 },
+            divider: Color { r: 80, g: 80, b: 80, a: 255 },
+            fontSize: 20,
+            padding: 8,
+            spacing: 8,
+            scrollSpeed: 30
+        }
+    }
+
+    func light() -> Theme {
+        return Theme {
+            background: Color { r: 245, g: 245, b: 245, a: 255 },
+            surface: Color { r: 255, g: 255, b: 255, a: 255 },
+            surfaceAlt: Color { r: 235, g: 235, b: 235, a: 255 },
+            primary: Color { r: 50, g: 100, b: 220, a: 255 },
+            primaryHover: Color { r: 70, g: 120, b: 240, a: 255 },
+            onPrimary: Color { r: 255, g: 255, b: 255, a: 255 },
+            text: Color { r: 30, g: 30, b: 30, a: 255 },
+            textSecondary: Color { r: 130, g: 130, b: 130, a: 255 },
+            success: Color { r: 40, g: 180, b: 40, a: 255 },
+            error: Color { r: 200, g: 40, b: 40, a: 255 },
+            border: Color { r: 200, g: 200, b: 200, a: 255 },
+            borderFocused: Color { r: 50, g: 100, b: 220, a: 255 },
+            divider: Color { r: 220, g: 220, b: 220, a: 255 },
+            fontSize: 20,
+            padding: 8,
+            spacing: 8,
+            scrollSpeed: 30
+        }
+    }
+}

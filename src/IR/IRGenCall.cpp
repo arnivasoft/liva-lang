@@ -3198,6 +3198,9 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             if (!v) return nullptr;
             args.push_back(v);
         }
+        // arg[4] is roundness — fptrunc f64 -> f32 if needed
+        if (args[4]->getType()->isDoubleTy())
+            args[4] = builder_->CreateFPTrunc(args[4], builder_->getFloatTy());
         builder_->CreateCall(getOrPanic("liva_ui_draw_rect_rounded"), args);
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
@@ -4088,8 +4091,47 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         }
     }
 
-    if (!objAlloca || structTypeName.empty())
+    if (!objAlloca || structTypeName.empty()) {
+        // Fallback: resolve struct type from AST resolved type
+        // Handles chained access (self.color.r) and unregistered local struct vars
+        if (node->getObject()->getResolvedType()) {
+            auto *resolvedType = node->getObject()->getResolvedType();
+            if (resolvedType->getKind() == TypeRepr::Kind::Named) {
+                auto *namedType = static_cast<const NamedTypeRepr *>(resolvedType);
+                auto stIt = structTypes_.find(namedType->getName());
+                if (stIt != structTypes_.end()) {
+                    auto *structTy = stIt->second;
+                    int idx = getStructFieldIndex(namedType->getName(), node->getMember());
+                    if (idx >= 0) {
+                        llvm::Value *basePtr = nullptr;
+                        if (objAlloca) {
+                            // Local var with alloca but not in varStructTypes_
+                            basePtr = objAlloca;
+                            if (objAlloca->getAllocatedType()->isPointerTy()) {
+                                basePtr = builder_->CreateLoad(
+                                    objAlloca->getAllocatedType(), objAlloca, objName);
+                            }
+                        } else {
+                            // Non-identifier object (e.g. self.color in self.color.r)
+                            auto *objVal = visit(node->getObject());
+                            if (!objVal) return nullptr;
+                            auto *curFunc = builder_->GetInsertBlock()->getParent();
+                            auto *tmpAlloca = createEntryBlockAlloca(
+                                curFunc, "chain.tmp", structTy);
+                            builder_->CreateStore(objVal, tmpAlloca);
+                            basePtr = tmpAlloca;
+                        }
+                        auto *gep = builder_->CreateStructGEP(
+                            structTy, basePtr, idx, node->getMember());
+                        return builder_->CreateLoad(
+                            structTy->getElementType(idx), gep,
+                            node->getMember() + ".val");
+                    }
+                }
+            }
+        }
         return nullptr;
+    }
 
     auto stIt = structTypes_.find(structTypeName);
     if (stIt == structTypes_.end())

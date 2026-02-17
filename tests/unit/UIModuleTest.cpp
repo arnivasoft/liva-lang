@@ -524,3 +524,191 @@ TEST_F(UIModuleTest, DynWidgetArrayWithInteractive) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "[dyn Widget] array with interactive widgets should work";
 }
+
+// ---- Phase 5: Theme + Styling tests ----
+
+TEST_F(UIModuleTest, ImportUITheme) {
+    auto r = check(
+        "import ui::theme\n"
+        "func main() {\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::theme should load without errors";
+}
+
+TEST_F(UIModuleTest, ThemeDarkFactory) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    let bg = t.background\n"
+        "    let fs = t.fontSize\n"
+        "    let sp = t.spacing\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Theme.dark() should create theme with accessible fields";
+}
+
+TEST_F(UIModuleTest, ThemeLightFactory) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "func main() {\n"
+        "    let t = Theme.light()\n"
+        "    let prim = t.primary\n"
+        "    let txt = t.text\n"
+        "    let pad = t.padding\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Theme.light() should create theme with accessible fields";
+}
+
+TEST_F(UIModuleTest, ThemeCustomStruct) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "func main() {\n"
+        "    let t = Theme {\n"
+        "        background: Color.black(),\n"
+        "        surface: Color.gray(40),\n"
+        "        surfaceAlt: Color.gray(30),\n"
+        "        primary: Color.blue(),\n"
+        "        primaryHover: Color.blue(),\n"
+        "        onPrimary: Color.white(),\n"
+        "        text: Color.white(),\n"
+        "        textSecondary: Color.gray(120),\n"
+        "        success: Color.green(),\n"
+        "        error: Color.red(),\n"
+        "        border: Color.gray(100),\n"
+        "        borderFocused: Color.blue(),\n"
+        "        divider: Color.gray(80),\n"
+        "        fontSize: 18,\n"
+        "        padding: 6,\n"
+        "        spacing: 10,\n"
+        "        scrollSpeed: 25\n"
+        "    }\n"
+        "    let bg = t.background\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Custom Theme struct literal should work";
+}
+
+TEST_F(UIModuleTest, ButtonThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    let btn = Button.themed(\"OK\", 1, t)\n"
+        "    let w = btn.getWidth()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Button.themed() factory should work";
+}
+
+TEST_F(UIModuleTest, TextInputThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.light()\n"
+        "    var ti = TextInput.themed(\"Name\", 200, t)\n"
+        "    let w = ti.getWidth()\n"
+        "    let txt = ti.getText()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextInput.themed() factory should work";
+}
+
+TEST_F(UIModuleTest, CheckboxThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    var cb = Checkbox.themed(\"Enable\", false, t)\n"
+        "    let checked = cb.isChecked()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Checkbox.themed() factory should work";
+}
+
+TEST_F(UIModuleTest, SliderThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    var sl = Slider.themed(0, 100, 200, t)\n"
+        "    let v = sl.getValue()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Slider.themed() factory should work";
+}
+
+TEST_F(UIModuleTest, ScrollViewThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    var sv = ScrollView.themed(300, 400, 800, t)\n"
+        "    let sy = sv.getScrollY()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ScrollView.themed() factory should work";
+}
+
+TEST_F(UIModuleTest, ProgressBarThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.light()\n"
+        "    var pb = ProgressBar.themed(200, 20, t)\n"
+        "    pb.setValue(75)\n"
+        "    let w = pb.getWidth()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ProgressBar.themed() factory should work";
+}
+
+TEST_F(UIModuleTest, PanelThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    let p = Panel.themed(t, 12, 200, 100)\n"
+        "    let w = p.getWidth()\n"
+        "    let h = p.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Panel.themed() factory should work";
+}
+
+TEST_F(UIModuleTest, BackwardCompatNoTheme) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let btn = Button.new(\"Go\", 1)\n"
+        "    var ti = TextInput.new(\"Enter\", 200)\n"
+        "    var cb = Checkbox.new(\"On\", true)\n"
+        "    var sl = Slider.new(0, 50, 150)\n"
+        "    var sv = ScrollView.new(300, 200, 600)\n"
+        "    var pb = ProgressBar.new(180, 16)\n"
+        "    let p = Panel.new(Color.gray(40), 8, 200, 100)\n"
+        "    let d = Divider.horizontalLine(200, Color.gray(80))\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Old API (new()) should still work without theme import";
+}

@@ -4,6 +4,7 @@
 import std::ui
 import std::convert
 import ui::types
+import ui::theme
 
 // ---- Widget Protocol ----
 pub protocol Widget {
@@ -79,6 +80,18 @@ impl Button {
         }
     }
 
+    func themed(text: string, id: i32, theme: Theme) -> Button {
+        return Button {
+            text: text,
+            fontSize: theme.fontSize,
+            color: theme.onPrimary,
+            bgColor: theme.primary,
+            hoverColor: theme.primaryHover,
+            padding: theme.padding,
+            id: id
+        }
+    }
+
     func isHovered(ref self, bx: i32, by: i32) -> bool {
         let w = measureText(self.text, self.fontSize) + self.padding * 2
         let h = self.fontSize + self.padding * 2
@@ -100,8 +113,14 @@ impl Button: Widget {
     func draw(ref self, x: i32, y: i32) {
         let w = self.getWidth()
         let h = self.getHeight()
-        let bg = self.bgColor
-        drawRect(x, y, w, h, bg.r, bg.g, bg.b, bg.a)
+        let hovered = hitTest(getMouseX(), getMouseY(), x, y, w, h)
+        if hovered {
+            let hc = self.hoverColor
+            drawRect(x, y, w, h, hc.r, hc.g, hc.b, hc.a)
+        } else {
+            let bg = self.bgColor
+            drawRect(x, y, w, h, bg.r, bg.g, bg.b, bg.a)
+        }
         drawText(self.text, x + self.padding, y + self.padding,
                  self.fontSize, self.color.r, self.color.g, self.color.b, self.color.a)
     }
@@ -147,6 +166,13 @@ impl Panel {
             contentW: contentW, contentH: contentH, rounded: false
         }
     }
+
+    func themed(theme: Theme, padding: i32, contentW: i32, contentH: i32) -> Panel {
+        return Panel {
+            bgColor: theme.surface, padding: padding,
+            contentW: contentW, contentH: contentH, rounded: true
+        }
+    }
 }
 
 impl Panel: Widget {
@@ -155,8 +181,12 @@ impl Panel: Widget {
     func draw(ref self, x: i32, y: i32) {
         let w = self.getWidth()
         let h = self.getHeight()
-        drawRect(x, y, w, h,
-                 self.bgColor.r, self.bgColor.g, self.bgColor.b, self.bgColor.a)
+        if self.rounded {
+            drawRectRounded(x, y, w, h, 0.1, self.bgColor.r, self.bgColor.g, self.bgColor.b, self.bgColor.a)
+        } else {
+            drawRect(x, y, w, h,
+                     self.bgColor.r, self.bgColor.g, self.bgColor.b, self.bgColor.a)
+        }
     }
 }
 
@@ -174,6 +204,12 @@ impl Divider {
     }
     func verticalLine(length: i32, color: Color) -> Divider {
         return Divider { length: length, thickness: 1, color: color, horizontal: false }
+    }
+    func themedHorizontal(length: i32, theme: Theme) -> Divider {
+        return Divider { length: length, thickness: 1, color: theme.divider, horizontal: true }
+    }
+    func themedVertical(length: i32, theme: Theme) -> Divider {
+        return Divider { length: length, thickness: 1, color: theme.divider, horizontal: false }
     }
 }
 
@@ -208,6 +244,9 @@ pub struct TextInput {
     var bgColor: Color
     var textColor: Color
     var borderColor: Color
+    var focusedBorderColor: Color
+    var placeholderColor: Color
+    var cursorColor: Color
     var padding: i32
 }
 
@@ -223,7 +262,28 @@ impl TextInput {
             bgColor: Color { r: 40, g: 40, b: 40, a: 255 },
             textColor: Color.white(),
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
+            focusedBorderColor: Color { r: 100, g: 150, b: 255, a: 255 },
+            placeholderColor: Color { r: 120, g: 120, b: 120, a: 255 },
+            cursorColor: Color { r: 255, g: 255, b: 255, a: 255 },
             padding: 6
+        }
+    }
+
+    func themed(placeholder: string, width: i32, theme: Theme) -> TextInput {
+        return TextInput {
+            value: "",
+            placeholder: placeholder,
+            fontSize: theme.fontSize,
+            width: width,
+            cursorPos: 0,
+            focused: false,
+            bgColor: theme.surfaceAlt,
+            textColor: theme.text,
+            borderColor: theme.border,
+            focusedBorderColor: theme.borderFocused,
+            placeholderColor: theme.textSecondary,
+            cursorColor: theme.text,
+            padding: theme.padding
         }
     }
 
@@ -319,10 +379,11 @@ impl TextInput: Widget {
         // Background
         drawRect(x, y, w, h, self.bgColor.r, self.bgColor.g, self.bgColor.b, self.bgColor.a)
         // Border
-        let bc = self.borderColor
         if self.focused {
-            drawRectLines(x, y, w, h, 100, 150, 255, 255)
+            let fbc = self.focusedBorderColor
+            drawRectLines(x, y, w, h, fbc.r, fbc.g, fbc.b, fbc.a)
         } else {
+            let bc = self.borderColor
             drawRectLines(x, y, w, h, bc.r, bc.g, bc.b, bc.a)
         }
         // Text or placeholder
@@ -332,12 +393,14 @@ impl TextInput: Widget {
             drawText(self.value, textX, textY, self.fontSize,
                      self.textColor.r, self.textColor.g, self.textColor.b, self.textColor.a)
         } else {
-            drawText(self.placeholder, textX, textY, self.fontSize, 120, 120, 120, 255)
+            let pc = self.placeholderColor
+            drawText(self.placeholder, textX, textY, self.fontSize, pc.r, pc.g, pc.b, pc.a)
         }
         // Cursor (simple line)
         if self.focused {
             let cursorX = textX + measureText(self.value.substring(0, self.cursorPos), self.fontSize)
-            drawLine(cursorX, y + 3, cursorX, y + h - 3, 255, 255, 255, 255)
+            let cc = self.cursorColor
+            drawLine(cursorX, y + 3, cursorX, y + h - 3, cc.r, cc.g, cc.b, cc.a)
         }
     }
 }
@@ -361,6 +424,17 @@ impl Checkbox {
             color: Color.white(),
             checkColor: Color { r: 80, g: 200, b: 80, a: 255 },
             boxSize: 20
+        }
+    }
+
+    func themed(label: string, checked: bool, theme: Theme) -> Checkbox {
+        return Checkbox {
+            label: label,
+            checked: checked,
+            fontSize: theme.fontSize,
+            color: theme.text,
+            checkColor: theme.success,
+            boxSize: theme.fontSize
         }
     }
 
@@ -422,6 +496,19 @@ impl Slider {
         }
     }
 
+    func themed(minVal: i32, maxVal: i32, width: i32, theme: Theme) -> Slider {
+        return Slider {
+            value: minVal,
+            minVal: minVal,
+            maxVal: maxVal,
+            width: width,
+            height: theme.fontSize,
+            trackColor: theme.surfaceAlt,
+            thumbColor: theme.primary,
+            dragging: false
+        }
+    }
+
     func update(ref mut self, x: i32, y: i32) {
         let mx = getMouseX()
         let my = getMouseY()
@@ -473,6 +560,7 @@ pub struct ScrollView {
     var contentHeight: i32
     var scrollY: i32
     var bgColor: Color
+    var scrollSpeed: i32
 }
 
 impl ScrollView {
@@ -482,7 +570,19 @@ impl ScrollView {
             viewHeight: viewHeight,
             contentHeight: contentHeight,
             scrollY: 0,
-            bgColor: Color { r: 30, g: 30, b: 30, a: 255 }
+            bgColor: Color { r: 30, g: 30, b: 30, a: 255 },
+            scrollSpeed: 30
+        }
+    }
+
+    func themed(viewWidth: i32, viewHeight: i32, contentHeight: i32, theme: Theme) -> ScrollView {
+        return ScrollView {
+            viewWidth: viewWidth,
+            viewHeight: viewHeight,
+            contentHeight: contentHeight,
+            scrollY: 0,
+            bgColor: theme.background,
+            scrollSpeed: theme.scrollSpeed
         }
     }
 
@@ -491,7 +591,7 @@ impl ScrollView {
         let my = getMouseY()
         if hitTest(mx, my, x, y, self.viewWidth, self.viewHeight) {
             let wheel = getMouseWheel()
-            self.scrollY = self.scrollY - wheel * 30
+            self.scrollY = self.scrollY - wheel * self.scrollSpeed
             // Clamp
             if self.scrollY < 0 { self.scrollY = 0 }
             let maxScroll = self.contentHeight - self.viewHeight
@@ -532,6 +632,7 @@ pub struct ProgressBar {
     var height: i32
     var bgColor: Color
     var fillColor: Color
+    var borderColor: Color
 }
 
 impl ProgressBar {
@@ -541,7 +642,19 @@ impl ProgressBar {
             width: width,
             height: height,
             bgColor: Color { r: 50, g: 50, b: 50, a: 255 },
-            fillColor: Color { r: 80, g: 180, b: 80, a: 255 }
+            fillColor: Color { r: 80, g: 180, b: 80, a: 255 },
+            borderColor: Color { r: 80, g: 80, b: 80, a: 255 }
+        }
+    }
+
+    func themed(width: i32, height: i32, theme: Theme) -> ProgressBar {
+        return ProgressBar {
+            value: 0,
+            width: width,
+            height: height,
+            bgColor: theme.surface,
+            fillColor: theme.success,
+            borderColor: theme.border
         }
     }
 
@@ -569,6 +682,7 @@ impl ProgressBar: Widget {
             drawRect(x, y, fillW, h, fc.r, fc.g, fc.b, fc.a)
         }
         // Border
-        drawRectLines(x, y, w, h, 80, 80, 80, 255)
+        let bdc = self.borderColor
+        drawRectLines(x, y, w, h, bdc.r, bdc.g, bdc.b, bdc.a)
     }
 }

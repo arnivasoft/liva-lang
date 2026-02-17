@@ -1,0 +1,78 @@
+// Themed Form Demo — demonstrates light and dark themes
+// Build: livac examples/ui_form_themed.liva -o form_themed.exe
+
+import std::ui
+import ui::types
+import ui::theme
+import ui::widgets
+import ui::layout
+
+func main() {
+    initWindow(800, 600, "Themed Form Demo")
+    setTargetFps(60)
+
+    // Create both themes
+    let dark = Theme.dark()
+    let light = Theme.light()
+
+    // Dark-themed widgets (left side)
+    var darkInput = TextInput.themed("Dark input...", 250, dark)
+    var darkCheck = Checkbox.themed("Dark checkbox", false, dark)
+    var darkSlider = Slider.themed(0, 100, 250, dark)
+    let darkBtn = Button.themed("Dark Button", 1, dark)
+    var darkProgress = ProgressBar.themed(250, 16, dark)
+    darkProgress.setValue(65)
+
+    // Light-themed widgets (right side)
+    var lightInput = TextInput.themed("Light input...", 250, light)
+    var lightCheck = Checkbox.themed("Light checkbox", true, light)
+    var lightSlider = Slider.themed(0, 100, 250, light)
+    let lightBtn = Button.themed("Light Button", 2, light)
+    var lightProgress = ProgressBar.themed(250, 16, light)
+    lightProgress.setValue(40)
+
+    while !windowShouldClose() {
+        // Update interactive widgets
+        darkInput.update(40, 80)
+        darkCheck.update(40, 130)
+        darkSlider.update(40, 170)
+        lightInput.update(420, 80)
+        lightCheck.update(420, 130)
+        lightSlider.update(420, 170)
+
+        beginDrawing()
+
+        // Dark side background
+        drawRect(0, 0, 400, 600, 30, 30, 30, 255)
+        // Light side background
+        drawRect(400, 0, 400, 600, 245, 245, 245, 255)
+
+        // Dark column
+        let darkTitle = Label.new("Dark Theme", 28, dark.text)
+        darkTitle.draw(40, 30)
+        darkInput.draw(40, 80)
+        darkCheck.draw(40, 130)
+        darkSlider.draw(40, 170)
+        darkBtn.draw(40, 210)
+        darkProgress.draw(40, 260)
+
+        // Light column
+        let lightTitle = Label.new("Light Theme", 28, light.text)
+        lightTitle.draw(420, 30)
+        lightInput.draw(420, 80)
+        lightCheck.draw(420, 130)
+        lightSlider.draw(420, 170)
+        lightBtn.draw(420, 210)
+        lightProgress.draw(420, 260)
+
+        // Dividers
+        let darkDiv = Divider.themedHorizontal(320, dark)
+        darkDiv.draw(40, 300)
+        let lightDiv = Divider.themedHorizontal(320, light)
+        lightDiv.draw(420, 300)
+
+        endDrawing()
+    }
+
+    closeWindow()
+}
