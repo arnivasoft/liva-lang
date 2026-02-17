@@ -1235,6 +1235,7 @@ pub struct Dropdown {
     var padding: i32
     var placeholder: string
     var onSelect: (i32) -> void
+    var clickConsumed: bool
 }
 
 impl Dropdown {
@@ -1249,7 +1250,8 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1264,7 +1266,8 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1279,7 +1282,8 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1294,7 +1298,8 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1309,7 +1314,8 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1324,7 +1330,8 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1339,7 +1346,8 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1354,7 +1362,8 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
-            onSelect: |_i: i32| { }
+            onSelect: |_i: i32| { },
+            clickConsumed: false
         }
     }
 
@@ -1372,6 +1381,7 @@ impl Dropdown {
 
     func getSelected(ref self) -> i32 { return self.selected }
     func isOpen(ref self) -> bool { return self.open }
+    func wasClickConsumed(ref self) -> bool { return self.clickConsumed }
 
     func setOnSelect(ref mut self, cb: (i32) -> void) {
         self.onSelect = cb
@@ -1405,6 +1415,7 @@ impl Dropdown {
     }
 
     func update(ref mut self, x: i32, y: i32) {
+        self.clickConsumed = false
         let headerH = self.fontSize + self.padding * 2
         let optH = self.fontSize + self.padding
 
@@ -1412,6 +1423,7 @@ impl Dropdown {
         if self.open {
             if isKeyPressed(256) {
                 self.open = false
+                self.clickConsumed = true
                 return
             }
         }
@@ -1448,7 +1460,8 @@ impl Dropdown {
                     }
                     i = i + 1
                 }
-                // Any other click closes
+                // Any click while open is consumed by dropdown
+                self.clickConsumed = true
                 if !clickedOpt {
                     self.open = false
                 }
@@ -1456,6 +1469,7 @@ impl Dropdown {
                 // Header click opens
                 if hitTest(mx, my, x, y, self.width, headerH) {
                     self.open = true
+                    self.clickConsumed = true
                 }
             }
         }

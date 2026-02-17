@@ -1608,3 +1608,28 @@ TEST_F(UIModuleTest, PopoverUpdateDraw) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Popover update and draw should work";
 }
+
+TEST_F(UIModuleTest, AllUIModulesImport) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "import ui::animation\n"
+        "import ui::focus\n"
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    let dark = Theme.dark()\n"
+        "    var tabs = TabView.themed4(\"A\", \"B\", \"C\", \"D\", dark)\n"
+        "    var tween = Tween.new(0.0, 1.0, 2.0, 0)\n"
+        "    var fm = FocusManager.new(3)\n"
+        "    var tip = Tooltip.themed(\"Info\", 0.5, dark)\n"
+        "    var pop = Popover.themed(\"T\", \"C\", 200, dark)\n"
+        "    let la = Label.new(\"Hi\", 16, Color.white())\n"
+        "    let items: [dyn Widget] = [la]\n"
+        "    layoutVStack(items, 0, 0, 8)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "All UI modules should import and work together";
+}

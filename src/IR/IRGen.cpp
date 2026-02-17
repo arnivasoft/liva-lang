@@ -1276,7 +1276,16 @@ llvm::AllocaInst *IRGen::createEntryBlockAlloca(llvm::Function *func,
                                                   llvm::Type *type) {
     llvm::IRBuilder<> tmpBuilder(&func->getEntryBlock(),
                                   func->getEntryBlock().begin());
-    return tmpBuilder.CreateAlloca(type, nullptr, name);
+    auto *alloca = tmpBuilder.CreateAlloca(type, nullptr, name);
+    // Null-initialize pointer allocas so that free(ptr) at scope cleanup
+    // is safe even if the variable was never written (conditional branches).
+    if (type->isPointerTy()) {
+        tmpBuilder.CreateStore(
+            llvm::ConstantPointerNull::get(
+                llvm::cast<llvm::PointerType>(type)),
+            alloca);
+    }
+    return alloca;
 }
 
 void IRGen::trackStringTemp(llvm::Value *val) {

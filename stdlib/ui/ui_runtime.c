@@ -1,5 +1,7 @@
 #include "ui_runtime.h"
 #include <raylib.h>
+#include <stdlib.h>
+#include <string.h>
 
 // === Window ===
 
@@ -191,6 +193,7 @@ int32_t liva_ui_measure_text_font(int32_t handle, const char* text, int32_t size
 // === Word-Wrap ===
 
 // Helper: draw or measure word-wrapped text. If draw==true, actually draw.
+// Uses a temp buffer instead of modifying the input string (which may be read-only).
 static int32_t wrap_text_impl(const char* text, int32_t x, int32_t y,
                                int32_t fontSize, int32_t maxWidth,
                                int32_t r, int32_t g, int32_t b, int32_t a,
@@ -199,6 +202,11 @@ static int32_t wrap_text_impl(const char* text, int32_t x, int32_t y,
     int32_t lineHeight = fontSize;
     int32_t curY = y;
     const char *p = text;
+    // Temp buffer for measuring/drawing substrings (input may be read-only)
+    int32_t textLen = (int32_t)strlen(text);
+    int32_t bufSize = textLen + 1;
+    char *buf = (char*)malloc(bufSize);
+    if (!buf) return 0;
 
     while (*p) {
         // Find end of logical line (\n or end)
@@ -215,11 +223,10 @@ static int32_t wrap_text_impl(const char* text, int32_t x, int32_t y,
             int32_t bestEnd = 0;
             int32_t lastSpace = -1;
             for (int32_t i = 0; lp + i <= lineEnd; ++i) {
-                // Measure substring lp[0..i]
-                char saved = ((char*)lp)[i];
-                ((char*)lp)[i] = '\0';
-                int32_t w = MeasureText(lp, fontSize);
-                ((char*)lp)[i] = saved;
+                // Copy substring lp[0..i] to temp buffer for measurement
+                memcpy(buf, lp, i);
+                buf[i] = '\0';
+                int32_t w = MeasureText(buf, fontSize);
                 if (w <= maxWidth || i == 0) {
                     bestEnd = i;
                     if (i > 0 && lp[i] == ' ') lastSpace = i;
@@ -236,11 +243,10 @@ static int32_t wrap_text_impl(const char* text, int32_t x, int32_t y,
             if (bestEnd == 0 && lp < lineEnd) bestEnd = 1;
 
             if (draw) {
-                char saved = ((char*)lp)[bestEnd];
-                ((char*)lp)[bestEnd] = '\0';
-                DrawText(lp, x, curY, fontSize,
+                memcpy(buf, lp, bestEnd);
+                buf[bestEnd] = '\0';
+                DrawText(buf, x, curY, fontSize,
                          (Color){(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a});
-                ((char*)lp)[bestEnd] = saved;
             }
             curY += lineHeight;
             lp += bestEnd;
@@ -254,6 +260,7 @@ static int32_t wrap_text_impl(const char* text, int32_t x, int32_t y,
             p = lineEnd;
         }
     }
+    free(buf);
     return curY - y;
 }
 
