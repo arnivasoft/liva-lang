@@ -119,6 +119,22 @@ void IRGen::declareExternStruct(StructDecl *structDecl) {
     structTypes_[structDecl->getName()] = structType;
     structFieldNames_[structDecl->getName()] = std::move(fieldNames);
     structFieldTypeReprs_[structDecl->getName()] = std::move(fieldTypeReprs);
+
+    // Register function-typed fields for closure dispatch
+    for (size_t i = 0; i < structDecl->getFields().size(); ++i) {
+        auto *typeRepr = structDecl->getFields()[i]->getType();
+        if (typeRepr && typeRepr->getKind() == TypeRepr::Kind::Function) {
+            auto *ftr = static_cast<const FunctionTypeRepr *>(typeRepr);
+            std::vector<llvm::Type *> fParams;
+            fParams.push_back(llvm::PointerType::getUnqual(*context_)); // hidden env
+            for (auto &p : ftr->getParams())
+                fParams.push_back(toLLVMType(p.get()));
+            auto *fRetTy = ftr->getReturnType()
+                ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
+            structFieldFuncTypes_[structDecl->getName()][structDecl->getFields()[i]->getName()] =
+                llvm::FunctionType::get(fRetTy, fParams, false);
+        }
+    }
 }
 
 void IRGen::declareExternImpl(ImplDecl *implDecl) {
@@ -1333,6 +1349,23 @@ llvm::Value *IRGen::visitStructDecl(StructDecl *node) {
     structTypes_[node->getName()] = structType;
     structFieldNames_[node->getName()] = std::move(fieldNames);
     structFieldTypeReprs_[node->getName()] = std::move(fieldTypeReprs);
+
+    // Register function-typed fields for closure dispatch
+    for (size_t i = 0; i < node->getFields().size(); ++i) {
+        auto *typeRepr = node->getFields()[i]->getType();
+        if (typeRepr && typeRepr->getKind() == TypeRepr::Kind::Function) {
+            auto *ftr = static_cast<const FunctionTypeRepr *>(typeRepr);
+            std::vector<llvm::Type *> fParams;
+            fParams.push_back(llvm::PointerType::getUnqual(*context_)); // hidden env
+            for (auto &p : ftr->getParams())
+                fParams.push_back(toLLVMType(p.get()));
+            auto *fRetTy = ftr->getReturnType()
+                ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
+            structFieldFuncTypes_[node->getName()][node->getFields()[i]->getName()] =
+                llvm::FunctionType::get(fRetTy, fParams, false);
+        }
+    }
+
     if (diBuilder_) {
         getOrCreateStructDIType(node->getName());
     }

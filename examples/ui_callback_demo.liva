@@ -1,0 +1,59 @@
+// UI Callback Demo — Event/Callback System (Phase 6)
+// Demonstrates closure-based callbacks on Button, Checkbox, and Slider widgets.
+
+import std::ui
+import ui::types
+import ui::theme
+import ui::widgets
+
+func main() {
+    initWindow(600, 400, "Callback Demo")
+    setTargetFps(60)
+
+    let dark = Theme.dark()
+
+    // Button with trailing closure callback
+    var btn = Button.withClick("Click Me", 1, dark) |id: i32| {
+        println("Button clicked, id:")
+        println(id)
+    }
+
+    // Checkbox with toggle callback
+    var cb = Checkbox.withToggle("Enable feature", false, dark) |checked: bool| {
+        if checked {
+            println("Feature enabled")
+        } else {
+            println("Feature disabled")
+        }
+    }
+
+    // Slider with value change callback
+    var sl = Slider.withChange(0, 100, 200, dark) |val: i32| {
+        println(val)
+    }
+
+    // Setter-based callback
+    var btn2 = Button.new("Reset", 2)
+    btn2.setOnClick() |id: i32| {
+        println("Reset pressed")
+    }
+
+    while !windowShouldClose() {
+        // Update (process input + fire callbacks)
+        btn.update(40, 50)
+        btn2.update(40, 100)
+        cb.update(40, 160)
+        sl.update(40, 220)
+
+        // Draw
+        beginDrawing()
+        clearBackground(30, 30, 30, 255)
+        btn.draw(40, 50)
+        btn2.draw(40, 100)
+        cb.draw(40, 160)
+        sl.draw(40, 220)
+        endDrawing()
+    }
+
+    closeWindow()
+}

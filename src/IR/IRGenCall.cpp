@@ -1221,6 +1221,52 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Closure field call: obj.closureField(args) — e.g. self.onClick(id)
+        if (objAlloca && !structTypeName.empty()) {
+            auto sfIt = structFieldFuncTypes_.find(structTypeName);
+            if (sfIt != structFieldFuncTypes_.end()) {
+                auto ffIt = sfIt->second.find(methodName);
+                if (ffIt != sfIt->second.end()) {
+                    auto *llvmFuncTy = ffIt->second;
+                    auto *structTy = structTypes_[structTypeName];
+                    int fieldIdx = getStructFieldIndex(structTypeName, methodName);
+                    if (fieldIdx >= 0) {
+                        auto *closureObjTy = getClosureObjTy();
+                        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+                        llvm::Value *basePtr = objAlloca;
+                        if (auto *ai = llvm::dyn_cast<llvm::AllocaInst>(objAlloca)) {
+                            if (ai->getAllocatedType()->isPointerTy())
+                                basePtr = builder_->CreateLoad(
+                                    ai->getAllocatedType(), objAlloca, objName);
+                        }
+
+                        // GEP to closure field, then extract func/env ptrs
+                        auto *fieldGEP = builder_->CreateStructGEP(
+                            structTy, basePtr, fieldIdx, methodName + ".closure");
+                        auto *funcGEP = builder_->CreateStructGEP(closureObjTy, fieldGEP, 0);
+                        auto *funcPtr = builder_->CreateLoad(ptrTy, funcGEP, "cb.func");
+                        auto *envGEP = builder_->CreateStructGEP(closureObjTy, fieldGEP, 1);
+                        auto *envPtr = builder_->CreateLoad(ptrTy, envGEP, "cb.env");
+
+                        std::vector<llvm::Value *> args;
+                        args.push_back(envPtr);
+                        for (auto &arg : node->getArgs()) {
+                            auto *val = visit(arg.get());
+                            if (!val) return nullptr;
+                            args.push_back(val);
+                        }
+
+                        if (llvmFuncTy->getReturnType()->isVoidTy()) {
+                            builder_->CreateCall(llvmFuncTy, funcPtr, args);
+                            return llvm::Constant::getNullValue(builder_->getInt32Ty());
+                        }
+                        return builder_->CreateCall(llvmFuncTy, funcPtr, args, "cb.call");
+                    }
+                }
+            }
+        }
+
         if (objAlloca && !structTypeName.empty()) {
             std::string mangledName = structTypeName + "_" + methodName;
             auto *callee = module_->getFunction(mangledName);

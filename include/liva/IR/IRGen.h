@@ -435,6 +435,10 @@ private:
     /// Function-typed variable tracking (for indirect calls)
     std::unordered_map<std::string, llvm::FunctionType *> varFuncTypes_;
 
+    /// Function-typed struct field tracking: structName -> {fieldName -> FunctionType*}
+    std::unordered_map<std::string,
+        std::unordered_map<std::string, llvm::FunctionType *>> structFieldFuncTypes_;
+
     /// Counter for generating unique closure names
     int closureCounter_ = 0;
 

@@ -2574,6 +2574,130 @@ func main() {
     EXPECT_TRUE(result.errors.empty());
 }
 
+// === Struct Closure Field Tests ===
+
+TEST_F(IntegrationTest, StructWithClosureField) {
+    std::string source = R"--(
+struct Handler {
+    var id: i32
+    var callback: (i32) -> void
+}
+
+func main() {
+    let h = Handler { id: 1, callback: |x: i32| { println(x) } }
+}
+)--";
+    auto result = runPipeline("struct_closure_field.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed: " <<
+        (result.errors.empty() ? "" : result.errors[0]);
+}
+
+TEST_F(IntegrationTest, StructClosureFieldCall) {
+    std::string source = R"--(
+struct Handler {
+    var id: i32
+    var callback: (i32) -> void
+}
+
+impl Handler {
+    func invoke(ref self) {
+        self.callback(self.id)
+    }
+}
+
+func main() {
+    let h = Handler { id: 42, callback: |x: i32| { println(x) } }
+    h.invoke()
+}
+)--";
+    auto result = runPipeline("struct_closure_field_call.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed: " <<
+        (result.errors.empty() ? "" : result.errors[0]);
+}
+
+TEST_F(IntegrationTest, StructClosureFieldCapture) {
+    std::string source = R"--(
+struct Runner {
+    var action: () -> void
+}
+
+func main() {
+    var count = 0
+    let r = Runner { action: || { count = count + 1 } }
+}
+)--";
+    auto result = runPipeline("struct_closure_capture.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed: " <<
+        (result.errors.empty() ? "" : result.errors[0]);
+}
+
+TEST_F(IntegrationTest, StructClosureFieldNoOp) {
+    std::string source = R"--(
+struct Widget {
+    var name: string
+    var onClick: (i32) -> void
+}
+
+func main() {
+    let w = Widget { name: "btn", onClick: |id: i32| { } }
+}
+)--";
+    auto result = runPipeline("struct_closure_noop.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed: " <<
+        (result.errors.empty() ? "" : result.errors[0]);
+}
+
+TEST_F(IntegrationTest, StructClosureTrailingFactory) {
+    std::string source = R"--(
+struct Button {
+    var text: string
+    var onClick: (i32) -> void
+}
+
+impl Button {
+    func withClick(text: string, cb: (i32) -> void) -> Button {
+        return Button { text: text, onClick: cb }
+    }
+}
+
+func main() {
+    let btn = Button.withClick("OK") |id: i32| { println(id) }
+}
+)--";
+    auto result = runPipeline("struct_closure_trailing.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed: " <<
+        (result.errors.empty() ? "" : result.errors[0]);
+}
+
+TEST_F(IntegrationTest, StructClosureSetterMethod) {
+    std::string source = R"--(
+struct Handler {
+    var id: i32
+    var onEvent: (i32) -> void
+}
+
+impl Handler {
+    func setHandler(ref mut self, cb: (i32) -> void) {
+        self.onEvent = cb
+    }
+}
+
+func main() {
+    var h = Handler { id: 1, onEvent: |x: i32| { } }
+    h.setHandler() |x: i32| { println(x) }
+}
+)--";
+    auto result = runPipeline("struct_closure_setter.liva", source);
+    EXPECT_TRUE(result.parseSuccess) << "Parse failed";
+    EXPECT_TRUE(result.semaSuccess) << "Sema failed: " <<
+        (result.errors.empty() ? "" : result.errors[0]);
+}
+
 // === Cross-Compilation Target Tests ===
 
 // TargetInfo and CompilerInstance tests require LLVM (liva_codegen)

@@ -712,3 +712,67 @@ TEST_F(UIModuleTest, BackwardCompatNoTheme) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Old API (new()) should still work without theme import";
 }
+
+// ---- Callback tests ----
+
+TEST_F(UIModuleTest, ButtonWithCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let dark = Theme.dark()\n"
+        "    let btn = Button.withClick(\"OK\", 1, dark) |id: i32| {\n"
+        "        println(id)\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Button.withClick with trailing closure should pass sema";
+}
+
+TEST_F(UIModuleTest, CheckboxWithCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let dark = Theme.dark()\n"
+        "    let cb = Checkbox.withToggle(\"Enable\", false, dark) |checked: bool| {\n"
+        "        println(checked)\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Checkbox.withToggle with trailing closure should pass sema";
+}
+
+TEST_F(UIModuleTest, SliderWithCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let dark = Theme.dark()\n"
+        "    let sl = Slider.withChange(0, 100, 200, dark) |val: i32| {\n"
+        "        println(val)\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Slider.withChange with trailing closure should pass sema";
+}
+
+TEST_F(UIModuleTest, BackwardCompatNoCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let btn = Button.new(\"Go\", 1)\n"
+        "    var cb = Checkbox.new(\"On\", true)\n"
+        "    var sl = Slider.new(0, 50, 150)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Old API (new()) with closure fields should still work";
+}
