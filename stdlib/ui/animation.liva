@@ -1,0 +1,301 @@
+// std::ui animation — easing, tween, lerp, transitions, animators
+// Import with: import ui::animation
+
+import ui::types
+
+// ---- Easing Functions ----
+
+pub func easeLinear(t: f64) -> f64 {
+    return t
+}
+
+pub func easeInQuad(t: f64) -> f64 {
+    return t * t
+}
+
+pub func easeOutQuad(t: f64) -> f64 {
+    return t * (2.0 - t)
+}
+
+pub func easeInOutQuad(t: f64) -> f64 {
+    if t < 0.5 {
+        return 2.0 * t * t
+    }
+    return -1.0 + (4.0 - 2.0 * t) * t
+}
+
+pub func easeInCubic(t: f64) -> f64 {
+    return t * t * t
+}
+
+pub func easeOutCubic(t: f64) -> f64 {
+    let u = 1.0 - t
+    return 1.0 - u * u * u
+}
+
+pub func easeInOutCubic(t: f64) -> f64 {
+    if t < 0.5 {
+        return 4.0 * t * t * t
+    }
+    let u = 2.0 * t - 2.0
+    return 1.0 + u * u * u / 2.0
+}
+
+// ---- Utility Functions ----
+
+pub func clampF64(val: f64, minV: f64, maxV: f64) -> f64 {
+    if val < minV {
+        return minV
+    }
+    if val > maxV {
+        return maxV
+    }
+    return val
+}
+
+pub func applyEasing(t: f64, easeType: i32) -> f64 {
+    let ct = clampF64(t, 0.0, 1.0)
+    if easeType == 0 { return easeLinear(ct) }
+    if easeType == 1 { return easeInQuad(ct) }
+    if easeType == 2 { return easeOutQuad(ct) }
+    if easeType == 3 { return easeInOutQuad(ct) }
+    if easeType == 4 { return easeInCubic(ct) }
+    if easeType == 5 { return easeOutCubic(ct) }
+    if easeType == 6 { return easeInOutCubic(ct) }
+    return ct
+}
+
+pub func lerpF64(a: f64, b: f64, t: f64) -> f64 {
+    return a + (b - a) * t
+}
+
+pub func lerpI32(a: i32, b: i32, t: f64) -> i32 {
+    let diff = (b - a) as f64
+    return a + (diff * t) as i32
+}
+
+pub func lerpColor(a: Color, b: Color, t: f64) -> Color {
+    return Color {
+        r: lerpI32(a.r, b.r, t),
+        g: lerpI32(a.g, b.g, t),
+        b: lerpI32(a.b, b.b, t),
+        a: lerpI32(a.a, b.a, t)
+    }
+}
+
+// ---- Tween ----
+
+pub struct Tween {
+    var from: f64
+    var to: f64
+    var duration: f64
+    var elapsed: f64
+    var active: bool
+    var easeType: i32
+}
+
+impl Tween {
+    func new(from: f64, to: f64, duration: f64, easeType: i32) -> Tween {
+        return Tween {
+            from: from, to: to, duration: duration,
+            elapsed: 0.0, active: false, easeType: easeType
+        }
+    }
+
+    func start(ref mut self) {
+        self.active = true
+        self.elapsed = 0.0
+    }
+
+    func update(ref mut self, dt: f64) {
+        if self.active {
+            self.elapsed = self.elapsed + dt
+            if self.elapsed >= self.duration {
+                self.elapsed = self.duration
+                self.active = false
+            }
+        }
+    }
+
+    func progress(ref self) -> f64 {
+        if self.duration <= 0.0 {
+            return 1.0
+        }
+        return clampF64(self.elapsed / self.duration, 0.0, 1.0)
+    }
+
+    func getValue(ref self) -> f64 {
+        var p = 1.0
+        if self.duration > 0.0 {
+            p = clampF64(self.elapsed / self.duration, 0.0, 1.0)
+        }
+        let t = applyEasing(p, self.easeType)
+        return lerpF64(self.from, self.to, t)
+    }
+
+    func isComplete(ref self) -> bool {
+        return self.elapsed >= self.duration
+    }
+
+    func reset(ref mut self) {
+        self.elapsed = 0.0
+        self.active = false
+    }
+}
+
+// ---- ColorTransition ----
+
+pub struct ColorTransition {
+    var from: Color
+    var to: Color
+    var duration: f64
+    var elapsed: f64
+    var active: bool
+    var easeType: i32
+}
+
+impl ColorTransition {
+    func new(from: Color, to: Color, duration: f64, easeType: i32) -> ColorTransition {
+        return ColorTransition {
+            from: from, to: to, duration: duration,
+            elapsed: 0.0, active: false, easeType: easeType
+        }
+    }
+
+    func start(ref mut self) {
+        self.active = true
+        self.elapsed = 0.0
+    }
+
+    func update(ref mut self, dt: f64) {
+        if self.active {
+            self.elapsed = self.elapsed + dt
+            if self.elapsed >= self.duration {
+                self.elapsed = self.duration
+                self.active = false
+            }
+        }
+    }
+
+    func progress(ref self) -> f64 {
+        if self.duration <= 0.0 {
+            return 1.0
+        }
+        return clampF64(self.elapsed / self.duration, 0.0, 1.0)
+    }
+
+    func getValue(ref self) -> Color {
+        var p = 1.0
+        if self.duration > 0.0 {
+            p = clampF64(self.elapsed / self.duration, 0.0, 1.0)
+        }
+        let t = applyEasing(p, self.easeType)
+        return Color {
+            r: lerpI32(self.from.r, self.to.r, t),
+            g: lerpI32(self.from.g, self.to.g, t),
+            b: lerpI32(self.from.b, self.to.b, t),
+            a: lerpI32(self.from.a, self.to.a, t)
+        }
+    }
+
+    func isComplete(ref self) -> bool {
+        return self.elapsed >= self.duration
+    }
+
+    func reset(ref mut self) {
+        self.elapsed = 0.0
+        self.active = false
+    }
+}
+
+// ---- HoverAnimator ----
+
+pub struct HoverAnimator {
+    var hovered: bool
+    var progress: f64
+    var speed: f64
+}
+
+impl HoverAnimator {
+    func new(speed: f64) -> HoverAnimator {
+        return HoverAnimator { hovered: false, progress: 0.0, speed: speed }
+    }
+
+    func update(ref mut self, isHovered: bool, dt: f64) {
+        self.hovered = isHovered
+        if isHovered {
+            self.progress = self.progress + self.speed * dt
+            if self.progress > 1.0 {
+                self.progress = 1.0
+            }
+        } else {
+            self.progress = self.progress - self.speed * dt
+            if self.progress < 0.0 {
+                self.progress = 0.0
+            }
+        }
+    }
+
+    func getProgress(ref self) -> f64 {
+        return self.progress
+    }
+
+    func getColor(ref self, normal: Color, hover: Color) -> Color {
+        return Color {
+            r: lerpI32(normal.r, hover.r, self.progress),
+            g: lerpI32(normal.g, hover.g, self.progress),
+            b: lerpI32(normal.b, hover.b, self.progress),
+            a: lerpI32(normal.a, hover.a, self.progress)
+        }
+    }
+
+    func getValue(ref self, normal: f64, hover: f64) -> f64 {
+        return lerpF64(normal, hover, self.progress)
+    }
+
+    func getValueI32(ref self, normal: i32, hover: i32) -> i32 {
+        return lerpI32(normal, hover, self.progress)
+    }
+}
+
+// ---- FocusAnimator ----
+
+pub struct FocusAnimator {
+    var focused: bool
+    var progress: f64
+    var speed: f64
+}
+
+impl FocusAnimator {
+    func new(speed: f64) -> FocusAnimator {
+        return FocusAnimator { focused: false, progress: 0.0, speed: speed }
+    }
+
+    func update(ref mut self, isFocused: bool, dt: f64) {
+        self.focused = isFocused
+        if isFocused {
+            self.progress = self.progress + self.speed * dt
+            if self.progress > 1.0 {
+                self.progress = 1.0
+            }
+        } else {
+            self.progress = self.progress - self.speed * dt
+            if self.progress < 0.0 {
+                self.progress = 0.0
+            }
+        }
+    }
+
+    func getProgress(ref self) -> f64 {
+        return self.progress
+    }
+
+    func getColor(ref self, normal: Color, focused: Color) -> Color {
+        return Color {
+            r: lerpI32(normal.r, focused.r, self.progress),
+            g: lerpI32(normal.g, focused.g, self.progress),
+            b: lerpI32(normal.b, focused.b, self.progress),
+            a: lerpI32(normal.a, focused.a, self.progress)
+        }
+    }
+}

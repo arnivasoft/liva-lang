@@ -1200,3 +1200,138 @@ TEST_F(UIModuleTest, TextAreaInWidgetArray) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "TextArea in [dyn Widget] array should work";
 }
+
+// ---- Phase 10: Animation & Transitions ----
+
+TEST_F(UIModuleTest, ImportAnimation) {
+    auto r = check(
+        "import ui::animation\n"
+        "func main() {\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::animation should load without errors";
+}
+
+TEST_F(UIModuleTest, EasingFunctions) {
+    auto r = check(
+        "import ui::animation\n"
+        "func main() {\n"
+        "    let a = easeLinear(0.5)\n"
+        "    let b = easeInQuad(0.5)\n"
+        "    let c = easeOutQuad(0.5)\n"
+        "    let d = easeInOutQuad(0.5)\n"
+        "    let e = easeInCubic(0.5)\n"
+        "    let f = easeOutCubic(0.5)\n"
+        "    let g = easeInOutCubic(0.5)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "All 7 easing functions should resolve";
+}
+
+TEST_F(UIModuleTest, ClampAndApplyEasing) {
+    auto r = check(
+        "import ui::animation\n"
+        "func main() {\n"
+        "    let clamped = clampF64(1.5, 0.0, 1.0)\n"
+        "    let eased = applyEasing(0.5, 2)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "clampF64 and applyEasing should resolve";
+}
+
+TEST_F(UIModuleTest, LerpFunctions) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::animation\n"
+        "func main() {\n"
+        "    let f = lerpF64(0.0, 100.0, 0.5)\n"
+        "    let i = lerpI32(0, 255, 0.5)\n"
+        "    let c = lerpColor(Color.black(), Color.white(), 0.5)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "lerpF64, lerpI32, lerpColor should resolve";
+}
+
+TEST_F(UIModuleTest, TweenNew) {
+    auto r = check(
+        "import ui::animation\n"
+        "func main() {\n"
+        "    let tw = Tween.new(0.0, 100.0, 1.0, 0)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Tween.new construction should work";
+}
+
+TEST_F(UIModuleTest, TweenLifecycle) {
+    auto r = check(
+        "import ui::animation\n"
+        "func main() {\n"
+        "    var tw = Tween.new(0.0, 100.0, 1.0, 2)\n"
+        "    tw.start()\n"
+        "    tw.update(0.5)\n"
+        "    let p = tw.progress()\n"
+        "    let v = tw.getValue()\n"
+        "    let done = tw.isComplete()\n"
+        "    tw.reset()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Tween start/update/progress/getValue/isComplete/reset should work";
+}
+
+TEST_F(UIModuleTest, ColorTransitionNew) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::animation\n"
+        "func main() {\n"
+        "    let ct = ColorTransition.new(Color.black(), Color.white(), 0.5, 1)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ColorTransition.new construction should work";
+}
+
+TEST_F(UIModuleTest, ColorTransitionLifecycle) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::animation\n"
+        "func main() {\n"
+        "    var ct = ColorTransition.new(Color.red(), Color.blue(), 1.0, 0)\n"
+        "    ct.start()\n"
+        "    ct.update(0.3)\n"
+        "    let p = ct.progress()\n"
+        "    let c = ct.getValue()\n"
+        "    let done = ct.isComplete()\n"
+        "    ct.reset()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ColorTransition start/update/getValue/isComplete/reset should work";
+}
+
+TEST_F(UIModuleTest, HoverAnimatorNew) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::animation\n"
+        "func main() {\n"
+        "    var ha = HoverAnimator.new(5.0)\n"
+        "    ha.update(true, 0.016)\n"
+        "    let p = ha.getProgress()\n"
+        "    let c = ha.getColor(Color.gray(40), Color.gray(60))\n"
+        "    let v = ha.getValue(0.0, 1.0)\n"
+        "    let vi = ha.getValueI32(10, 20)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HoverAnimator construction and methods should work";
+}
+
+TEST_F(UIModuleTest, FocusAnimatorNew) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::animation\n"
+        "func main() {\n"
+        "    var fa = FocusAnimator.new(5.0)\n"
+        "    fa.update(true, 0.016)\n"
+        "    let p = fa.getProgress()\n"
+        "    let c = fa.getColor(Color.gray(60), Color.blue())\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "FocusAnimator construction and methods should work";
+}
