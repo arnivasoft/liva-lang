@@ -53,7 +53,18 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
         visit(const_cast<Expr *>(node->getInit()));
     }
 
-    bool copyType = node->getType() ? isCopyType(node->getType()) : true;
+    bool copyType;
+    const TypeRepr *type = node->getType();
+    if (type && !type->isInferred()) {
+        // Explicit type annotation — use it directly
+        copyType = isCopyType(type);
+    } else if (node->hasInit() && node->getInit()->getResolvedType()) {
+        // Inferred type — use the init expression's resolved type
+        copyType = isCopyType(node->getInit()->getResolvedType());
+    } else {
+        // No type info available — default to Copy
+        copyType = true;
+    }
     trackVariable(node->getName(), node->isMutable(), copyType, node->getStartLoc());
 }
 

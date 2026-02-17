@@ -9,7 +9,7 @@ import ui::widgets
 
 // Draw widgets stacked vertically at (x, y) with given spacing
 pub func layoutVStack(items: [dyn Widget], x: i32, y: i32, spacing: i32) {
-    var cy: i32 = y
+    var cy = y
     for item in items {
         item.draw(x, cy)
         cy = cy + item.getHeight() + spacing
@@ -18,8 +18,8 @@ pub func layoutVStack(items: [dyn Widget], x: i32, y: i32, spacing: i32) {
 
 // Compute total height of a vertical stack
 pub func vstackHeight(items: [dyn Widget], spacing: i32) -> i32 {
-    var total: i32 = 0
-    var count: i32 = 0
+    var total = 0
+    var count = 0
     for item in items {
         total = total + item.getHeight()
         count = count + 1
@@ -34,7 +34,7 @@ pub func vstackHeight(items: [dyn Widget], spacing: i32) -> i32 {
 
 // Draw widgets laid out horizontally at (x, y) with given spacing
 pub func layoutHStack(items: [dyn Widget], x: i32, y: i32, spacing: i32) {
-    var cx: i32 = x
+    var cx = x
     for item in items {
         item.draw(cx, y)
         cx = cx + item.getWidth() + spacing
@@ -43,8 +43,8 @@ pub func layoutHStack(items: [dyn Widget], x: i32, y: i32, spacing: i32) {
 
 // Compute total width of a horizontal stack
 pub func hstackWidth(items: [dyn Widget], spacing: i32) -> i32 {
-    var total: i32 = 0
-    var count: i32 = 0
+    var total = 0
+    var count = 0
     for item in items {
         total = total + item.getWidth()
         count = count + 1
@@ -59,10 +59,10 @@ pub func hstackWidth(items: [dyn Widget], spacing: i32) -> i32 {
 
 // Draw a vertical stack centered horizontally on screen
 pub func layoutVStackCentered(items: [dyn Widget], y: i32, spacing: i32) {
-    var cy: i32 = y
+    var cy = y
     for item in items {
-        let w: i32 = getScreenWidth()
-        let ix: i32 = (w - item.getWidth()) / 2
+        let screenW = getScreenWidth()
+        let ix = (screenW - item.getWidth()) / 2
         item.draw(ix, cy)
         cy = cy + item.getHeight() + spacing
     }
