@@ -1481,3 +1481,130 @@ TEST_F(UIModuleTest, AccessibleInfoNew) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "AccessibleInfo and ROLE_* constants should work";
 }
+
+// ---- Faz 12: Tooltip & Popover ----
+
+TEST_F(UIModuleTest, ImportTooltip) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::tooltip should work";
+}
+
+TEST_F(UIModuleTest, PositionConstants) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    let a = POS_ABOVE()\n"
+        "    let b = POS_BELOW()\n"
+        "    let l = POS_LEFT()\n"
+        "    let r = POS_RIGHT()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "POS_ABOVE/BELOW/LEFT/RIGHT constants should work";
+}
+
+TEST_F(UIModuleTest, CalcPopupPosition) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    let x = calcPopupX(100, 80, 60, POS_BELOW())\n"
+        "    let y = calcPopupY(100, 30, 20, POS_BELOW())\n"
+        "    let x2 = calcPopupX(100, 80, 60, POS_LEFT())\n"
+        "    let y2 = calcPopupY(100, 30, 20, POS_ABOVE())\n"
+        "    let x3 = calcPopupX(100, 80, 60, POS_RIGHT())\n"
+        "    let y3 = calcPopupY(100, 30, 20, POS_RIGHT())\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "calcPopupX/Y with all positions should work";
+}
+
+TEST_F(UIModuleTest, TooltipNew) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    let tip = Tooltip.new(\"Hello\", 0.5)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Tooltip.new construction should work";
+}
+
+TEST_F(UIModuleTest, TooltipThemed) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "import ui::theme\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    let tip = Tooltip.themed(\"Info\", 0.3, t)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Tooltip.themed with Theme should work";
+}
+
+TEST_F(UIModuleTest, TooltipMethods) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    var tip = Tooltip.new(\"Tip\", 0.5)\n"
+        "    tip.update(10, 20, 100, 30, 0.016)\n"
+        "    tip.draw()\n"
+        "    let v = tip.isVisible()\n"
+        "    tip.show()\n"
+        "    tip.hide()\n"
+        "    tip.setPosition(POS_ABOVE())\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Tooltip update/draw/show/hide/setPosition should work";
+}
+
+TEST_F(UIModuleTest, PopoverNew) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    let pop = Popover.new(\"Title\", \"Content text here\", 300)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Popover.new construction should work";
+}
+
+TEST_F(UIModuleTest, PopoverThemed) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "import ui::theme\n"
+        "func main() {\n"
+        "    let t = Theme.light()\n"
+        "    let pop = Popover.themed(\"Help\", \"Details\", 250, t)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Popover.themed with Theme should work";
+}
+
+TEST_F(UIModuleTest, PopoverShowHide) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    var pop = Popover.new(\"T\", \"C\", 200)\n"
+        "    pop.show(50, 60, 80, 30)\n"
+        "    let v = pop.isVisible()\n"
+        "    pop.hide()\n"
+        "    pop.toggle(50, 60, 80, 30)\n"
+        "    pop.setPosition(POS_LEFT())\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Popover show/hide/toggle/setPosition should work";
+}
+
+TEST_F(UIModuleTest, PopoverUpdateDraw) {
+    auto r = check(
+        "import ui::tooltip\n"
+        "func main() {\n"
+        "    var pop = Popover.new(\"Title\", \"Body content\", 280)\n"
+        "    pop.show(100, 100, 80, 30)\n"
+        "    pop.update()\n"
+        "    pop.draw()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Popover update and draw should work";
+}
