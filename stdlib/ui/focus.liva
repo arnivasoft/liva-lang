@@ -1,0 +1,283 @@
+// std::ui focus — focus manager, keyboard shortcuts, accessibility
+// Import with: import ui::focus
+
+import std::ui
+import ui::types
+import ui::theme
+
+// ---- Key Code Constants ----
+
+pub func KEY_TAB() -> i32 { return 258 }
+pub func KEY_ENTER() -> i32 { return 257 }
+pub func KEY_ESCAPE() -> i32 { return 256 }
+pub func KEY_SPACE() -> i32 { return 32 }
+pub func KEY_BACKSPACE() -> i32 { return 259 }
+pub func KEY_DELETE() -> i32 { return 261 }
+pub func KEY_UP() -> i32 { return 265 }
+pub func KEY_DOWN() -> i32 { return 264 }
+pub func KEY_LEFT() -> i32 { return 263 }
+pub func KEY_RIGHT() -> i32 { return 262 }
+pub func KEY_HOME() -> i32 { return 268 }
+pub func KEY_END() -> i32 { return 269 }
+pub func KEY_SHIFT() -> i32 { return 340 }
+pub func KEY_CTRL() -> i32 { return 341 }
+pub func KEY_ALT() -> i32 { return 342 }
+
+// ---- Keyboard Shortcut Helpers ----
+
+pub func isShortcut(keyCode: i32) -> bool {
+    return isKeyPressed(keyCode)
+}
+
+pub func isShortcutShift(keyCode: i32) -> bool {
+    if isKeyDown(340) {
+        return isKeyPressed(keyCode)
+    }
+    return false
+}
+
+pub func isShortcutCtrl(keyCode: i32) -> bool {
+    if isKeyDown(341) {
+        return isKeyPressed(keyCode)
+    }
+    return false
+}
+
+pub func isShortcutCtrlShift(keyCode: i32) -> bool {
+    if isKeyDown(341) {
+        if isKeyDown(340) {
+            return isKeyPressed(keyCode)
+        }
+    }
+    return false
+}
+
+// ---- FocusManager ----
+
+pub struct FocusManager {
+    var focusIndex: i32
+    var widgetCount: i32
+    var active: bool
+}
+
+impl FocusManager {
+    func new(widgetCount: i32) -> FocusManager {
+        return FocusManager {
+            focusIndex: -1,
+            widgetCount: widgetCount,
+            active: false
+        }
+    }
+
+    func update(ref mut self) {
+        if isKeyDown(340) {
+            if isKeyPressed(258) {
+                // Shift+Tab: prev
+                if self.focusIndex <= 0 {
+                    self.focusIndex = self.widgetCount - 1
+                } else {
+                    self.focusIndex = self.focusIndex - 1
+                }
+                self.active = true
+            }
+        } else {
+            if isKeyPressed(258) {
+                // Tab: next
+                self.focusIndex = self.focusIndex + 1
+                if self.focusIndex >= self.widgetCount {
+                    self.focusIndex = 0
+                }
+                self.active = true
+            }
+        }
+        if isKeyPressed(256) {
+            // Escape: clear
+            self.focusIndex = -1
+            self.active = false
+        }
+    }
+
+    func updateArrows(ref mut self) {
+        if isKeyPressed(264) {
+            // Down: next
+            self.focusIndex = self.focusIndex + 1
+            if self.focusIndex >= self.widgetCount {
+                self.focusIndex = 0
+            }
+            self.active = true
+        }
+        if isKeyPressed(265) {
+            // Up: prev
+            if self.focusIndex <= 0 {
+                self.focusIndex = self.widgetCount - 1
+            } else {
+                self.focusIndex = self.focusIndex - 1
+            }
+            self.active = true
+        }
+    }
+
+    func next(ref mut self) {
+        self.focusIndex = self.focusIndex + 1
+        if self.focusIndex >= self.widgetCount {
+            self.focusIndex = 0
+        }
+        self.active = true
+    }
+
+    func prev(ref mut self) {
+        if self.focusIndex <= 0 {
+            self.focusIndex = self.widgetCount - 1
+        } else {
+            self.focusIndex = self.focusIndex - 1
+        }
+        self.active = true
+    }
+
+    func getFocus(ref self) -> i32 {
+        return self.focusIndex
+    }
+
+    func setFocus(ref mut self, index: i32) {
+        self.focusIndex = index
+        self.active = true
+    }
+
+    func clearFocus(ref mut self) {
+        self.focusIndex = -1
+        self.active = false
+    }
+
+    func isFocused(ref self, index: i32) -> bool {
+        return self.focusIndex == index
+    }
+
+    func isActive(ref self) -> bool {
+        return self.active
+    }
+}
+
+// ---- FocusRing ----
+
+pub struct FocusRing {
+    var color: Color
+    var padding: i32
+}
+
+impl FocusRing {
+    func new(color: Color, padding: i32) -> FocusRing {
+        return FocusRing { color: color, padding: padding }
+    }
+
+    func themed(theme: Theme) -> FocusRing {
+        return FocusRing { color: theme.borderFocused, padding: 2 }
+    }
+
+    func draw(ref self, x: i32, y: i32, w: i32, h: i32) {
+        let px = x - self.padding
+        let py = y - self.padding
+        let pw = w + self.padding * 2
+        let ph = h + self.padding * 2
+        drawRectLines(px, py, pw, ph, self.color.r, self.color.g, self.color.b, self.color.a)
+    }
+
+    func drawIf(ref self, focused: bool, x: i32, y: i32, w: i32, h: i32) {
+        if focused {
+            let px = x - self.padding
+            let py = y - self.padding
+            let pw = w + self.padding * 2
+            let ph = h + self.padding * 2
+            drawRectLines(px, py, pw, ph, self.color.r, self.color.g, self.color.b, self.color.a)
+        }
+    }
+}
+
+// ---- KeyAction ----
+
+pub struct KeyAction {
+    var keyCode: i32
+    var actionId: i32
+    var needsShift: bool
+    var needsCtrl: bool
+}
+
+impl KeyAction {
+    func new(keyCode: i32, actionId: i32) -> KeyAction {
+        return KeyAction { keyCode: keyCode, actionId: actionId, needsShift: false, needsCtrl: false }
+    }
+
+    func withShift(keyCode: i32, actionId: i32) -> KeyAction {
+        return KeyAction { keyCode: keyCode, actionId: actionId, needsShift: true, needsCtrl: false }
+    }
+
+    func withCtrl(keyCode: i32, actionId: i32) -> KeyAction {
+        return KeyAction { keyCode: keyCode, actionId: actionId, needsShift: false, needsCtrl: true }
+    }
+
+    func withCtrlShift(keyCode: i32, actionId: i32) -> KeyAction {
+        return KeyAction { keyCode: keyCode, actionId: actionId, needsShift: true, needsCtrl: true }
+    }
+
+    func isTriggered(ref self) -> bool {
+        if self.needsCtrl {
+            if !isKeyDown(341) {
+                return false
+            }
+        }
+        if self.needsShift {
+            if !isKeyDown(340) {
+                return false
+            }
+        }
+        return isKeyPressed(self.keyCode)
+    }
+
+    func getActionId(ref self) -> i32 {
+        return self.actionId
+    }
+}
+
+// ---- Accessibility Roles ----
+
+pub func ROLE_BUTTON() -> i32 { return 0 }
+pub func ROLE_INPUT() -> i32 { return 1 }
+pub func ROLE_CHECKBOX() -> i32 { return 2 }
+pub func ROLE_SLIDER() -> i32 { return 3 }
+pub func ROLE_LABEL() -> i32 { return 4 }
+pub func ROLE_PANEL() -> i32 { return 5 }
+pub func ROLE_LIST() -> i32 { return 6 }
+pub func ROLE_TABVIEW() -> i32 { return 7 }
+
+// ---- AccessibleInfo ----
+
+pub struct AccessibleInfo {
+    var label: string
+    var role: i32
+    var enabled: bool
+}
+
+impl AccessibleInfo {
+    func new(label: string, role: i32) -> AccessibleInfo {
+        return AccessibleInfo { label: label, role: role, enabled: true }
+    }
+
+    func disabled(label: string, role: i32) -> AccessibleInfo {
+        return AccessibleInfo { label: label, role: role, enabled: false }
+    }
+
+    func getLabel(ref self) -> string {
+        return self.label
+    }
+
+    func getRole(ref self) -> i32 {
+        return self.role
+    }
+
+    func isEnabled(ref self) -> bool {
+        return self.enabled
+    }
+
+    func setEnabled(ref mut self, val: bool) {
+        self.enabled = val
+    }
+}

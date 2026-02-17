@@ -1335,3 +1335,149 @@ TEST_F(UIModuleTest, FocusAnimatorNew) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "FocusAnimator construction and methods should work";
 }
+
+// ---- Phase 11: Focus & Keyboard Navigation ----
+
+TEST_F(UIModuleTest, ImportFocus) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::focus should load without errors";
+}
+
+TEST_F(UIModuleTest, KeyConstants) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "    let tab = KEY_TAB()\n"
+        "    let enter = KEY_ENTER()\n"
+        "    let esc = KEY_ESCAPE()\n"
+        "    let space = KEY_SPACE()\n"
+        "    let up = KEY_UP()\n"
+        "    let down = KEY_DOWN()\n"
+        "    let shift = KEY_SHIFT()\n"
+        "    let ctrl = KEY_CTRL()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Key constant functions should resolve";
+}
+
+TEST_F(UIModuleTest, ShortcutHelpers) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "    let a = isShortcut(32)\n"
+        "    let b = isShortcutShift(65)\n"
+        "    let c = isShortcutCtrl(83)\n"
+        "    let d = isShortcutCtrlShift(90)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Shortcut helper functions should resolve";
+}
+
+TEST_F(UIModuleTest, FocusManagerNew) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "    let fm = FocusManager.new(5)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "FocusManager.new construction should work";
+}
+
+TEST_F(UIModuleTest, FocusManagerNavigation) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "    var fm = FocusManager.new(4)\n"
+        "    fm.next()\n"
+        "    fm.prev()\n"
+        "    fm.setFocus(2)\n"
+        "    let idx = fm.getFocus()\n"
+        "    let f = fm.isFocused(2)\n"
+        "    let a = fm.isActive()\n"
+        "    fm.clearFocus()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "FocusManager navigation methods should work";
+}
+
+TEST_F(UIModuleTest, FocusManagerUpdate) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "    var fm = FocusManager.new(3)\n"
+        "    fm.update()\n"
+        "    fm.updateArrows()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "FocusManager.update and updateArrows should work";
+}
+
+TEST_F(UIModuleTest, FocusRingNew) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::focus\n"
+        "func main() {\n"
+        "    let ring = FocusRing.new(Color.blue(), 3)\n"
+        "    let t = Theme.dark()\n"
+        "    let ring2 = FocusRing.themed(t)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "FocusRing.new and FocusRing.themed should work";
+}
+
+TEST_F(UIModuleTest, FocusRingDraw) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::focus\n"
+        "func main() {\n"
+        "    var ring = FocusRing.new(Color.blue(), 2)\n"
+        "    ring.draw(10, 10, 100, 30)\n"
+        "    ring.drawIf(true, 10, 50, 100, 30)\n"
+        "    ring.drawIf(false, 10, 90, 100, 30)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "FocusRing.draw and drawIf should work";
+}
+
+TEST_F(UIModuleTest, KeyActionNew) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "    let ka = KeyAction.new(32, 1)\n"
+        "    let ks = KeyAction.withShift(65, 2)\n"
+        "    let kc = KeyAction.withCtrl(83, 3)\n"
+        "    let kcs = KeyAction.withCtrlShift(90, 4)\n"
+        "    let t = ka.isTriggered()\n"
+        "    let id = ka.getActionId()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "KeyAction construction and methods should work";
+}
+
+TEST_F(UIModuleTest, AccessibleInfoNew) {
+    auto r = check(
+        "import ui::focus\n"
+        "func main() {\n"
+        "    var info = AccessibleInfo.new(\"Submit\", ROLE_BUTTON())\n"
+        "    let lbl = info.getLabel()\n"
+        "    let role = info.getRole()\n"
+        "    let en = info.isEnabled()\n"
+        "    info.setEnabled(false)\n"
+        "    let di = AccessibleInfo.disabled(\"Old\", ROLE_INPUT())\n"
+        "    let rb = ROLE_BUTTON()\n"
+        "    let ri = ROLE_INPUT()\n"
+        "    let rc = ROLE_CHECKBOX()\n"
+        "    let rs = ROLE_SLIDER()\n"
+        "    let rl = ROLE_LABEL()\n"
+        "    let rp = ROLE_PANEL()\n"
+        "    let rli = ROLE_LIST()\n"
+        "    let rt = ROLE_TABVIEW()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "AccessibleInfo and ROLE_* constants should work";
+}
