@@ -125,7 +125,9 @@ void ModuleLoader::registerBuiltinModules() {
          "isMousePressed", "isMouseReleased", "isMouseDown",
          "getMouseX", "getMouseY", "getMouseWheel",
          "isKeyPressed", "isKeyDown", "getCharPressed", "getKeyPressed",
-         "beginScissor", "endScissor", "getFrameTime"});
+         "beginScissor", "endScissor", "getFrameTime",
+         "loadFont", "unloadFont", "drawTextFont", "measureTextFont",
+         "drawTextWrapped", "measureTextWrapped"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

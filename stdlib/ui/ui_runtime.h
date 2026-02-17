@@ -57,6 +57,20 @@ int32_t  liva_ui_get_mouse_wheel(void);
 void     liva_ui_draw_rect_lines(int32_t x, int32_t y, int32_t w, int32_t h,
                                   int32_t r, int32_t g, int32_t b, int32_t a);
 
+// === Font ===
+int32_t  liva_ui_load_font(const char* path, int32_t size);
+void     liva_ui_unload_font(int32_t handle);
+void     liva_ui_draw_text_font(int32_t handle, const char* text,
+                                 int32_t x, int32_t y, int32_t size,
+                                 int32_t r, int32_t g, int32_t b, int32_t a);
+int32_t  liva_ui_measure_text_font(int32_t handle, const char* text, int32_t size);
+
+// === Word-Wrap ===
+int32_t  liva_ui_draw_text_wrapped(const char* text, int32_t x, int32_t y,
+                                    int32_t fontSize, int32_t maxWidth,
+                                    int32_t r, int32_t g, int32_t b, int32_t a);
+int32_t  liva_ui_measure_text_wrapped(const char* text, int32_t fontSize, int32_t maxWidth);
+
 #ifdef __cplusplus
 }
 #endif

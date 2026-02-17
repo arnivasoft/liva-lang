@@ -979,6 +979,32 @@ void IRGen::createRuntimeDecls() {
     auto *uiFrameTimeTy = llvm::FunctionType::get(f32Ty, {}, false);
     module_->getOrInsertFunction("liva_ui_get_frame_time", uiFrameTimeTy);
 
+    // liva_ui_load_font(path, size) -> i32
+    auto *uiLoadFontTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_load_font", uiLoadFontTy);
+
+    // liva_ui_unload_font(handle) -> void
+    auto *uiUnloadFontTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_unload_font", uiUnloadFontTy);
+
+    // liva_ui_draw_text_font(handle, text, x, y, size, r, g, b, a) -> void
+    auto *uiDrawTextFontTy = llvm::FunctionType::get(voidTy,
+        {i32Ty, i8PtrTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_text_font", uiDrawTextFontTy);
+
+    // liva_ui_measure_text_font(handle, text, size) -> i32
+    auto *uiMeasureTextFontTy = llvm::FunctionType::get(i32Ty, {i32Ty, i8PtrTy, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_measure_text_font", uiMeasureTextFontTy);
+
+    // liva_ui_draw_text_wrapped(text, x, y, fontSize, maxWidth, r, g, b, a) -> i32
+    auto *uiDrawTextWrapTy = llvm::FunctionType::get(i32Ty,
+        {i8PtrTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_text_wrapped", uiDrawTextWrapTy);
+
+    // liva_ui_measure_text_wrapped(text, fontSize, maxWidth) -> i32
+    auto *uiMeasureTextWrapTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_measure_text_wrapped", uiMeasureTextWrapTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();

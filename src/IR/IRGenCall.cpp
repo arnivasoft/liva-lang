@@ -3271,6 +3271,63 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(getOrPanic("liva_ui_measure_text"), {text, size}, "ui.mt");
     }
 
+    // loadFont(path, size) -> i32
+    if (funcName == "loadFont" && node->getArgs().size() >= 2) {
+        auto *path = visit(node->getArgs()[0].get());
+        auto *size = visit(node->getArgs()[1].get());
+        if (!path || !size) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_load_font"), {path, size}, "ui.lf");
+    }
+
+    // unloadFont(handle) -> void
+    if (funcName == "unloadFont" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_unload_font"), {handle});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // drawTextFont(handle, text, x, y, size, r, g, b, a) -> void
+    if (funcName == "drawTextFont" && node->getArgs().size() >= 9) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 9; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_draw_text_font"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // measureTextFont(handle, text, size) -> i32
+    if (funcName == "measureTextFont" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *text = visit(node->getArgs()[1].get());
+        auto *size = visit(node->getArgs()[2].get());
+        if (!handle || !text || !size) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_measure_text_font"), {handle, text, size}, "ui.mtf");
+    }
+
+    // drawTextWrapped(text, x, y, fontSize, maxWidth, r, g, b, a) -> i32
+    if (funcName == "drawTextWrapped" && node->getArgs().size() >= 9) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 9; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        return builder_->CreateCall(getOrPanic("liva_ui_draw_text_wrapped"), args, "ui.dtw");
+    }
+
+    // measureTextWrapped(text, fontSize, maxWidth) -> i32
+    if (funcName == "measureTextWrapped" && node->getArgs().size() >= 3) {
+        auto *text = visit(node->getArgs()[0].get());
+        auto *fontSize = visit(node->getArgs()[1].get());
+        auto *maxWidth = visit(node->getArgs()[2].get());
+        if (!text || !fontSize || !maxWidth) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_measure_text_wrapped"), {text, fontSize, maxWidth}, "ui.mtw");
+    }
+
     // drawLine(x1, y1, x2, y2, r, g, b, a) -> void
     if (funcName == "drawLine" && node->getArgs().size() >= 8) {
         std::vector<llvm::Value *> args;

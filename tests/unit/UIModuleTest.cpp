@@ -1083,3 +1083,120 @@ TEST_F(UIModuleTest, PaddedContainers) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Padded VStack/HStack should work";
 }
+
+// ---- Phase 9: Font & TextArea tests ----
+
+TEST_F(UIModuleTest, FontLoadBuiltin) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let handle = loadFont(\"test.ttf\", 20)\n"
+        "    unloadFont(handle)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "loadFont/unloadFont should pass sema";
+}
+
+TEST_F(UIModuleTest, FontDrawBuiltin) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    drawTextFont(1, \"Hi\", 10, 10, 20, 255, 255, 255, 255)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "drawTextFont should pass sema";
+}
+
+TEST_F(UIModuleTest, FontMeasureBuiltin) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let w = measureTextFont(1, \"Hello\", 20)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "measureTextFont should pass sema";
+}
+
+TEST_F(UIModuleTest, TextWrappedBuiltin) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let h = drawTextWrapped(\"Hello world\", 10, 10, 20, 200, 255, 255, 255, 255)\n"
+        "    let h2 = measureTextWrapped(\"Hello world\", 20, 200)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "drawTextWrapped/measureTextWrapped should pass sema";
+}
+
+TEST_F(UIModuleTest, TextAreaNew) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var ta = TextArea.new(\"Enter text...\", 400, 200)\n"
+        "    let text = ta.getText()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextArea.new and getText should work";
+}
+
+TEST_F(UIModuleTest, TextAreaThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let theme = Theme.dark()\n"
+        "    var ta = TextArea.themed(\"Notes\", 400, 300, theme)\n"
+        "    let text = ta.getText()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextArea.themed should work";
+}
+
+TEST_F(UIModuleTest, TextAreaUpdate) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var ta = TextArea.new(\"Type here\", 300, 150)\n"
+        "    ta.update(10, 10)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextArea.update should pass sema";
+}
+
+TEST_F(UIModuleTest, TextAreaGetLineCount) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var ta = TextArea.new(\"Editor\", 400, 200)\n"
+        "    let lines = ta.getLineCount()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextArea.getLineCount should pass sema";
+}
+
+TEST_F(UIModuleTest, TextAreaWidgetConformance) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var ta = TextArea.new(\"Code\", 400, 300)\n"
+        "    let w = ta.getWidth()\n"
+        "    let h = ta.getHeight()\n"
+        "    ta.draw(0, 0)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextArea Widget conformance should work";
+}
+
+TEST_F(UIModuleTest, TextAreaInWidgetArray) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let lbl = Label.new(\"Title\", 24, Color.white())\n"
+        "    let ta = TextArea.new(\"Notes\", 400, 200)\n"
+        "    let items: [dyn Widget] = [lbl, ta]\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextArea in [dyn Widget] array should work";
+}

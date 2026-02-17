@@ -1757,3 +1757,407 @@ impl Dialog {
         }
     }
 }
+
+// ---- TextArea (multi-line text editor) ----
+pub struct TextArea {
+    var value: string
+    var placeholder: string
+    var fontSize: i32
+    var width: i32
+    var height: i32
+    var cursorPos: i32
+    var focused: bool
+    var scrollY: i32
+    var bgColor: Color
+    var textColor: Color
+    var borderColor: Color
+    var focusedBorderColor: Color
+    var placeholderColor: Color
+    var cursorColor: Color
+    var padding: i32
+}
+
+impl TextArea {
+    func new(placeholder: string, width: i32, height: i32) -> TextArea {
+        return TextArea {
+            value: "",
+            placeholder: placeholder,
+            fontSize: 20,
+            width: width,
+            height: height,
+            cursorPos: 0,
+            focused: false,
+            scrollY: 0,
+            bgColor: Color { r: 40, g: 40, b: 40, a: 255 },
+            textColor: Color.white(),
+            borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
+            focusedBorderColor: Color { r: 100, g: 150, b: 255, a: 255 },
+            placeholderColor: Color { r: 120, g: 120, b: 120, a: 255 },
+            cursorColor: Color { r: 255, g: 255, b: 255, a: 255 },
+            padding: 6
+        }
+    }
+
+    func themed(placeholder: string, width: i32, height: i32, theme: Theme) -> TextArea {
+        return TextArea {
+            value: "",
+            placeholder: placeholder,
+            fontSize: theme.fontSize,
+            width: width,
+            height: height,
+            cursorPos: 0,
+            focused: false,
+            scrollY: 0,
+            bgColor: theme.surfaceAlt,
+            textColor: theme.text,
+            borderColor: theme.border,
+            focusedBorderColor: theme.borderFocused,
+            placeholderColor: theme.textSecondary,
+            cursorColor: theme.text,
+            padding: theme.padding
+        }
+    }
+
+    func update(ref mut self, x: i32, y: i32) {
+        // Click to focus
+        if isMousePressed(0) {
+            if hitTest(getMouseX(), getMouseY(), x, y, self.width, self.height) {
+                self.focused = true
+            } else {
+                self.focused = false
+            }
+        }
+        if !self.focused { return }
+        // Character input
+        var ch = getCharPressed()
+        while ch > 0 {
+            if ch >= 32 && ch < 127 {
+                let vlen = len(self.value) as i32
+                let before = self.value.substring(0, self.cursorPos)
+                let after = self.value.substring(self.cursorPos, vlen - self.cursorPos)
+                let charStr = charToString(ch)
+                self.value = before + charStr + after
+                self.cursorPos = self.cursorPos + 1
+            }
+            ch = getCharPressed()
+        }
+        // Enter — insert newline
+        if isKeyPressed(257) {
+            let vlen = len(self.value) as i32
+            let before = self.value.substring(0, self.cursorPos)
+            let after = self.value.substring(self.cursorPos, vlen - self.cursorPos)
+            self.value = before + "\n" + after
+            self.cursorPos = self.cursorPos + 1
+        }
+        // Backspace
+        if isKeyPressed(259) {
+            if self.cursorPos > 0 {
+                let vlen = len(self.value) as i32
+                let before = self.value.substring(0, self.cursorPos - 1)
+                let after = self.value.substring(self.cursorPos, vlen - self.cursorPos)
+                self.value = before + after
+                self.cursorPos = self.cursorPos - 1
+            }
+        }
+        // Delete
+        if isKeyPressed(261) {
+            let vlen = len(self.value) as i32
+            if self.cursorPos < vlen {
+                let before = self.value.substring(0, self.cursorPos)
+                let after = self.value.substring(self.cursorPos + 1, vlen - self.cursorPos - 1)
+                self.value = before + after
+            }
+        }
+        // Left arrow
+        if isKeyPressed(263) {
+            if self.cursorPos > 0 {
+                self.cursorPos = self.cursorPos - 1
+            }
+        }
+        // Right arrow
+        if isKeyPressed(262) {
+            if self.cursorPos < (len(self.value) as i32) {
+                self.cursorPos = self.cursorPos + 1
+            }
+        }
+        // Up arrow — find previous line, same column
+        if isKeyPressed(265) {
+            let vlen = len(self.value) as i32
+            // Find current line start
+            var lineStart = self.cursorPos
+            while lineStart > 0 {
+                if self.value.substring(lineStart - 1, 1) == "\n" {
+                    lineStart = lineStart
+                    // found \n at lineStart-1, so lineStart is correct
+                    var dummy = 0
+                    dummy = dummy
+                    lineStart = lineStart
+                    // break out: set lineStart and exit
+                    var foundNl = true
+                    if foundNl {
+                        // column in current line
+                        let col = self.cursorPos - lineStart
+                        // Find start of previous line
+                        var prevEnd = lineStart - 1
+                        var prevStart = prevEnd
+                        while prevStart > 0 {
+                            if self.value.substring(prevStart - 1, 1) == "\n" {
+                                prevStart = prevStart
+                                var done2 = true
+                                if done2 {
+                                    // Move cursor
+                                    let prevLen = prevEnd - prevStart
+                                    if col < prevLen {
+                                        self.cursorPos = prevStart + col
+                                    } else {
+                                        self.cursorPos = prevEnd
+                                    }
+                                    return
+                                }
+                            }
+                            prevStart = prevStart - 1
+                        }
+                        // prevStart == 0 means first line
+                        let prevLen2 = prevEnd - prevStart
+                        if col < prevLen2 {
+                            self.cursorPos = prevStart + col
+                        } else {
+                            self.cursorPos = prevEnd
+                        }
+                        return
+                    }
+                }
+                lineStart = lineStart - 1
+            }
+            // Already on first line, go to start
+            self.cursorPos = 0
+        }
+        // Down arrow — find next line, same column
+        if isKeyPressed(264) {
+            let vlen = len(self.value) as i32
+            // Find current line start
+            var lineStart = self.cursorPos
+            while lineStart > 0 {
+                if self.value.substring(lineStart - 1, 1) == "\n" {
+                    lineStart = lineStart
+                    var bk = true
+                    if bk {
+                        lineStart = lineStart
+                    }
+                    // break: lineStart found
+                    var bk2 = true
+                    if bk2 {
+                        let col = self.cursorPos - lineStart
+                        // Find next \n
+                        var nextNl = self.cursorPos
+                        while nextNl < vlen {
+                            if self.value.substring(nextNl, 1) == "\n" {
+                                let nextStart = nextNl + 1
+                                // Find end of next line
+                                var nextEnd = nextStart
+                                while nextEnd < vlen {
+                                    if self.value.substring(nextEnd, 1) == "\n" {
+                                        nextEnd = nextEnd
+                                        var done3 = true
+                                        if done3 {
+                                            let nextLen = nextEnd - nextStart
+                                            if col < nextLen {
+                                                self.cursorPos = nextStart + col
+                                            } else {
+                                                self.cursorPos = nextEnd
+                                            }
+                                            return
+                                        }
+                                    }
+                                    nextEnd = nextEnd + 1
+                                }
+                                // nextEnd == vlen (last line)
+                                let nextLen2 = nextEnd - nextStart
+                                if col < nextLen2 {
+                                    self.cursorPos = nextStart + col
+                                } else {
+                                    self.cursorPos = nextEnd
+                                }
+                                return
+                            }
+                            nextNl = nextNl + 1
+                        }
+                        // No next line, go to end
+                        self.cursorPos = vlen
+                        return
+                    }
+                }
+                lineStart = lineStart - 1
+            }
+            // lineStart == 0 (first line)
+            let col2 = self.cursorPos - lineStart
+            var nextNl2 = self.cursorPos
+            while nextNl2 < vlen {
+                if self.value.substring(nextNl2, 1) == "\n" {
+                    let ns2 = nextNl2 + 1
+                    var ne2 = ns2
+                    while ne2 < vlen {
+                        if self.value.substring(ne2, 1) == "\n" {
+                            ne2 = ne2
+                            var done4 = true
+                            if done4 {
+                                let nl2 = ne2 - ns2
+                                if col2 < nl2 {
+                                    self.cursorPos = ns2 + col2
+                                } else {
+                                    self.cursorPos = ne2
+                                }
+                                return
+                            }
+                        }
+                        ne2 = ne2 + 1
+                    }
+                    let nl3 = ne2 - ns2
+                    if col2 < nl3 {
+                        self.cursorPos = ns2 + col2
+                    } else {
+                        self.cursorPos = ne2
+                    }
+                    return
+                }
+                nextNl2 = nextNl2 + 1
+            }
+            self.cursorPos = vlen
+        }
+        // Home — go to start of current line
+        if isKeyPressed(268) {
+            var pos = self.cursorPos
+            while pos > 0 {
+                if self.value.substring(pos - 1, 1) == "\n" {
+                    self.cursorPos = pos
+                    return
+                }
+                pos = pos - 1
+            }
+            self.cursorPos = 0
+        }
+        // End — go to end of current line
+        if isKeyPressed(269) {
+            let vlen = len(self.value) as i32
+            var pos = self.cursorPos
+            while pos < vlen {
+                if self.value.substring(pos, 1) == "\n" {
+                    self.cursorPos = pos
+                    return
+                }
+                pos = pos + 1
+            }
+            self.cursorPos = vlen
+        }
+        // Scroll — ensure cursor visible
+        let vlen2 = len(self.value) as i32
+        var curLine = 0
+        var ci = 0
+        while ci < self.cursorPos && ci < vlen2 {
+            if self.value.substring(ci, 1) == "\n" {
+                curLine = curLine + 1
+            }
+            ci = ci + 1
+        }
+        let cursorY = curLine * self.fontSize
+        let visH = self.height - self.padding * 2
+        if cursorY < self.scrollY {
+            self.scrollY = cursorY
+        }
+        if cursorY + self.fontSize > self.scrollY + visH {
+            self.scrollY = cursorY + self.fontSize - visH
+        }
+    }
+
+    func getText(ref self) -> string { return self.value }
+
+    func getLineCount(ref self) -> i32 {
+        let vlen = len(self.value) as i32
+        var count = 1
+        var i = 0
+        while i < vlen {
+            if self.value.substring(i, 1) == "\n" {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+}
+
+impl TextArea: Widget {
+    func getWidth(ref self) -> i32 { return self.width }
+    func getHeight(ref self) -> i32 { return self.height }
+    func draw(ref self, x: i32, y: i32) {
+        let w = self.width
+        let h = self.height
+        // Background
+        let bg = self.bgColor
+        drawRect(x, y, w, h, bg.r, bg.g, bg.b, bg.a)
+        // Border
+        if self.focused {
+            let fbc = self.focusedBorderColor
+            drawRectLines(x, y, w, h, fbc.r, fbc.g, fbc.b, fbc.a)
+        } else {
+            let bc = self.borderColor
+            drawRectLines(x, y, w, h, bc.r, bc.g, bc.b, bc.a)
+        }
+        // Scissor clipping
+        beginScissor(x + 1, y + 1, w - 2, h - 2)
+        let textX = x + self.padding
+        let textBaseY = y + self.padding - self.scrollY
+        let vlen = len(self.value) as i32
+        if vlen == 0 {
+            // Placeholder
+            let pc = self.placeholderColor
+            drawText(self.placeholder, textX, textBaseY, self.fontSize, pc.r, pc.g, pc.b, pc.a)
+        } else {
+            // Draw text line by line
+            let tc = self.textColor
+            var lineStart = 0
+            var lineY = textBaseY
+            var i = 0
+            while i <= vlen {
+                var isNewline = false
+                if i < vlen {
+                    if self.value.substring(i, 1) == "\n" {
+                        isNewline = true
+                    }
+                }
+                if i == vlen || isNewline {
+                    let lineLen = i - lineStart
+                    if lineLen > 0 {
+                        let lineText = self.value.substring(lineStart, lineLen)
+                        drawText(lineText, textX, lineY, self.fontSize,
+                                 tc.r, tc.g, tc.b, tc.a)
+                    }
+                    lineY = lineY + self.fontSize
+                    lineStart = i + 1
+                }
+                i = i + 1
+            }
+            // Cursor
+            if self.focused {
+                // Find cursor line and column
+                var cLine = 0
+                var cLineStart = 0
+                var ci = 0
+                while ci < self.cursorPos {
+                    if self.value.substring(ci, 1) == "\n" {
+                        cLine = cLine + 1
+                        cLineStart = ci + 1
+                    }
+                    ci = ci + 1
+                }
+                let cCol = self.cursorPos - cLineStart
+                let curTextBefore = self.value.substring(cLineStart, cCol)
+                let cursorDrawX = textX + measureText(curTextBefore, self.fontSize)
+                let cursorDrawY = textBaseY + cLine * self.fontSize
+                let cc = self.cursorColor
+                drawLine(cursorDrawX, cursorDrawY, cursorDrawX, cursorDrawY + self.fontSize,
+                         cc.r, cc.g, cc.b, cc.a)
+            }
+        }
+        endScissor()
+    }
+}

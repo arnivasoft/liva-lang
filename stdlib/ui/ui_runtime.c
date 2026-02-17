@@ -149,3 +149,120 @@ void liva_ui_draw_rect_lines(int32_t x, int32_t y, int32_t w, int32_t h,
     DrawLine(x, y, x, y + h - 1, c);             // left
     DrawLine(x + w - 1, y, x + w - 1, y + h - 1, c); // right
 }
+
+// === Font ===
+
+#define MAX_FONTS 16
+static Font fontSlots[MAX_FONTS];
+static bool fontUsed[MAX_FONTS] = {false};
+
+int32_t liva_ui_load_font(const char* path, int32_t size) {
+    // slot 0 reserved, custom fonts use 1-15
+    for (int i = 1; i < MAX_FONTS; ++i) {
+        if (!fontUsed[i]) {
+            fontSlots[i] = LoadFontEx(path, size, NULL, 0);
+            fontUsed[i] = true;
+            return i;
+        }
+    }
+    return -1; // no free slot
+}
+
+void liva_ui_unload_font(int32_t handle) {
+    if (handle >= 1 && handle < MAX_FONTS && fontUsed[handle]) {
+        UnloadFont(fontSlots[handle]);
+        fontUsed[handle] = false;
+    }
+}
+
+void liva_ui_draw_text_font(int32_t handle, const char* text,
+                             int32_t x, int32_t y, int32_t size,
+                             int32_t r, int32_t g, int32_t b, int32_t a) {
+    if (handle < 1 || handle >= MAX_FONTS || !fontUsed[handle]) return;
+    DrawTextEx(fontSlots[handle], text, (Vector2){(float)x, (float)y}, (float)size, 0,
+               (Color){(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a});
+}
+
+int32_t liva_ui_measure_text_font(int32_t handle, const char* text, int32_t size) {
+    if (handle < 1 || handle >= MAX_FONTS || !fontUsed[handle]) return 0;
+    return (int32_t)MeasureTextEx(fontSlots[handle], text, (float)size, 0).x;
+}
+
+// === Word-Wrap ===
+
+// Helper: draw or measure word-wrapped text. If draw==true, actually draw.
+static int32_t wrap_text_impl(const char* text, int32_t x, int32_t y,
+                               int32_t fontSize, int32_t maxWidth,
+                               int32_t r, int32_t g, int32_t b, int32_t a,
+                               bool draw) {
+    if (!text || !text[0]) return 0;
+    int32_t lineHeight = fontSize;
+    int32_t curY = y;
+    const char *p = text;
+
+    while (*p) {
+        // Find end of logical line (\n or end)
+        const char *lineEnd = p;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        // Process this logical line with word wrapping
+        const char *lp = p;
+        while (lp < lineEnd) {
+            // Skip leading spaces
+            while (lp < lineEnd && *lp == ' ') lp++;
+            if (lp >= lineEnd) break;
+
+            // Find how many chars fit in maxWidth
+            int32_t bestEnd = 0;
+            int32_t lastSpace = -1;
+            for (int32_t i = 0; lp + i <= lineEnd; ++i) {
+                // Measure substring lp[0..i]
+                char saved = ((char*)lp)[i];
+                ((char*)lp)[i] = '\0';
+                int32_t w = MeasureText(lp, fontSize);
+                ((char*)lp)[i] = saved;
+                if (w <= maxWidth || i == 0) {
+                    bestEnd = i;
+                    if (i > 0 && lp[i] == ' ') lastSpace = i;
+                    if (lp + i == lineEnd) { bestEnd = i; break; }
+                } else {
+                    break;
+                }
+            }
+            // If we stopped mid-word, break at last space
+            if (bestEnd < (int32_t)(lineEnd - lp) && lastSpace > 0) {
+                bestEnd = lastSpace;
+            }
+            // If bestEnd is still 0 but we have chars, force at least 1 char
+            if (bestEnd == 0 && lp < lineEnd) bestEnd = 1;
+
+            if (draw) {
+                char saved = ((char*)lp)[bestEnd];
+                ((char*)lp)[bestEnd] = '\0';
+                DrawText(lp, x, curY, fontSize,
+                         (Color){(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a});
+                ((char*)lp)[bestEnd] = saved;
+            }
+            curY += lineHeight;
+            lp += bestEnd;
+        }
+        // Advance past \n (empty line = advance one line)
+        if (*lineEnd == '\n') {
+            if (lp == p) curY += lineHeight; // empty line
+            p = lineEnd + 1;
+        } else {
+            if (lp == p && lineEnd > p) curY += lineHeight;
+            p = lineEnd;
+        }
+    }
+    return curY - y;
+}
+
+int32_t liva_ui_draw_text_wrapped(const char* text, int32_t x, int32_t y,
+                                   int32_t fontSize, int32_t maxWidth,
+                                   int32_t r, int32_t g, int32_t b, int32_t a) {
+    return wrap_text_impl(text, x, y, fontSize, maxWidth, r, g, b, a, true);
+}
+
+int32_t liva_ui_measure_text_wrapped(const char* text, int32_t fontSize, int32_t maxWidth) {
+    return wrap_text_impl(text, 0, 0, fontSize, maxWidth, 0, 0, 0, 0, false);
+}
