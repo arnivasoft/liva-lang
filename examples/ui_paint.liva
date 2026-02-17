@@ -1,0 +1,29 @@
+// Simple Paint App — demonstrates std::ui + ui::types
+import std::ui
+import ui::types
+
+func main() {
+    initWindow(800, 600, "Liva Paint")
+    setTargetFps(60)
+
+    let canvas = Canvas { width: 800, height: 600 }
+    let bg = Color.gray(30)
+    let brushColor = Color.red()
+
+    while !windowShouldClose() {
+        beginDrawing()
+        canvas.clear(bg)
+
+        // Draw brush at mouse position when clicked
+        if isMouseDown(0) {
+            canvas.fillCircle(getMouseX(), getMouseY(), 12, brushColor)
+        }
+
+        // HUD
+        canvas.text("Click and drag to paint", 10, 10, 20, Color.white())
+        canvas.text("Press ESC to exit", 10, 36, 16, Color.gray(160))
+
+        endDrawing()
+    }
+    closeWindow()
+}

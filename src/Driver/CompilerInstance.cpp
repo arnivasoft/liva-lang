@@ -62,6 +62,27 @@ CompilerInstance::CompilerInstance() {
     });
 }
 
+void CompilerInstance::addStdlibSearchPath(ModuleLoader &loader) {
+    addStdlibSearchPath(loader);
+    // Add stdlib/ relative to executable so file-based modules resolve
+    if (!executablePath_.empty()) {
+        auto pos = executablePath_.find_last_of("/\\");
+        std::string exeDir = (pos != std::string::npos)
+            ? executablePath_.substr(0, pos) : ".";
+        std::string candidates[] = {
+            exeDir + "/stdlib",
+            exeDir + "/../stdlib",
+        };
+        for (const auto &c : candidates) {
+            std::ifstream probe(c + "/runtime/runtime.h");
+            if (probe.is_open()) {
+                loader.addSearchPath(c);
+                break;
+            }
+        }
+    }
+}
+
 bool CompilerInstance::loadFile(const std::string &filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -127,8 +148,7 @@ bool CompilerInstance::checkOnly() {
     auto pos = fname.find_last_of("/\\");
     if (pos != std::string::npos)
         loader.setBasePath(fname.substr(0, pos + 1));
-    for (const auto &sp : searchPaths_)
-        loader.addSearchPath(sp);
+    addStdlibSearchPath(loader);
 
     Sema sema(diag_, &loader);
     if (traceMacros_)
@@ -156,8 +176,7 @@ std::optional<CompilerInstance::IRResult> CompilerInstance::compileToIR() {
     auto pos = fname.find_last_of("/\\");
     if (pos != std::string::npos)
         loader.setBasePath(fname.substr(0, pos + 1));
-    for (const auto &sp : searchPaths_)
-        loader.addSearchPath(sp);
+    addStdlibSearchPath(loader);
 
     Sema sema(diag_, &loader);
     if (traceMacros_)
@@ -190,8 +209,7 @@ bool CompilerInstance::emitIR(const std::string &outputPath) {
     auto pos = fname.find_last_of("/\\");
     if (pos != std::string::npos)
         loader.setBasePath(fname.substr(0, pos + 1));
-    for (const auto &sp : searchPaths_)
-        loader.addSearchPath(sp);
+    addStdlibSearchPath(loader);
 
     Sema sema(diag_, &loader);
     if (traceMacros_)
@@ -236,8 +254,7 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
         auto pos = fname.find_last_of("/\\");
         if (pos != std::string::npos)
             loader->setBasePath(fname.substr(0, pos + 1));
-        for (const auto &sp : searchPaths_)
-            loader->addSearchPath(sp);
+        addStdlibSearchPath(*loader);
     }
 
     Sema sema(diag_, loader);
@@ -303,8 +320,7 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
         auto pos = fname.find_last_of("/\\");
         if (pos != std::string::npos)
             loader->setBasePath(fname.substr(0, pos + 1));
-        for (const auto &sp : searchPaths_)
-            loader->addSearchPath(sp);
+        addStdlibSearchPath(*loader);
     }
 
     Sema sema(diag_, loader);
@@ -372,8 +388,7 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     auto pos = fname.find_last_of("/\\");
     if (pos != std::string::npos)
         loader.setBasePath(fname.substr(0, pos + 1));
-    for (const auto &sp : searchPaths_)
-        loader.addSearchPath(sp);
+    addStdlibSearchPath(loader);
 
     Sema sema(diag_, &loader);
     if (traceMacros_)

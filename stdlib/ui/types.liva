@@ -1,0 +1,96 @@
+// std::ui types — Color, Rect, Vec2, Size
+// Import with: import ui::types
+
+import std::ui
+
+pub struct Color {
+    var r: i32
+    var g: i32
+    var b: i32
+    var a: i32
+}
+
+impl Color {
+    func new(r: i32, g: i32, b: i32, a: i32) -> Color {
+        return Color { r: r, g: g, b: b, a: a }
+    }
+    func rgb(r: i32, g: i32, b: i32) -> Color {
+        return Color { r: r, g: g, b: b, a: 255 }
+    }
+    func white() -> Color { return Color { r: 255, g: 255, b: 255, a: 255 } }
+    func black() -> Color { return Color { r: 0, g: 0, b: 0, a: 255 } }
+    func red() -> Color { return Color { r: 255, g: 0, b: 0, a: 255 } }
+    func green() -> Color { return Color { r: 0, g: 255, b: 0, a: 255 } }
+    func blue() -> Color { return Color { r: 0, g: 0, b: 255, a: 255 } }
+    func gray(v: i32) -> Color { return Color { r: v, g: v, b: v, a: 255 } }
+    func withAlpha(ref self, a: i32) -> Color {
+        return Color { r: self.r, g: self.g, b: self.b, a: a }
+    }
+}
+
+pub struct Vec2 {
+    var x: i32
+    var y: i32
+}
+
+impl Vec2 {
+    func new(x: i32, y: i32) -> Vec2 {
+        return Vec2 { x: x, y: y }
+    }
+    func zero() -> Vec2 { return Vec2 { x: 0, y: 0 } }
+}
+
+pub struct Size {
+    var w: i32
+    var h: i32
+}
+
+impl Size {
+    func new(w: i32, h: i32) -> Size {
+        return Size { w: w, h: h }
+    }
+}
+
+pub struct Rect {
+    var x: i32
+    var y: i32
+    var w: i32
+    var h: i32
+}
+
+impl Rect {
+    func new(x: i32, y: i32, w: i32, h: i32) -> Rect {
+        return Rect { x: x, y: y, w: w, h: h }
+    }
+    func contains(ref self, px: i32, py: i32) -> bool {
+        return px >= self.x && px <= self.x + self.w &&
+               py >= self.y && py <= self.y + self.h
+    }
+}
+
+// Canvas — high-level drawing API wrapping std::ui builtins
+pub struct Canvas {
+    var width: i32
+    var height: i32
+}
+
+impl Canvas {
+    func clear(ref self, c: Color) {
+        clearBackground(c.r, c.g, c.b, c.a)
+    }
+    func fillRect(ref self, r: Rect, c: Color) {
+        drawRect(r.x, r.y, r.w, r.h, c.r, c.g, c.b, c.a)
+    }
+    func strokeLine(ref self, x1: i32, y1: i32, x2: i32, y2: i32, c: Color) {
+        drawLine(x1, y1, x2, y2, c.r, c.g, c.b, c.a)
+    }
+    func fillCircle(ref self, cx: i32, cy: i32, radius: i32, c: Color) {
+        drawCircle(cx, cy, radius, c.r, c.g, c.b, c.a)
+    }
+    func text(ref self, msg: string, x: i32, y: i32, size: i32, c: Color) {
+        drawText(msg, x, y, size, c.r, c.g, c.b, c.a)
+    }
+    func textWidth(ref self, msg: string, size: i32) -> i32 {
+        return measureText(msg, size)
+    }
+}

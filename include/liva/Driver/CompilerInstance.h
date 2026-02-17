@@ -113,6 +113,9 @@ private:
     /// Run lexing and parsing
     std::unique_ptr<TranslationUnit> parseSource();
 
+    /// Add stdlib search path relative to executable
+    void addStdlibSearchPath(ModuleLoader &loader);
+
     std::unique_ptr<SourceManager> sourceManager_;
     DiagnosticsEngine diag_;
     std::string executablePath_;

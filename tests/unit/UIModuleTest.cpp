@@ -17,7 +17,8 @@ protected:
         bool passed;
     };
 
-    SemaResult check(const std::string &source, bool withModuleLoader = true) {
+    SemaResult check(const std::string &source, bool withModuleLoader = true,
+                      const std::string &extraSearchPath = "") {
         SemaResult r;
         r.sm = std::make_unique<SourceManager>("test.liva", source);
         r.diag.setSourceManager(r.sm.get());
@@ -30,6 +31,8 @@ protected:
         }
         if (withModuleLoader) {
             ModuleLoader loader;
+            if (!extraSearchPath.empty())
+                loader.addSearchPath(extraSearchPath);
             Sema sema(r.diag, &loader);
             sema.analyze(*r.tu);
         } else {
@@ -146,4 +149,40 @@ TEST_F(UIModuleTest, GetFrameTime) {
         "}\n"
     );
     EXPECT_TRUE(r.passed) << "getFrameTime should resolve";
+}
+
+// ---- File-based module tests (ui::types) ----
+
+TEST_F(UIModuleTest, ImportUITypes) {
+    // stdlib/ should contain ui/types.liva
+    auto r = check(
+        "import ui::types\n"
+        "func main() {\n"
+        "    let c = Color.red()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::types should resolve Color struct";
+}
+
+TEST_F(UIModuleTest, UITypesRect) {
+    auto r = check(
+        "import ui::types\n"
+        "func main() {\n"
+        "    let r = Rect.new(10, 20, 100, 50)\n"
+        "    let inside = r.contains(15, 25)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Rect.new and contains should work";
+}
+
+TEST_F(UIModuleTest, UITypesCanvas) {
+    auto r = check(
+        "import ui::types\n"
+        "func main() {\n"
+        "    let canvas = Canvas { width: 800, height: 600 }\n"
+        "    let c = Color.white()\n"
+        "    canvas.text(\"hello\", 10, 10, 20, c)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Canvas.text should work with Color param";
 }
