@@ -446,6 +446,45 @@ bool CompilerInstance::compile(const std::string &outputPath) {
             return false;
         }
         objects.push_back(runtimeLib);
+
+        // Check if std::ui is imported — link UI runtime + raylib
+        bool needsUI = false;
+        for (auto &decl : tu->getDeclarations()) {
+            if (auto *imp = dynamic_cast<ImportDecl *>(decl.get())) {
+                auto path = imp->getPathString();
+                if (path == "std::ui" || path == "std") {
+                    needsUI = true;
+                    break;
+                }
+            }
+        }
+        if (needsUI) {
+            std::string uiLibCandidates[] = {
+                exeDir + "/lib/liva_ui.lib",
+                exeDir + "/../lib/liva_ui.lib",
+                exeDir + "/lib/libliva_ui.a",
+                exeDir + "/../lib/libliva_ui.a",
+            };
+            for (auto &c : uiLibCandidates) {
+                if (fileExists(c)) { objects.push_back(c); break; }
+            }
+            std::string raylibCandidates[] = {
+                exeDir + "/lib/raylib.lib",
+                exeDir + "/../lib/raylib.lib",
+                exeDir + "/lib/libraylib.a",
+                exeDir + "/../lib/libraylib.a",
+            };
+            for (auto &c : raylibCandidates) {
+                if (fileExists(c)) { objects.push_back(c); break; }
+            }
+#ifdef _WIN32
+            flags.push_back("-lgdi32");
+            flags.push_back("-lwinmm");
+            flags.push_back("-luser32");
+            flags.push_back("-lshell32");
+#endif
+        }
+
 #ifdef _WIN32
         flags.push_back("-lwinhttp");
 #endif

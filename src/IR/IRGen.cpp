@@ -883,6 +883,93 @@ void IRGen::createRuntimeDecls() {
         {i8PtrTy, i64Ty, i64Ty, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_array_count", arrCountTy);
 
+    // === Stdlib: UI (raylib wrapper) ===
+
+    // liva_ui_init_window(i32, i32, ptr) -> void
+    auto *uiInitWinTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_init_window", uiInitWinTy);
+
+    // liva_ui_close_window() -> void
+    auto *uiNoArgVoidTy = llvm::FunctionType::get(voidTy, {}, false);
+    module_->getOrInsertFunction("liva_ui_close_window", uiNoArgVoidTy);
+
+    // liva_ui_window_should_close() -> i8
+    auto *uiNoArgI8Ty = llvm::FunctionType::get(i8Ty, {}, false);
+    module_->getOrInsertFunction("liva_ui_window_should_close", uiNoArgI8Ty);
+
+    // liva_ui_set_target_fps(i32) -> void
+    auto *uiSetFpsTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_set_target_fps", uiSetFpsTy);
+
+    // liva_ui_get_screen_width() -> i32, liva_ui_get_screen_height() -> i32
+    auto *uiNoArgI32Ty = llvm::FunctionType::get(i32Ty, {}, false);
+    module_->getOrInsertFunction("liva_ui_get_screen_width", uiNoArgI32Ty);
+    module_->getOrInsertFunction("liva_ui_get_screen_height", uiNoArgI32Ty);
+
+    // liva_ui_begin_drawing() -> void, liva_ui_end_drawing() -> void
+    module_->getOrInsertFunction("liva_ui_begin_drawing", uiNoArgVoidTy);
+    module_->getOrInsertFunction("liva_ui_end_drawing", uiNoArgVoidTy);
+
+    // liva_ui_clear_background(r, g, b, a) -> void
+    auto *uiColor4Ty = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_clear_background", uiColor4Ty);
+
+    // liva_ui_draw_rect(x, y, w, h, r, g, b, a) -> void
+    auto *uiRect8Ty = llvm::FunctionType::get(voidTy,
+        {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_rect", uiRect8Ty);
+
+    // liva_ui_draw_rect_rounded(x, y, w, h, roundness, r, g, b, a) -> void
+    auto *f32Ty = builder_->getFloatTy();
+    auto *uiRectRound9Ty = llvm::FunctionType::get(voidTy,
+        {i32Ty, i32Ty, i32Ty, i32Ty, f32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_rect_rounded", uiRectRound9Ty);
+
+    // liva_ui_draw_text(ptr, x, y, size, r, g, b, a) -> void
+    auto *uiDrawTextTy = llvm::FunctionType::get(voidTy,
+        {i8PtrTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_text", uiDrawTextTy);
+
+    // liva_ui_measure_text(ptr, size) -> i32
+    auto *uiMeasureTextTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_measure_text", uiMeasureTextTy);
+
+    // liva_ui_draw_line(x1, y1, x2, y2, r, g, b, a) -> void
+    module_->getOrInsertFunction("liva_ui_draw_line", uiRect8Ty);
+
+    // liva_ui_draw_circle(cx, cy, radius, r, g, b, a) -> void
+    auto *uiCircle7Ty = llvm::FunctionType::get(voidTy,
+        {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_circle", uiCircle7Ty);
+
+    // liva_ui_is_mouse_pressed(button) -> i8
+    auto *uiMouseBtnTy = llvm::FunctionType::get(i8Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_is_mouse_pressed", uiMouseBtnTy);
+    module_->getOrInsertFunction("liva_ui_is_mouse_released", uiMouseBtnTy);
+    module_->getOrInsertFunction("liva_ui_is_mouse_down", uiMouseBtnTy);
+
+    // liva_ui_get_mouse_x() -> i32, liva_ui_get_mouse_y() -> i32
+    module_->getOrInsertFunction("liva_ui_get_mouse_x", uiNoArgI32Ty);
+    module_->getOrInsertFunction("liva_ui_get_mouse_y", uiNoArgI32Ty);
+
+    // liva_ui_is_key_pressed(key) -> i8, liva_ui_is_key_down(key) -> i8
+    auto *uiKeyTy = llvm::FunctionType::get(i8Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_is_key_pressed", uiKeyTy);
+    module_->getOrInsertFunction("liva_ui_is_key_down", uiKeyTy);
+
+    // liva_ui_get_char_pressed() -> i32, liva_ui_get_key_pressed() -> i32
+    module_->getOrInsertFunction("liva_ui_get_char_pressed", uiNoArgI32Ty);
+    module_->getOrInsertFunction("liva_ui_get_key_pressed", uiNoArgI32Ty);
+
+    // liva_ui_begin_scissor(x, y, w, h) -> void
+    auto *uiScissorTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_begin_scissor", uiScissorTy);
+    module_->getOrInsertFunction("liva_ui_end_scissor", uiNoArgVoidTy);
+
+    // liva_ui_get_frame_time() -> f32
+    auto *uiFrameTimeTy = llvm::FunctionType::get(f32Ty, {}, false);
+    module_->getOrInsertFunction("liva_ui_get_frame_time", uiFrameTimeTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();

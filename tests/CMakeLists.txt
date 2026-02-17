@@ -59,6 +59,11 @@ liva_add_test(plugin_test
 )
 target_link_libraries(plugin_test PRIVATE liva_plugin liva_sema liva_parser)
 
+liva_add_test(ui_module_test
+    unit/UIModuleTest.cpp
+)
+target_link_libraries(ui_module_test PRIVATE liva_sema liva_parser)
+
 liva_add_test(diag_color_test
     unit/DiagColorTest.cpp
 )

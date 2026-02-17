@@ -3104,6 +3104,221 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return arrStruct;
     }
 
+    // === Stdlib: UI (raylib wrapper) ===
+
+    // initWindow(w, h, title) -> void
+    if (funcName == "initWindow" && node->getArgs().size() >= 3) {
+        auto *w = visit(node->getArgs()[0].get());
+        auto *h = visit(node->getArgs()[1].get());
+        auto *title = visit(node->getArgs()[2].get());
+        if (!w || !h || !title) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_init_window"), {w, h, title});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // closeWindow() -> void
+    if (funcName == "closeWindow" && node->getArgs().empty()) {
+        builder_->CreateCall(getOrPanic("liva_ui_close_window"), {});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // windowShouldClose() -> bool
+    if (funcName == "windowShouldClose" && node->getArgs().empty()) {
+        auto *r = builder_->CreateCall(getOrPanic("liva_ui_window_should_close"), {}, "ui.wsc");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.wsc.bool");
+    }
+
+    // setTargetFps(fps) -> void
+    if (funcName == "setTargetFps" && !node->getArgs().empty()) {
+        auto *fps = visit(node->getArgs()[0].get());
+        if (!fps) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_target_fps"), {fps});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // getScreenWidth() -> i32
+    if (funcName == "getScreenWidth" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_screen_width"), {}, "ui.sw");
+    }
+
+    // getScreenHeight() -> i32
+    if (funcName == "getScreenHeight" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_screen_height"), {}, "ui.sh");
+    }
+
+    // beginDrawing() -> void
+    if (funcName == "beginDrawing" && node->getArgs().empty()) {
+        builder_->CreateCall(getOrPanic("liva_ui_begin_drawing"), {});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // endDrawing() -> void
+    if (funcName == "endDrawing" && node->getArgs().empty()) {
+        builder_->CreateCall(getOrPanic("liva_ui_end_drawing"), {});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // clearBackground(r, g, b, a) -> void
+    if (funcName == "clearBackground" && node->getArgs().size() >= 4) {
+        auto *r = visit(node->getArgs()[0].get());
+        auto *g = visit(node->getArgs()[1].get());
+        auto *b = visit(node->getArgs()[2].get());
+        auto *a = visit(node->getArgs()[3].get());
+        if (!r || !g || !b || !a) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_clear_background"), {r, g, b, a});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // drawRect(x, y, w, h, r, g, b, a) -> void
+    if (funcName == "drawRect" && node->getArgs().size() >= 8) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 8; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_draw_rect"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // drawRectRounded(x, y, w, h, roundness, r, g, b, a) -> void
+    if (funcName == "drawRectRounded" && node->getArgs().size() >= 9) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 9; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_draw_rect_rounded"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // drawText(text, x, y, size, r, g, b, a) -> void
+    if (funcName == "drawText" && node->getArgs().size() >= 8) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 8; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_draw_text"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // measureText(text, size) -> i32
+    if (funcName == "measureText" && node->getArgs().size() >= 2) {
+        auto *text = visit(node->getArgs()[0].get());
+        auto *size = visit(node->getArgs()[1].get());
+        if (!text || !size) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_measure_text"), {text, size}, "ui.mt");
+    }
+
+    // drawLine(x1, y1, x2, y2, r, g, b, a) -> void
+    if (funcName == "drawLine" && node->getArgs().size() >= 8) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 8; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_draw_line"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // drawCircle(cx, cy, radius, r, g, b, a) -> void
+    if (funcName == "drawCircle" && node->getArgs().size() >= 7) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 7; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_draw_circle"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // isMousePressed(button) -> bool
+    if (funcName == "isMousePressed" && !node->getArgs().empty()) {
+        auto *btn = visit(node->getArgs()[0].get());
+        if (!btn) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_mouse_pressed"), {btn}, "ui.mp");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.mp.bool");
+    }
+
+    // isMouseReleased(button) -> bool
+    if (funcName == "isMouseReleased" && !node->getArgs().empty()) {
+        auto *btn = visit(node->getArgs()[0].get());
+        if (!btn) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_mouse_released"), {btn}, "ui.mr");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.mr.bool");
+    }
+
+    // isMouseDown(button) -> bool
+    if (funcName == "isMouseDown" && !node->getArgs().empty()) {
+        auto *btn = visit(node->getArgs()[0].get());
+        if (!btn) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_mouse_down"), {btn}, "ui.md");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.md.bool");
+    }
+
+    // getMouseX() -> i32
+    if (funcName == "getMouseX" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_mouse_x"), {}, "ui.mx");
+    }
+
+    // getMouseY() -> i32
+    if (funcName == "getMouseY" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_mouse_y"), {}, "ui.my");
+    }
+
+    // isKeyPressed(key) -> bool
+    if (funcName == "isKeyPressed" && !node->getArgs().empty()) {
+        auto *key = visit(node->getArgs()[0].get());
+        if (!key) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_key_pressed"), {key}, "ui.kp");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.kp.bool");
+    }
+
+    // isKeyDown(key) -> bool
+    if (funcName == "isKeyDown" && !node->getArgs().empty()) {
+        auto *key = visit(node->getArgs()[0].get());
+        if (!key) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_key_down"), {key}, "ui.kd");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.kd.bool");
+    }
+
+    // getCharPressed() -> i32
+    if (funcName == "getCharPressed" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_char_pressed"), {}, "ui.cp");
+    }
+
+    // getKeyPressed() -> i32
+    if (funcName == "getKeyPressed" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_key_pressed"), {}, "ui.kpr");
+    }
+
+    // beginScissor(x, y, w, h) -> void
+    if (funcName == "beginScissor" && node->getArgs().size() >= 4) {
+        auto *x = visit(node->getArgs()[0].get());
+        auto *y = visit(node->getArgs()[1].get());
+        auto *w = visit(node->getArgs()[2].get());
+        auto *h = visit(node->getArgs()[3].get());
+        if (!x || !y || !w || !h) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_begin_scissor"), {x, y, w, h});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // endScissor() -> void
+    if (funcName == "endScissor" && node->getArgs().empty()) {
+        builder_->CreateCall(getOrPanic("liva_ui_end_scissor"), {});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // getFrameTime() -> f32
+    if (funcName == "getFrameTime" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_frame_time"), {}, "ui.ft");
+    }
+
     // Handle print/println built-ins
     if (funcName == "print" || funcName == "println") {
         auto *printfFunc = module_->getFunction("printf");

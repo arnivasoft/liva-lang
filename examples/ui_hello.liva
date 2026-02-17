@@ -1,0 +1,18 @@
+import std::ui
+
+func main() {
+    initWindow(800, 600, "Liva UI Demo")
+    setTargetFps(60)
+
+    while !windowShouldClose() {
+        beginDrawing()
+        clearBackground(30, 30, 30, 255)
+        drawText("Hello from Liva!", 280, 280, 24, 255, 255, 255, 255)
+
+        if isMouseDown(0) {
+            drawCircle(getMouseX(), getMouseY(), 20, 255, 100, 100, 255)
+        }
+        endDrawing()
+    }
+    closeWindow()
+}

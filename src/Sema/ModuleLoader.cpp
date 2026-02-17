@@ -115,6 +115,18 @@ void ModuleLoader::registerBuiltinModules() {
          "strToUpper", "strToLower",
          "strReverse", "strChars", "strLines"});
 
+    // std::ui — UI library (raylib backend)
+    cache_["std::ui"] = createBuiltinModule("std::ui",
+        {"initWindow", "closeWindow", "windowShouldClose", "setTargetFps",
+         "getScreenWidth", "getScreenHeight",
+         "beginDrawing", "endDrawing", "clearBackground",
+         "drawRect", "drawRectRounded", "drawText", "measureText",
+         "drawLine", "drawCircle",
+         "isMousePressed", "isMouseReleased", "isMouseDown",
+         "getMouseX", "getMouseY",
+         "isKeyPressed", "isKeyDown", "getCharPressed", "getKeyPressed",
+         "beginScissor", "endScissor", "getFrameTime"});
+
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();
     umbrella->name = "std";
@@ -122,7 +134,7 @@ void ModuleLoader::registerBuiltinModules() {
                              "std::os", "std::random", "std::regex", "std::net",
                              "std::json", "std::log", "std::test",
                              "std::datetime", "std::compress", "std::sync",
-                             "std::collections", "std::strings"}) {
+                             "std::collections", "std::strings", "std::ui"}) {
         for (const auto &sym : cache_[sub]->exportedSymbols)
             umbrella->exportedSymbols.push_back(sym);
     }

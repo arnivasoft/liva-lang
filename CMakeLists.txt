@@ -8,6 +8,7 @@ project(liva-lang
 
 # Fuzzing option (requires Clang with libFuzzer)
 option(LIVA_ENABLE_FUZZING "Build libFuzzer fuzz targets" OFF)
+option(LIVA_HAS_RAYLIB "Enable UI library (requires raylib)" OFF)
 set(LIVA_SANITIZER "none" CACHE STRING "Sanitizer to enable (none/address/undefined/address,undefined)")
 
 # Include CMake modules
@@ -144,6 +145,33 @@ if(LIVA_HAS_LLVM)
     )
 endif()
 
+# === UI Runtime Library (optional, requires raylib) ===
+if(LIVA_HAS_RAYLIB AND LIVA_HAS_LLVM)
+    include(FetchContent)
+    find_package(raylib QUIET)
+    if(NOT raylib_FOUND)
+        FetchContent_Declare(raylib
+            GIT_REPOSITORY https://github.com/raysan5/raylib.git
+            GIT_TAG 5.5
+        )
+        FetchContent_MakeAvailable(raylib)
+    endif()
+
+    # Enable C for the ui_runtime.c file
+    enable_language(C)
+    add_library(liva_ui STATIC stdlib/ui/ui_runtime.c)
+    target_include_directories(liva_ui PRIVATE stdlib/ui)
+    target_link_libraries(liva_ui PUBLIC raylib)
+    target_compile_definitions(liva_ui PUBLIC LIVA_HAS_RAYLIB=1)
+
+    # Copy UI runtime lib + raylib next to livac
+    add_custom_command(TARGET liva_ui POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/lib"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:liva_ui>" "${CMAKE_BINARY_DIR}/lib/"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:raylib>" "${CMAKE_BINARY_DIR}/lib/"
+    )
+endif()
+
 # liva_lsp
 add_library(liva_lsp STATIC
     src/LSP/LSPServer.cpp
@@ -208,6 +236,9 @@ if(LIVA_HAS_LLVM)
     # Windows: winhttp for runtime HTTP support (linked into livac for JIT symbol resolution)
     if(WIN32)
         target_link_libraries(livac PRIVATE winhttp)
+    endif()
+    if(LIVA_HAS_RAYLIB)
+        target_link_libraries(livac PRIVATE liva_ui)
     endif()
 endif()
 liva_set_compiler_flags(livac)
