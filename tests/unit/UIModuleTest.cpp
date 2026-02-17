@@ -186,3 +186,185 @@ TEST_F(UIModuleTest, UITypesCanvas) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Canvas.text should work with Color param";
 }
+
+// ---- Phase 3: Widget protocol + layout tests ----
+
+TEST_F(UIModuleTest, ImportUIWidgets) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let lbl = Label.new(\"Hi\", 20, Color.white())\n"
+        "    let w = lbl.getWidth()\n"
+        "    let h = lbl.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::widgets should resolve Label";
+}
+
+TEST_F(UIModuleTest, WidgetButton) {
+    auto r = check(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let btn = Button.new(\"+\", 1)\n"
+        "    let w = btn.getWidth()\n"
+        "    let h = btn.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Button.new and size methods should work";
+}
+
+TEST_F(UIModuleTest, WidgetSpacer) {
+    auto r = check(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let sp = Spacer.new(10, 20)\n"
+        "    let vs = Spacer.vertical(30)\n"
+        "    let hs = Spacer.horizontal(40)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Spacer constructors should work";
+}
+
+TEST_F(UIModuleTest, WidgetPanel) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let p = Panel.new(Color.gray(40), 8, 200, 100)\n"
+        "    let w = p.getWidth()\n"
+        "    let h = p.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Panel with size computation should work";
+}
+
+TEST_F(UIModuleTest, WidgetDivider) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let hd = Divider.horizontalLine(200, Color.gray(80))\n"
+        "    let vd = Divider.verticalLine(100, Color.gray(80))\n"
+        "    let w = hd.getWidth()\n"
+        "    let h = vd.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Divider horizontal/vertical should work";
+}
+
+TEST_F(UIModuleTest, WidgetProtocolConformance) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func renderWidget(w: dyn Widget, x: i32, y: i32) {\n"
+        "    w.draw(x, y)\n"
+        "}\n"
+        "func main() {\n"
+        "    let lbl = Label.new(\"Hello\", 20, Color.white())\n"
+        "    renderWidget(lbl, 10, 10)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Label should conform to Widget protocol via dyn dispatch";
+}
+
+TEST_F(UIModuleTest, DynWidgetArray) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let lbl = Label.new(\"Title\", 24, Color.white())\n"
+        "    let sp = Spacer.vertical(10)\n"
+        "    let btn = Button.new(\"Click\", 1)\n"
+        "    let items: [dyn Widget] = [lbl, sp, btn]\n"
+        "    for item in items {\n"
+        "        item.draw(0, 0)\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "[dyn Widget] array with mixed widget types should work";
+}
+
+TEST_F(UIModuleTest, HitTestFunction) {
+    auto r = check(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let inside = hitTest(50, 50, 0, 0, 100, 100)\n"
+        "    let outside = hitTest(200, 200, 0, 0, 100, 100)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "hitTest utility function should resolve";
+}
+
+
+TEST_F(UIModuleTest, ImportUILayoutMinimal) {
+    // Test if layout module loads
+    auto r = check(
+        "import ui::layout\n"
+        "func main() {\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::layout should load without errors";
+}
+
+TEST_F(UIModuleTest, ImportUILayout) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let lbl = Label.new(\"Hi\", 20, Color.white())\n"
+        "    let btn = Button.new(\"OK\", 1)\n"
+        "    let row: [dyn Widget] = [lbl, btn]\n"
+        "    layoutHStack(row, 10, 10, 8)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import ui::layout should make layoutHStack available";
+}
+
+TEST_F(UIModuleTest, LayoutVStack) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"Line 1\", 20, Color.white())\n"
+        "    let sp = Spacer.vertical(8)\n"
+        "    let b = Label.new(\"Line 2\", 16, Color.gray(200))\n"
+        "    let col: [dyn Widget] = [a, sp, b]\n"
+        "    layoutVStack(col, 10, 10, 4)\n"
+        "    let c = Label.new(\"X\", 20, Color.white())\n"
+        "    let col2: [dyn Widget] = [c]\n"
+        "    let h = vstackHeight(col2, 4)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutVStack and vstackHeight should work";
+}
+
+TEST_F(UIModuleTest, LayoutCentered) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let title = Label.new(\"Centered\", 28, Color.white())\n"
+        "    let items: [dyn Widget] = [title]\n"
+        "    layoutVStackCentered(items, 100, 10)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutVStackCentered should work";
+}
+
+TEST_F(UIModuleTest, ButtonStyled) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let btn = Button.styled(\"Go\", 1,\n"
+        "        Color { r: 60, g: 160, b: 60, a: 255 },\n"
+        "        Color.white())\n"
+        "    let w = btn.getWidth()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Button.styled factory should work";
+}

@@ -1,0 +1,197 @@
+// Widget Protocol + Basic Widgets
+// Import with: import ui::widgets
+
+import std::ui
+import ui::types
+
+// ---- Widget Protocol ----
+pub protocol Widget {
+    func getWidth(ref self) -> i32
+    func getHeight(ref self) -> i32
+    func draw(ref self, x: i32, y: i32)
+}
+
+// ---- Utility ----
+pub func hitTest(mx: i32, my: i32, x: i32, y: i32, w: i32, h: i32) -> bool {
+    return mx >= x && mx <= x + w && my >= y && my <= y + h
+}
+
+// ---- Label ----
+pub struct Label {
+    var text: string
+    var fontSize: i32
+    var color: Color
+}
+
+impl Label {
+    func new(text: string, fontSize: i32, color: Color) -> Label {
+        return Label { text: text, fontSize: fontSize, color: color }
+    }
+}
+
+impl Label: Widget {
+    func getWidth(ref self) -> i32 {
+        return measureText(self.text, self.fontSize)
+    }
+    func getHeight(ref self) -> i32 {
+        return self.fontSize
+    }
+    func draw(ref self, x: i32, y: i32) {
+        drawText(self.text, x, y, self.fontSize,
+                 self.color.r, self.color.g, self.color.b, self.color.a)
+    }
+}
+
+// ---- Button ----
+pub struct Button {
+    var text: string
+    var fontSize: i32
+    var color: Color
+    var bgColor: Color
+    var hoverColor: Color
+    var padding: i32
+    var id: i32
+}
+
+impl Button {
+    func new(text: string, id: i32) -> Button {
+        return Button {
+            text: text,
+            fontSize: 20,
+            color: Color.white(),
+            bgColor: Color { r: 80, g: 80, b: 200, a: 255 },
+            hoverColor: Color { r: 100, g: 100, b: 230, a: 255 },
+            padding: 8,
+            id: id
+        }
+    }
+
+    func styled(text: string, id: i32, bg: Color, fg: Color) -> Button {
+        return Button {
+            text: text,
+            fontSize: 20,
+            color: fg,
+            bgColor: bg,
+            hoverColor: bg,
+            padding: 8,
+            id: id
+        }
+    }
+
+    func isHovered(ref self, bx: i32, by: i32) -> bool {
+        let w = measureText(self.text, self.fontSize) + self.padding * 2
+        let h = self.fontSize + self.padding * 2
+        return hitTest(getMouseX(), getMouseY(), bx, by, w, h)
+    }
+
+    func isClicked(ref self, bx: i32, by: i32) -> bool {
+        return self.isHovered(bx, by) && isMousePressed(0)
+    }
+}
+
+impl Button: Widget {
+    func getWidth(ref self) -> i32 {
+        return measureText(self.text, self.fontSize) + self.padding * 2
+    }
+    func getHeight(ref self) -> i32 {
+        return self.fontSize + self.padding * 2
+    }
+    func draw(ref self, x: i32, y: i32) {
+        let w = self.getWidth()
+        let h = self.getHeight()
+        let bg = self.bgColor
+        drawRect(x, y, w, h, bg.r, bg.g, bg.b, bg.a)
+        drawText(self.text, x + self.padding, y + self.padding,
+                 self.fontSize, self.color.r, self.color.g, self.color.b, self.color.a)
+    }
+}
+
+// ---- Spacer ----
+pub struct Spacer {
+    var w: i32
+    var h: i32
+}
+
+impl Spacer {
+    func new(w: i32, h: i32) -> Spacer {
+        return Spacer { w: w, h: h }
+    }
+    func vertical(h: i32) -> Spacer {
+        return Spacer { w: 0, h: h }
+    }
+    func horizontal(w: i32) -> Spacer {
+        return Spacer { w: w, h: 0 }
+    }
+}
+
+impl Spacer: Widget {
+    func getWidth(ref self) -> i32 { return self.w }
+    func getHeight(ref self) -> i32 { return self.h }
+    func draw(ref self, x: i32, y: i32) { }
+}
+
+// ---- Panel ----
+pub struct Panel {
+    var bgColor: Color
+    var padding: i32
+    var contentW: i32
+    var contentH: i32
+    var rounded: bool
+}
+
+impl Panel {
+    func new(bgColor: Color, padding: i32, contentW: i32, contentH: i32) -> Panel {
+        return Panel {
+            bgColor: bgColor, padding: padding,
+            contentW: contentW, contentH: contentH, rounded: false
+        }
+    }
+}
+
+impl Panel: Widget {
+    func getWidth(ref self) -> i32 { return self.contentW + self.padding * 2 }
+    func getHeight(ref self) -> i32 { return self.contentH + self.padding * 2 }
+    func draw(ref self, x: i32, y: i32) {
+        let w = self.getWidth()
+        let h = self.getHeight()
+        drawRect(x, y, w, h,
+                 self.bgColor.r, self.bgColor.g, self.bgColor.b, self.bgColor.a)
+    }
+}
+
+// ---- Divider ----
+pub struct Divider {
+    var length: i32
+    var thickness: i32
+    var color: Color
+    var horizontal: bool
+}
+
+impl Divider {
+    func horizontalLine(length: i32, color: Color) -> Divider {
+        return Divider { length: length, thickness: 1, color: color, horizontal: true }
+    }
+    func verticalLine(length: i32, color: Color) -> Divider {
+        return Divider { length: length, thickness: 1, color: color, horizontal: false }
+    }
+}
+
+impl Divider: Widget {
+    func getWidth(ref self) -> i32 {
+        if self.horizontal { return self.length }
+        return self.thickness
+    }
+    func getHeight(ref self) -> i32 {
+        if self.horizontal { return self.thickness }
+        return self.length
+    }
+    func draw(ref self, x: i32, y: i32) {
+        if self.horizontal {
+            drawLine(x, y, x + self.length, y,
+                     self.color.r, self.color.g, self.color.b, self.color.a)
+        } else {
+            drawLine(x, y, x, y + self.length,
+                     self.color.r, self.color.g, self.color.b, self.color.a)
+        }
+    }
+}
