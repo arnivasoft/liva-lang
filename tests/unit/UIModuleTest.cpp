@@ -776,3 +776,310 @@ TEST_F(UIModuleTest, BackwardCompatNoCallback) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Old API (new()) with closure fields should still work";
 }
+
+// ---- Phase 7: RadioGroup, TabView, Dropdown, Dialog ----
+
+TEST_F(UIModuleTest, RadioGroupOf3) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var rg = RadioGroup.of3(\"Red\", \"Green\", \"Blue\")\n"
+        "    let sel = rg.getSelected()\n"
+        "    let opt = rg.getOption(0)\n"
+        "    let w = rg.getWidth()\n"
+        "    let h = rg.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "RadioGroup.of3 construction and methods should work";
+}
+
+TEST_F(UIModuleTest, RadioGroupThemed) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    var rg = RadioGroup.themed3(\"Small\", \"Medium\", \"Large\", t)\n"
+        "    rg.update(10, 10)\n"
+        "    let sel = rg.getSelected()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "RadioGroup.themed3 with theme should work";
+}
+
+TEST_F(UIModuleTest, DropdownOf3) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var dd = Dropdown.of3(\"Apple\", \"Banana\", \"Cherry\", 200)\n"
+        "    let sel = dd.getSelected()\n"
+        "    let open = dd.isOpen()\n"
+        "    let opt = dd.getOption(1)\n"
+        "    let w = dd.getWidth()\n"
+        "    let h = dd.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Dropdown.of3 construction and methods should work";
+}
+
+TEST_F(UIModuleTest, DropdownThemed) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    var dd = Dropdown.themed3(\"One\", \"Two\", \"Three\", 180, t)\n"
+        "    dd.update(10, 10)\n"
+        "    let sel = dd.getSelected()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Dropdown.themed3 with theme should work";
+}
+
+TEST_F(UIModuleTest, TabViewOf3) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var tv = TabView.of3(\"Home\", \"Settings\", \"About\")\n"
+        "    let sel = tv.getSelected()\n"
+        "    let tw = tv.getTabWidth(0)\n"
+        "    let w = tv.getWidth()\n"
+        "    let h = tv.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TabView.of3 construction and methods should work";
+}
+
+TEST_F(UIModuleTest, TabViewThemed) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    var tv = TabView.themed3(\"Tab1\", \"Tab2\", \"Tab3\", t)\n"
+        "    tv.update(10, 10)\n"
+        "    let sel = tv.getSelected()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TabView.themed3 with theme should work";
+}
+
+TEST_F(UIModuleTest, DialogAlert) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var dlg = Dialog.alert(\"Info\", \"Operation completed.\", \"OK\")\n"
+        "    let vis = dlg.isVisible()\n"
+        "    dlg.show()\n"
+        "    let w = dlg.getWidth()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Dialog.alert construction and methods should work";
+}
+
+TEST_F(UIModuleTest, DialogConfirmThemed) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    var dlg = Dialog.confirmThemed(\"Delete?\", \"This cannot be undone.\", \"Delete\", \"Cancel\", t)\n"
+        "    dlg.setOnConfirm(|_id: i32| { })\n"
+        "    dlg.setOnCancel(|_id: i32| { })\n"
+        "    dlg.show()\n"
+        "    dlg.update()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Dialog.confirmThemed with callbacks should work";
+}
+
+// ---- Phase 8: Advanced Layout System ----
+
+TEST_F(UIModuleTest, GridLayout) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"A\", 20, Color.white())\n"
+        "    let b = Label.new(\"B\", 20, Color.white())\n"
+        "    let c = Label.new(\"C\", 20, Color.white())\n"
+        "    let d = Label.new(\"D\", 20, Color.white())\n"
+        "    let items: [dyn Widget] = [a, b, c, d]\n"
+        "    layoutGrid(items, 10, 10, 2, 100, 40, 8, 8)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutGrid with 4 labels in 2x2 should work";
+}
+
+TEST_F(UIModuleTest, GridAlignedLayout) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"A\", 16, Color.white())\n"
+        "    let b = Label.new(\"BB\", 20, Color.white())\n"
+        "    let c = Label.new(\"CCC\", 14, Color.white())\n"
+        "    let d = Label.new(\"D\", 18, Color.white())\n"
+        "    let items: [dyn Widget] = [a, b, c, d]\n"
+        "    layoutGridAligned(items, 10, 10, 2, 120, 50, 8, 8, 1, 1)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutGridAligned with center alignment should work";
+}
+
+TEST_F(UIModuleTest, GridSizeHelpers) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"X\", 20, Color.white())\n"
+        "    let b = Label.new(\"Y\", 20, Color.white())\n"
+        "    let c = Label.new(\"Z\", 20, Color.white())\n"
+        "    let items: [dyn Widget] = [a, b, c]\n"
+        "    let rows = gridRows(items, 2)\n"
+        "    let gw = gridWidth(2, 100, 8)\n"
+        "    let gh = gridHeight(rows, 40, 8)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "gridRows/gridWidth/gridHeight should work";
+}
+
+TEST_F(UIModuleTest, VStackAligned) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"Short\", 20, Color.white())\n"
+        "    let b = Label.new(\"Longer text\", 20, Color.white())\n"
+        "    let items: [dyn Widget] = [a, b]\n"
+        "    layoutVStackAligned(items, 10, 10, 8, 300, 2)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutVStackAligned with right alignment should work";
+}
+
+TEST_F(UIModuleTest, HStackAligned) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"Top\", 16, Color.white())\n"
+        "    let b = Button.new(\"OK\", 1)\n"
+        "    let items: [dyn Widget] = [a, b]\n"
+        "    layoutHStackAligned(items, 10, 10, 8, 60, 1)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutHStackAligned with center alignment should work";
+}
+
+TEST_F(UIModuleTest, AlignedStacksThemed) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::theme\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let t = Theme.dark()\n"
+        "    let a = Label.new(\"A\", 20, Color.white())\n"
+        "    let b = Label.new(\"B\", 20, Color.white())\n"
+        "    let items: [dyn Widget] = [a, b]\n"
+        "    layoutVStackAlignedThemed(items, 10, 10, 300, 1, t)\n"
+        "    let c = Label.new(\"C\", 20, Color.white())\n"
+        "    let d = Label.new(\"D\", 20, Color.white())\n"
+        "    let items2: [dyn Widget] = [c, d]\n"
+        "    layoutHStackAlignedThemed(items2, 10, 100, 60, 1, t)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Themed aligned stack variants should work";
+}
+
+TEST_F(UIModuleTest, HStackSpaced) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Button.new(\"A\", 1)\n"
+        "    let b = Button.new(\"B\", 2)\n"
+        "    let c = Button.new(\"C\", 3)\n"
+        "    let items: [dyn Widget] = [a, b, c]\n"
+        "    layoutHStackSpaced(items, 10, 10, 500)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutHStackSpaced (space-between) should work";
+}
+
+TEST_F(UIModuleTest, VStackSpaced) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"Top\", 20, Color.white())\n"
+        "    let b = Label.new(\"Mid\", 20, Color.white())\n"
+        "    let c = Label.new(\"Bot\", 20, Color.white())\n"
+        "    let items: [dyn Widget] = [a, b, c]\n"
+        "    layoutVStackSpaced(items, 10, 10, 400)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutVStackSpaced (space-between) should work";
+}
+
+TEST_F(UIModuleTest, CenteredLayouts) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Button.new(\"OK\", 1)\n"
+        "    let b = Button.new(\"Cancel\", 2)\n"
+        "    let items: [dyn Widget] = [a, b]\n"
+        "    layoutHStackCentered(items, 0, 10, 800, 8)\n"
+        "    let c = Label.new(\"Title\", 24, Color.white())\n"
+        "    let d = Button.new(\"Go\", 3)\n"
+        "    let items2: [dyn Widget] = [c, d]\n"
+        "    layoutVStackCenteredInRect(items2, 0, 0, 800, 600, 10)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "layoutHStackCentered and layoutVStackCenteredInRect should work";
+}
+
+TEST_F(UIModuleTest, PaddedContainers) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "func main() {\n"
+        "    let a = Label.new(\"Line 1\", 20, Color.white())\n"
+        "    let b = Label.new(\"Line 2\", 20, Color.white())\n"
+        "    let items: [dyn Widget] = [a, b]\n"
+        "    layoutVStackPadded(items, 10, 10, 8, 16, 12)\n"
+        "    let c = Label.new(\"Line 3\", 20, Color.white())\n"
+        "    let d = Label.new(\"Line 4\", 20, Color.white())\n"
+        "    let items2: [dyn Widget] = [c, d]\n"
+        "    layoutHStackPadded(items2, 10, 200, 8, 16, 12)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Padded VStack/HStack should work";
+}

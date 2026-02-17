@@ -142,6 +142,10 @@ int32_t liva_ui_get_mouse_wheel(void) {
 
 void liva_ui_draw_rect_lines(int32_t x, int32_t y, int32_t w, int32_t h,
                               int32_t r, int32_t g, int32_t b, int32_t a) {
-    DrawRectangleLines(x, y, w, h,
-                       (Color){(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a});
+    // Manual 4-line draw to avoid DrawRectangleLines 1px corner overflow
+    Color c = {(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a};
+    DrawLine(x, y, x + w - 1, y, c);             // top
+    DrawLine(x, y + h - 1, x + w - 1, y + h - 1, c); // bottom
+    DrawLine(x, y, x, y + h - 1, c);             // left
+    DrawLine(x + w - 1, y, x + w - 1, y + h - 1, c); // right
 }
