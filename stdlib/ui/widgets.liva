@@ -2,6 +2,7 @@
 // Import with: import ui::widgets
 
 import std::ui
+import std::convert
 import ui::types
 
 // ---- Widget Protocol ----
@@ -193,5 +194,381 @@ impl Divider: Widget {
             drawLine(x, y, x, y + self.length,
                      self.color.r, self.color.g, self.color.b, self.color.a)
         }
+    }
+}
+
+// ---- TextInput ----
+pub struct TextInput {
+    var value: string
+    var placeholder: string
+    var fontSize: i32
+    var width: i32
+    var cursorPos: i32
+    var focused: bool
+    var bgColor: Color
+    var textColor: Color
+    var borderColor: Color
+    var padding: i32
+}
+
+impl TextInput {
+    func new(placeholder: string, width: i32) -> TextInput {
+        return TextInput {
+            value: "",
+            placeholder: placeholder,
+            fontSize: 20,
+            width: width,
+            cursorPos: 0,
+            focused: false,
+            bgColor: Color { r: 40, g: 40, b: 40, a: 255 },
+            textColor: Color.white(),
+            borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
+            padding: 6
+        }
+    }
+
+    func update(ref mut self, x: i32, y: i32) {
+        let h = self.fontSize + self.padding * 2
+        // Click to focus
+        if isMousePressed(0) {
+            if hitTest(getMouseX(), getMouseY(), x, y, self.width, h) {
+                self.focused = true
+                // Estimate cursor position from click X
+                let clickX = getMouseX() - x - self.padding
+                let textLen = len(self.value) as i32
+                var pos = textLen
+                var i = 0
+                while i <= textLen {
+                    let tw = measureText(self.value.substring(0, i), self.fontSize)
+                    if tw >= clickX {
+                        pos = i
+                        i = textLen + 1
+                    } else {
+                        i = i + 1
+                    }
+                }
+                self.cursorPos = pos
+            } else {
+                self.focused = false
+            }
+        }
+        if !self.focused { return }
+        // Character input
+        var ch = getCharPressed()
+        while ch > 0 {
+            if ch >= 32 && ch < 127 {
+                let vlen = len(self.value) as i32
+                let before = self.value.substring(0, self.cursorPos)
+                let after = self.value.substring(self.cursorPos, vlen - self.cursorPos)
+                let charStr = charToString(ch)
+                self.value = before + charStr + after
+                self.cursorPos = self.cursorPos + 1
+            }
+            ch = getCharPressed()
+        }
+        // Backspace
+        if isKeyPressed(259) {
+            if self.cursorPos > 0 {
+                let vlen = len(self.value) as i32
+                let before = self.value.substring(0, self.cursorPos - 1)
+                let after = self.value.substring(self.cursorPos, vlen - self.cursorPos)
+                self.value = before + after
+                self.cursorPos = self.cursorPos - 1
+            }
+        }
+        // Delete
+        if isKeyPressed(261) {
+            let vlen = len(self.value) as i32
+            if self.cursorPos < vlen {
+                let before = self.value.substring(0, self.cursorPos)
+                let after = self.value.substring(self.cursorPos + 1, vlen - self.cursorPos - 1)
+                self.value = before + after
+            }
+        }
+        // Left arrow
+        if isKeyPressed(263) {
+            if self.cursorPos > 0 {
+                self.cursorPos = self.cursorPos - 1
+            }
+        }
+        // Right arrow
+        if isKeyPressed(262) {
+            if self.cursorPos < (len(self.value) as i32) {
+                self.cursorPos = self.cursorPos + 1
+            }
+        }
+        // Home
+        if isKeyPressed(268) {
+            self.cursorPos = 0
+        }
+        // End
+        if isKeyPressed(269) {
+            self.cursorPos = len(self.value) as i32
+        }
+    }
+
+    func getText(ref self) -> string { return self.value }
+}
+
+impl TextInput: Widget {
+    func getWidth(ref self) -> i32 { return self.width }
+    func getHeight(ref self) -> i32 { return self.fontSize + self.padding * 2 }
+    func draw(ref self, x: i32, y: i32) {
+        let w = self.width
+        let h = self.getHeight()
+        // Background
+        drawRect(x, y, w, h, self.bgColor.r, self.bgColor.g, self.bgColor.b, self.bgColor.a)
+        // Border
+        let bc = self.borderColor
+        if self.focused {
+            drawRectLines(x, y, w, h, 100, 150, 255, 255)
+        } else {
+            drawRectLines(x, y, w, h, bc.r, bc.g, bc.b, bc.a)
+        }
+        // Text or placeholder
+        let textY = y + self.padding
+        let textX = x + self.padding
+        if (len(self.value) as i32) > 0 {
+            drawText(self.value, textX, textY, self.fontSize,
+                     self.textColor.r, self.textColor.g, self.textColor.b, self.textColor.a)
+        } else {
+            drawText(self.placeholder, textX, textY, self.fontSize, 120, 120, 120, 255)
+        }
+        // Cursor (simple line)
+        if self.focused {
+            let cursorX = textX + measureText(self.value.substring(0, self.cursorPos), self.fontSize)
+            drawLine(cursorX, y + 3, cursorX, y + h - 3, 255, 255, 255, 255)
+        }
+    }
+}
+
+// ---- Checkbox ----
+pub struct Checkbox {
+    var label: string
+    var checked: bool
+    var fontSize: i32
+    var color: Color
+    var checkColor: Color
+    var boxSize: i32
+}
+
+impl Checkbox {
+    func new(label: string, checked: bool) -> Checkbox {
+        return Checkbox {
+            label: label,
+            checked: checked,
+            fontSize: 20,
+            color: Color.white(),
+            checkColor: Color { r: 80, g: 200, b: 80, a: 255 },
+            boxSize: 20
+        }
+    }
+
+    func update(ref mut self, x: i32, y: i32) {
+        let totalW = self.boxSize + 8 + measureText(self.label, self.fontSize)
+        if isMousePressed(0) {
+            if hitTest(getMouseX(), getMouseY(), x, y, totalW, self.boxSize) {
+                self.checked = !self.checked
+            }
+        }
+    }
+
+    func isChecked(ref self) -> bool { return self.checked }
+}
+
+impl Checkbox: Widget {
+    func getWidth(ref self) -> i32 {
+        return self.boxSize + 8 + measureText(self.label, self.fontSize)
+    }
+    func getHeight(ref self) -> i32 { return self.boxSize }
+    func draw(ref self, x: i32, y: i32) {
+        let bs = self.boxSize
+        // Box border
+        drawRectLines(x, y, bs, bs, self.color.r, self.color.g, self.color.b, self.color.a)
+        // Check mark (filled inner rect)
+        if self.checked {
+            let cc = self.checkColor
+            drawRect(x + 3, y + 3, bs - 6, bs - 6, cc.r, cc.g, cc.b, cc.a)
+        }
+        // Label
+        drawText(self.label, x + bs + 8, y, self.fontSize,
+                 self.color.r, self.color.g, self.color.b, self.color.a)
+    }
+}
+
+// ---- Slider ----
+pub struct Slider {
+    var value: i32
+    var minVal: i32
+    var maxVal: i32
+    var width: i32
+    var height: i32
+    var trackColor: Color
+    var thumbColor: Color
+    var dragging: bool
+}
+
+impl Slider {
+    func new(minVal: i32, maxVal: i32, width: i32) -> Slider {
+        return Slider {
+            value: minVal,
+            minVal: minVal,
+            maxVal: maxVal,
+            width: width,
+            height: 20,
+            trackColor: Color { r: 60, g: 60, b: 60, a: 255 },
+            thumbColor: Color { r: 100, g: 150, b: 255, a: 255 },
+            dragging: false
+        }
+    }
+
+    func update(ref mut self, x: i32, y: i32) {
+        let mx = getMouseX()
+        let my = getMouseY()
+        if isMousePressed(0) {
+            if hitTest(mx, my, x, y, self.width, self.height) {
+                self.dragging = true
+            }
+        }
+        if isMouseReleased(0) {
+            self.dragging = false
+        }
+        if self.dragging {
+            let relX = mx - x
+            let range = self.maxVal - self.minVal
+            var newVal = self.minVal + (relX * range) / self.width
+            if newVal < self.minVal { newVal = self.minVal }
+            if newVal > self.maxVal { newVal = self.maxVal }
+            self.value = newVal
+        }
+    }
+
+    func getValue(ref self) -> i32 { return self.value }
+}
+
+impl Slider: Widget {
+    func getWidth(ref self) -> i32 { return self.width }
+    func getHeight(ref self) -> i32 { return self.height }
+    func draw(ref self, x: i32, y: i32) {
+        let w = self.width
+        let h = self.height
+        let tc = self.trackColor
+        // Track background
+        drawRect(x, y + h / 2 - 2, w, 4, tc.r, tc.g, tc.b, tc.a)
+        // Thumb position
+        let range = self.maxVal - self.minVal
+        var thumbX = x
+        if range > 0 {
+            thumbX = x + ((self.value - self.minVal) * (w - 12)) / range
+        }
+        let thc = self.thumbColor
+        drawRect(thumbX, y, 12, h, thc.r, thc.g, thc.b, thc.a)
+    }
+}
+
+// ---- ScrollView ----
+pub struct ScrollView {
+    var viewWidth: i32
+    var viewHeight: i32
+    var contentHeight: i32
+    var scrollY: i32
+    var bgColor: Color
+}
+
+impl ScrollView {
+    func new(viewWidth: i32, viewHeight: i32, contentHeight: i32) -> ScrollView {
+        return ScrollView {
+            viewWidth: viewWidth,
+            viewHeight: viewHeight,
+            contentHeight: contentHeight,
+            scrollY: 0,
+            bgColor: Color { r: 30, g: 30, b: 30, a: 255 }
+        }
+    }
+
+    func update(ref mut self, x: i32, y: i32) {
+        let mx = getMouseX()
+        let my = getMouseY()
+        if hitTest(mx, my, x, y, self.viewWidth, self.viewHeight) {
+            let wheel = getMouseWheel()
+            self.scrollY = self.scrollY - wheel * 30
+            // Clamp
+            if self.scrollY < 0 { self.scrollY = 0 }
+            let maxScroll = self.contentHeight - self.viewHeight
+            if maxScroll < 0 {
+                self.scrollY = 0
+            } else {
+                if self.scrollY > maxScroll { self.scrollY = maxScroll }
+            }
+        }
+    }
+
+    func beginDraw(ref self, x: i32, y: i32) {
+        let bg = self.bgColor
+        drawRect(x, y, self.viewWidth, self.viewHeight, bg.r, bg.g, bg.b, bg.a)
+        beginScissor(x, y, self.viewWidth, self.viewHeight)
+    }
+
+    func endDraw(ref self) {
+        endScissor()
+    }
+
+    func getScrollY(ref self) -> i32 { return self.scrollY }
+}
+
+impl ScrollView: Widget {
+    func getWidth(ref self) -> i32 { return self.viewWidth }
+    func getHeight(ref self) -> i32 { return self.viewHeight }
+    func draw(ref self, x: i32, y: i32) {
+        let bg = self.bgColor
+        drawRect(x, y, self.viewWidth, self.viewHeight, bg.r, bg.g, bg.b, bg.a)
+    }
+}
+
+// ---- ProgressBar ----
+pub struct ProgressBar {
+    var value: i32
+    var width: i32
+    var height: i32
+    var bgColor: Color
+    var fillColor: Color
+}
+
+impl ProgressBar {
+    func new(width: i32, height: i32) -> ProgressBar {
+        return ProgressBar {
+            value: 0,
+            width: width,
+            height: height,
+            bgColor: Color { r: 50, g: 50, b: 50, a: 255 },
+            fillColor: Color { r: 80, g: 180, b: 80, a: 255 }
+        }
+    }
+
+    func setValue(ref mut self, val: i32) {
+        if val < 0 { self.value = 0 }
+        else {
+            if val > 100 { self.value = 100 }
+            else { self.value = val }
+        }
+    }
+}
+
+impl ProgressBar: Widget {
+    func getWidth(ref self) -> i32 { return self.width }
+    func getHeight(ref self) -> i32 { return self.height }
+    func draw(ref self, x: i32, y: i32) {
+        let w = self.width
+        let h = self.height
+        let bg = self.bgColor
+        drawRect(x, y, w, h, bg.r, bg.g, bg.b, bg.a)
+        // Filled portion
+        let fillW = (w * self.value) / 100
+        if fillW > 0 {
+            let fc = self.fillColor
+            drawRect(x, y, fillW, h, fc.r, fc.g, fc.b, fc.a)
+        }
+        // Border
+        drawRectLines(x, y, w, h, 80, 80, 80, 255)
     }
 }

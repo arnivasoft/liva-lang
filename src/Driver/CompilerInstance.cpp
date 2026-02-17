@@ -63,7 +63,10 @@ CompilerInstance::CompilerInstance() {
 }
 
 void CompilerInstance::addStdlibSearchPath(ModuleLoader &loader) {
-    addStdlibSearchPath(loader);
+    // Apply user-configured search paths
+    for (const auto &p : searchPaths_)
+        loader.addSearchPath(p);
+
     // Add stdlib/ relative to executable so file-based modules resolve
     if (!executablePath_.empty()) {
         auto pos = executablePath_.find_last_of("/\\");

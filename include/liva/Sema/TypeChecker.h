@@ -178,6 +178,7 @@ private:
     std::unordered_map<std::string, std::string> classParent_;
     std::unordered_map<std::string, std::set<std::string>> classPrivateMembers_;
     std::string currentClassName_;
+    std::string currentImplTypeName_;
 
     /// Unused variable tracking (per function)
     std::set<std::string> usedSymbols_;

@@ -49,7 +49,7 @@ void ModuleLoader::registerBuiltinModules() {
          "fileRemove", "fileCopy", "pathAbsolute"}, {"File"});
 
     cache_["std::convert"] = createBuiltinModule("std::convert",
-        {"parseInt", "parseInt64", "parseFloat", "toString"});
+        {"parseInt", "parseInt64", "parseFloat", "toString", "charToString"});
 
     cache_["std::os"] = createBuiltinModule("std::os",
         {"env", "exit", "args", "clock", "clockMs", "sleep",
@@ -121,9 +121,9 @@ void ModuleLoader::registerBuiltinModules() {
          "getScreenWidth", "getScreenHeight",
          "beginDrawing", "endDrawing", "clearBackground",
          "drawRect", "drawRectRounded", "drawText", "measureText",
-         "drawLine", "drawCircle",
+         "drawLine", "drawCircle", "drawRectLines",
          "isMousePressed", "isMouseReleased", "isMouseDown",
-         "getMouseX", "getMouseY",
+         "getMouseX", "getMouseY", "getMouseWheel",
          "isKeyPressed", "isKeyDown", "getCharPressed", "getKeyPressed",
          "beginScissor", "endScissor", "getFrameTime"});
 

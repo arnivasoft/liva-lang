@@ -1338,6 +1338,15 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return nullptr;
     }
 
+    // Handle charToString(i32) -> string
+    if (funcName == "charToString" && !node->getArgs().empty()) {
+        auto *arg = visit(node->getArgs()[0].get());
+        if (!arg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_char_to_str"), {arg});
+        trackStringTemp(r);
+        return r;
+    }
+
     // Handle parseInt/parseInt64/parseFloat built-ins → Optional<T>
     if (funcName == "parseInt" && !node->getArgs().empty()) {
         auto *strArg = visit(node->getArgs()[0].get());
@@ -3237,6 +3246,18 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
+    // drawRectLines(x, y, w, h, r, g, b, a) -> void
+    if (funcName == "drawRectLines" && node->getArgs().size() >= 8) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 8; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_draw_rect_lines"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
     // isMousePressed(button) -> bool
     if (funcName == "isMousePressed" && !node->getArgs().empty()) {
         auto *btn = visit(node->getArgs()[0].get());
@@ -3269,6 +3290,11 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     // getMouseY() -> i32
     if (funcName == "getMouseY" && node->getArgs().empty()) {
         return builder_->CreateCall(getOrPanic("liva_ui_get_mouse_y"), {}, "ui.my");
+    }
+
+    // getMouseWheel() -> i32
+    if (funcName == "getMouseWheel" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_mouse_wheel"), {}, "ui.mw");
     }
 
     // isKeyPressed(key) -> bool
@@ -3658,6 +3684,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                             auto *gep = builder_->CreateStructGEP(
                                 classTy, basePtr, structIdx, memberExpr->getMember());
                             builder_->CreateStore(val, gep);
+                            // Transfer ownership: string temp is now owned by the class field
+                            if (val->getType()->isPointerTy())
+                                transferStringOwnership(val, objName + "." + memberExpr->getMember());
                             return val;
                         }
                     }
@@ -3679,6 +3708,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     auto *gep = builder_->CreateStructGEP(structTy, basePtr, idx,
                                                            memberExpr->getMember());
                     builder_->CreateStore(val, gep);
+                    // Transfer ownership: string temp is now owned by the struct field
+                    if (val->getType()->isPointerTy())
+                        transferStringOwnership(val, objName + "." + memberExpr->getMember());
                 }
             }
         }

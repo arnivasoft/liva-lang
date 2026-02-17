@@ -1,0 +1,66 @@
+// UI Form Demo — TextInput, Checkbox, Slider, ProgressBar
+// Build: livac examples/ui_form.liva -o form_demo (requires raylib)
+
+import std::ui
+import std::convert
+import ui::types
+import ui::widgets
+
+func main() {
+    initWindow(600, 500, "Liva UI Form")
+    setTargetFps(60)
+
+    var nameInput = TextInput.new("Enter your name...", 250)
+    var emailInput = TextInput.new("Enter your email...", 250)
+    var agreeBox = Checkbox.new("I agree to terms", false)
+    var volumeSlider = Slider.new(0, 100, 250)
+    var progress = ProgressBar.new(250, 16)
+
+    let titleColor = Color.white()
+    let labelColor = Color { r: 200, g: 200, b: 200, a: 255 }
+
+    while !windowShouldClose() {
+        // Update interactive widgets
+        nameInput.update(180, 80)
+        emailInput.update(180, 130)
+        agreeBox.update(180, 180)
+        volumeSlider.update(180, 230)
+
+        // Update progress bar from slider value
+        progress.setValue(volumeSlider.getValue())
+
+        beginDrawing()
+        clearBackground(30, 30, 30, 255)
+
+        // Title
+        drawText("Registration Form", 180, 30, 28,
+                 titleColor.r, titleColor.g, titleColor.b, titleColor.a)
+
+        // Labels + Widgets
+        drawText("Name:", 50, 86, 20,
+                 labelColor.r, labelColor.g, labelColor.b, labelColor.a)
+        nameInput.draw(180, 80)
+
+        drawText("Email:", 50, 136, 20,
+                 labelColor.r, labelColor.g, labelColor.b, labelColor.a)
+        emailInput.draw(180, 130)
+
+        agreeBox.draw(180, 180)
+
+        drawText("Volume:", 50, 236, 20,
+                 labelColor.r, labelColor.g, labelColor.b, labelColor.a)
+        volumeSlider.draw(180, 230)
+
+        drawText("Progress:", 50, 280, 20,
+                 labelColor.r, labelColor.g, labelColor.b, labelColor.a)
+        progress.draw(180, 278)
+
+        // Display current values
+        let valText = "Slider: " + toString(volumeSlider.getValue())
+        drawText(valText, 180, 320, 16, 150, 150, 150, 255)
+
+        endDrawing()
+    }
+
+    closeWindow()
+}

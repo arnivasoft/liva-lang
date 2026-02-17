@@ -304,6 +304,9 @@ void IRGen::createRuntimeDecls() {
     auto *i32ToStrTy = llvm::FunctionType::get(i8PtrTy, {i32Ty}, false);
     module_->getOrInsertFunction("liva_i32_to_str", i32ToStrTy);
 
+    // liva_char_to_str(i32) -> i8* (char code point to string)
+    module_->getOrInsertFunction("liva_char_to_str", i32ToStrTy);
+
     auto *f64ToStrTy = llvm::FunctionType::get(i8PtrTy, {f64Ty}, false);
     module_->getOrInsertFunction("liva_f64_to_str", f64ToStrTy);
 
@@ -942,6 +945,9 @@ void IRGen::createRuntimeDecls() {
         {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_draw_circle", uiCircle7Ty);
 
+    // liva_ui_draw_rect_lines(x, y, w, h, r, g, b, a) -> void
+    module_->getOrInsertFunction("liva_ui_draw_rect_lines", uiRect8Ty);
+
     // liva_ui_is_mouse_pressed(button) -> i8
     auto *uiMouseBtnTy = llvm::FunctionType::get(i8Ty, {i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_is_mouse_pressed", uiMouseBtnTy);
@@ -951,6 +957,9 @@ void IRGen::createRuntimeDecls() {
     // liva_ui_get_mouse_x() -> i32, liva_ui_get_mouse_y() -> i32
     module_->getOrInsertFunction("liva_ui_get_mouse_x", uiNoArgI32Ty);
     module_->getOrInsertFunction("liva_ui_get_mouse_y", uiNoArgI32Ty);
+
+    // liva_ui_get_mouse_wheel() -> i32
+    module_->getOrInsertFunction("liva_ui_get_mouse_wheel", uiNoArgI32Ty);
 
     // liva_ui_is_key_pressed(key) -> i8, liva_ui_is_key_down(key) -> i8
     auto *uiKeyTy = llvm::FunctionType::get(i8Ty, {i32Ty}, false);

@@ -54,6 +54,9 @@ int64_t liva_str_byte_length(const char *a);
 /// Convert i32 to string, returns malloc'd result
 char *liva_i32_to_str(int32_t value);
 
+/// Convert Unicode code point to 1-char string, returns malloc'd result
+char *liva_char_to_str(int32_t codepoint);
+
 /// Convert f64 to string, returns malloc'd result
 char *liva_f64_to_str(double value);
 

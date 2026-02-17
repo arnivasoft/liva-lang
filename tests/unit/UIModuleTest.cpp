@@ -368,3 +368,159 @@ TEST_F(UIModuleTest, ButtonStyled) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Button.styled factory should work";
 }
+
+// ---- Phase 4: Interactive widgets ----
+
+TEST_F(UIModuleTest, NewBuiltinGetMouseWheel) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let w = getMouseWheel()\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "getMouseWheel should resolve";
+}
+
+TEST_F(UIModuleTest, NewBuiltinDrawRectLines) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    drawRectLines(10, 20, 100, 50, 255, 255, 255, 255)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "drawRectLines should resolve";
+}
+
+TEST_F(UIModuleTest, CharToStringBuiltin) {
+    auto r = check(
+        "import std::convert\n"
+        "func main() {\n"
+        "    let s = charToString(65)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "charToString should resolve";
+}
+
+TEST_F(UIModuleTest, WidgetTextInput) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var ti = TextInput.new(\"Enter name...\", 200)\n"
+        "    let w = ti.getWidth()\n"
+        "    let h = ti.getHeight()\n"
+        "    let txt = ti.getText()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextInput construction and methods should work";
+}
+
+TEST_F(UIModuleTest, WidgetTextInputUpdate) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var ti = TextInput.new(\"Type here\", 250)\n"
+        "    ti.update(10, 10)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TextInput.update should type-check";
+}
+
+TEST_F(UIModuleTest, WidgetCheckbox) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var cb = Checkbox.new(\"Enable\", false)\n"
+        "    cb.update(10, 10)\n"
+        "    let checked = cb.isChecked()\n"
+        "    let w = cb.getWidth()\n"
+        "    let h = cb.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Checkbox construction and methods should work";
+}
+
+TEST_F(UIModuleTest, WidgetSlider) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var sl = Slider.new(0, 100, 200)\n"
+        "    sl.update(10, 10)\n"
+        "    let v = sl.getValue()\n"
+        "    let w = sl.getWidth()\n"
+        "    let h = sl.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Slider construction and methods should work";
+}
+
+TEST_F(UIModuleTest, WidgetScrollView) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var sv = ScrollView.new(300, 400, 800)\n"
+        "    sv.update(10, 10)\n"
+        "    sv.beginDraw(10, 10)\n"
+        "    sv.endDraw()\n"
+        "    let sy = sv.getScrollY()\n"
+        "    let w = sv.getWidth()\n"
+        "    let h = sv.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ScrollView construction and methods should work";
+}
+
+TEST_F(UIModuleTest, WidgetProgressBar) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var pb = ProgressBar.new(200, 20)\n"
+        "    pb.setValue(50)\n"
+        "    let w = pb.getWidth()\n"
+        "    let h = pb.getHeight()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ProgressBar construction and methods should work";
+}
+
+TEST_F(UIModuleTest, InteractiveWidgetProtocolConformance) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func renderWidget(w: dyn Widget, x: i32, y: i32) {\n"
+        "    w.draw(x, y)\n"
+        "}\n"
+        "func main() {\n"
+        "    let ti = TextInput.new(\"Name\", 200)\n"
+        "    let cb = Checkbox.new(\"On\", true)\n"
+        "    let sl = Slider.new(0, 100, 200)\n"
+        "    let pb = ProgressBar.new(200, 20)\n"
+        "    renderWidget(ti, 10, 10)\n"
+        "    renderWidget(cb, 10, 50)\n"
+        "    renderWidget(sl, 10, 90)\n"
+        "    renderWidget(pb, 10, 130)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Interactive widgets should conform to Widget protocol";
+}
+
+TEST_F(UIModuleTest, DynWidgetArrayWithInteractive) {
+    auto r = check(
+        "import ui::types\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    let lbl = Label.new(\"Form\", 24, Color.white())\n"
+        "    let ti = TextInput.new(\"Enter...\", 200)\n"
+        "    let cb = Checkbox.new(\"Accept\", false)\n"
+        "    let sl = Slider.new(0, 100, 200)\n"
+        "    let pb = ProgressBar.new(200, 10)\n"
+        "    let items: [dyn Widget] = [lbl, ti, cb, sl, pb]\n"
+        "    for item in items {\n"
+        "        item.draw(0, 0)\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "[dyn Widget] array with interactive widgets should work";
+}

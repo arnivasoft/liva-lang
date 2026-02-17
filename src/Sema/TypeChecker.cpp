@@ -1036,6 +1036,8 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
     }
 
     scopes_.pushScope();
+    std::string prevImplType = currentImplTypeName_;
+    currentImplTypeName_ = node->getTypeName();
     for (const auto &tp : node->getTypeParams()) {
         Symbol tpSym;
         tpSym.name = tp;
@@ -1057,6 +1059,7 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
     for (auto &method : node->getMethods()) {
         visitFuncDecl(method.get());
     }
+    currentImplTypeName_ = prevImplType;
     scopes_.popScope();
 }
 
@@ -1676,7 +1679,7 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeStringType());
         } else if (ident->getName() == "len") {
             node->setResolvedType(makeI64Type());
-        } else if (ident->getName() == "toString") {
+        } else if (ident->getName() == "toString" || ident->getName() == "charToString") {
             node->setResolvedType(makeStringType());
         } else if (ident->getName() == "abs" || ident->getName() == "min" ||
                    ident->getName() == "max") {
@@ -2213,6 +2216,38 @@ void TypeChecker::visitMemberExpr(MemberExpr *node) {
                              member, std::to_string(tupleType->getArity()));
             }
             return;
+        }
+    }
+
+    // Struct/class field access: resolve field type from StructDecl/ClassDecl
+    if (!node->getResolvedType()) {
+        // Determine the struct/class name from the base object's resolved type
+        std::string typeName;
+        if (baseType && baseType->getKind() == TypeRepr::Kind::Named) {
+            typeName = static_cast<const NamedTypeRepr *>(baseType)->getName();
+        } else if (!baseType && node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *ident = static_cast<IdentifierExpr *>(node->getObject());
+            if (ident->getName() == "self" && !currentImplTypeName_.empty()) {
+                typeName = currentImplTypeName_;
+            }
+        }
+        if (!typeName.empty()) {
+            auto *typeSym = scopes_.lookup(typeName);
+            if (typeSym && typeSym->kind == Symbol::Kind::StructType && typeSym->structDecl) {
+                for (auto &field : typeSym->structDecl->getFields()) {
+                    if (field->getName() == node->getMember()) {
+                        node->setResolvedType(cloneTypeRepr(field->getType()));
+                        break;
+                    }
+                }
+            } else if (typeSym && typeSym->kind == Symbol::Kind::ClassType && typeSym->classDecl) {
+                for (auto *field : typeSym->classDecl->getFields()) {
+                    if (field->getName() == node->getMember()) {
+                        node->setResolvedType(cloneTypeRepr(field->getType()));
+                        break;
+                    }
+                }
+            }
         }
     }
 

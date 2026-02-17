@@ -50,6 +50,13 @@ void     liva_ui_end_scissor(void);
 // === Time ===
 float    liva_ui_get_frame_time(void);
 
+// === Input — Mouse Wheel ===
+int32_t  liva_ui_get_mouse_wheel(void);
+
+// === Drawing — Rect Lines (border) ===
+void     liva_ui_draw_rect_lines(int32_t x, int32_t y, int32_t w, int32_t h,
+                                  int32_t r, int32_t g, int32_t b, int32_t a);
+
 #ifdef __cplusplus
 }
 #endif

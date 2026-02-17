@@ -220,6 +220,32 @@ char *liva_i32_to_str(int32_t value) {
     return buf;
 }
 
+char *liva_char_to_str(int32_t codepoint) {
+    // Encode a Unicode code point as UTF-8
+    char *buf = (char *)malloc(5); // max 4 bytes + null
+    if (!buf) liva_panic("out of memory");
+    if (codepoint < 0x80) {
+        buf[0] = (char)codepoint;
+        buf[1] = '\0';
+    } else if (codepoint < 0x800) {
+        buf[0] = (char)(0xC0 | (codepoint >> 6));
+        buf[1] = (char)(0x80 | (codepoint & 0x3F));
+        buf[2] = '\0';
+    } else if (codepoint < 0x10000) {
+        buf[0] = (char)(0xE0 | (codepoint >> 12));
+        buf[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (codepoint & 0x3F));
+        buf[3] = '\0';
+    } else {
+        buf[0] = (char)(0xF0 | (codepoint >> 18));
+        buf[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (codepoint & 0x3F));
+        buf[4] = '\0';
+    }
+    return buf;
+}
+
 char *liva_f64_to_str(double value) {
     // %g can produce up to ~24 chars for extreme values; 64 is safe
     char *buf = (char *)malloc(64);
