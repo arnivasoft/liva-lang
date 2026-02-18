@@ -25,7 +25,9 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
                 continue;
             }
             if (separateCompilation_) {
-                declareExternFunction(funcDecl);
+                // Skip non-pub functions — they have internal linkage
+                if (funcDecl->isPublic())
+                    declareExternFunction(funcDecl);
                 continue;
             }
         }
@@ -248,8 +250,13 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     std::string funcName = isAsyncMain ? "liva_async_main" : node->getName();
 
     auto *funcType = llvm::FunctionType::get(returnType, paramTypes, node->isCVarargs());
+    // Non-pub functions get internal linkage in separate compilation mode
+    // to avoid duplicate symbol errors across translation units
+    auto linkage = (separateCompilation_ && !node->isPublic() && !isMain)
+        ? llvm::Function::InternalLinkage
+        : llvm::Function::ExternalLinkage;
     auto *func = llvm::Function::Create(
-        funcType, llvm::Function::ExternalLinkage, funcName, *module_);
+        funcType, linkage, funcName, *module_);
 
     // Set parameter names
     if (isMain && !node->isAsync()) {

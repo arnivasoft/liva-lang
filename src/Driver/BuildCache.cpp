@@ -168,8 +168,13 @@ std::string BuildCache::resolveImportPath(
     if (startsWith(importName, "std:") || startsWith(importName, "std."))
         return "";
 
-    // Try .liva extension
-    std::string filename = importName + ".liva";
+    // Try .liva extension — convert :: separators to /
+    std::string filename = importName;
+    size_t pos = 0;
+    while ((pos = filename.find("::", pos)) != std::string::npos) {
+        filename.replace(pos, 2, "/");
+    }
+    filename += ".liva";
 
     // Check relative to base directory
     std::string candidate = joinPath(baseDir, filename);

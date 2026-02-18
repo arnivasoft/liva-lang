@@ -541,6 +541,24 @@ int Driver::buildProject(bool runAfter) {
     for (const auto &mp : cfg.modulePaths)
         searchPaths.push_back(joinPath(cfg.projectRoot, mp));
 
+    // Auto-detect stdlib path (relative to executable)
+    if (!executablePath_.empty()) {
+        auto slashPos = executablePath_.find_last_of("/\\");
+        std::string exeDir = (slashPos != std::string::npos)
+            ? executablePath_.substr(0, slashPos) : ".";
+        std::string candidates[] = {
+            exeDir + "/stdlib",
+            exeDir + "/../stdlib",
+        };
+        for (const auto &c : candidates) {
+            std::ifstream probe(c + "/runtime/runtime.h");
+            if (probe.is_open()) {
+                searchPaths.push_back(c);
+                break;
+            }
+        }
+    }
+
     // Resolve dependencies (local + remote registry)
     if (!cfg.dependencies.empty()) {
         PackageManager pkgMgr(cfg.projectRoot, cfg.registryUrl);
