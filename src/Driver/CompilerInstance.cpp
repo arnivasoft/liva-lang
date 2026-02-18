@@ -257,8 +257,9 @@ bool CompilerInstance::compileToObject(const std::string &outputObjPath, bool is
         auto pos = fname.find_last_of("/\\");
         if (pos != std::string::npos)
             loader->setBasePath(fname.substr(0, pos + 1));
-        addStdlibSearchPath(*loader);
     }
+    // Always add stdlib search path (even for shared loaders from Driver)
+    addStdlibSearchPath(*loader);
 
     Sema sema(diag_, loader);
     if (traceMacros_)
@@ -323,8 +324,9 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
         auto pos = fname.find_last_of("/\\");
         if (pos != std::string::npos)
             loader->setBasePath(fname.substr(0, pos + 1));
-        addStdlibSearchPath(*loader);
     }
+    // Always add stdlib search path (even for shared loaders from Driver)
+    addStdlibSearchPath(*loader);
 
     Sema sema(diag_, loader);
     if (traceMacros_)
