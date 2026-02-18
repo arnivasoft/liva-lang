@@ -165,7 +165,7 @@ void IRGen::emitStructFieldCleanup(const std::string &varName,
                 auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP);
                 builder_->CreateCall(getOrPanic("liva_array_free"), {dataPtr});
             }
-        } else if (ft->getKind() == TypeRepr::Kind::String) {
+        } else if (isStringTypeRepr(ft)) {
             // String field -> free(str_ptr)
             auto *fieldGEP = builder_->CreateStructGEP(structTy, structAlloca, i);
             auto *strPtr = builder_->CreateLoad(ptrTy, fieldGEP);
@@ -195,7 +195,7 @@ llvm::Value *IRGen::dupIfStringField(const std::string &structName,
     if (ftrIt == structFieldTypeReprs_.end()) return val;
     if (idx >= static_cast<int>(ftrIt->second.size())) return val;
     const TypeRepr *ft = ftrIt->second[idx];
-    if (ft && ft->getKind() == TypeRepr::Kind::String) {
+    if (isStringTypeRepr(ft)) {
         return builder_->CreateCall(getOrPanic("liva_str_dup"), {val}, "str.own");
     }
     return val;

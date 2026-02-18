@@ -148,6 +148,14 @@ void TypeChecker::registerBuiltins() {
         scopes_.declare(name, sym);
     }
 
+    // Stdlib: Crypto
+    for (auto &name : {"sha256", "md5", "hmacSha256"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
     // Stdlib: Benchmarking
     for (auto &name : {"benchStart", "benchIter", "benchDone",
                         "benchReport", "benchReset"}) {
@@ -1106,6 +1114,13 @@ void TypeChecker::visitReturnStmt(ReturnStmt *node) {
                 if (currentReturnType_->getKind() == TypeRepr::Kind::DynProtocol) {
                     compat = true;
                 }
+                // Allow concrete → T when T is a generic type parameter
+                if (!compat && currentReturnType_->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(currentReturnType_);
+                    auto *sym = scopes_.lookup(named->getName());
+                    if (sym && sym->kind == Symbol::Kind::TypeParam)
+                        compat = true;
+                }
                 if (!compat) {
                     diag_.report(node->getStartLoc(), DiagID::err_return_type_mismatch,
                                  typeToString(currentReturnType_),
@@ -1855,6 +1870,10 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "crc32") {
             node->setResolvedType(makeI64Type());
+        // Stdlib: Crypto
+        } else if (ident->getName() == "sha256" || ident->getName() == "md5" ||
+                   ident->getName() == "hmacSha256") {
+            node->setResolvedType(makeStringType());
         // Stdlib: Synchronization
         } else if (ident->getName() == "mutexCreate" ||
                    ident->getName() == "atomicCreate") {
@@ -2485,6 +2504,17 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
     auto *act = resolveAlias(actual);
     // dyn Protocol accepts any concrete type
     if (exp->getKind() == TypeRepr::Kind::DynProtocol)
+        return true;
+    // String ↔ string compatibility (NamedTypeRepr("String") == TypeRepr::Kind::String)
+    auto isStringType = [](const TypeRepr *t) -> bool {
+        if (t->getKind() == TypeRepr::Kind::String) return true;
+        if (t->getKind() == TypeRepr::Kind::Named) {
+            auto *n = static_cast<const NamedTypeRepr *>(t);
+            return n->getName() == "String";
+        }
+        return false;
+    };
+    if (isStringType(exp) && isStringType(act))
         return true;
     if (exp->getKind() != act->getKind())
         return false;

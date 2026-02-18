@@ -1,0 +1,83 @@
+// testing::testing — TestSuite, Expect wrapper API
+// Import with: import testing::testing
+
+import std::test
+import std::convert
+
+pub struct TestSuite {
+    var name: String
+    var passed: i32
+    var failed: i32
+}
+
+impl TestSuite {
+    pub func new(name: String) -> TestSuite {
+        return TestSuite { name: name, passed: 0, failed: 0 }
+    }
+
+    pub func run(mut self, testName: String, fn: () -> void) {
+        fn()
+        self.passed = self.passed + 1
+    }
+
+    pub func summary(ref self) -> String {
+        var total = self.passed + self.failed
+        return self.name
+    }
+}
+
+pub struct Expect {
+    var value: i64
+    var label: String
+}
+
+impl Expect {
+    pub func new(val: i64) -> Expect {
+        return Expect { value: val, label: "" }
+    }
+
+    pub func named(val: i64, label: String) -> Expect {
+        return Expect { value: val, label: label }
+    }
+
+    pub func toBe(ref self, expected: i64) {
+        assertEq(self.value, expected)
+    }
+
+    pub func toBeTrue(ref self) {
+        assert(self.value != 0)
+    }
+
+    pub func toBeFalse(ref self) {
+        assert(self.value == 0)
+    }
+}
+
+pub struct ExpectStr {
+    var value: String
+    var label: String
+}
+
+impl ExpectStr {
+    pub func new(val: String) -> ExpectStr {
+        return ExpectStr { value: val, label: "" }
+    }
+
+    pub func toBe(ref self, expected: String) {
+        assertEqStr(self.value, expected)
+    }
+}
+
+pub struct ExpectFloat {
+    var value: f64
+}
+
+impl ExpectFloat {
+    pub func new(val: f64) -> ExpectFloat {
+        return ExpectFloat { value: val }
+    }
+
+    pub func toBe(ref self, expected: f64) {
+        assertEqFloat(self.value, expected)
+    }
+}

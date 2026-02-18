@@ -79,7 +79,13 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_func);
 
-    auto nameTok = expect(TokenKind::identifier);
+    Token nameTok;
+    if (check(TokenKind::kw_test)) {
+        nameTok = current_;
+        advance();
+    } else {
+        nameTok = expect(TokenKind::identifier);
+    }
     std::string name(nameTok.getText());
 
     // Parse optional generic type parameters: <T, U> or <T: Protocol> or <T: A + B>

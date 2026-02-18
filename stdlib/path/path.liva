@@ -1,0 +1,92 @@
+// path::path — Path and Dir wrapper API
+// Import with: import path::path
+
+import std::io
+
+pub struct Path {
+    var value: String
+}
+
+impl Path {
+    pub func new(s: String) -> Path {
+        return Path { value: s }
+    }
+
+    pub func join(ref self, other: String) -> Path {
+        return Path { value: pathJoin(self.value, other) }
+    }
+
+    pub func dirname(ref self) -> Path {
+        return Path { value: pathDirname(self.value) }
+    }
+
+    pub func basename(ref self) -> String {
+        return pathBasename(self.value)
+    }
+
+    pub func extension(ref self) -> String {
+        return pathExtension(self.value)
+    }
+
+    pub func exists(ref self) -> bool {
+        return pathExists(self.value)
+    }
+
+    pub func isFile(ref self) -> bool {
+        return isFile(self.value)
+    }
+
+    pub func absolute(ref self) -> Path {
+        return Path { value: pathAbsolute(self.value) }
+    }
+
+    pub func toString(ref self) -> String {
+        return self.value
+    }
+
+    pub func read(ref self) -> String? {
+        return fileRead(self.value)
+    }
+
+    pub func write(ref self, content: String) -> bool {
+        return fileWrite(self.value, content)
+    }
+
+    pub func append(ref self, content: String) -> bool {
+        return fileAppend(self.value, content)
+    }
+
+    pub func remove(ref self) -> bool {
+        return fileRemove(self.value)
+    }
+
+    pub func copy(ref self, dest: String) -> bool {
+        return fileCopy(self.value, dest)
+    }
+}
+
+pub struct Dir {
+    var path: String
+}
+
+impl Dir {
+    pub func new(s: String) -> Dir {
+        return Dir { path: s }
+    }
+
+    pub func exists(ref self) -> bool {
+        return dirExists(self.path)
+    }
+
+    pub func create(ref self) -> bool {
+        return dirCreate(self.path)
+    }
+
+    pub func remove(ref self) -> bool {
+        return dirRemove(self.path)
+    }
+
+    pub func list(ref self) -> [String] {
+        return dirList(self.path)
+    }
+}

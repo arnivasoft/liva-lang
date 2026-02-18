@@ -1568,10 +1568,10 @@ TEST(PackagingTest, ProjectVersionDefined) {
     // Verify version macros are defined and consistent
     std::string version = LIVA_VERSION_STRING;
     EXPECT_FALSE(version.empty());
-    EXPECT_EQ(LIVA_VERSION_MAJOR, 0);
-    EXPECT_EQ(LIVA_VERSION_MINOR, 1);
+    EXPECT_EQ(LIVA_VERSION_MAJOR, 1);
+    EXPECT_EQ(LIVA_VERSION_MINOR, 0);
     EXPECT_EQ(LIVA_VERSION_PATCH, 0);
-    EXPECT_EQ(version, "0.1.0");
+    EXPECT_EQ(version, "1.0.0");
 }
 
 TEST(PackagingTest, StdlibCoreFilesExist) {

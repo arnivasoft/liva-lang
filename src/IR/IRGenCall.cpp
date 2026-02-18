@@ -2764,6 +2764,30 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(getOrPanic("liva_crc32"), {dataArg}, "crc32");
     }
 
+    // Crypto builtins: sha256, md5, hmacSha256
+    if (funcName == "sha256" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_sha256"), {dataArg}, "sha256");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "md5" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_md5"), {dataArg}, "md5");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "hmacSha256" && node->getArgs().size() >= 2) {
+        auto *keyArg = visit(node->getArgs()[0].get());
+        auto *dataArg = visit(node->getArgs()[1].get());
+        if (!keyArg || !dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_hmac_sha256"), {keyArg, dataArg}, "hmac");
+        trackStringTemp(r);
+        return r;
+    }
+
     // Handle readLine() built-in
     if (funcName == "readLine") {
         auto *fn = getOrPanic("liva_read_line");
@@ -3789,10 +3813,22 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                             }
                             auto *gep = builder_->CreateStructGEP(
                                 classTy, basePtr, structIdx, memberExpr->getMember());
+                            // Free old heap string before reassignment (conservative: only if tracked)
+                            std::string compositeKey = objName + "." + memberExpr->getMember();
+                            if (node->getOp() == AssignExpr::Op::Assign &&
+                                val->getType()->isPointerTy() &&
+                                heapStringVars_.count(compositeKey)) {
+                                auto *freeFn = module_->getFunction("free");
+                                if (freeFn) {
+                                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                                    auto *oldStr = builder_->CreateLoad(ptrTy, gep, "old.cls.field.str");
+                                    builder_->CreateCall(freeFn, {oldStr});
+                                }
+                            }
                             builder_->CreateStore(val, gep);
                             // Transfer ownership: string temp is now owned by the class field
                             if (val->getType()->isPointerTy())
-                                transferStringOwnership(val, objName + "." + memberExpr->getMember());
+                                transferStringOwnership(val, compositeKey);
                             return val;
                         }
                     }
@@ -3813,6 +3849,22 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     }
                     auto *gep = builder_->CreateStructGEP(structTy, basePtr, idx,
                                                            memberExpr->getMember());
+                    // Free old heap string before reassignment
+                    if (node->getOp() == AssignExpr::Op::Assign && val->getType()->isPointerTy()) {
+                        auto ftrIt = structFieldTypeReprs_.find(structTypeName);
+                        if (ftrIt != structFieldTypeReprs_.end() &&
+                            idx < static_cast<int>(ftrIt->second.size())) {
+                            const TypeRepr *ft = ftrIt->second[idx];
+                            if (isStringTypeRepr(ft)) {
+                                auto *freeFn = module_->getFunction("free");
+                                if (freeFn) {
+                                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                                    auto *oldStr = builder_->CreateLoad(ptrTy, gep, "old.field.str");
+                                    builder_->CreateCall(freeFn, {oldStr});
+                                }
+                            }
+                        }
+                    }
                     builder_->CreateStore(val, gep);
                     // Transfer ownership: string temp is now owned by the struct field
                     if (val->getType()->isPointerTy())
@@ -3848,6 +3900,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     emitBoundsCheck(indexVal, lenVal);
                     auto *elemPtr = builder_->CreateGEP(daIt->second.elementType, dataPtr, indexVal);
                     builder_->CreateStore(val, elemPtr);
+                    // Ownership transfers to the array element — don't free as temp
+                    if (val->getType()->isPointerTy())
+                        removeFromTempStrings(val);
                 }
                 return val;
             }
@@ -3866,6 +3921,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     arrayType, alloca, {builder_->getInt64(0), indexVal},
                     ident->getName() + ".elem");
                 builder_->CreateStore(val, gep);
+                // Ownership transfers to the array element — don't free as temp
+                if (val->getType()->isPointerTy())
+                    removeFromTempStrings(val);
             }
         }
         return val;

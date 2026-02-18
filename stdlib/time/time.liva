@@ -1,0 +1,147 @@
+// time::time — Duration, Instant, Timer, DateTime wrapper API
+// Import with: import time::time
+
+import std::os
+import std::datetime
+
+pub struct Duration {
+    var ms: i64
+}
+
+impl Duration {
+    pub func fromMs(ms: i64) -> Duration {
+        return Duration { ms: ms }
+    }
+
+    pub func fromSecs(s: i64) -> Duration {
+        return Duration { ms: s * 1000 }
+    }
+
+    pub func fromMins(m: i64) -> Duration {
+        return Duration { ms: m * 60000 }
+    }
+
+    pub func toMs(ref self) -> i64 {
+        return self.ms
+    }
+
+    pub func toSecs(ref self) -> i64 {
+        return self.ms / 1000
+    }
+
+    pub func sleepFor(ref self) {
+        sleep(self.ms)
+    }
+}
+
+pub struct Instant {
+    var epochMs: i64
+}
+
+impl Instant {
+    pub func now() -> Instant {
+        return Instant { epochMs: clockMs() }
+    }
+
+    pub func elapsed(ref self) -> Duration {
+        return Duration { ms: clockMs() - self.epochMs }
+    }
+
+    pub func since(ref self, other: Instant) -> Duration {
+        return Duration { ms: self.epochMs - other.epochMs }
+    }
+}
+
+pub struct Timer {
+    var startMs: i64
+    var running: bool
+}
+
+impl Timer {
+    pub func new() -> Timer {
+        return Timer { startMs: 0, running: false }
+    }
+
+    pub func start(mut self) {
+        self.startMs = clockMs()
+        self.running = true
+    }
+
+    pub func stop(mut self) {
+        self.running = false
+    }
+
+    pub func elapsed(ref self) -> Duration {
+        if self.running {
+            return Duration { ms: clockMs() - self.startMs }
+        }
+        return Duration { ms: 0 }
+    }
+
+    pub func reset(mut self) {
+        self.startMs = 0
+        self.running = false
+    }
+
+    pub func isRunning(ref self) -> bool {
+        return self.running
+    }
+}
+
+pub struct DateTime {
+    var timestamp: f64
+}
+
+impl DateTime {
+    pub func now() -> DateTime {
+        return DateTime { timestamp: dateTimestamp() }
+    }
+
+    pub func parse(s: String, fmt: String) -> DateTime {
+        return DateTime { timestamp: dateParse(s, fmt) }
+    }
+
+    pub func format(ref self, fmt: String) -> String {
+        return dateFormat(self.timestamp, fmt)
+    }
+
+    pub func year(ref self) -> i32 {
+        return dateYear(self.timestamp)
+    }
+
+    pub func month(ref self) -> i32 {
+        return dateMonth(self.timestamp)
+    }
+
+    pub func day(ref self) -> i32 {
+        return dateDay(self.timestamp)
+    }
+
+    pub func hour(ref self) -> i32 {
+        return dateHour(self.timestamp)
+    }
+
+    pub func minute(ref self) -> i32 {
+        return dateMinute(self.timestamp)
+    }
+
+    pub func second(ref self) -> i32 {
+        return dateSecond(self.timestamp)
+    }
+
+    pub func weekday(ref self) -> i32 {
+        return dateWeekday(self.timestamp)
+    }
+
+    pub func add(ref self, secs: f64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, secs) }
+    }
+
+    pub func diff(ref self, other: DateTime) -> f64 {
+        return dateDiff(self.timestamp, other.timestamp)
+    }
+
+    pub func toString(ref self) -> String {
+        return dateFormat(self.timestamp, "%Y-%m-%d %H:%M:%S")
+    }
+}

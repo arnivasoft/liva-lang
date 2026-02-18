@@ -1379,6 +1379,57 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             }
         }
 
+        // Register struct/enum type from init's resolved type or LLVM type
+        // Always update (no guard) — handles same-name vars in different scopes
+        {
+            bool registered = false;
+            // Try Sema resolved type first
+            if (node->getInit() && node->getInit()->getResolvedType()) {
+                auto *resolvedType = node->getInit()->getResolvedType();
+                if (resolvedType->getKind() == TypeRepr::Kind::Named) {
+                    auto *namedRepr = static_cast<const NamedTypeRepr *>(resolvedType);
+                    const std::string &typeName = namedRepr->getName();
+                    if (structTypes_.count(typeName)) {
+                        varStructTypes_[node->getName()] = typeName;
+                        registered = true;
+                    } else if (enumTypes_.count(typeName)) {
+                        varEnumTypes_[node->getName()] = typeName;
+                        registered = true;
+                    }
+                }
+            }
+            // Fallback: match LLVM type against known struct/enum types
+            if (!registered && initVal) {
+                auto *valTy = initVal->getType();
+                for (auto &[name, ty] : structTypes_) {
+                    if (ty == valTy) {
+                        varStructTypes_[node->getName()] = name;
+                        registered = true;
+                        break;
+                    }
+                }
+                if (!registered) {
+                    for (auto &[name, ty] : enumTypes_) {
+                        if (ty == valTy) {
+                            varEnumTypes_[node->getName()] = name;
+                            registered = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Annotation-based fallback (let x: Color = ...)
+            if (!registered && node->getType() &&
+                node->getType()->getKind() == TypeRepr::Kind::Named) {
+                auto *namedRepr = static_cast<const NamedTypeRepr *>(node->getType());
+                const std::string &typeName = namedRepr->getName();
+                if (structTypes_.count(typeName))
+                    varStructTypes_[node->getName()] = typeName;
+                else if (enumTypes_.count(typeName))
+                    varEnumTypes_[node->getName()] = typeName;
+            }
+        }
+
         return alloca;
     }
 

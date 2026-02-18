@@ -307,4 +307,54 @@ TEST_F(DebugInfoTest, ImplMethodHasSubprogram) {
     EXPECT_NE(methodFn->getSubprogram(), nullptr);
 }
 
+TEST_F(DebugInfoTest, DynArrayStringElemAssignCompiles) {
+    auto r = generateIR(
+        "func main() {\n"
+        "    var arr: [String] = []\n"
+        "    arr.push(\"hello\")\n"
+        "    arr[0] = \"world\"\n"
+        "}\n",
+        false);
+    ASSERT_TRUE(r.success);
+    auto *mainFn = r.module->getFunction("main");
+    ASSERT_NE(mainFn, nullptr);
+}
+
+TEST_F(DebugInfoTest, StructFieldStringReassignEmitsFree) {
+    auto r = generateIR(
+        "struct Person { var name: String }\n"
+        "func main() {\n"
+        "    var p = Person { name: \"Alice\" }\n"
+        "    p.name = \"Bob\"\n"
+        "}\n",
+        false);
+    ASSERT_TRUE(r.success);
+    auto *mainFn = r.module->getFunction("main");
+    ASSERT_NE(mainFn, nullptr);
+    // Verify that free() is called (for the old string) before the new store
+    bool foundFreeCall = false;
+    for (auto &BB : *mainFn) {
+        for (auto &I : BB) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&I)) {
+                if (call->getCalledFunction() &&
+                    call->getCalledFunction()->getName() == "free")
+                    foundFreeCall = true;
+            }
+        }
+    }
+    EXPECT_TRUE(foundFreeCall) << "Expected free() call for old struct string field";
+}
+
+TEST_F(DebugInfoTest, StaticArrayStringElemAssignCompiles) {
+    auto r = generateIR(
+        "func main() {\n"
+        "    var arr: [String; 2] = [\"a\", \"b\"]\n"
+        "    arr[0] = \"c\"\n"
+        "}\n",
+        false);
+    ASSERT_TRUE(r.success);
+    auto *mainFn = r.module->getFunction("main");
+    ASSERT_NE(mainFn, nullptr);
+}
+
 #endif // LIVA_HAS_LLVM

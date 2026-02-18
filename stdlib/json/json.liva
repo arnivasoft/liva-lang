@@ -1,0 +1,74 @@
+// json::json — Ergonomic JSON wrapper API
+// Import with: import json::json
+
+import std::json
+
+pub struct JsonObject {
+    var data: String
+}
+
+impl JsonObject {
+    pub func parse(s: String) -> JsonObject {
+        return JsonObject { data: s }
+    }
+
+    pub func create() -> JsonObject {
+        return JsonObject { data: jsonCreate() }
+    }
+
+    pub func get(ref self, key: String) -> String? {
+        return jsonGet(self.data, key)
+    }
+
+    pub func getInt(ref self, key: String) -> i64 {
+        return jsonGetInt(self.data, key)
+    }
+
+    pub func getFloat(ref self, key: String) -> f64 {
+        return jsonGetFloat(self.data, key)
+    }
+
+    pub func getBool(ref self, key: String) -> bool {
+        return jsonGetBool(self.data, key)
+    }
+
+    pub func set(mut self, key: String, value: String) {
+        self.data = jsonSet(self.data, key, value)
+    }
+
+    pub func setInt(mut self, key: String, value: i64) {
+        self.data = jsonSetInt(self.data, key, value)
+    }
+
+    pub func setFloat(mut self, key: String, value: f64) {
+        self.data = jsonSetFloat(self.data, key, value)
+    }
+
+    pub func setBool(mut self, key: String, value: bool) {
+        self.data = jsonSetBool(self.data, key, value)
+    }
+
+    pub func remove(mut self, key: String) {
+        self.data = jsonRemove(self.data, key)
+    }
+
+    pub func isValid(ref self) -> bool {
+        return jsonIsValid(self.data)
+    }
+
+    pub func count(ref self) -> i32 {
+        return jsonCount(self.data)
+    }
+
+    pub func getArray(ref self, key: String) -> String? {
+        return jsonGetArray(self.data, key)
+    }
+
+    pub func getObject(ref self, key: String) -> String? {
+        return jsonGetObject(self.data, key)
+    }
+
+    pub func stringify(ref self) -> String {
+        return self.data
+    }
+}

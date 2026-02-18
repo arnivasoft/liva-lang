@@ -663,6 +663,17 @@ void liva_bench_report(const char *name, int64_t handle);
 /// Reset benchmark handle for reuse
 void liva_bench_reset(int64_t handle);
 
+// === Crypto ===
+
+/// SHA-256 hash, returns malloc'd 64-char hex string
+char *liva_sha256(const char *data);
+
+/// MD5 hash, returns malloc'd 32-char hex string
+char *liva_md5(const char *data);
+
+/// HMAC-SHA256, returns malloc'd 64-char hex string
+char *liva_hmac_sha256(const char *key, const char *data);
+
 // === Panic ===
 
 /// Called when an unrecoverable error occurs

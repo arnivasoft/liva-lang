@@ -1,0 +1,57 @@
+// crypto::crypto — Hash and Hmac wrapper API
+// Import with: import crypto::crypto
+
+import std::crypto
+import std::compress
+
+pub struct Hash {
+    var value: String
+}
+
+impl Hash {
+    pub func sha256(data: String) -> Hash {
+        return Hash { value: sha256(data) }
+    }
+
+    pub func md5(data: String) -> Hash {
+        return Hash { value: md5(data) }
+    }
+
+    pub func hex(ref self) -> String {
+        return self.value
+    }
+}
+
+pub struct Hmac {
+    var value: String
+}
+
+impl Hmac {
+    pub func sha256(key: String, data: String) -> Hmac {
+        return Hmac { value: hmacSha256(key, data) }
+    }
+
+    pub func hex(ref self) -> String {
+        return self.value
+    }
+}
+
+pub func base64Enc(data: String) -> String {
+    return base64Encode(data)
+}
+
+pub func base64Dec(data: String) -> String? {
+    return base64Decode(data)
+}
+
+pub func hexEnc(data: String) -> String {
+    return hexEncode(data)
+}
+
+pub func hexDec(data: String) -> String? {
+    return hexDecode(data)
+}
+
+pub func checksum(data: String) -> i64 {
+    return crc32(data)
+}

@@ -402,6 +402,13 @@ private:
     /// Helper: transfer ownership from temp to named variable
     void transferStringOwnership(llvm::Value *val, const std::string &varName);
 
+    /// Helper: remove a value from tempStrings_ without adding to heapStringVars_
+    void removeFromTempStrings(llvm::Value *val);
+
+    /// Helper: check if a TypeRepr represents a String type
+    /// Handles both Kind::String and NamedTypeRepr("String")
+    static bool isStringTypeRepr(const TypeRepr *tr);
+
     /// Emit cleanup calls for heap-allocated resources before scope exit
     void emitScopeCleanup();
 

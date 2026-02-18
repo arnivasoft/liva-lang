@@ -90,6 +90,10 @@ void ModuleLoader::registerBuiltinModules() {
     cache_["std::compress"] = createBuiltinModule("std::compress",
         {"base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32"});
 
+    cache_["std::crypto"] = createBuiltinModule("std::crypto",
+        {"sha256", "md5", "hmacSha256",
+         "base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32"});
+
     cache_["std::sync"] = createBuiltinModule("std::sync",
         {"mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",
          "atomicCreate", "atomicLoad", "atomicStore",
@@ -135,7 +139,8 @@ void ModuleLoader::registerBuiltinModules() {
     for (const auto &sub : {"std::math", "std::io", "std::convert",
                              "std::os", "std::random", "std::regex", "std::net",
                              "std::json", "std::log", "std::test",
-                             "std::datetime", "std::compress", "std::sync",
+                             "std::datetime", "std::compress", "std::crypto",
+                             "std::sync",
                              "std::collections", "std::strings", "std::ui"}) {
         for (const auto &sym : cache_[sub]->exportedSymbols)
             umbrella->exportedSymbols.push_back(sym);

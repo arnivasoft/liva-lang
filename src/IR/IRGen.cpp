@@ -754,6 +754,13 @@ void IRGen::createRuntimeDecls() {
     // crc32: (ptr) -> i64
     module_->getOrInsertFunction("liva_crc32", lenTy); // (ptr) -> i64
 
+    // === Crypto ===
+    // sha256(data) -> hex string, md5(data) -> hex string
+    module_->getOrInsertFunction("liva_sha256", strNoArgTy);  // (ptr) -> ptr
+    module_->getOrInsertFunction("liva_md5", strNoArgTy);     // (ptr) -> ptr
+    // hmacSha256(key, data) -> hex string
+    module_->getOrInsertFunction("liva_hmac_sha256", concatTy); // (ptr, ptr) -> ptr
+
     // === Stdlib: Synchronization ===
 
     // mutexCreate() -> i64
@@ -1300,6 +1307,23 @@ void IRGen::transferStringOwnership(llvm::Value *val, const std::string &varName
         heapStringVars_.insert(varName);
     }
     // If val is not in tempStrings_ (e.g., string literal), don't add to heapStringVars_
+}
+
+void IRGen::removeFromTempStrings(llvm::Value *val) {
+    if (!val) return;
+    auto it = std::find(tempStrings_.begin(), tempStrings_.end(), val);
+    if (it != tempStrings_.end())
+        tempStrings_.erase(it);
+}
+
+bool IRGen::isStringTypeRepr(const TypeRepr *tr) {
+    if (!tr) return false;
+    if (tr->getKind() == TypeRepr::Kind::String) return true;
+    if (tr->getKind() == TypeRepr::Kind::Named) {
+        auto *named = static_cast<const NamedTypeRepr *>(tr);
+        return named->getName() == "String";
+    }
+    return false;
 }
 
 } // namespace liva

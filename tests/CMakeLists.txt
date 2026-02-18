@@ -63,6 +63,17 @@ liva_add_test(ui_module_test
     unit/UIModuleTest.cpp
 )
 target_link_libraries(ui_module_test PRIVATE liva_sema liva_parser)
+target_compile_definitions(ui_module_test PRIVATE
+    LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
+)
+
+liva_add_test(stdlib_module_test
+    unit/StdlibModuleTest.cpp
+)
+target_link_libraries(stdlib_module_test PRIVATE liva_sema liva_parser)
+target_compile_definitions(stdlib_module_test PRIVATE
+    LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
+)
 
 liva_add_test(diag_color_test
     unit/DiagColorTest.cpp

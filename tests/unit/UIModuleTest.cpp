@@ -17,6 +17,10 @@ protected:
         bool passed;
     };
 
+    static std::string stdlibPath() {
+        return std::string(LIVA_PROJECT_ROOT) + "/stdlib";
+    }
+
     SemaResult check(const std::string &source, bool withModuleLoader = true,
                       const std::string &extraSearchPath = "") {
         SemaResult r;
@@ -31,6 +35,7 @@ protected:
         }
         if (withModuleLoader) {
             ModuleLoader loader;
+            loader.addSearchPath(stdlibPath());
             if (!extraSearchPath.empty())
                 loader.addSearchPath(extraSearchPath);
             Sema sema(r.diag, &loader);
