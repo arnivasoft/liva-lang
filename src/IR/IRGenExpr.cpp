@@ -82,6 +82,7 @@ llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
         return builder_->CreateLoad(it->second->getAllocatedType(), it->second,
                                      node->getName());
     }
+    diag_.report(node->getStartLoc(), DiagID::err_irgen_unknown_variable, node->getName());
     return nullptr;
 }
 
@@ -1149,6 +1150,7 @@ llvm::Value *IRGen::visitRefExpr(RefExpr *node) {
             // Normal variable: return alloca address
             return it->second;
         }
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_ref_target_not_found, ident->getName());
     }
     return nullptr;
 }

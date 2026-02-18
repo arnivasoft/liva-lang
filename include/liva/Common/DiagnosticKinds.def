@@ -168,4 +168,20 @@ DIAG(note_consider_ref,              note,    "consider passing by reference wit
 DIAG(err_foreign_keyword,            error,   "unknown keyword '%0'; did you mean '%1'?")
 DIAG(err_let_mut_not_supported,      error,   "'let mut' is not supported; use 'var' for mutable variables")
 
+// === IRGen - Internal Errors ===
+DIAG(err_irgen_unknown_variable,       error, "internal: undefined variable '%0' in code generation")
+DIAG(err_irgen_unknown_struct,         error, "internal: unknown struct type '%0' in code generation")
+DIAG(err_irgen_unknown_field,          error, "internal: struct '%0' has no field '%1'")
+DIAG(err_irgen_unknown_enum_case,      error, "internal: enum '%0' has no case '%1'")
+DIAG(err_irgen_unknown_enum,           error, "internal: unknown enum type '%0' in code generation")
+DIAG(err_irgen_unknown_function,       error, "internal: unresolved function '%0' in code generation")
+DIAG(err_irgen_member_resolve_failed,  error, "internal: cannot resolve member '%0' on expression")
+DIAG(err_irgen_match_subject_failed,   error, "internal: cannot evaluate match subject '%0'")
+DIAG(err_irgen_ref_target_not_found,   error, "internal: ref target '%0' not found")
+DIAG(err_irgen_if_let_not_optional,    error, "internal: if-let expression is not an optional type")
+DIAG(err_irgen_while_let_not_optional, error, "internal: while-let expression is not an optional type")
+DIAG(err_irgen_call_callee_failed,     error, "internal: cannot resolve callee in function call")
+DIAG(err_irgen_struct_literal_unknown, error, "internal: unknown struct type '%0' in struct literal")
+DIAG(err_irgen_closure_body_failed,    error, "internal: closure body code generation failed")
+
 #undef DIAG

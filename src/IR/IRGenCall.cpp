@@ -4138,6 +4138,8 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
             auto cIt = eIt->second.find(node->getMember());
             if (cIt != eIt->second.end())
                 return builder_->getInt32(cIt->second);
+            diag_.report(node->getStartLoc(), DiagID::err_irgen_unknown_enum_case,
+                         ident->getName(), node->getMember());
             return nullptr;
         }
     }
@@ -4233,17 +4235,23 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
                 }
             }
         }
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_member_resolve_failed, node->getMember());
         return nullptr;
     }
 
     auto stIt = structTypes_.find(structTypeName);
-    if (stIt == structTypes_.end())
+    if (stIt == structTypes_.end()) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_unknown_struct, structTypeName);
         return nullptr;
+    }
 
     auto *structTy = stIt->second;
     int idx = getStructFieldIndex(structTypeName, node->getMember());
-    if (idx < 0)
+    if (idx < 0) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_unknown_field,
+                     structTypeName, node->getMember());
         return nullptr;
+    }
 
     // Check if the alloca holds a pointer to struct (self parameter case)
     llvm::Value *basePtr = objAlloca;
@@ -4291,8 +4299,10 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
     }
 
     auto stIt = structTypes_.find(typeName);
-    if (stIt == structTypes_.end())
+    if (stIt == structTypes_.end()) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_struct_literal_unknown, typeName);
         return nullptr;
+    }
 
     auto *structTy = stIt->second;
     auto *func = builder_->GetInsertBlock()->getParent();
@@ -4318,8 +4328,10 @@ llvm::Value *IRGen::emitEnumCaseConstruct(const std::string &enumName,
                                            const std::string &caseName, int tag,
                                            const std::vector<std::unique_ptr<Expr>> &args) {
     auto etIt = enumTypes_.find(enumName);
-    if (etIt == enumTypes_.end())
+    if (etIt == enumTypes_.end()) {
+        diag_.report(SourceLocation{}, DiagID::err_irgen_unknown_enum, enumName);
         return nullptr;
+    }
 
     auto *enumStructTy = etIt->second;
     auto *func = builder_->GetInsertBlock()->getParent();
@@ -4391,8 +4403,10 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     if (isPayloadEnum) {
         // Payload enum: load tag from struct field 0
         auto nIt = namedValues_.find(subjectVarName);
-        if (nIt == namedValues_.end())
+        if (nIt == namedValues_.end()) {
+            diag_.report(node->getStartLoc(), DiagID::err_irgen_match_subject_failed, subjectVarName);
             return nullptr;
+        }
         subjectAlloca = nIt->second;
         auto *enumStructTy = enumTypes_[enumTypeName];
         auto *tagPtr = builder_->CreateStructGEP(enumStructTy, subjectAlloca, 0, "tag.ptr");
@@ -4400,8 +4414,10 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     } else {
         // Simple enum or integer: evaluate subject directly
         tagVal = visit(const_cast<Expr *>(node->getSubject()));
-        if (!tagVal)
+        if (!tagVal) {
+            diag_.report(node->getStartLoc(), DiagID::err_irgen_match_subject_failed, "expression");
             return nullptr;
+        }
     }
 
     auto *mergeBB = llvm::BasicBlock::Create(*context_, "match.end", func);

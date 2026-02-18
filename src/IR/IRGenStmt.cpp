@@ -320,7 +320,10 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
             }
         }
     }
-    if (!optAlloca || !innerType) return nullptr;
+    if (!optAlloca || !innerType) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_if_let_not_optional);
+        return nullptr;
+    }
 
     auto *optStructTy = getOptionalType(innerType);
     auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
@@ -386,7 +389,10 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
         auto optIt = varOptionalTypes_.find(ident->getName());
         if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
     }
-    if (!optAlloca || !innerType) return nullptr;
+    if (!optAlloca || !innerType) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_while_let_not_optional);
+        return nullptr;
+    }
 
     auto *func = builder_->GetInsertBlock()->getParent();
     auto *optStructTy = getOptionalType(innerType);
