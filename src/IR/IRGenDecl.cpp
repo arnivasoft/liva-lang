@@ -71,6 +71,13 @@ void IRGen::declareExternFunction(FuncDecl *funcDecl) {
     for (auto &param : funcDecl->getParams()) {
         if (param.isVariadic) {
             paramTypes.push_back(getDynArrayStructTy());
+        } else if (param.type && param.type->getKind() == TypeRepr::Kind::Array) {
+            auto *arrTy = static_cast<const ArrayTypeRepr *>(param.type.get());
+            if (arrTy->isDynamic()) {
+                paramTypes.push_back(getDynArrayStructTy());
+            } else {
+                paramTypes.push_back(toLLVMType(param.type.get()));
+            }
         } else if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
             paramTypes.push_back(getTraitObjectTy());
         } else if (param.isRef) {
@@ -190,6 +197,13 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     for (auto &param : node->getParams()) {
         if (param.isVariadic) {
             paramTypes.push_back(getDynArrayStructTy());
+        } else if (param.type && param.type->getKind() == TypeRepr::Kind::Array) {
+            auto *arrTy = static_cast<const ArrayTypeRepr *>(param.type.get());
+            if (arrTy->isDynamic()) {
+                paramTypes.push_back(getDynArrayStructTy());
+            } else {
+                paramTypes.push_back(toLLVMType(param.type.get()));
+            }
         } else if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
             paramTypes.push_back(getTraitObjectTy());
         } else if (param.isRef) {
@@ -285,6 +299,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarEnumTypes = varEnumTypes_;
     auto oldVarArrayTypes = varArrayTypes_;
     auto oldVarDynArrayTypes = varDynArrayTypes_;
+    auto oldVarDynArrayProtocol = varDynArrayProtocol_;
     auto oldVarMapTypes = varMapTypes_;
     auto oldVarSetTypes = varSetTypes_;
     auto oldVarOptionalTypes = varOptionalTypes_;
@@ -325,6 +340,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varDynArrayProtocol_.clear();
     varMapTypes_.clear();
     varSetTypes_.clear();
     varOptionalTypes_.clear();
@@ -469,6 +485,26 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         }
     }
 
+    // Register [T] (DynArray) typed parameters
+    for (auto &param : node->getParams()) {
+        if (!param.isVariadic && param.type &&
+            param.type->getKind() == TypeRepr::Kind::Array) {
+            auto *arrType = static_cast<const ArrayTypeRepr *>(param.type.get());
+            if (arrType->isDynamic()) {
+                auto *elemType = toLLVMType(arrType->getElement());
+                auto &DL = module_->getDataLayout();
+                uint64_t elemSize = DL.getTypeAllocSize(elemType);
+                varDynArrayTypes_[param.name] = {elemType, elemSize};
+                // Track dyn Protocol element type
+                if (arrType->getElement() &&
+                    arrType->getElement()->getKind() == TypeRepr::Kind::DynProtocol) {
+                    auto *dynP = static_cast<const DynProtocolTypeRepr *>(arrType->getElement());
+                    varDynArrayProtocol_[param.name] = dynP->getProtocolName();
+                }
+            }
+        }
+    }
+
     // Populate varRefTypes_ for ref parameters
     for (auto &param : node->getParams()) {
         if (param.isRef && param.type) {
@@ -572,6 +608,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varEnumTypes_ = oldVarEnumTypes;
     varArrayTypes_ = oldVarArrayTypes;
     varDynArrayTypes_ = oldVarDynArrayTypes;
+    varDynArrayProtocol_ = oldVarDynArrayProtocol;
     varMapTypes_ = oldVarMapTypes;
     varSetTypes_ = oldVarSetTypes;
     varOptionalTypes_ = oldVarOptionalTypes;
@@ -1074,6 +1111,15 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *structTy = getDynArrayStructTy();
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
 
+            // Check if element type is dyn Protocol (for boxing)
+            bool isDynProtoElem = arrTypeRepr->getElement() &&
+                arrTypeRepr->getElement()->getKind() == TypeRepr::Kind::DynProtocol;
+            std::string protoName;
+            if (isDynProtoElem) {
+                auto *dp = static_cast<const DynProtocolTypeRepr *>(arrTypeRepr->getElement());
+                protoName = dp->getProtocolName();
+            }
+
             // Collect init elements
             std::vector<llvm::Value *> initVals;
             if (node->hasInit() &&
@@ -1081,6 +1127,23 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *arrayLit = static_cast<ArrayLiteralExpr *>(
                     const_cast<Expr *>(node->getInit()));
                 for (auto &elem : arrayLit->getElements()) {
+                    // Box elements as trait objects for [dyn Protocol] arrays
+                    if (isDynProtoElem && elem->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                        auto *ident = static_cast<IdentifierExpr *>(elem.get());
+                        auto stIt = varStructTypes_.find(ident->getName());
+                        if (stIt != varStructTypes_.end()) {
+                            auto *traitTy = getTraitObjectTy();
+                            auto *traitAlloca = createEntryBlockAlloca(func, "dyn.arr.box", traitTy);
+                            auto *dataGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 0, "dyn.data");
+                            builder_->CreateStore(namedValues_[ident->getName()], dataGEP);
+                            auto *vtable = getOrCreateVtable(protoName, stIt->second);
+                            auto *vtGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 1, "dyn.vtable");
+                            builder_->CreateStore(vtable, vtGEP);
+                            auto *boxed = builder_->CreateLoad(traitTy, traitAlloca, "dyn.boxed");
+                            initVals.push_back(boxed);
+                            continue;
+                        }
+                    }
                     auto *val = visit(elem.get());
                     if (val) initVals.push_back(val);
                 }
@@ -1111,6 +1174,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
             namedValues_[node->getName()] = alloca;
             varDynArrayTypes_[node->getName()] = {elemType, elemSize};
+            // Track dyn Protocol element type for for-in loop dispatch
+            if (isDynProtoElem) {
+                varDynArrayProtocol_[node->getName()] = protoName;
+            }
             return alloca;
         }
     }
@@ -1402,11 +1469,16 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         std::vector<llvm::Type *> paramTypes;
         for (auto &param : method->getParams()) {
             if (param.isSelf) {
-                auto stIt = structTypes_.find(typeName);
-                if (stIt != structTypes_.end())
-                    paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
-                else
-                    paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+                paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+            } else if (param.type && param.type->getKind() == TypeRepr::Kind::Array) {
+                auto *arrTy = static_cast<const ArrayTypeRepr *>(param.type.get());
+                if (arrTy->isDynamic()) {
+                    paramTypes.push_back(getDynArrayStructTy());
+                } else {
+                    paramTypes.push_back(toLLVMType(param.type.get()));
+                }
+            } else if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
+                paramTypes.push_back(getTraitObjectTy());
             } else {
                 paramTypes.push_back(toLLVMType(param.type.get()));
             }
@@ -1453,6 +1525,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarEnumTypes = varEnumTypes_;
         auto oldVarArrayTypes = varArrayTypes_;
         auto oldVarDynArrayTypes = varDynArrayTypes_;
+        auto oldVarDynArrayProtocol = varDynArrayProtocol_;
         auto oldVarMapTypes = varMapTypes_;
         auto oldVarSetTypes = varSetTypes_;
         auto oldVarOptionalTypes = varOptionalTypes_;
@@ -1470,6 +1543,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varEnumTypes_.clear();
         varArrayTypes_.clear();
         varDynArrayTypes_.clear();
+        varDynArrayProtocol_.clear();
         varMapTypes_.clear();
         varSetTypes_.clear();
         varOptionalTypes_.clear();
@@ -1526,6 +1600,34 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
             ++i;
         }
 
+        // Register [T] (DynArray) typed method parameters
+        for (auto &param : method->getParams()) {
+            if (!param.isSelf && !param.isVariadic && param.type &&
+                param.type->getKind() == TypeRepr::Kind::Array) {
+                auto *arrType = static_cast<const ArrayTypeRepr *>(param.type.get());
+                if (arrType->isDynamic()) {
+                    auto *elemType = toLLVMType(arrType->getElement());
+                    auto &DL = module_->getDataLayout();
+                    uint64_t elemSize = DL.getTypeAllocSize(elemType);
+                    varDynArrayTypes_[param.name] = {elemType, elemSize};
+                    if (arrType->getElement() &&
+                        arrType->getElement()->getKind() == TypeRepr::Kind::DynProtocol) {
+                        auto *dynP = static_cast<const DynProtocolTypeRepr *>(arrType->getElement());
+                        varDynArrayProtocol_[param.name] = dynP->getProtocolName();
+                    }
+                }
+            }
+        }
+
+        // Register dyn Protocol typed method parameters
+        for (auto &param : method->getParams()) {
+            if (!param.isSelf && param.type &&
+                param.type->getKind() == TypeRepr::Kind::DynProtocol) {
+                auto *dynType = static_cast<const DynProtocolTypeRepr *>(param.type.get());
+                varProtocolTypes_[param.name] = dynType->getProtocolName();
+            }
+        }
+
         visitBlockStmt(const_cast<BlockStmt *>(method->getBody()));
 
         // Add implicit return if needed
@@ -1545,6 +1647,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varEnumTypes_ = oldVarEnumTypes;
         varArrayTypes_ = oldVarArrayTypes;
         varDynArrayTypes_ = oldVarDynArrayTypes;
+        varDynArrayProtocol_ = oldVarDynArrayProtocol;
         varMapTypes_ = oldVarMapTypes;
         varSetTypes_ = oldVarSetTypes;
         varOptionalTypes_ = oldVarOptionalTypes;
@@ -1577,6 +1680,15 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 for (auto &param : protoMethod->getParams()) {
                     if (param.isSelf) {
                         paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+                    } else if (param.type && param.type->getKind() == TypeRepr::Kind::Array) {
+                        auto *arrTy = static_cast<const ArrayTypeRepr *>(param.type.get());
+                        if (arrTy->isDynamic()) {
+                            paramTypes.push_back(getDynArrayStructTy());
+                        } else {
+                            paramTypes.push_back(toLLVMType(param.type.get()));
+                        }
+                    } else if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
+                        paramTypes.push_back(getTraitObjectTy());
                     } else {
                         paramTypes.push_back(toLLVMType(param.type.get()));
                     }
@@ -1601,6 +1713,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto oldVarEnumTypes = varEnumTypes_;
                 auto oldVarArrayTypes = varArrayTypes_;
                 auto oldVarDynArrayTypes = varDynArrayTypes_;
+                auto oldVarDynArrayProtocol = varDynArrayProtocol_;
                 auto oldVarMapTypes = varMapTypes_;
                 auto oldVarSetTypes = varSetTypes_;
                 auto oldVarOptionalTypes = varOptionalTypes_;
@@ -1617,6 +1730,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varEnumTypes_.clear();
                 varArrayTypes_.clear();
                 varDynArrayTypes_.clear();
+                varDynArrayProtocol_.clear();
                 varMapTypes_.clear();
                 varSetTypes_.clear();
                 varOptionalTypes_.clear();
@@ -1679,6 +1793,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varEnumTypes_ = oldVarEnumTypes;
                 varArrayTypes_ = oldVarArrayTypes;
                 varDynArrayTypes_ = oldVarDynArrayTypes;
+                varDynArrayProtocol_ = oldVarDynArrayProtocol;
                 varMapTypes_ = oldVarMapTypes;
                 varSetTypes_ = oldVarSetTypes;
                 varOptionalTypes_ = oldVarOptionalTypes;

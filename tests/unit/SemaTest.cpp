@@ -8163,3 +8163,70 @@ TEST_F(SemaTest, TestDeclAssertEq) {
     auto result = check("test \"eq\" {\n  assertEq(1, 1)\n}");
     EXPECT_TRUE(result.passed);
 }
+
+// ===== [dyn Protocol] Array Param Tests =====
+
+TEST_F(SemaTest, DynProtocolArrayParam) {
+    auto result = check(
+        "protocol Drawable {\n"
+        "  func draw(self)\n"
+        "}\n"
+        "struct Circle { var r: i32 }\n"
+        "impl Circle : Drawable {\n"
+        "  func draw(self) { print(self.r) }\n"
+        "}\n"
+        "func renderAll(items: [dyn Drawable]) {\n"
+        "  for item in items {\n"
+        "    item.draw()\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  let c = Circle { r: 5 }\n"
+        "  let shapes: [dyn Drawable] = [c]\n"
+        "  renderAll(shapes)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynProtocolArrayForIn) {
+    auto result = check(
+        "protocol Shape {\n"
+        "  func area(self) -> f64\n"
+        "}\n"
+        "struct Rect { var w: f64; var h: f64 }\n"
+        "impl Rect : Shape {\n"
+        "  func area(self) -> f64 { return self.w * self.h }\n"
+        "}\n"
+        "func main() {\n"
+        "  let r = Rect { w: 3.0, h: 4.0 }\n"
+        "  let shapes: [dyn Shape] = [r]\n"
+        "  for s in shapes {\n"
+        "    let a = s.area()\n"
+        "  }\n"
+        "}\n"
+    );
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, DynProtocolArrayMultipleTypes) {
+    auto result = check(
+        "protocol Renderable {\n"
+        "  func render(self)\n"
+        "}\n"
+        "struct Box { var size: i32 }\n"
+        "impl Box : Renderable {\n"
+        "  func render(self) { print(self.size) }\n"
+        "}\n"
+        "struct Dot { var x: i32 }\n"
+        "impl Dot : Renderable {\n"
+        "  func render(self) { print(self.x) }\n"
+        "}\n"
+        "func drawAll(items: [dyn Renderable]) {\n"
+        "  for item in items {\n"
+        "    item.render()\n"
+        "  }\n"
+        "}\n"
+    );
+    EXPECT_TRUE(result.passed);
+}

@@ -472,6 +472,9 @@ private:
     /// Track which variables are protocol trait objects: varName → protocolName
     std::unordered_map<std::string, std::string> varProtocolTypes_;
 
+    /// Track DynArray vars with dyn Protocol elements: arrayVarName → protocolName
+    std::unordered_map<std::string, std::string> varDynArrayProtocol_;
+
     /// Class support
     std::unordered_map<std::string, llvm::StructType *> classTypes_;
     std::unordered_map<std::string, std::vector<std::string>> classFieldNames_;

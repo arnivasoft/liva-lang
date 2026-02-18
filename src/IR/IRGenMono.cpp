@@ -30,6 +30,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarEnumTypes = varEnumTypes_;
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
+    auto savedVarDynArrayProtocol = varDynArrayProtocol_;
     auto savedVarMapTypes = varMapTypes_;
     auto savedVarSetTypes = varSetTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
@@ -74,6 +75,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varDynArrayProtocol_.clear();
     varMapTypes_.clear();
     varSetTypes_.clear();
     varOptionalTypes_.clear();
@@ -118,6 +120,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varEnumTypes_ = savedVarEnumTypes;
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
+    varDynArrayProtocol_ = savedVarDynArrayProtocol;
     varMapTypes_ = savedVarMapTypes;
     varSetTypes_ = savedVarSetTypes;
     varOptionalTypes_ = savedVarOptionalTypes;
@@ -244,6 +247,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto savedVarEnumTypes = varEnumTypes_;
     auto savedVarArrayTypes = varArrayTypes_;
     auto savedVarDynArrayTypes = varDynArrayTypes_;
+    auto savedVarDynArrayProtocol2 = varDynArrayProtocol_;
     auto savedVarMapTypes = varMapTypes_;
     auto savedVarSetTypes = varSetTypes_;
     auto savedVarOptionalTypes = varOptionalTypes_;
@@ -292,6 +296,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varDynArrayProtocol_.clear();
     varMapTypes_.clear();
     varSetTypes_.clear();
     varOptionalTypes_.clear();
@@ -339,6 +344,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varEnumTypes_ = savedVarEnumTypes;
     varArrayTypes_ = savedVarArrayTypes;
     varDynArrayTypes_ = savedVarDynArrayTypes;
+    varDynArrayProtocol_ = savedVarDynArrayProtocol2;
     varMapTypes_ = savedVarMapTypes;
     varSetTypes_ = savedVarSetTypes;
     varOptionalTypes_ = savedVarOptionalTypes;

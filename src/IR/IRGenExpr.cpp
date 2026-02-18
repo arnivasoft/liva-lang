@@ -664,6 +664,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     auto savedEnumTypes2 = varEnumTypes_;
     auto savedArrayTypes2 = varArrayTypes_;
     auto savedDynArrayTypes2 = varDynArrayTypes_;
+    auto savedDynArrayProtocol2 = varDynArrayProtocol_;
     auto savedMapTypes2 = varMapTypes_;
     auto savedSetTypes2 = varSetTypes_;
     auto savedOptionalTypes2 = varOptionalTypes_;
@@ -745,6 +746,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varEnumTypes_.clear();
     varArrayTypes_.clear();
     varDynArrayTypes_.clear();
+    varDynArrayProtocol_.clear();
     varMapTypes_.clear();
     varSetTypes_.clear();
     varOptionalTypes_.clear();
@@ -828,6 +830,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varEnumTypes_ = savedEnumTypes2;
     varArrayTypes_ = savedArrayTypes2;
     varDynArrayTypes_ = savedDynArrayTypes2;
+    varDynArrayProtocol_ = savedDynArrayProtocol2;
     varMapTypes_ = savedMapTypes2;
     varSetTypes_ = savedSetTypes2;
     varOptionalTypes_ = savedOptionalTypes2;

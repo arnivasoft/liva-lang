@@ -535,6 +535,12 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
             namedValues_[node->getVarName()] = loopVar;
 
+            // If iterating [dyn Protocol], register loop var for dyn dispatch
+            auto dapIt = varDynArrayProtocol_.find(iterName);
+            if (dapIt != varDynArrayProtocol_.end()) {
+                varProtocolTypes_[node->getVarName()] = dapIt->second;
+            }
+
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
             auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
             auto *latchBB = llvm::BasicBlock::Create(*context_, "for.latch", func);
