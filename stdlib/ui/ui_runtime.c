@@ -163,6 +163,7 @@ int32_t liva_ui_load_font(const char* path, int32_t size) {
     for (int i = 1; i < MAX_FONTS; ++i) {
         if (!fontUsed[i]) {
             fontSlots[i] = LoadFontEx(path, size, NULL, 0);
+            SetTextureFilter(fontSlots[i].texture, TEXTURE_FILTER_BILINEAR);
             fontUsed[i] = true;
             return i;
         }
@@ -181,13 +182,15 @@ void liva_ui_draw_text_font(int32_t handle, const char* text,
                              int32_t x, int32_t y, int32_t size,
                              int32_t r, int32_t g, int32_t b, int32_t a) {
     if (handle < 1 || handle >= MAX_FONTS || !fontUsed[handle]) return;
-    DrawTextEx(fontSlots[handle], text, (Vector2){(float)x, (float)y}, (float)size, 0,
+    float spacing = (size < 20) ? 1.0f : 0.0f;
+    DrawTextEx(fontSlots[handle], text, (Vector2){(float)x, (float)y}, (float)size, spacing,
                (Color){(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a});
 }
 
 int32_t liva_ui_measure_text_font(int32_t handle, const char* text, int32_t size) {
     if (handle < 1 || handle >= MAX_FONTS || !fontUsed[handle]) return 0;
-    return (int32_t)MeasureTextEx(fontSlots[handle], text, (float)size, 0).x;
+    float spacing = (size < 20) ? 1.0f : 0.0f;
+    return (int32_t)MeasureTextEx(fontSlots[handle], text, (float)size, spacing).x;
 }
 
 // === Word-Wrap ===

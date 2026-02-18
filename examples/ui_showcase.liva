@@ -27,7 +27,11 @@ func main() {
     initWindow(1050, 720, "Liva UI Showcase — All 12 Phases")
     setTargetFps(60)
 
-    let dark = Theme.dark()
+    // Custom font (Phase 9: loadFont/drawTextFont)
+    let font = loadFont("C:/Windows/Fonts/arial.ttf", 24)
+
+    var dark = Theme.dark()
+    dark.fontHandle = font
     let light = Theme.light()
 
     // ---- Tab navigation (Phase 7) ----
@@ -218,9 +222,9 @@ func main() {
         beginDrawing()
         clearBackground(30, 30, 30, 255)
 
-        // Title (Phase 1-2: raw draw calls)
-        drawText("Liva UI Showcase", 20, 12, 28, 255, 255, 255, 255)
-        drawText("All 12 Phases", 280, 18, 16, 140, 140, 140, 255)
+        // Title (Phase 9: custom font)
+        drawTextFont(font, "Liva UI Showcase", 20, 12, 28, 255, 255, 255, 255)
+        drawTextFont(font, "All 12 Phases", 280, 18, 16, 140, 140, 140, 255)
 
         // Tab bar (Phase 7)
         tabs.draw(20, 50)
@@ -230,26 +234,26 @@ func main() {
         // ==== Tab 1: Basics ====
         if tabSel == 0 {
             // Dark column (Phase 3-6)
-            drawText("Form Widgets (Dark Theme)", 40, contentY - 5, 18, 200, 200, 255, 255)
+            drawTextFont(font, "Form Widgets (Dark Theme)", 40, contentY - 5, 18, 200, 200, 255, 255)
 
-            drawText("Name:", 40, 105, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Name:", 40, 105, 14, 160, 160, 160, 255)
             nameInput.draw(40, 120)
-            drawText("Email:", 40, 155, 14, 160, 160, 160, 255)
-            emailInput.draw(40, 170)
+            drawTextFont(font, "Email:", 40, 160, 14, 160, 160, 160, 255)
+            emailInput.draw(40, 175)
 
             darkMode.draw(40, 220)
             notifications.draw(40, 255)
 
-            drawText("Volume:", 40, 280, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Volume:", 40, 280, 14, 160, 160, 160, 255)
             volume.draw(40, 295)
             let volVal = volume.getValue()
-            drawText(toString(volVal) + "%", 270, 298, 14, 100, 200, 100, 255)
+            drawTextFont(font, toString(volVal) + "%", 270, 298, 14, 100, 200, 100, 255)
 
             // Divider (Phase 3)
             let div1 = Divider.themedHorizontal(240, dark)
             div1.draw(40, 335)
 
-            drawText("Progress:", 40, 345, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Progress:", 40, 345, 14, 160, 160, 160, 255)
             progress.draw(40, 360)
 
             submitBtn.draw(40, 380)
@@ -272,7 +276,7 @@ func main() {
 
             // Light column (Phase 5: Theme comparison)
             drawRect(560, contentY - 10, 460, 200, 245, 245, 245, 255)
-            drawText("Light Theme", 600, contentY - 5, 18, 40, 40, 40, 255)
+            drawTextFont(font, "Light Theme", 600, contentY - 5, 18, 40, 40, 40, 255)
             lightLabel.draw(600, contentY - 5)
             lightCheck.draw(600, 120)
             lightSlider.draw(600, 155)
@@ -282,7 +286,7 @@ func main() {
             lightDiv.draw(600, 225)
 
             // Layout demo (Phase 8: manual grid — layoutHStack has cross-module dyn bug)
-            drawText("Phase 8 — Grid Layout:", 600, 260, 16, 200, 200, 255, 255)
+            drawTextFont(font, "Phase 8 — Grid Layout:", 600, 260, 16, 200, 200, 255, 255)
             var gr = 0
             while gr < 2 {
                 var gc = 0
@@ -292,7 +296,7 @@ func main() {
                     let cellIdx = gr * 3 + gc + 1
                     let cellBg = dark.surfaceAlt
                     drawRect(gx, gy, 72, 28, cellBg.r, cellBg.g, cellBg.b, cellBg.a)
-                    drawText("Cell " + toString(cellIdx), gx + 10, gy + 6,
+                    drawTextFont(font, "Cell " + toString(cellIdx), gx + 10, gy + 6,
                              14, 255, 255, 255, 255)
                     gc = gc + 1
                 }
@@ -303,29 +307,29 @@ func main() {
         // ==== Tab 2: Advanced ====
         if tabSel == 1 {
             // RadioGroup (Phase 7)
-            drawText("RadioGroup:", 40, contentY - 5, 16, 180, 180, 180, 255)
+            drawTextFont(font, "RadioGroup:", 40, contentY - 5, 16, 180, 180, 180, 255)
             radio.draw(40, 110)
             let radioSel = radio.getSelected()
             if radioSel >= 0 {
                 let selText = radio.getOption(radioSel)
-                drawText("Selected: " + selText, 250, 110, 16, 100, 200, 100, 255)
+                drawTextFont(font, "Selected: " + selText, 250, 110, 16, 100, 200, 100, 255)
             }
 
             // Dropdown (Phase 7)
-            drawText("Dropdown:", 40, 240, 16, 180, 180, 180, 255)
+            drawTextFont(font, "Dropdown:", 40, 240, 16, 180, 180, 180, 255)
             dropdown.draw(40, 260)
             let dropSel = dropdown.getSelected()
             if dropSel >= 0 {
                 let dropText = dropdown.getOption(dropSel)
-                drawText("Language: " + dropText, 260, 265, 16, 100, 200, 100, 255)
+                drawTextFont(font, "Language: " + dropText, 260, 265, 16, 100, 200, 100, 255)
             }
 
             // Dialog trigger (Phase 7)
-            drawText("Dialog:", 40, 380, 16, 180, 180, 180, 255)
+            drawTextFont(font, "Dialog:", 40, 380, 16, 180, 180, 180, 255)
             dialogBtn.draw(40, 400)
 
             // Layout demo (Phase 8: VStack + HStack, manual positioning)
-            drawText("Phase 8 — VStack:", 500, contentY - 5, 16, 200, 200, 255, 255)
+            drawTextFont(font, "Phase 8 — VStack:", 500, contentY - 5, 16, 200, 200, 255, 255)
             let la = Label.new("Item 1", 16, dark.text)
             let lb = Label.new("Item 2", 16, dark.text)
             let lc = Label.new("Item 3", 16, dark.text)
@@ -333,7 +337,7 @@ func main() {
             lb.draw(500, 144)
             lc.draw(500, 168)
 
-            drawText("Phase 8 — HStack:", 500, 200, 16, 200, 200, 255, 255)
+            drawTextFont(font, "Phase 8 — HStack:", 500, 200, 16, 200, 200, 255, 255)
             let ha = Label.new("Left", 14, Color.green())
             let hb = Label.new("Mid", 14, Color.white())
             let hc = Label.new("Right", 14, Color.red())
@@ -350,20 +354,20 @@ func main() {
 
         // ==== Tab 3: Animation ====
         if tabSel == 2 {
-            drawText("Phase 10 — Animation & Easing", 40, contentY - 5, 18, 200, 200, 255, 255)
+            drawTextFont(font, "Phase 10 — Animation & Easing", 40, contentY - 5, 18, 200, 200, 255, 255)
 
             // Tween animation
-            drawText("Tween (easeInOutQuad, 2s loop):", 40, 120, 16, 180, 180, 180, 255)
+            drawTextFont(font, "Tween (easeInOutQuad, 2s loop):", 40, 120, 16, 180, 180, 180, 255)
             animProgress.draw(40, 145)
             let tweenPct = tween.getValue()
-            drawText(toString(tweenPct as i32) + "%", 350, 148, 14, 100, 200, 100, 255)
+            drawTextFont(font, toString(tweenPct as i32) + "%", 350, 148, 14, 100, 200, 100, 255)
 
             if tween.isComplete() {
-                drawText("Complete!", 410, 148, 14, 255, 200, 80, 255)
+                drawTextFont(font, "Complete!", 410, 148, 14, 255, 200, 80, 255)
             }
 
             // Easing visualization
-            drawText("Easing functions:", 40, 185, 16, 180, 180, 180, 255)
+            drawTextFont(font, "Easing functions:", 40, 185, 16, 180, 180, 180, 255)
             var ei = 0
             while ei < 7 {
                 let ex = 40 + ei * 60
@@ -376,28 +380,28 @@ func main() {
                 drawRect(ex, 210 + 40 - barH, 50, barH, easeC.r, easeC.g, easeC.b, easeC.a)
                 ei = ei + 1
             }
-            drawText("lin  inQ  outQ ioQ  inC  outC ioC", 40, 255, 12, 120, 120, 120, 255)
+            drawTextFont(font, "lin  inQ  outQ ioQ  inC  outC ioC", 40, 255, 12, 120, 120, 120, 255)
 
             // HoverAnimator — hover over the box
-            drawText("HoverAnimator — hover over the box:", 40, 280, 16, 180, 180, 180, 255)
+            drawTextFont(font, "HoverAnimator — hover over the box:", 40, 280, 16, 180, 180, 180, 255)
             let hoverProg = hoverAnim.getProgress()
             let hoverColor = hoverAnim.getColor(
                 Color { r: 60, g: 60, b: 60, a: 255 },
                 Color { r: 80, g: 80, b: 200, a: 255 })
             let hoverW = hoverAnim.getValueI32(200, 300)
             drawRect(40, 300, hoverW, 40, hoverColor.r, hoverColor.g, hoverColor.b, hoverColor.a)
-            drawText("progress: " + toString((hoverProg * 100.0) as i32) + "%",
+            drawTextFont(font, "progress: " + toString((hoverProg * 100.0) as i32) + "%",
                      50, 310, 14, 255, 255, 255, 255)
 
             // ColorTransition
-            drawText("ColorTransition (blue -> red, 3s):", 40, 360, 16, 180, 180, 180, 255)
+            drawTextFont(font, "ColorTransition (blue -> red, 3s):", 40, 360, 16, 180, 180, 180, 255)
             let transColor = colorTrans.getValue()
             drawRect(40, 385, 200, 30, transColor.r, transColor.g, transColor.b, transColor.a)
             let transPct = (colorTrans.progress() * 100.0) as i32
-            drawText(toString(transPct) + "%", 250, 390, 14, 180, 180, 180, 255)
+            drawTextFont(font, toString(transPct) + "%", 250, 390, 14, 180, 180, 180, 255)
 
             // Lerp helpers demo
-            drawText("lerpColor / lerpI32:", 40, 435, 16, 180, 180, 180, 255)
+            drawTextFont(font, "lerpColor / lerpI32:", 40, 435, 16, 180, 180, 180, 255)
             var li = 0
             while li < 10 {
                 let t = (li as f64) / 9.0
@@ -408,46 +412,46 @@ func main() {
                 drawRect(lx, 460, 30, 20, lc.r, lc.g, lc.b, lc.a)
                 li = li + 1
             }
-            drawText("0.0              ->              1.0", 40, 485, 12, 120, 120, 120, 255)
+            drawTextFont(font, "0.0              ->              1.0", 40, 485, 12, 120, 120, 120, 255)
 
             animBtn.draw(40, 380)
         }
 
         // ==== Tab 4: Tooltip & Focus ====
         if tabSel == 3 {
-            drawText("Phase 12 — Tooltip & Popover", 40, contentY - 5, 18, 200, 200, 255, 255)
+            drawTextFont(font, "Phase 12 — Tooltip & Popover", 40, contentY - 5, 18, 200, 200, 255, 255)
 
             // Tooltip demo
             let tipBtnBg = dark.primary
             drawRect(40, 110, 140, 35, tipBtnBg.r, tipBtnBg.g, tipBtnBg.b, tipBtnBg.a)
-            drawText("Hover me", 60, 117, 16, 255, 255, 255, 255)
+            drawTextFont(font, "Hover me", 60, 117, 16, 255, 255, 255, 255)
             tip1.draw()
 
-            drawText("Info area (hover for tooltip):", 40, 170, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Info area (hover for tooltip):", 40, 170, 14, 160, 160, 160, 255)
             let infoBg = dark.surfaceAlt
             drawRect(40, 200, 200, 30, infoBg.r, infoBg.g, infoBg.b, infoBg.a)
-            drawText("?  Hover for details", 50, 206, 14, 200, 200, 200, 255)
+            drawTextFont(font, "?  Hover for details", 50, 206, 14, 200, 200, 200, 255)
             tip2.draw()
 
             // Position constants
-            drawText("Positions: ABOVE=" + toString(POS_ABOVE()) +
+            drawTextFont(font, "Positions: ABOVE=" + toString(POS_ABOVE()) +
                      " BELOW=" + toString(POS_BELOW()) +
                      " LEFT=" + toString(POS_LEFT()) +
                      " RIGHT=" + toString(POS_RIGHT()), 40, 250, 12, 120, 120, 120, 255)
 
             // Popover
-            drawText("Popover (click to toggle):", 40, 285, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Popover (click to toggle):", 40, 285, 14, 160, 160, 160, 255)
             popBtn.draw(40, 310)
             popover.draw()
 
             // ---- Focus & Keyboard (Phase 11) ----
-            drawText("Phase 11 — Focus & Keyboard", 500, contentY - 5, 18, 200, 200, 255, 255)
+            drawTextFont(font, "Phase 11 — Focus & Keyboard", 500, contentY - 5, 18, 200, 200, 255, 255)
 
             // FocusManager info
             let focusIdx = focusMgr.getFocus()
-            drawText("FocusManager: " + toString(4) + " widgets", 500, 110, 14, 160, 160, 160, 255)
-            drawText("Current focus: " + toString(focusIdx), 500, 130, 14, 100, 200, 100, 255)
-            drawText("Tab/Shift+Tab to navigate", 500, 150, 14, 120, 120, 120, 255)
+            drawTextFont(font, "FocusManager: " + toString(4) + " widgets", 500, 110, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Current focus: " + toString(focusIdx), 500, 130, 14, 100, 200, 100, 255)
+            drawTextFont(font, "Tab/Shift+Tab to navigate", 500, 150, 14, 120, 120, 120, 255)
 
             // Focusable buttons
             infoBtn.draw(500, 180)
@@ -467,7 +471,7 @@ func main() {
                 let fy = 230
                 let focBg = dark.surfaceAlt
                 drawRect(fx, fy, 140, 30, focBg.r, focBg.g, focBg.b, focBg.a)
-                drawText("Item " + toString(fi + 1), fx + 10, fy + 7, 14, 200, 200, 200, 255)
+                drawTextFont(font, "Item " + toString(fi + 1), fx + 10, fy + 7, 14, 200, 200, 200, 255)
                 if focusMgr.isFocused(fi) {
                     focusRing.draw(fx, fy, 140, 30)
                 }
@@ -475,25 +479,25 @@ func main() {
             }
 
             // KeyAction shortcuts info
-            drawText("Keyboard Shortcuts:", 500, 290, 16, 180, 180, 180, 255)
-            drawText("Ctrl+S — Save (id=1)", 500, 315, 14, 160, 160, 160, 255)
-            drawText("Ctrl+N — New (id=2)", 500, 335, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Keyboard Shortcuts:", 500, 290, 16, 180, 180, 180, 255)
+            drawTextFont(font, "Ctrl+S — Save (id=1)", 500, 315, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Ctrl+N — New (id=2)", 500, 335, 14, 160, 160, 160, 255)
 
             if shortcut1.isTriggered() {
-                drawText("Ctrl+S pressed!", 700, 315, 14, 100, 255, 100, 255)
+                drawTextFont(font, "Ctrl+S pressed!", 700, 315, 14, 100, 255, 100, 255)
             }
             if shortcut2.isTriggered() {
-                drawText("Ctrl+N pressed!", 700, 335, 14, 100, 255, 100, 255)
+                drawTextFont(font, "Ctrl+N pressed!", 700, 335, 14, 100, 255, 100, 255)
             }
 
             // AccessibleInfo
-            drawText("AccessibleInfo:", 500, 375, 16, 180, 180, 180, 255)
-            drawText("Label: " + accInfo.getLabel(), 500, 400, 14, 160, 160, 160, 255)
-            drawText("Role: ROLE_BUTTON = " + toString(accInfo.getRole()), 500, 420, 14, 160, 160, 160, 255)
+            drawTextFont(font, "AccessibleInfo:", 500, 375, 16, 180, 180, 180, 255)
+            drawTextFont(font, "Label: " + accInfo.getLabel(), 500, 400, 14, 160, 160, 160, 255)
+            drawTextFont(font, "Role: ROLE_BUTTON = " + toString(accInfo.getRole()), 500, 420, 14, 160, 160, 160, 255)
             if accInfo.isEnabled() {
-                drawText("Enabled: true", 500, 440, 14, 160, 160, 160, 255)
+                drawTextFont(font, "Enabled: true", 500, 440, 14, 160, 160, 160, 255)
             } else {
-                drawText("Enabled: false", 500, 440, 14, 160, 160, 160, 255)
+                drawTextFont(font, "Enabled: false", 500, 440, 14, 160, 160, 160, 255)
             }
 
             // Phase 9: Wrapped text in panel
@@ -510,10 +514,11 @@ func main() {
         // Status bar (Phase 2: raw primitives)
         drawRect(0, 690, 1050, 30, 20, 20, 20, 255)
         drawLine(0, 690, 1050, 690, 60, 60, 60, 255)
-        drawText("Liva UI Framework — 12 Phases | ESC to exit", 10, 696, 13, 120, 120, 120, 255)
+        drawTextFont(font, "Liva UI Framework — 12 Phases | ESC to exit", 10, 700, 13, 120, 120, 120, 255)
 
         endDrawing()
     }
 
+    unloadFont(font)
     closeWindow()
 }

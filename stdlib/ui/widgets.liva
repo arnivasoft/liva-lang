@@ -18,28 +18,43 @@ pub func hitTest(mx: i32, my: i32, x: i32, y: i32, w: i32, h: i32) -> bool {
     return mx >= x && mx <= x + w && my >= y && my <= y + h
 }
 
+// ---- Font-aware text helpers ----
+func drawTextF(fh: i32, text: string, x: i32, y: i32, size: i32,
+               r: i32, g: i32, b: i32, a: i32) {
+    if fh >= 0 { drawTextFont(fh, text, x, y, size, r, g, b, a) }
+    else { drawText(text, x, y, size, r, g, b, a) }
+}
+
+func measureTextF(fh: i32, text: string, size: i32) -> i32 {
+    if fh >= 0 { return measureTextFont(fh, text, size) }
+    return measureText(text, size)
+}
+
 // ---- Label ----
 pub struct Label {
     var text: string
     var fontSize: i32
     var color: Color
+    var fontHandle: i32
 }
 
 impl Label {
     func new(text: string, fontSize: i32, color: Color) -> Label {
-        return Label { text: text, fontSize: fontSize, color: color }
+        return Label { text: text, fontSize: fontSize, color: color, fontHandle: -1 }
     }
+
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
 }
 
 impl Label: Widget {
     func getWidth(ref self) -> i32 {
-        return measureText(self.text, self.fontSize)
+        return measureTextF(self.fontHandle, self.text, self.fontSize)
     }
     func getHeight(ref self) -> i32 {
         return self.fontSize
     }
     func draw(ref self, x: i32, y: i32) {
-        drawText(self.text, x, y, self.fontSize,
+        drawTextF(self.fontHandle, self.text, x, y, self.fontSize,
                  self.color.r, self.color.g, self.color.b, self.color.a)
     }
 }
@@ -53,6 +68,7 @@ pub struct Button {
     var hoverColor: Color
     var padding: i32
     var id: i32
+    var fontHandle: i32
     var onClick: (i32) -> void
 }
 
@@ -66,6 +82,7 @@ impl Button {
             hoverColor: Color { r: 100, g: 100, b: 230, a: 255 },
             padding: 8,
             id: id,
+            fontHandle: -1,
             onClick: |_id: i32| { }
         }
     }
@@ -79,6 +96,7 @@ impl Button {
             hoverColor: bg,
             padding: 8,
             id: id,
+            fontHandle: -1,
             onClick: |_id: i32| { }
         }
     }
@@ -92,6 +110,7 @@ impl Button {
             hoverColor: theme.primaryHover,
             padding: theme.padding,
             id: id,
+            fontHandle: theme.fontHandle,
             onClick: |_id: i32| { }
         }
     }
@@ -105,12 +124,13 @@ impl Button {
             hoverColor: theme.primaryHover,
             padding: theme.padding,
             id: id,
+            fontHandle: theme.fontHandle,
             onClick: cb
         }
     }
 
     func isHovered(ref self, bx: i32, by: i32) -> bool {
-        let w = measureText(self.text, self.fontSize) + self.padding * 2
+        let w = measureTextF(self.fontHandle, self.text, self.fontSize) + self.padding * 2
         let h = self.fontSize + self.padding * 2
         return hitTest(getMouseX(), getMouseY(), bx, by, w, h)
     }
@@ -128,11 +148,13 @@ impl Button {
     func setOnClick(ref mut self, cb: (i32) -> void) {
         self.onClick = cb
     }
+
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
 }
 
 impl Button: Widget {
     func getWidth(ref self) -> i32 {
-        return measureText(self.text, self.fontSize) + self.padding * 2
+        return measureTextF(self.fontHandle, self.text, self.fontSize) + self.padding * 2
     }
     func getHeight(ref self) -> i32 {
         return self.fontSize + self.padding * 2
@@ -148,7 +170,7 @@ impl Button: Widget {
             let bg = self.bgColor
             drawRect(x, y, w, h, bg.r, bg.g, bg.b, bg.a)
         }
-        drawText(self.text, x + self.padding, y + self.padding,
+        drawTextF(self.fontHandle, self.text, x + self.padding, y + self.padding,
                  self.fontSize, self.color.r, self.color.g, self.color.b, self.color.a)
     }
 }
@@ -275,6 +297,7 @@ pub struct TextInput {
     var placeholderColor: Color
     var cursorColor: Color
     var padding: i32
+    var fontHandle: i32
 }
 
 impl TextInput {
@@ -292,7 +315,8 @@ impl TextInput {
             focusedBorderColor: Color { r: 100, g: 150, b: 255, a: 255 },
             placeholderColor: Color { r: 120, g: 120, b: 120, a: 255 },
             cursorColor: Color { r: 255, g: 255, b: 255, a: 255 },
-            padding: 6
+            padding: 6,
+            fontHandle: -1
         }
     }
 
@@ -310,7 +334,8 @@ impl TextInput {
             focusedBorderColor: theme.borderFocused,
             placeholderColor: theme.textSecondary,
             cursorColor: theme.text,
-            padding: theme.padding
+            padding: theme.padding,
+            fontHandle: theme.fontHandle
         }
     }
 
@@ -326,7 +351,7 @@ impl TextInput {
                 var pos = textLen
                 var i = 0
                 while i <= textLen {
-                    let tw = measureText(self.value.substring(0, i), self.fontSize)
+                    let tw = measureTextF(self.fontHandle, self.value.substring(0, i), self.fontSize)
                     if tw >= clickX {
                         pos = i
                         i = textLen + 1
@@ -395,6 +420,8 @@ impl TextInput {
     }
 
     func getText(ref self) -> string { return self.value }
+
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
 }
 
 impl TextInput: Widget {
@@ -417,15 +444,15 @@ impl TextInput: Widget {
         let textY = y + self.padding
         let textX = x + self.padding
         if (len(self.value) as i32) > 0 {
-            drawText(self.value, textX, textY, self.fontSize,
+            drawTextF(self.fontHandle, self.value, textX, textY, self.fontSize,
                      self.textColor.r, self.textColor.g, self.textColor.b, self.textColor.a)
         } else {
             let pc = self.placeholderColor
-            drawText(self.placeholder, textX, textY, self.fontSize, pc.r, pc.g, pc.b, pc.a)
+            drawTextF(self.fontHandle, self.placeholder, textX, textY, self.fontSize, pc.r, pc.g, pc.b, pc.a)
         }
         // Cursor (simple line)
         if self.focused {
-            let cursorX = textX + measureText(self.value.substring(0, self.cursorPos), self.fontSize)
+            let cursorX = textX + measureTextF(self.fontHandle, self.value.substring(0, self.cursorPos), self.fontSize)
             let cc = self.cursorColor
             drawLine(cursorX, y + 3, cursorX, y + h - 3, cc.r, cc.g, cc.b, cc.a)
         }
@@ -440,6 +467,7 @@ pub struct Checkbox {
     var color: Color
     var checkColor: Color
     var boxSize: i32
+    var fontHandle: i32
     var onToggle: (bool) -> void
 }
 
@@ -452,6 +480,7 @@ impl Checkbox {
             color: Color.white(),
             checkColor: Color { r: 80, g: 200, b: 80, a: 255 },
             boxSize: 20,
+            fontHandle: -1,
             onToggle: |_v: bool| { }
         }
     }
@@ -464,6 +493,7 @@ impl Checkbox {
             color: theme.text,
             checkColor: theme.success,
             boxSize: theme.fontSize,
+            fontHandle: theme.fontHandle,
             onToggle: |_v: bool| { }
         }
     }
@@ -476,12 +506,13 @@ impl Checkbox {
             color: theme.text,
             checkColor: theme.success,
             boxSize: theme.fontSize,
+            fontHandle: theme.fontHandle,
             onToggle: cb
         }
     }
 
     func update(ref mut self, x: i32, y: i32) {
-        let totalW = self.boxSize + 8 + measureText(self.label, self.fontSize)
+        let totalW = self.boxSize + 8 + measureTextF(self.fontHandle, self.label, self.fontSize)
         if isMousePressed(0) {
             if hitTest(getMouseX(), getMouseY(), x, y, totalW, self.boxSize) {
                 self.checked = !self.checked
@@ -495,11 +526,13 @@ impl Checkbox {
     func setOnToggle(ref mut self, cb: (bool) -> void) {
         self.onToggle = cb
     }
+
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
 }
 
 impl Checkbox: Widget {
     func getWidth(ref self) -> i32 {
-        return self.boxSize + 8 + measureText(self.label, self.fontSize)
+        return self.boxSize + 8 + measureTextF(self.fontHandle, self.label, self.fontSize)
     }
     func getHeight(ref self) -> i32 { return self.boxSize }
     func draw(ref self, x: i32, y: i32) {
@@ -512,7 +545,7 @@ impl Checkbox: Widget {
             drawRect(x + 2, y + 3, bs - 6, bs - 6, cc.r, cc.g, cc.b, cc.a)
         }
         // Label
-        drawText(self.label, x + bs + 8, y, self.fontSize,
+        drawTextF(self.fontHandle, self.label, x + bs + 8, y, self.fontSize,
                  self.color.r, self.color.g, self.color.b, self.color.a)
     }
 }
@@ -776,6 +809,7 @@ pub struct RadioGroup {
     var selectedColor: Color
     var radioSize: i32
     var spacing: i32
+    var fontHandle: i32
     var onSelect: (i32) -> void
 }
 
@@ -789,6 +823,7 @@ impl RadioGroup {
             radioColor: Color { r: 100, g: 100, b: 100, a: 255 },
             selectedColor: Color { r: 80, g: 150, b: 255, a: 255 },
             radioSize: 18, spacing: 8,
+            fontHandle: -1,
             onSelect: |_i: i32| { }
         }
     }
@@ -802,6 +837,7 @@ impl RadioGroup {
             radioColor: Color { r: 100, g: 100, b: 100, a: 255 },
             selectedColor: Color { r: 80, g: 150, b: 255, a: 255 },
             radioSize: 18, spacing: 8,
+            fontHandle: -1,
             onSelect: |_i: i32| { }
         }
     }
@@ -815,6 +851,7 @@ impl RadioGroup {
             radioColor: Color { r: 100, g: 100, b: 100, a: 255 },
             selectedColor: Color { r: 80, g: 150, b: 255, a: 255 },
             radioSize: 18, spacing: 8,
+            fontHandle: -1,
             onSelect: |_i: i32| { }
         }
     }
@@ -828,6 +865,7 @@ impl RadioGroup {
             radioColor: Color { r: 100, g: 100, b: 100, a: 255 },
             selectedColor: Color { r: 80, g: 150, b: 255, a: 255 },
             radioSize: 18, spacing: 8,
+            fontHandle: -1,
             onSelect: |_i: i32| { }
         }
     }
@@ -841,6 +879,7 @@ impl RadioGroup {
             radioColor: theme.border,
             selectedColor: theme.primary,
             radioSize: 18, spacing: theme.spacing,
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { }
         }
     }
@@ -854,6 +893,7 @@ impl RadioGroup {
             radioColor: theme.border,
             selectedColor: theme.primary,
             radioSize: 18, spacing: theme.spacing,
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { }
         }
     }
@@ -867,6 +907,7 @@ impl RadioGroup {
             radioColor: theme.border,
             selectedColor: theme.primary,
             radioSize: 18, spacing: theme.spacing,
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { }
         }
     }
@@ -880,6 +921,7 @@ impl RadioGroup {
             radioColor: theme.border,
             selectedColor: theme.primary,
             radioSize: 18, spacing: theme.spacing,
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { }
         }
     }
@@ -901,6 +943,8 @@ impl RadioGroup {
     func setOnSelect(ref mut self, cb: (i32) -> void) {
         self.onSelect = cb
     }
+
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
 
     func update(ref mut self, x: i32, y: i32) {
         if isMousePressed(0) {
@@ -928,7 +972,7 @@ impl RadioGroup: Widget {
         var i = 0
         while i < self.count {
             let optText = self.getOption(i)
-            let w = self.radioSize + 8 + measureText(optText, self.fontSize)
+            let w = self.radioSize + 8 + measureTextF(self.fontHandle, optText, self.fontSize)
             if w > maxW { maxW = w }
             i = i + 1
         }
@@ -960,7 +1004,7 @@ impl RadioGroup: Widget {
             // Label text
             let optText = self.getOption(i)
             let tc = self.textColor
-            drawText(optText, x + self.radioSize + 8, rowY, self.fontSize,
+            drawTextF(self.fontHandle, optText, x + self.radioSize + 8, rowY, self.fontSize,
                      tc.r, tc.g, tc.b, tc.a)
             i = i + 1
         }
@@ -987,6 +1031,7 @@ pub struct TabView {
     var indicatorColor: Color
     var padding: i32
     var tabSpacing: i32
+    var fontHandle: i32
     var onTabChange: (i32) -> void
 }
 
@@ -1002,6 +1047,7 @@ impl TabView {
             inactiveColor: Color { r: 40, g: 40, b: 40, a: 255 },
             indicatorColor: Color { r: 80, g: 150, b: 255, a: 255 },
             padding: 8, tabSpacing: 2,
+            fontHandle: -1,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1017,6 +1063,7 @@ impl TabView {
             inactiveColor: Color { r: 40, g: 40, b: 40, a: 255 },
             indicatorColor: Color { r: 80, g: 150, b: 255, a: 255 },
             padding: 8, tabSpacing: 2,
+            fontHandle: -1,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1032,6 +1079,7 @@ impl TabView {
             inactiveColor: Color { r: 40, g: 40, b: 40, a: 255 },
             indicatorColor: Color { r: 80, g: 150, b: 255, a: 255 },
             padding: 8, tabSpacing: 2,
+            fontHandle: -1,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1047,6 +1095,7 @@ impl TabView {
             inactiveColor: Color { r: 40, g: 40, b: 40, a: 255 },
             indicatorColor: Color { r: 80, g: 150, b: 255, a: 255 },
             padding: 8, tabSpacing: 2,
+            fontHandle: -1,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1062,6 +1111,7 @@ impl TabView {
             inactiveColor: theme.surfaceAlt,
             indicatorColor: theme.primary,
             padding: theme.padding, tabSpacing: 2,
+            fontHandle: theme.fontHandle,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1077,6 +1127,7 @@ impl TabView {
             inactiveColor: theme.surfaceAlt,
             indicatorColor: theme.primary,
             padding: theme.padding, tabSpacing: 2,
+            fontHandle: theme.fontHandle,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1092,6 +1143,7 @@ impl TabView {
             inactiveColor: theme.surfaceAlt,
             indicatorColor: theme.primary,
             padding: theme.padding, tabSpacing: 2,
+            fontHandle: theme.fontHandle,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1107,6 +1159,7 @@ impl TabView {
             inactiveColor: theme.surfaceAlt,
             indicatorColor: theme.primary,
             padding: theme.padding, tabSpacing: 2,
+            fontHandle: theme.fontHandle,
             onTabChange: |_i: i32| { }
         }
     }
@@ -1129,9 +1182,11 @@ impl TabView {
         self.onTabChange = cb
     }
 
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
+
     func getTabWidth(ref self, idx: i32) -> i32 {
         let tabLabel = self.getTab(idx)
-        return measureText(tabLabel, self.fontSize) + self.padding * 2
+        return measureTextF(self.fontHandle, tabLabel, self.fontSize) + self.padding * 2
     }
 
     func update(ref mut self, x: i32, y: i32) {
@@ -1144,14 +1199,14 @@ impl TabView {
             while i < self.count {
                 // Inline tab width: measureText + padding*2
                 var tw = self.padding * 2
-                if i == 0 { tw = tw + measureText(self.tab0, self.fontSize) }
-                if i == 1 { tw = tw + measureText(self.tab1, self.fontSize) }
-                if i == 2 { tw = tw + measureText(self.tab2, self.fontSize) }
-                if i == 3 { tw = tw + measureText(self.tab3, self.fontSize) }
-                if i == 4 { tw = tw + measureText(self.tab4, self.fontSize) }
-                if i == 5 { tw = tw + measureText(self.tab5, self.fontSize) }
-                if i == 6 { tw = tw + measureText(self.tab6, self.fontSize) }
-                if i == 7 { tw = tw + measureText(self.tab7, self.fontSize) }
+                if i == 0 { tw = tw + measureTextF(self.fontHandle, self.tab0, self.fontSize) }
+                if i == 1 { tw = tw + measureTextF(self.fontHandle, self.tab1, self.fontSize) }
+                if i == 2 { tw = tw + measureTextF(self.fontHandle, self.tab2, self.fontSize) }
+                if i == 3 { tw = tw + measureTextF(self.fontHandle, self.tab3, self.fontSize) }
+                if i == 4 { tw = tw + measureTextF(self.fontHandle, self.tab4, self.fontSize) }
+                if i == 5 { tw = tw + measureTextF(self.fontHandle, self.tab5, self.fontSize) }
+                if i == 6 { tw = tw + measureTextF(self.fontHandle, self.tab6, self.fontSize) }
+                if i == 7 { tw = tw + measureTextF(self.fontHandle, self.tab7, self.fontSize) }
                 if hitTest(mx, my, tabX, y, tw, tabH) {
                     if i != self.selected {
                         self.selected = i
@@ -1194,7 +1249,7 @@ impl TabView: Widget {
                 let ac = self.activeColor
                 drawRect(tabX, y, tw, tabH, ac.r, ac.g, ac.b, ac.a)
                 let atc = self.activeTextColor
-                drawText(tabLabel, tabX + self.padding, y + self.padding,
+                drawTextF(self.fontHandle, tabLabel, tabX + self.padding, y + self.padding,
                          self.fontSize, atc.r, atc.g, atc.b, atc.a)
                 // Active indicator line
                 let ic = self.indicatorColor
@@ -1203,7 +1258,7 @@ impl TabView: Widget {
                 let ic2 = self.inactiveColor
                 drawRect(tabX, y, tw, tabH, ic2.r, ic2.g, ic2.b, ic2.a)
                 let tc = self.textColor
-                drawText(tabLabel, tabX + self.padding, y + self.padding,
+                drawTextF(self.fontHandle, tabLabel, tabX + self.padding, y + self.padding,
                          self.fontSize, tc.r, tc.g, tc.b, tc.a)
             }
             tabX = tabX + tw + self.tabSpacing
@@ -1234,6 +1289,7 @@ pub struct Dropdown {
     var borderColor: Color
     var padding: i32
     var placeholder: string
+    var fontHandle: i32
     var onSelect: (i32) -> void
     var clickConsumed: bool
 }
@@ -1250,6 +1306,7 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
+            fontHandle: -1,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1266,6 +1323,7 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
+            fontHandle: -1,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1282,6 +1340,7 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
+            fontHandle: -1,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1298,6 +1357,7 @@ impl Dropdown {
             hoverColor: Color { r: 70, g: 70, b: 70, a: 255 },
             borderColor: Color { r: 100, g: 100, b: 100, a: 255 },
             padding: 8, placeholder: "Select...",
+            fontHandle: -1,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1314,6 +1374,7 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1330,6 +1391,7 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1346,6 +1408,7 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1362,6 +1425,7 @@ impl Dropdown {
             hoverColor: theme.surfaceAlt,
             borderColor: theme.border,
             padding: theme.padding, placeholder: "Select...",
+            fontHandle: theme.fontHandle,
             onSelect: |_i: i32| { },
             clickConsumed: false
         }
@@ -1387,6 +1451,8 @@ impl Dropdown {
         self.onSelect = cb
     }
 
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
+
     func drawPopup(ref self, x: i32, y: i32) {
         if !self.open { return }
         let headerH = self.fontSize + self.padding * 2
@@ -1404,7 +1470,7 @@ impl Dropdown {
                 drawRect(x, optY, self.width, optH, bg.r, bg.g, bg.b, bg.a)
             }
             let optText = self.getOption(i)
-            drawText(optText, x + self.padding, optY + self.padding / 2,
+            drawTextF(self.fontHandle, optText, x + self.padding, optY + self.padding / 2,
                      self.fontSize, tc.r, tc.g, tc.b, tc.a)
             i = i + 1
         }
@@ -1498,10 +1564,10 @@ impl Dropdown: Widget {
         // Header text (selected option or placeholder)
         if self.selected >= 0 {
             let selText = self.getOption(self.selected)
-            drawText(selText, x + self.padding, y + self.padding,
+            drawTextF(self.fontHandle, selText, x + self.padding, y + self.padding,
                      self.fontSize, tc.r, tc.g, tc.b, tc.a)
         } else {
-            drawText(self.placeholder, x + self.padding, y + self.padding,
+            drawTextF(self.fontHandle, self.placeholder, x + self.padding, y + self.padding,
                      self.fontSize, 120, 120, 120, 255)
         }
 
@@ -1538,6 +1604,7 @@ pub struct Dialog {
     var btn2HoverColor: Color
     var btnTextColor: Color
     var padding: i32
+    var fontHandle: i32
     var onConfirm: (i32) -> void
     var onCancel: (i32) -> void
 }
@@ -1558,6 +1625,7 @@ impl Dialog {
             btn2HoverColor: Color { r: 80, g: 80, b: 80, a: 255 },
             btnTextColor: Color.white(),
             padding: 16,
+            fontHandle: -1,
             onConfirm: |_i: i32| { },
             onCancel: |_i: i32| { }
         }
@@ -1578,6 +1646,7 @@ impl Dialog {
             btn2HoverColor: theme.border,
             btnTextColor: theme.onPrimary,
             padding: theme.padding * 2,
+            fontHandle: theme.fontHandle,
             onConfirm: |_i: i32| { },
             onCancel: |_i: i32| { }
         }
@@ -1598,6 +1667,7 @@ impl Dialog {
             btn2HoverColor: Color { r: 80, g: 80, b: 80, a: 255 },
             btnTextColor: Color.white(),
             padding: 16,
+            fontHandle: -1,
             onConfirm: |_i: i32| { },
             onCancel: |_i: i32| { }
         }
@@ -1618,6 +1688,7 @@ impl Dialog {
             btn2HoverColor: theme.border,
             btnTextColor: theme.onPrimary,
             padding: theme.padding * 2,
+            fontHandle: theme.fontHandle,
             onConfirm: |_i: i32| { },
             onCancel: |_i: i32| { }
         }
@@ -1634,6 +1705,8 @@ impl Dialog {
     func setOnCancel(ref mut self, cb: (i32) -> void) {
         self.onCancel = cb
     }
+
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
 
     func getWidth(ref self) -> i32 { return self.width }
     func getHeight(ref self) -> i32 { return 0 }
@@ -1664,8 +1737,8 @@ impl Dialog {
             let btnY = dy + dialogH - self.padding - btnH
 
             if self.hasBtn2 {
-                let btn1W = measureText(self.btn1Text, self.fontSize) + self.padding * 2
-                let btn2W = measureText(self.btn2Text, self.fontSize) + self.padding * 2
+                let btn1W = measureTextF(self.fontHandle, self.btn1Text, self.fontSize) + self.padding * 2
+                let btn2W = measureTextF(self.fontHandle, self.btn2Text, self.fontSize) + self.padding * 2
                 let btn1X = dx + self.width - self.padding - btn1W
                 let btn2X = dx + self.padding
                 if hitTest(mx, my, btn1X, btnY, btn1W, btnH) {
@@ -1677,7 +1750,7 @@ impl Dialog {
                     self.visible = false
                 }
             } else {
-                let btn1W = measureText(self.btn1Text, self.fontSize) + self.padding * 2
+                let btn1W = measureTextF(self.fontHandle, self.btn1Text, self.fontSize) + self.padding * 2
                 let btn1X = dx + (self.width - btn1W) / 2
                 if hitTest(mx, my, btn1X, btnY, btn1W, btnH) {
                     self.onConfirm(0)
@@ -1708,7 +1781,7 @@ impl Dialog {
 
         // Title
         let tlc = self.titleColor
-        drawText(self.title, dx + self.padding, dy + self.padding,
+        drawTextF(self.fontHandle, self.title, dx + self.padding, dy + self.padding,
                  self.titleFontSize, tlc.r, tlc.g, tlc.b, tlc.a)
 
         // Divider line
@@ -1719,7 +1792,7 @@ impl Dialog {
         // Message
         let msgY = divY + self.padding / 2 + 4
         let mtc = self.textColor
-        drawText(self.message, dx + self.padding, msgY,
+        drawTextF(self.fontHandle, self.message, dx + self.padding, msgY,
                  self.fontSize, mtc.r, mtc.g, mtc.b, mtc.a)
 
         // Buttons
@@ -1729,8 +1802,8 @@ impl Dialog {
         let btc = self.btnTextColor
 
         if self.hasBtn2 {
-            let btn1W = measureText(self.btn1Text, self.fontSize) + self.padding * 2
-            let btn2W = measureText(self.btn2Text, self.fontSize) + self.padding * 2
+            let btn1W = measureTextF(self.fontHandle, self.btn1Text, self.fontSize) + self.padding * 2
+            let btn2W = measureTextF(self.fontHandle, self.btn2Text, self.fontSize) + self.padding * 2
             let btn1X = dx + self.width - self.padding - btn1W
             let btn2X = dx + self.padding
 
@@ -1742,7 +1815,7 @@ impl Dialog {
                 let bc = self.btn1Color
                 drawRect(btn1X, btnY, btn1W, btnH, bc.r, bc.g, bc.b, bc.a)
             }
-            drawText(self.btn1Text, btn1X + self.padding, btnY + 5,
+            drawTextF(self.fontHandle, self.btn1Text, btn1X + self.padding, btnY + 5,
                      self.fontSize, btc.r, btc.g, btc.b, btc.a)
 
             // Secondary button (left)
@@ -1753,10 +1826,10 @@ impl Dialog {
                 let bc2 = self.btn2Color
                 drawRect(btn2X, btnY, btn2W, btnH, bc2.r, bc2.g, bc2.b, bc2.a)
             }
-            drawText(self.btn2Text, btn2X + self.padding, btnY + 5,
+            drawTextF(self.fontHandle, self.btn2Text, btn2X + self.padding, btnY + 5,
                      self.fontSize, btc.r, btc.g, btc.b, btc.a)
         } else {
-            let btn1W = measureText(self.btn1Text, self.fontSize) + self.padding * 2
+            let btn1W = measureTextF(self.fontHandle, self.btn1Text, self.fontSize) + self.padding * 2
             let btn1X = dx + (self.width - btn1W) / 2
 
             if hitTest(mx, my, btn1X, btnY, btn1W, btnH) {
@@ -1766,7 +1839,7 @@ impl Dialog {
                 let bc = self.btn1Color
                 drawRect(btn1X, btnY, btn1W, btnH, bc.r, bc.g, bc.b, bc.a)
             }
-            drawText(self.btn1Text, btn1X + self.padding, btnY + 5,
+            drawTextF(self.fontHandle, self.btn1Text, btn1X + self.padding, btnY + 5,
                      self.fontSize, btc.r, btc.g, btc.b, btc.a)
         }
     }
@@ -1789,6 +1862,7 @@ pub struct TextArea {
     var placeholderColor: Color
     var cursorColor: Color
     var padding: i32
+    var fontHandle: i32
 }
 
 impl TextArea {
@@ -1808,7 +1882,8 @@ impl TextArea {
             focusedBorderColor: Color { r: 100, g: 150, b: 255, a: 255 },
             placeholderColor: Color { r: 120, g: 120, b: 120, a: 255 },
             cursorColor: Color { r: 255, g: 255, b: 255, a: 255 },
-            padding: 6
+            padding: 6,
+            fontHandle: -1
         }
     }
 
@@ -1828,7 +1903,8 @@ impl TextArea {
             focusedBorderColor: theme.borderFocused,
             placeholderColor: theme.textSecondary,
             cursorColor: theme.text,
-            padding: theme.padding
+            padding: theme.padding,
+            fontHandle: theme.fontHandle
         }
     }
 
@@ -2097,6 +2173,8 @@ impl TextArea {
         }
         return count
     }
+
+    func setFont(ref mut self, fh: i32) { self.fontHandle = fh }
 }
 
 impl TextArea: Widget {
@@ -2124,7 +2202,7 @@ impl TextArea: Widget {
         if vlen == 0 {
             // Placeholder
             let pc = self.placeholderColor
-            drawText(self.placeholder, textX, textBaseY, self.fontSize, pc.r, pc.g, pc.b, pc.a)
+            drawTextF(self.fontHandle, self.placeholder, textX, textBaseY, self.fontSize, pc.r, pc.g, pc.b, pc.a)
         } else {
             // Draw text line by line
             let tc = self.textColor
@@ -2142,7 +2220,7 @@ impl TextArea: Widget {
                     let lineLen = i - lineStart
                     if lineLen > 0 {
                         let lineText = self.value.substring(lineStart, lineLen)
-                        drawText(lineText, textX, lineY, self.fontSize,
+                        drawTextF(self.fontHandle, lineText, textX, lineY, self.fontSize,
                                  tc.r, tc.g, tc.b, tc.a)
                     }
                     lineY = lineY + self.fontSize
@@ -2165,7 +2243,7 @@ impl TextArea: Widget {
                 }
                 let cCol = self.cursorPos - cLineStart
                 let curTextBefore = self.value.substring(cLineStart, cCol)
-                let cursorDrawX = textX + measureText(curTextBefore, self.fontSize)
+                let cursorDrawX = textX + measureTextF(self.fontHandle, curTextBefore, self.fontSize)
                 let cursorDrawY = textBaseY + cLine * self.fontSize
                 let cc = self.cursorColor
                 drawLine(cursorDrawX, cursorDrawY, cursorDrawX, cursorDrawY + self.fontSize,

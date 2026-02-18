@@ -30,6 +30,7 @@ pub struct Theme {
     var padding: i32
     var spacing: i32
     var scrollSpeed: i32
+    var fontHandle: i32
 }
 
 impl Theme {
@@ -51,7 +52,8 @@ impl Theme {
             fontSize: 20,
             padding: 8,
             spacing: 8,
-            scrollSpeed: 30
+            scrollSpeed: 30,
+            fontHandle: -1
         }
     }
 
@@ -73,7 +75,8 @@ impl Theme {
             fontSize: 20,
             padding: 8,
             spacing: 8,
-            scrollSpeed: 30
+            scrollSpeed: 30,
+            fontHandle: -1
         }
     }
 }
