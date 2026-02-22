@@ -6,10 +6,24 @@
 #include "liva/Common/SourceLocation.h"
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
 namespace liva {
+
+// ============================================================
+// LineIndex — precomputed line offsets for O(1) lookup
+// ============================================================
+
+struct LineIndex {
+    std::vector<size_t> lineOffsets; // lineOffsets[i] = byte offset of line i
+    void build(const std::string &content);
+    size_t getLineStart(uint32_t line) const;
+    size_t getLineEnd(uint32_t line, const std::string &content) const;
+    uint32_t lineCount() const;
+    size_t positionToOffset(uint32_t line, uint32_t col) const;
+};
 
 // ============================================================
 // DocumentState — per-file analysis state
@@ -23,6 +37,9 @@ struct DocumentState {
     std::unique_ptr<SourceManager> sm;
     DiagnosticsEngine diag;
     bool analysisValid = false;
+    LineIndex lineIndex;
+    std::map<std::string, int> refCountCache;
+    int refCountGeneration = -1;
 };
 
 // ============================================================
@@ -52,6 +69,10 @@ private:
 
     // Dispatch
     JSONValue dispatch(const JSONValue &msg);
+    JSONValue dispatchRequest(const JSONValue &id, const std::string &method,
+                              const JSONValue &params);
+    void dispatchNotification(const std::string &method, const JSONValue &params);
+    void ensureAnalyzed(DocumentState &doc);
     JSONValue makeResponse(const JSONValue &id, JSONValue result);
     JSONValue makeError(const JSONValue &id, int code, const std::string &msg);
     void sendNotification(const std::string &method, JSONValue params);
@@ -166,6 +187,8 @@ private:
     bool shutdownRequested_ = false;
     bool exitRequested_ = false;
     bool useStdio_ = true;
+    int refCacheGeneration_ = 0;
+    std::set<int64_t> cancelledRequests_;
 };
 
 } // namespace liva

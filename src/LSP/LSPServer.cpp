@@ -16,6 +16,44 @@
 namespace liva {
 
 // ============================================================
+// LineIndex
+// ============================================================
+
+void LineIndex::build(const std::string &content) {
+    lineOffsets.clear();
+    lineOffsets.push_back(0);
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (content[i] == '\n')
+            lineOffsets.push_back(i + 1);
+    }
+}
+
+size_t LineIndex::getLineStart(uint32_t line) const {
+    if (line >= lineOffsets.size())
+        return std::string::npos;
+    return lineOffsets[line];
+}
+
+size_t LineIndex::getLineEnd(uint32_t line, const std::string &content) const {
+    if (line >= lineOffsets.size())
+        return std::string::npos;
+    size_t start = lineOffsets[line];
+    size_t pos = content.find('\n', start);
+    return (pos != std::string::npos) ? pos : content.size();
+}
+
+uint32_t LineIndex::lineCount() const {
+    return static_cast<uint32_t>(lineOffsets.size());
+}
+
+size_t LineIndex::positionToOffset(uint32_t line, uint32_t col) const {
+    size_t start = getLineStart(line);
+    if (start == std::string::npos)
+        return std::string::npos;
+    return start + col;
+}
+
+// ============================================================
 // LSPServer
 // ============================================================
 
@@ -103,55 +141,80 @@ JSONValue LSPServer::dispatch(const JSONValue &msg) {
     const JSONValue &id = msg["id"];
     const JSONValue &params = msg["params"];
 
+    // Handle $/cancelRequest notification
+    if (method == "$/cancelRequest") {
+        const JSONValue &cancelId = params["id"];
+        if (cancelId.isInteger())
+            cancelledRequests_.insert(cancelId.getInteger());
+        return JSONValue();
+    }
+
     // Requests (have id)
     if (!id.isNull()) {
-        if (method == "initialize")
-            return handleInitialize(id, params);
-        if (method == "shutdown")
-            return handleShutdown(id);
-        if (method == "textDocument/completion")
-            return handleCompletion(id, params);
-        if (method == "textDocument/hover")
-            return handleHover(id, params);
-        if (method == "textDocument/definition")
-            return handleDefinition(id, params);
-        if (method == "textDocument/documentSymbol")
-            return handleDocumentSymbol(id, params);
-        if (method == "textDocument/references")
-            return handleReferences(id, params);
-        if (method == "textDocument/rename")
-            return handleRename(id, params);
-        if (method == "textDocument/signatureHelp")
-            return handleSignatureHelp(id, params);
-        if (method == "textDocument/semanticTokens/full")
-            return handleSemanticTokens(id, params);
-        if (method == "textDocument/formatting")
-            return handleFormatting(id, params);
-        if (method == "textDocument/codeAction")
-            return handleCodeAction(id, params);
-        if (method == "textDocument/foldingRange")
-            return handleFoldingRange(id, params);
-        if (method == "textDocument/selectionRange")
-            return handleSelectionRange(id, params);
-        if (method == "textDocument/documentHighlight")
-            return handleDocumentHighlight(id, params);
-        if (method == "textDocument/inlayHint")
-            return handleInlayHint(id, params);
-        if (method == "workspace/symbol")
-            return handleWorkspaceSymbol(id, params);
-        if (method == "textDocument/codeLens")
-            return handleCodeLens(id, params);
-        if (method == "textDocument/prepareCallHierarchy")
-            return handleCallHierarchyPrepare(id, params);
-        if (method == "callHierarchy/incomingCalls")
-            return handleCallHierarchyIncoming(id, params);
-        if (method == "callHierarchy/outgoingCalls")
-            return handleCallHierarchyOutgoing(id, params);
-        // Unknown request → method not found
-        return makeError(id, -32601, "method not found: " + method);
+        // Check if this request was cancelled
+        if (id.isInteger() && cancelledRequests_.count(id.getInteger())) {
+            cancelledRequests_.erase(id.getInteger());
+            return makeError(id, -32800, "request cancelled");
+        }
+        return dispatchRequest(id, method, params);
     }
 
     // Notifications (no id)
+    dispatchNotification(method, params);
+    return JSONValue(); // null → no response for notifications
+}
+
+JSONValue LSPServer::dispatchRequest(const JSONValue &id,
+                                     const std::string &method,
+                                     const JSONValue &params) {
+    if (method == "initialize")
+        return handleInitialize(id, params);
+    if (method == "shutdown")
+        return handleShutdown(id);
+    if (method == "textDocument/completion")
+        return handleCompletion(id, params);
+    if (method == "textDocument/hover")
+        return handleHover(id, params);
+    if (method == "textDocument/definition")
+        return handleDefinition(id, params);
+    if (method == "textDocument/documentSymbol")
+        return handleDocumentSymbol(id, params);
+    if (method == "textDocument/references")
+        return handleReferences(id, params);
+    if (method == "textDocument/rename")
+        return handleRename(id, params);
+    if (method == "textDocument/signatureHelp")
+        return handleSignatureHelp(id, params);
+    if (method == "textDocument/semanticTokens/full")
+        return handleSemanticTokens(id, params);
+    if (method == "textDocument/formatting")
+        return handleFormatting(id, params);
+    if (method == "textDocument/codeAction")
+        return handleCodeAction(id, params);
+    if (method == "textDocument/foldingRange")
+        return handleFoldingRange(id, params);
+    if (method == "textDocument/selectionRange")
+        return handleSelectionRange(id, params);
+    if (method == "textDocument/documentHighlight")
+        return handleDocumentHighlight(id, params);
+    if (method == "textDocument/inlayHint")
+        return handleInlayHint(id, params);
+    if (method == "workspace/symbol")
+        return handleWorkspaceSymbol(id, params);
+    if (method == "textDocument/codeLens")
+        return handleCodeLens(id, params);
+    if (method == "textDocument/prepareCallHierarchy")
+        return handleCallHierarchyPrepare(id, params);
+    if (method == "callHierarchy/incomingCalls")
+        return handleCallHierarchyIncoming(id, params);
+    if (method == "callHierarchy/outgoingCalls")
+        return handleCallHierarchyOutgoing(id, params);
+    // Unknown request → method not found
+    return makeError(id, -32601, "method not found: " + method);
+}
+
+void LSPServer::dispatchNotification(const std::string &method,
+                                     const JSONValue &params) {
     if (method == "initialized")
         handleInitialized(params);
     else if (method == "exit")
@@ -162,8 +225,12 @@ JSONValue LSPServer::dispatch(const JSONValue &msg) {
         handleDidChange(params);
     else if (method == "textDocument/didClose")
         handleDidClose(params);
+}
 
-    return JSONValue(); // null → no response for notifications
+void LSPServer::ensureAnalyzed(DocumentState &doc) {
+    if (doc.analysisValid)
+        return;
+    analyzeDocument(doc);
 }
 
 JSONValue LSPServer::makeResponse(const JSONValue &id, JSONValue result) {
@@ -344,8 +411,10 @@ void LSPServer::handleDidOpen(const JSONValue &params) {
     doc.content = std::move(text);
     doc.version = version;
 
+    doc.lineIndex.build(doc.content);
     analyzeDocument(doc);
     publishDiagnostics(doc);
+    ++refCacheGeneration_;
     documents_[uri] = std::move(doc);
 }
 
@@ -363,6 +432,8 @@ void LSPServer::handleDidChange(const JSONValue &params) {
         it->second.content = changes.back()["text"].getString();
     }
     it->second.version = version;
+    it->second.lineIndex.build(it->second.content);
+    ++refCacheGeneration_;
 
     analyzeDocument(it->second);
     publishDiagnostics(it->second);
@@ -378,6 +449,7 @@ void LSPServer::handleDidClose(const JSONValue &params) {
     diagParams.set("diagnostics", JSONValue::array());
     sendNotification("textDocument/publishDiagnostics", std::move(diagParams));
 
+    ++refCacheGeneration_;
     documents_.erase(uri);
 }
 
@@ -386,6 +458,13 @@ void LSPServer::handleDidClose(const JSONValue &params) {
 // ============================================================
 
 void LSPServer::analyzeDocument(DocumentState &doc) {
+    if (doc.content.empty()) {
+        doc.tu.reset();
+        doc.diag = DiagnosticsEngine();
+        doc.analysisValid = true;
+        return;
+    }
+
     std::string path = uriToPath(doc.uri);
     if (path.empty()) path = doc.uri;
 
@@ -411,13 +490,20 @@ void LSPServer::analyzeDocument(DocumentState &doc) {
 
 void LSPServer::publishDiagnostics(const DocumentState &doc) {
     auto diags = JSONValue::array();
+    std::set<std::tuple<int,int,std::string>> seen;
     for (const auto &d : doc.diag.getDiagnostics()) {
+        int line = (d.location.line > 0) ? static_cast<int>(d.location.line) - 1 : 0;
+        int col  = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
+
+        // Deduplicate diagnostics by (line, col, message)
+        auto key = std::make_tuple(line, col, d.message);
+        if (!seen.insert(key).second)
+            continue;
+
         auto diagObj = JSONValue::object();
 
         // Range (start == end for point diagnostic)
         auto start = JSONValue::object();
-        int line = (d.location.line > 0) ? static_cast<int>(d.location.line) - 1 : 0;
-        int col  = (d.location.column > 0) ? static_cast<int>(d.location.column) - 1 : 0;
         start.set("line", JSONValue(static_cast<int64_t>(line)));
         start.set("character", JSONValue(static_cast<int64_t>(col)));
 
@@ -462,18 +548,11 @@ LSPServer::extractCompletionContext(const std::string &content,
     ctx.line = line;
     ctx.col = col;
 
-    // Extract the line at the given position
-    uint32_t curLine = 0;
-    size_t lineStart = 0;
-    for (size_t i = 0; i < content.size(); ++i) {
-        if (curLine == line) {
-            lineStart = i;
-            break;
-        }
-        if (content[i] == '\n')
-            ++curLine;
-    }
-    if (curLine != line)
+    // Extract the line at the given position using LineIndex
+    LineIndex tmp;
+    tmp.build(content);
+    size_t lineStart = tmp.getLineStart(line);
+    if (lineStart == std::string::npos)
         return ctx;
 
     // Get text up to cursor column
@@ -1274,25 +1353,15 @@ JSONValue LSPServer::handleHover(const JSONValue &id,
 
 std::string LSPServer::getWordAtPosition(const std::string &content,
                                          uint32_t line, uint32_t col) const {
-    // Find the target line (0-indexed)
-    uint32_t curLine = 0;
-    size_t lineStart = 0;
-    for (size_t i = 0; i < content.size(); ++i) {
-        if (curLine == line) {
-            lineStart = i;
-            break;
-        }
-        if (content[i] == '\n') {
-            ++curLine;
-        }
-    }
-    if (curLine != line)
+    // Find the target line (0-indexed) using LineIndex
+    LineIndex tmp;
+    tmp.build(content);
+    size_t lineStart = tmp.getLineStart(line);
+    if (lineStart == std::string::npos)
         return "";
 
     // Find end of line
-    size_t lineEnd = content.find('\n', lineStart);
-    if (lineEnd == std::string::npos)
-        lineEnd = content.size();
+    size_t lineEnd = tmp.getLineEnd(line, content);
 
     if (lineStart + col >= lineEnd)
         return "";
@@ -1674,16 +1743,9 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
     uint32_t targetLine = line - 1; // 0-indexed
     uint32_t targetCol = col - 1;
 
-    // Find the line in content
-    uint32_t currentLine = 0;
-    size_t lineStart = 0;
-    for (size_t i = 0; i < content.size(); ++i) {
-        if (currentLine == targetLine) {
-            lineStart = i;
-            break;
-        }
-        if (content[i] == '\n') ++currentLine;
-    }
+    // Find the line in content using precomputed LineIndex
+    size_t lineStart = it->second.lineIndex.getLineStart(targetLine);
+    if (lineStart == std::string::npos) lineStart = 0;
 
     // Scan backward from cursor to find the function name
     size_t cursorPos = lineStart + targetCol;
@@ -2869,20 +2931,9 @@ JSONValue LSPServer::handleDocumentHighlight(const JSONValue &id,
         // Convert to 0-indexed
         uint32_t targetLine = line - 1;
         uint32_t targetCol = col - 1;
-        // Find the line
-        uint32_t currentLine = 0;
-        size_t lineStart = 0;
-        bool lineFound = false;
-        for (size_t i = 0; i < content.size(); ++i) {
-            if (currentLine == targetLine) {
-                lineStart = i;
-                lineFound = true;
-                break;
-            }
-            if (content[i] == '\n') ++currentLine;
-        }
-        // If the target line doesn't exist in the document, return empty
-        if (!lineFound) {
+        // Find the line using precomputed LineIndex
+        size_t lineStart = it->second.lineIndex.getLineStart(targetLine);
+        if (lineStart == std::string::npos) {
             return makeResponse(id, JSONValue::array());
         }
         size_t pos = lineStart + targetCol;
@@ -2936,12 +2987,8 @@ JSONValue LSPServer::handleDocumentHighlight(const JSONValue &id,
         uint32_t nameLine = loc.line;
         uint32_t nameCol = loc.col;
         // Check preceding text on the line for declaration keywords
-        uint32_t currentLineNum = 0;
-        size_t lineStartPos = 0;
-        for (size_t i = 0; i < content.size(); ++i) {
-            if (currentLineNum == nameLine) { lineStartPos = i; break; }
-            if (content[i] == '\n') ++currentLineNum;
-        }
+        size_t lineStartPos = it->second.lineIndex.getLineStart(nameLine);
+        if (lineStartPos == std::string::npos) lineStartPos = 0;
         std::string linePrefix = content.substr(lineStartPos, nameCol);
         // Trim whitespace
         size_t trimEnd = linePrefix.size();
@@ -3419,6 +3466,11 @@ JSONValue LSPServer::handleCodeLens(const JSONValue &id,
     if (it == documents_.end() || !it->second.tu)
         return makeResponse(id, JSONValue::array());
 
+    ensureAnalyzed(it->second);
+
+    // Rebuild ref count cache if stale
+    bool cacheStale = (it->second.refCountGeneration != refCacheGeneration_);
+
     auto lenses = JSONValue::array();
     for (const auto &node : it->second.tu->getDeclarations()) {
         std::string name;
@@ -3438,7 +3490,14 @@ JSONValue LSPServer::handleCodeLens(const JSONValue &id,
         }
         if (name.empty()) continue;
 
-        int refs = countReferences(name);
+        int refs;
+        if (cacheStale) {
+            refs = countReferences(name);
+            it->second.refCountCache[name] = refs;
+        } else {
+            auto cacheIt = it->second.refCountCache.find(name);
+            refs = (cacheIt != it->second.refCountCache.end()) ? cacheIt->second : 0;
+        }
 
         auto lens = JSONValue::object();
         auto range = JSONValue::object();
@@ -3459,6 +3518,8 @@ JSONValue LSPServer::handleCodeLens(const JSONValue &id,
         lens.set("command", std::move(cmd));
         lenses.push(std::move(lens));
     }
+    if (cacheStale)
+        it->second.refCountGeneration = refCacheGeneration_;
     return makeResponse(id, std::move(lenses));
 }
 

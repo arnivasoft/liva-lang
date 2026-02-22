@@ -2397,3 +2397,203 @@ TEST_F(LSPTest, InlayHintMacroTruncated) {
     }
     EXPECT_TRUE(foundTruncated);
 }
+
+// ============================================================
+// LineIndex Tests
+// ============================================================
+
+TEST(LineIndexTest, Empty) {
+    liva::LineIndex idx;
+    idx.build("");
+    EXPECT_EQ(idx.lineCount(), 1u);
+    EXPECT_EQ(idx.getLineStart(0), 0u);
+    EXPECT_EQ(idx.getLineStart(1), std::string::npos);
+}
+
+TEST(LineIndexTest, MultiLine) {
+    liva::LineIndex idx;
+    idx.build("aaa\nbbb\nccc");
+    EXPECT_EQ(idx.lineCount(), 3u);
+    EXPECT_EQ(idx.getLineStart(0), 0u);
+    EXPECT_EQ(idx.getLineStart(1), 4u);
+    EXPECT_EQ(idx.getLineStart(2), 8u);
+}
+
+TEST(LineIndexTest, OutOfRange) {
+    liva::LineIndex idx;
+    idx.build("hello");
+    EXPECT_EQ(idx.getLineStart(99), std::string::npos);
+}
+
+TEST(LineIndexTest, PositionToOffset) {
+    liva::LineIndex idx;
+    std::string content = "abc\ndefgh\nij";
+    idx.build(content);
+    // line 1, col 2 → offset of 'd' (4) + 2 = 6 → 'f'
+    EXPECT_EQ(idx.positionToOffset(1, 2), 6u);
+    EXPECT_EQ(idx.positionToOffset(0, 0), 0u);
+    EXPECT_EQ(idx.positionToOffset(2, 1), 11u);
+}
+
+TEST(LineIndexTest, GetLineEnd) {
+    liva::LineIndex idx;
+    std::string content = "abc\ndefgh\nij";
+    idx.build(content);
+    EXPECT_EQ(idx.getLineEnd(0, content), 3u);  // '\n' at offset 3
+    EXPECT_EQ(idx.getLineEnd(1, content), 9u);  // '\n' at offset 9
+    EXPECT_EQ(idx.getLineEnd(2, content), 12u); // content.size()
+}
+
+// ============================================================
+// Crash Recovery Tests
+// ============================================================
+
+TEST_F(LSPTest, MalformedParamsNoCrash) {
+    server.handleMessage(initRequest());
+    server.takeNotifications();
+    // Send a completion request without textDocument — should not crash
+    std::string malformed =
+        "{\"jsonrpc\":\"2.0\",\"id\":42,"
+        "\"method\":\"textDocument/completion\","
+        "\"params\":{}}";
+    // Should not crash, may return error or empty result
+    auto resp = server.handleMessage(malformed);
+    // Just verify we got a response (not crash)
+    EXPECT_FALSE(resp.empty());
+}
+
+TEST_F(LSPTest, EmptyDocAllHandlersSafe) {
+    initAndOpen("file:///empty.liva", "");
+    // Hover on empty doc
+    auto r1 = server.handleMessage(hoverRequest("file:///empty.liva", 0, 0));
+    EXPECT_FALSE(r1.empty());
+    // Completion on empty doc
+    auto r2 = server.handleMessage(completionRequest("file:///empty.liva", 0, 0));
+    EXPECT_FALSE(r2.empty());
+    // Definition on empty doc
+    auto r3 = server.handleMessage(definitionRequest("file:///empty.liva", 0, 0));
+    EXPECT_FALSE(r3.empty());
+}
+
+TEST_F(LSPTest, CancelRequestBasic) {
+    server.handleMessage(initRequest());
+    server.takeNotifications();
+    server.handleMessage(didOpen("file:///test.liva", "func foo() {}"));
+    server.takeNotifications();
+
+    // Cancel request id 42
+    std::string cancelNotif =
+        "{\"jsonrpc\":\"2.0\",\"method\":\"$/cancelRequest\","
+        "\"params\":{\"id\":42}}";
+    server.handleMessage(cancelNotif);
+
+    // Now send a request with id 42 — should get -32800 error
+    std::string req =
+        "{\"jsonrpc\":\"2.0\",\"id\":42,"
+        "\"method\":\"textDocument/hover\","
+        "\"params\":{\"textDocument\":{\"uri\":\"file:///test.liva\"},"
+        "\"position\":{\"line\":0,\"character\":5}}}";
+    auto resp = parseResponse(server.handleMessage(req));
+    EXPECT_TRUE(resp["error"].isObject());
+    EXPECT_EQ(resp["error"]["code"].getInteger(), -32800);
+}
+
+// ============================================================
+// Diagnostics Dedup Tests
+// ============================================================
+
+TEST_F(LSPTest, DiagnosticsNoDuplicates) {
+    server.handleMessage(initRequest());
+    server.takeNotifications();
+    // Open code that may produce duplicate diagnostics
+    server.handleMessage(didOpen("file:///test.liva", "let x: i32 = \"hello\""));
+    auto notifs = server.takeNotifications();
+    ASSERT_FALSE(notifs.empty());
+    auto diag = parseResponse(notifs[0]);
+    const auto &diagnostics = diag["params"]["diagnostics"].getArray();
+    // Check no duplicate (line,col,message) tuples
+    std::set<std::string> seen;
+    for (const auto &d : diagnostics) {
+        std::string key = std::to_string(d["range"]["start"]["line"].getInteger()) + ":" +
+                          std::to_string(d["range"]["start"]["character"].getInteger()) + ":" +
+                          d["message"].getString();
+        EXPECT_TRUE(seen.insert(key).second) << "Duplicate diagnostic: " << key;
+    }
+}
+
+// ============================================================
+// Cache Tests
+// ============================================================
+
+TEST_F(LSPTest, CodeLensCacheInvalidation) {
+    initAndOpen("file:///test.liva", "func foo() {}\nfunc bar() { foo() }");
+    // First CodeLens
+    std::string clReq =
+        "{\"jsonrpc\":\"2.0\",\"id\":50,"
+        "\"method\":\"textDocument/codeLens\","
+        "\"params\":{\"textDocument\":{\"uri\":\"file:///test.liva\"}}}";
+    auto r1 = parseResponse(server.handleMessage(clReq));
+    ASSERT_TRUE(r1["result"].isArray());
+    auto &lenses1 = r1["result"].getArray();
+    ASSERT_FALSE(lenses1.empty());
+
+    // Change document — add another call to foo
+    server.handleMessage(didChange("file:///test.liva",
+        "func foo() {}\nfunc bar() { foo() }\nfunc baz() { foo() }"));
+    server.takeNotifications();
+
+    // Second CodeLens should reflect updated count
+    auto r2 = parseResponse(server.handleMessage(clReq));
+    ASSERT_TRUE(r2["result"].isArray());
+    auto &lenses2 = r2["result"].getArray();
+    ASSERT_FALSE(lenses2.empty());
+    // foo should now have 2 references (from bar and baz)
+    std::string fooTitle = lenses2[0]["command"]["title"].getString();
+    EXPECT_EQ(fooTitle, "2 references");
+}
+
+TEST_F(LSPTest, RapidEditsNoCrash) {
+    server.handleMessage(initRequest());
+    server.takeNotifications();
+    server.handleMessage(didOpen("file:///test.liva", "func foo() {}"));
+    server.takeNotifications();
+
+    // 10 rapid edits
+    for (int i = 0; i < 10; ++i) {
+        std::string code = "func foo() {\n    let x = " + std::to_string(i) + "\n}";
+        server.handleMessage(didChange("file:///test.liva", code, i + 2));
+        server.takeNotifications();
+    }
+
+    // Hover should still work after rapid edits
+    auto resp = server.handleMessage(hoverRequest("file:///test.liva", 0, 5));
+    EXPECT_FALSE(resp.empty());
+}
+
+// ============================================================
+// Lazy Analysis Tests
+// ============================================================
+
+TEST_F(LSPTest, EnsureAnalyzedBeforeHover) {
+    initAndOpen("file:///test.liva", "func greet() {}");
+    // Hover should return valid result (analysis happens on open)
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 0, 5)));
+    EXPECT_TRUE(resp["result"].isObject());
+    auto contents = resp["result"]["contents"]["value"].getString();
+    EXPECT_TRUE(contents.find("greet") != std::string::npos);
+}
+
+TEST_F(LSPTest, DidChangeUpdatesLineIndex) {
+    initAndOpen("file:///test.liva", "func foo() {}");
+    // Change to multi-line
+    server.handleMessage(didChange("file:///test.liva",
+        "func foo() {}\nfunc bar() {}"));
+    server.takeNotifications();
+    // Hover on second line (bar) should work correctly
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 1, 5)));
+    EXPECT_TRUE(resp["result"].isObject());
+    auto contents = resp["result"]["contents"]["value"].getString();
+    EXPECT_TRUE(contents.find("bar") != std::string::npos);
+}
