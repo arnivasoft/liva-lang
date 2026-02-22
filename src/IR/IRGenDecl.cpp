@@ -17,10 +17,15 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
     processedModules_.insert(moduleName);
 
     auto *mod = moduleLoader_->getLoadedModule(moduleName);
-    if (!mod || !mod->tu) {
+    if (!mod) {
         diag_.report(node->getStartLoc(), DiagID::err_irgen_module_load_failed, moduleName);
         return nullptr;
     }
+
+    // Builtin modules (std::math, std::ui, etc.) have no AST —
+    // their functions are declared via createRuntimeDecls()
+    if (!mod->tu)
+        return nullptr;
 
     // Process all declarations from the imported module
     for (auto &decl : mod->tu->getDeclarations()) {
