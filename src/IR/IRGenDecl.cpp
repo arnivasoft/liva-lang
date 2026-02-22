@@ -1406,6 +1406,15 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             }
         }
 
+        // Register Optional type for if-let support when type is inferred
+        if (initVal && initVal->getType()->isStructTy()) {
+            auto *structTy = llvm::cast<llvm::StructType>(initVal->getType());
+            if (structTy->getNumElements() == 2 &&
+                structTy->getElementType(0)->isIntegerTy(1)) {
+                varOptionalTypes_[node->getName()] = structTy->getElementType(1);
+            }
+        }
+
         // Register struct/enum type from init's resolved type or LLVM type
         // Always update (no guard) — handles same-name vars in different scopes
         {

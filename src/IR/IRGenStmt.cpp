@@ -307,6 +307,17 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         auto optIt = varOptionalTypes_.find(ident->getName());
         if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
     }
+    // Try to recover innerType from the alloca's struct type when varOptionalTypes_ miss
+    if (optAlloca && !innerType) {
+        auto *allocTy = optAlloca->getAllocatedType();
+        if (allocTy->isStructTy()) {
+            auto *st = llvm::cast<llvm::StructType>(allocTy);
+            if (st->getNumElements() == 2 && st->getElementType(0)->isIntegerTy(1)) {
+                innerType = st->getElementType(1);
+            }
+        }
+    }
+
     // Handle arbitrary expressions returning Optional (e.g., method calls)
     if (!optAlloca || !innerType) {
         auto *exprVal = visit(node->getOptionalExpr());

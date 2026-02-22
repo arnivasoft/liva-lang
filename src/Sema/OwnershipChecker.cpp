@@ -310,8 +310,26 @@ void OwnershipChecker::releaseBorrows(const std::string &name) {
 bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
     if (!type)
         return true;
-    // Primitives and booleans are Copy types
-    return type->isPrimitive() && !type->isVoid();
+
+    // Primitives (i8-u64, f32, f64, bool, string) are Copy — but not void
+    if (type->isPrimitive() && !type->isVoid())
+        return true;
+
+    // NamedTypeRepr("String") — parser sometimes creates this instead of Kind::String
+    if (type->getKind() == TypeRepr::Kind::Named) {
+        auto *named = static_cast<const NamedTypeRepr *>(type);
+        const auto &n = named->getName();
+        if (n == "String" || n == "Map" || n == "Set")
+            return true;
+    }
+
+    // Arrays, Optionals, Tuples, and Function types are Copy
+    auto k = type->getKind();
+    if (k == TypeRepr::Kind::Array || k == TypeRepr::Kind::Optional ||
+        k == TypeRepr::Kind::Tuple || k == TypeRepr::Kind::Function)
+        return true;
+
+    return false;
 }
 
 void OwnershipChecker::dropScopeVariables() {
