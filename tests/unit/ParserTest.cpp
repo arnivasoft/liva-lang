@@ -2010,3 +2010,139 @@ TEST_F(ParserTest, TestDeclMixedWithFunc) {
     EXPECT_NE(dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get()), nullptr);
     EXPECT_NE(dynamic_cast<TestDecl *>(result.tu->getDeclarations()[1].get()), nullptr);
 }
+
+// ===== Parser Error Recovery — Brace-Aware Synchronize =====
+
+TEST_F(ParserTest, ErrorRecovery_BadIfCondition_NextStmtParsed) {
+    auto result = parse(R"--(
+        func main() {
+            if @@@ { }
+            let x = 42
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    bool foundX = false;
+    for (auto &s : stmts) {
+        auto *v = dynamic_cast<VarDecl *>(s.get());
+        if (v && v->getName() == "x") foundX = true;
+    }
+    EXPECT_TRUE(foundX);
+}
+
+TEST_F(ParserTest, ErrorRecovery_BadIfWithElse_NextFuncParsed) {
+    auto result = parse(R"--(
+        func first() {
+            if @@@ { } else { }
+        }
+        func second() { }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    bool foundSecond = false;
+    for (auto &d : result.tu->getDeclarations()) {
+        auto *fn = dynamic_cast<FuncDecl *>(d.get());
+        if (fn && fn->getName() == "second") foundSecond = true;
+    }
+    EXPECT_TRUE(foundSecond);
+}
+
+TEST_F(ParserTest, ErrorRecovery_NestedBraces_NextStmtParsed) {
+    auto result = parse(R"--(
+        func main() {
+            if @@@ { if true { } }
+            let ok = 5
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    bool foundOk = false;
+    for (auto &s : stmts) {
+        auto *v = dynamic_cast<VarDecl *>(s.get());
+        if (v && v->getName() == "ok") foundOk = true;
+    }
+    EXPECT_TRUE(foundOk);
+}
+
+TEST_F(ParserTest, ErrorRecovery_BadWhileCondition_NextStmtParsed) {
+    auto result = parse(R"--(
+        func main() {
+            while @@@ { }
+            let y = 99
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    bool foundY = false;
+    for (auto &s : stmts) {
+        auto *v = dynamic_cast<VarDecl *>(s.get());
+        if (v && v->getName() == "y") foundY = true;
+    }
+    EXPECT_TRUE(foundY);
+}
+
+TEST_F(ParserTest, ErrorRecovery_BadForIterable_NextStmtParsed) {
+    auto result = parse(R"--(
+        func main() {
+            for x in @@@ { }
+            let z = 7
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    auto &stmts = func->getBody()->getStatements();
+    bool foundZ = false;
+    for (auto &s : stmts) {
+        auto *v = dynamic_cast<VarDecl *>(s.get());
+        if (v && v->getName() == "z") foundZ = true;
+    }
+    EXPECT_TRUE(foundZ);
+}
+
+TEST_F(ParserTest, ErrorRecovery_BadFuncBody_NextFuncParsed) {
+    auto result = parse(R"--(
+        func broken() {
+            if @@@ { }
+        }
+        func working() { }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    bool foundWorking = false;
+    for (auto &d : result.tu->getDeclarations()) {
+        auto *fn = dynamic_cast<FuncDecl *>(d.get());
+        if (fn && fn->getName() == "working") foundWorking = true;
+    }
+    EXPECT_TRUE(foundWorking);
+}
+
+TEST_F(ParserTest, ErrorRecovery_MultipleErrorsReported) {
+    auto result = parse(R"--(
+        func a() {
+            if @@@ { }
+        }
+        func b() {
+            while @@@ { }
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    EXPECT_GE(result.diag.getDiagnostics().size(), 2u);
+}
+
+TEST_F(ParserTest, ErrorRecovery_PreservesEnclosingBrace) {
+    auto result = parse(R"--(
+        func outer() {
+            if @@@ { }
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    auto *func = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(func, nullptr);
+    EXPECT_EQ(func->getName(), "outer");
+    EXPECT_TRUE(func->hasBody());
+}

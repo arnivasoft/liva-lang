@@ -906,7 +906,6 @@ std::unique_ptr<TestDecl> Parser::parseTestDecl() {
     std::string name(nameTok.getStringValue());
 
     auto body = parseBlock();
-    if (!body) return nullptr;
 
     return std::make_unique<TestDecl>(std::move(name), std::move(body), rangeFrom(startLoc));
 }

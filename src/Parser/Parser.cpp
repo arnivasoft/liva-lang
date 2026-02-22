@@ -36,37 +36,63 @@ SourceRange Parser::rangeFrom(SourceLocation start) const {
 }
 
 void Parser::synchronize() {
+    int depth = 0;
     while (current_.getKind() != TokenKind::eof) {
-        // Stop at closing braces (end of a block)
+        if (current_.getKind() == TokenKind::l_brace) {
+            ++depth;
+            advance();
+            continue;
+        }
         if (current_.getKind() == TokenKind::r_brace) {
-            return;
+            if (depth == 0) return; // enclosing block's brace — stop
+            --depth;
+            advance();
+            // After closing a nested block at depth 0, skip trailing 'else'
+            if (depth == 0 && check(TokenKind::kw_else)) {
+                advance(); // consume 'else'
+                continue;  // loop will handle 'if' keyword or '{' brace
+            }
+            continue;
         }
-        // Stop at declaration/statement keywords (start of a new construct)
-        switch (current_.getKind()) {
-            case TokenKind::kw_func:
-            case TokenKind::kw_struct:
-            case TokenKind::kw_enum:
-            case TokenKind::kw_impl:
-            case TokenKind::kw_protocol:
-            case TokenKind::kw_import:
-            case TokenKind::kw_let:
-            case TokenKind::kw_var:
-            case TokenKind::kw_const:
-            case TokenKind::kw_comptime:
-            case TokenKind::kw_if:
-            case TokenKind::kw_while:
-            case TokenKind::kw_for:
-            case TokenKind::kw_return:
-            case TokenKind::kw_type:
-            case TokenKind::kw_pub:
-            case TokenKind::kw_async:
-            case TokenKind::kw_extern:
-            case TokenKind::kw_test:
-                return;
-            default:
-                advance();
+        if (depth == 0) {
+            switch (current_.getKind()) {
+                case TokenKind::kw_func:
+                case TokenKind::kw_struct:
+                case TokenKind::kw_enum:
+                case TokenKind::kw_impl:
+                case TokenKind::kw_protocol:
+                case TokenKind::kw_import:
+                case TokenKind::kw_let:
+                case TokenKind::kw_var:
+                case TokenKind::kw_const:
+                case TokenKind::kw_comptime:
+                case TokenKind::kw_if:
+                case TokenKind::kw_while:
+                case TokenKind::kw_for:
+                case TokenKind::kw_return:
+                case TokenKind::kw_type:
+                case TokenKind::kw_pub:
+                case TokenKind::kw_async:
+                case TokenKind::kw_extern:
+                case TokenKind::kw_test:
+                    return;
+                default: break;
+            }
         }
+        advance();
     }
+}
+
+void Parser::skipBalancedBraces() {
+    while (!check(TokenKind::l_brace) && !check(TokenKind::eof))
+        advance();
+    if (check(TokenKind::eof)) return;
+    int depth = 0;
+    do {
+        if (check(TokenKind::l_brace)) ++depth;
+        else if (check(TokenKind::r_brace)) --depth;
+        advance();
+    } while (depth > 0 && !check(TokenKind::eof));
 }
 
 void Parser::synchronizeBody() {

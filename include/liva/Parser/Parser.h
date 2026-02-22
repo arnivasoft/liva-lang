@@ -94,6 +94,9 @@ private:
     /// Advance tokens until a member-declaration boundary inside a body (struct/enum/impl/protocol)
     void synchronizeBody();
 
+    /// Skip forward to the next '{' and consume the balanced block including the matching '}'
+    void skipBalancedBraces();
+
     /// Create a source range from start to current position
     SourceRange rangeFrom(SourceLocation start) const;
 

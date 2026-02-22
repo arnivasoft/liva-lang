@@ -108,8 +108,16 @@ std::unique_ptr<ASTNode> Parser::parseIfStmt() {
     }
 
     auto condition = parseExpression();
-    if (!condition)
+    if (!condition) {
+        skipBalancedBraces(); // skip then-block
+        if (match(TokenKind::kw_else)) {
+            if (check(TokenKind::kw_if)) {
+                advance(); // skip 'if', let synchronize handle the rest
+            }
+            skipBalancedBraces(); // skip else-block
+        }
         return nullptr;
+    }
 
     auto thenBody = parseBlock();
     if (!thenBody)
@@ -133,7 +141,14 @@ std::unique_ptr<IfLetStmt> Parser::parseIfLetStmt(SourceLocation ifLoc) {
     auto bindingName = expect(TokenKind::identifier);
     expect(TokenKind::equal);
     auto optionalExpr = parseExpression();
-    if (!optionalExpr) return nullptr;
+    if (!optionalExpr) {
+        skipBalancedBraces();
+        if (match(TokenKind::kw_else)) {
+            if (check(TokenKind::kw_if)) advance();
+            skipBalancedBraces();
+        }
+        return nullptr;
+    }
     auto thenBody = parseBlock();
     if (!thenBody) return nullptr;
     std::unique_ptr<ASTNode> elseBody;
@@ -159,7 +174,7 @@ std::unique_ptr<ASTNode> Parser::parseWhileStmt() {
         auto bindingName = expect(TokenKind::identifier).getText();
         expect(TokenKind::equal);
         auto optionalExpr = parseExpression();
-        if (!optionalExpr) return nullptr;
+        if (!optionalExpr) { skipBalancedBraces(); return nullptr; }
         auto body = parseBlock();
         if (!body) return nullptr;
         return std::make_unique<WhileLetStmt>(std::string(bindingName),
@@ -167,8 +182,7 @@ std::unique_ptr<ASTNode> Parser::parseWhileStmt() {
     }
 
     auto condition = parseExpression();
-    if (!condition)
-        return nullptr;
+    if (!condition) { skipBalancedBraces(); return nullptr; }
 
     auto body = parseBlock();
     if (!body)
@@ -192,8 +206,7 @@ std::unique_ptr<ForStmt> Parser::parseForStmt() {
         expect(TokenKind::kw_in);
 
         auto iterable = parseExpression();
-        if (!iterable)
-            return nullptr;
+        if (!iterable) { skipBalancedBraces(); return nullptr; }
 
         auto body = parseBlock();
         if (!body)
@@ -210,8 +223,7 @@ std::unique_ptr<ForStmt> Parser::parseForStmt() {
     expect(TokenKind::kw_in);
 
     auto iterable = parseExpression();
-    if (!iterable)
-        return nullptr;
+    if (!iterable) { skipBalancedBraces(); return nullptr; }
 
     auto body = parseBlock();
     if (!body)
