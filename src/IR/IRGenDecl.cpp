@@ -5,7 +5,10 @@
 namespace liva {
 
 llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
-    if (!moduleLoader_) return nullptr;
+    if (!moduleLoader_) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_import_no_loader);
+        return nullptr;
+    }
 
     std::string moduleName = node->getPathString();
 
@@ -14,7 +17,10 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
     processedModules_.insert(moduleName);
 
     auto *mod = moduleLoader_->getLoadedModule(moduleName);
-    if (!mod || !mod->tu) return nullptr;
+    if (!mod || !mod->tu) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_module_load_failed, moduleName);
+        return nullptr;
+    }
 
     // Process all declarations from the imported module
     for (auto &decl : mod->tu->getDeclarations()) {
@@ -730,14 +736,19 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
     // Tuple destructuring: let (x, y) = expr
     if (node->isDestructured()) {
-        if (!node->hasInit()) return nullptr;
+        if (!node->hasInit()) {
+            diag_.report(node->getStartLoc(), DiagID::err_irgen_tuple_type_failed);
+            return nullptr;
+        }
         auto *initVal = visit(const_cast<Expr *>(node->getInit()));
         if (!initVal) return nullptr;
 
         // Get tuple element types from init's resolved type
         auto *initType = node->getInit()->getResolvedType();
-        if (!initType || initType->getKind() != TypeRepr::Kind::Tuple)
+        if (!initType || initType->getKind() != TypeRepr::Kind::Tuple) {
+            diag_.report(node->getStartLoc(), DiagID::err_irgen_tuple_type_failed);
             return nullptr;
+        }
 
         auto *tupleTypeRepr = static_cast<const TupleTypeRepr *>(initType);
         auto *tupleTy = toLLVMType(initType);

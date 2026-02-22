@@ -322,34 +322,46 @@ llvm::Value *IRGen::emitNilCoalesce(BinaryExpr *node) {
 
 llvm::Value *IRGen::emitOptionalChainMember(MemberExpr *node) {
     // obj?.field — nil check, unwrap, field access, rewrap as Optional
-    if (node->getObject()->getKind() != ASTNode::NodeKind::IdentifierExpr)
+    if (node->getObject()->getKind() != ASTNode::NodeKind::IdentifierExpr) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
+    }
 
     auto *ident = static_cast<IdentifierExpr *>(node->getObject());
     auto optIt = varOptionalTypes_.find(ident->getName());
-    if (optIt == varOptionalTypes_.end())
+    if (optIt == varOptionalTypes_.end()) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
+    }
     auto nvIt = namedValues_.find(ident->getName());
-    if (nvIt == namedValues_.end())
+    if (nvIt == namedValues_.end()) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
+    }
 
     auto *optAlloca = nvIt->second;
     auto *innerType = optIt->second; // The struct type inside Optional
 
     // Find the struct type name for field lookup
     auto stIt = varStructTypes_.find(ident->getName());
-    if (stIt == varStructTypes_.end())
+    if (stIt == varStructTypes_.end()) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
+    }
     const auto &structTypeName = stIt->second;
 
     auto stTyIt = structTypes_.find(structTypeName);
-    if (stTyIt == structTypes_.end())
+    if (stTyIt == structTypes_.end()) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
+    }
     auto *structTy = stTyIt->second;
 
     int fieldIdx = getStructFieldIndex(structTypeName, node->getMember());
-    if (fieldIdx < 0)
+    if (fieldIdx < 0) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
+    }
 
     auto *fieldType = structTy->getElementType(fieldIdx);
     auto *optResultTy = getOptionalType(fieldType);
@@ -908,7 +920,10 @@ llvm::Value *IRGen::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
 
 llvm::Value *IRGen::visitTupleLiteralExpr(TupleLiteralExpr *node) {
     auto *tupleTypeRepr = node->getResolvedType();
-    if (!tupleTypeRepr) return nullptr;
+    if (!tupleTypeRepr) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_tuple_type_failed);
+        return nullptr;
+    }
     auto *tupleTy = toLLVMType(tupleTypeRepr);
     auto *func = builder_->GetInsertBlock()->getParent();
     auto *alloca = createEntryBlockAlloca(func, "tuple.tmp", tupleTy);
@@ -944,8 +959,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         }
     }
 
-    if (node->getBase()->getKind() != ASTNode::NodeKind::IdentifierExpr)
+    if (node->getBase()->getKind() != ASTNode::NodeKind::IdentifierExpr) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_subscript_failed, "non-identifier");
         return nullptr;
+    }
     auto *ident = static_cast<const IdentifierExpr *>(node->getBase());
 
     // === Range slicing: arr[1..3] or s[1..3] ===
@@ -964,7 +981,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         auto daIt = varDynArrayTypes_.find(ident->getName());
         if (daIt == varDynArrayTypes_.end() && varArrayTypes_.find(ident->getName()) == varArrayTypes_.end()) {
             auto allocaIt = namedValues_.find(ident->getName());
-            if (allocaIt == namedValues_.end()) return nullptr;
+            if (allocaIt == namedValues_.end()) {
+                diag_.report(node->getStartLoc(), DiagID::err_irgen_subscript_failed, ident->getName());
+                return nullptr;
+            }
             auto *ptrTy = llvm::PointerType::getUnqual(*context_);
             auto *strVal = builder_->CreateLoad(ptrTy, allocaIt->second, "str.ptr");
             auto *subFn = module_->getOrInsertFunction(
@@ -980,7 +1000,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         // DynArray slicing: arr[1..3] -> new DynArray with copied elements
         if (daIt != varDynArrayTypes_.end()) {
             auto allocaIt = namedValues_.find(ident->getName());
-            if (allocaIt == namedValues_.end()) return nullptr;
+            if (allocaIt == namedValues_.end()) {
+                diag_.report(node->getStartLoc(), DiagID::err_irgen_subscript_failed, ident->getName());
+                return nullptr;
+            }
             auto *arrAlloca = allocaIt->second;
             auto *structTy = getDynArrayStructTy();
             auto *elemType = daIt->second.elementType;
@@ -1027,7 +1050,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
     auto daIt = varDynArrayTypes_.find(ident->getName());
     if (daIt != varDynArrayTypes_.end()) {
         auto allocaIt = namedValues_.find(ident->getName());
-        if (allocaIt == namedValues_.end()) return nullptr;
+        if (allocaIt == namedValues_.end()) {
+            diag_.report(node->getStartLoc(), DiagID::err_irgen_subscript_failed, ident->getName());
+            return nullptr;
+        }
         auto *arrAlloca = allocaIt->second;
         auto *structTy = getDynArrayStructTy();
         auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);

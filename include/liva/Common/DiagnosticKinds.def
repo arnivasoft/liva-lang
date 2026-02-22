@@ -188,5 +188,10 @@ DIAG(err_irgen_while_let_not_optional, error, "internal: while-let expression is
 DIAG(err_irgen_call_callee_failed,     error, "internal: cannot resolve callee in function call")
 DIAG(err_irgen_struct_literal_unknown, error, "internal: unknown struct type '%0' in struct literal")
 DIAG(err_irgen_closure_body_failed,    error, "internal: closure body code generation failed")
+DIAG(err_irgen_module_load_failed,     error, "internal: failed to load module '%0'")
+DIAG(err_irgen_optional_chain_failed,  error, "internal: optional chain resolution failed for '%0'")
+DIAG(err_irgen_subscript_failed,       error, "internal: subscript target '%0' not found")
+DIAG(err_irgen_tuple_type_failed,      error, "internal: cannot resolve tuple type for destructuring")
+DIAG(err_irgen_import_no_loader,       error, "internal: module loader not available for import")
 
 #undef DIAG

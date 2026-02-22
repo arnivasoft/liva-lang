@@ -452,7 +452,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *savedArrAlloca = arrAlloca;
 
                     auto *closureVal = visit(node->getArgs()[0].get());
-                    if (!closureVal) return nullptr;
+                    if (!closureVal) {
+                        diag_.report(node->getStartLoc(), DiagID::err_irgen_closure_body_failed);
+                        return nullptr;
+                    }
 
                     auto *curFunc = builder_->GetInsertBlock()->getParent();
                     auto *closureObjTy = getClosureObjTy();
@@ -3719,11 +3722,15 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
             // Monomorphize and call
             callee = monomorphize(genericFunc, typeArgs);
-            if (!callee) return nullptr;
+            if (!callee) {
+                diag_.report(node->getStartLoc(), DiagID::err_irgen_call_callee_failed);
+                return nullptr;
+            }
             if (callee->getReturnType()->isVoidTy())
                 return builder_->CreateCall(callee, argValues);
             return builder_->CreateCall(callee, argValues, "calltmp");
         }
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_unknown_function, funcName);
         return nullptr;
     }
 
