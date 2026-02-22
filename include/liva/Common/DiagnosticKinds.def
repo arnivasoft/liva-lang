@@ -148,6 +148,10 @@ DIAG(warn_lint_missing_doc_comment,  warning, "public %0 '%1' should have a doc 
 DIAG(warn_lint_default_param_order,  warning, "parameter '%0' with default value should come after parameters without defaults")
 DIAG(warn_lint_self_comparison,      warning, "comparing '%0' to itself always produces the same result")
 
+// === FFI Warnings ===
+DIAG(warn_extern_param_type,         warning, "parameter type '%0' may not be FFI-compatible")
+DIAG(warn_extern_return_type,        warning, "return type '%0' may not be FFI-compatible")
+
 // === Plugin Warnings ===
 DIAG(warn_plugin_naming_func,        warning, "function '%0' should use camelCase naming (plugin: naming-convention)")
 DIAG(warn_plugin_unused_function,    warning, "function '%0' is defined but never called (plugin: unused-function)")

@@ -374,6 +374,17 @@ void TypeChecker::check(TranslationUnit &tu) {
     }
 }
 
+static bool isFFISafeType(const TypeRepr *type) {
+    if (!type) return true;  // void
+    if (type->isPrimitive()) return true;  // Bool, I8-I64, U8-U64, F32, F64, String, Void
+    if (type->isReference()) return true;  // raw pointer
+    if (type->getKind() == TypeRepr::Kind::Named) {
+        if (static_cast<const NamedTypeRepr *>(type)->getName() == "String") return true;
+        return true;  // user-defined structs passed by pointer are FFI-safe
+    }
+    return false;  // Array, Optional, Tuple, Result, Function, DynProtocol → unsafe
+}
+
 void TypeChecker::visitFuncDecl(FuncDecl *node) {
     scopes_.pushScope();
 
@@ -401,6 +412,17 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         }
         if (node->isGeneric()) {
             diag_.report(node->getStartLoc(), DiagID::err_extern_generic, node->getName());
+        }
+        // Check FFI type safety
+        for (auto &param : node->getParams()) {
+            if (param.type && !isFFISafeType(param.type.get())) {
+                diag_.report(param.location, DiagID::warn_extern_param_type,
+                             param.type->toString());
+            }
+        }
+        if (node->getReturnType() && !isFFISafeType(node->getReturnType())) {
+            diag_.report(node->getStartLoc(), DiagID::warn_extern_return_type,
+                         node->getReturnType()->toString());
         }
         // Register params in scope but skip body analysis
         for (auto &param : node->getParams()) {

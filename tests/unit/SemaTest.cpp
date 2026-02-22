@@ -8560,3 +8560,59 @@ TEST_F(SemaTest, GenericDyn_PassConcreteToGenericFunc) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === FFI Type Safety Warning Tests ===
+
+TEST_F(SemaTest, FFI_ExternParamArrayWarning) {
+    auto result = check(R"--(
+        extern "C" func foo(arr: [I32])
+        func main() { println(0) }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::warn_extern_param_type));
+}
+
+TEST_F(SemaTest, FFI_ExternParamOptionalWarning) {
+    auto result = check(R"--(
+        extern "C" func bar(x: I32?)
+        func main() { println(0) }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::warn_extern_param_type));
+}
+
+TEST_F(SemaTest, FFI_ExternReturnTupleWarning) {
+    auto result = check(R"--(
+        extern "C" func baz() -> (I32, I32)
+        func main() { println(0) }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::warn_extern_return_type));
+}
+
+TEST_F(SemaTest, FFI_ExternPrimitiveParamNoWarning) {
+    auto result = check(R"--(
+        extern "C" func ok(x: I32, y: F64, s: String)
+        func main() { println(0) }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::warn_extern_param_type));
+}
+
+TEST_F(SemaTest, FFI_ExternRefParamNoWarning) {
+    auto result = check(R"--(
+        extern "C" func ok(x: ref I32)
+        func main() { println(0) }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::warn_extern_param_type));
+}
+
+TEST_F(SemaTest, FFI_ExternReturnOptionalWarning) {
+    auto result = check(R"--(
+        extern "C" func maybe() -> I32?
+        func main() { println(0) }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::warn_extern_return_type));
+}

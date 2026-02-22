@@ -362,6 +362,9 @@ private:
     /// Emit runtime bounds check: panics if index >= size
     void emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal);
 
+    /// Emit runtime slice bounds check: panics if start<0, end<start, or end>len
+    void emitSliceBoundsCheck(llvm::Value *startVal, llvm::Value *endVal, llvm::Value *lenVal);
+
     /// Emit nil coalescing operator (??) IR
     llvm::Value *emitNilCoalesce(BinaryExpr *node);
 

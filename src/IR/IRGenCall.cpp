@@ -4864,6 +4864,50 @@ void IRGen::emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal) {
 }
 
 
+void IRGen::emitSliceBoundsCheck(llvm::Value *startVal, llvm::Value *endVal, llvm::Value *lenVal) {
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *i64Ty = builder_->getInt64Ty();
+    if (startVal->getType() != i64Ty)
+        startVal = builder_->CreateSExt(startVal, i64Ty);
+    if (endVal->getType() != i64Ty)
+        endVal = builder_->CreateSExt(endVal, i64Ty);
+    if (lenVal->getType() != i64Ty)
+        lenVal = builder_->CreateZExt(lenVal, i64Ty);
+
+    auto *zero = builder_->getInt64(0);
+    auto *panicFn = getOrPanic("liva_panic");
+
+    // Check 1: start < 0
+    auto *startNeg = builder_->CreateICmpSLT(startVal, zero, "slice.start.neg");
+    auto *failStartBB = llvm::BasicBlock::Create(*context_, "slice.start.fail", func);
+    auto *okStartBB = llvm::BasicBlock::Create(*context_, "slice.start.ok", func);
+    builder_->CreateCondBr(startNeg, failStartBB, okStartBB);
+    builder_->SetInsertPoint(failStartBB);
+    builder_->CreateCall(panicFn, {builder_->CreateGlobalString("slice start index out of bounds")});
+    builder_->CreateUnreachable();
+    builder_->SetInsertPoint(okStartBB);
+
+    // Check 2: end < start
+    auto *endLtStart = builder_->CreateICmpSLT(endVal, startVal, "slice.end.lt.start");
+    auto *failEndBB = llvm::BasicBlock::Create(*context_, "slice.end.fail", func);
+    auto *okEndBB = llvm::BasicBlock::Create(*context_, "slice.end.ok", func);
+    builder_->CreateCondBr(endLtStart, failEndBB, okEndBB);
+    builder_->SetInsertPoint(failEndBB);
+    builder_->CreateCall(panicFn, {builder_->CreateGlobalString("slice end index less than start")});
+    builder_->CreateUnreachable();
+    builder_->SetInsertPoint(okEndBB);
+
+    // Check 3: end > len
+    auto *endGtLen = builder_->CreateICmpSGT(endVal, lenVal, "slice.end.gt.len");
+    auto *failLenBB = llvm::BasicBlock::Create(*context_, "slice.len.fail", func);
+    auto *okLenBB = llvm::BasicBlock::Create(*context_, "slice.len.ok", func);
+    builder_->CreateCondBr(endGtLen, failLenBB, okLenBB);
+    builder_->SetInsertPoint(failLenBB);
+    builder_->CreateCall(panicFn, {builder_->CreateGlobalString("slice end index out of bounds")});
+    builder_->CreateUnreachable();
+    builder_->SetInsertPoint(okLenBB);
+}
+
 } // namespace liva
 
 #endif // LIVA_HAS_LLVM

@@ -799,4 +799,59 @@ func main() {
     EXPECT_NE(captured.find("Functions:"), std::string::npos);
 }
 
+// === Slice Bounds Check Tests ===
+
+TEST_F(SelfHostTest, SliceNegativeStartPanics) {
+    std::string output = compileAndRun(R"--(
+        func main() {
+            var arr: [I32] = [1, 2, 3]
+            var s = arr[-1..2]
+        }
+    )--");
+    EXPECT_NE(output.find("slice start index out of bounds"), std::string::npos)
+        << "Expected panic for negative slice start, got: " << output;
+}
+
+TEST_F(SelfHostTest, SliceEndBeforeStartPanics) {
+    std::string output = compileAndRun(R"--(
+        func main() {
+            var arr: [I32] = [1, 2, 3]
+            var s = arr[2..1]
+        }
+    )--");
+    EXPECT_NE(output.find("slice end index less than start"), std::string::npos)
+        << "Expected panic for end < start, got: " << output;
+}
+
+TEST_F(SelfHostTest, SliceEndBeyondLenPanics) {
+    std::string output = compileAndRun(R"--(
+        func main() {
+            var arr: [I32] = [1, 2, 3]
+            var s = arr[0..10]
+        }
+    )--");
+    EXPECT_NE(output.find("slice end index out of bounds"), std::string::npos)
+        << "Expected panic for end > len, got: " << output;
+}
+
+extern "C" int8_t liva_str_parse_i64(const char *, int64_t *);
+extern "C" int8_t liva_str_parse_f64(const char *, double *);
+
+TEST_F(SelfHostTest, ParseI64OverflowReturnsZero) {
+    // Test runtime function directly — overflow must return 0 (failure)
+    int64_t val = -1;
+    EXPECT_EQ(liva_str_parse_i64("99999999999999999999", &val), 0)
+        << "i64 overflow should return 0";
+    EXPECT_EQ(liva_str_parse_i64("-99999999999999999999", &val), 0)
+        << "i64 underflow should return 0";
+    EXPECT_EQ(liva_str_parse_i64("42", &val), 1);
+    EXPECT_EQ(val, 42);
+
+    double dval = -1.0;
+    EXPECT_EQ(liva_str_parse_f64("1e999", &dval), 0)
+        << "f64 overflow should return 0";
+    EXPECT_EQ(liva_str_parse_f64("3.14", &dval), 1);
+    EXPECT_DOUBLE_EQ(dval, 3.14);
+}
+
 #endif // LIVA_HAS_LLVM

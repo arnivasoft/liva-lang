@@ -3,6 +3,7 @@
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
 #include <cstring>
 #include <csetjmp>
 #include <ctime>
@@ -277,8 +278,10 @@ int8_t liva_str_parse_i32(const char *str, int32_t *result) {
 int8_t liva_str_parse_i64(const char *str, int64_t *result) {
     if (!str || !*str) return 0;
     char *end = nullptr;
+    errno = 0;
     long long val = strtoll(str, &end, 10);
     if (end == str || *end != '\0') return 0;
+    if (errno == ERANGE) return 0;
     *result = (int64_t)val;
     return 1;
 }
@@ -286,8 +289,10 @@ int8_t liva_str_parse_i64(const char *str, int64_t *result) {
 int8_t liva_str_parse_f64(const char *str, double *result) {
     if (!str || !*str) return 0;
     char *end = nullptr;
+    errno = 0;
     double val = strtod(str, &end);
     if (end == str || *end != '\0') return 0;
+    if (errno == ERANGE) return 0;
     *result = val;
     return 1;
 }

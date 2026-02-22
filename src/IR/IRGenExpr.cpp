@@ -986,6 +986,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
             auto *elemType = daIt->second.elementType;
             auto elemSize = builder_->getInt64(daIt->second.elemSize);
             auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            // Read array length for bounds check
+            auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+            auto *arrLen = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "arr.len");
+            emitSliceBoundsCheck(startVal, endVal, arrLen);
             auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
             auto *dataPtr = builder_->CreateLoad(ptrTy, dataField, "src.data");
             // Allocate new array: liva_array_new(elem_size, sliceLen)
