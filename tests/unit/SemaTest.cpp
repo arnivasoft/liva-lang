@@ -8230,3 +8230,333 @@ TEST_F(SemaTest, DynProtocolArrayMultipleTypes) {
     );
     EXPECT_TRUE(result.passed);
 }
+
+// ===== Generic + dyn Protocol Interaction Tests =====
+
+// (a) Generic function with static bound + dyn Protocol param together
+TEST_F(SemaTest, GenericDyn_GenericFuncWithDynParam) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        protocol Formatter {
+            func format(self, val: f64) -> string
+        }
+        struct Circle { var r: f64 }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r }
+        }
+        struct PrettyFmt { var prefix: string }
+        impl PrettyFmt: Formatter {
+            func format(self, val: f64) -> string { return self.prefix }
+        }
+        func process<T: Formatter>(shape: dyn Shape, fmt: T) -> string {
+            let a = shape.area()
+            return fmt.format(a)
+        }
+        func main() {
+            let c = Circle { r: 5.0 }
+            let f = PrettyFmt { prefix: "area" }
+            let result = process(c, f)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (a2) Generic function — non-conforming type for generic bound should fail
+TEST_F(SemaTest, GenericDyn_GenericFuncBoundViolation) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        protocol Formatter {
+            func format(self, val: f64) -> string
+        }
+        struct Circle { var r: f64 }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r }
+        }
+        struct Plain { var x: i32 }
+        func process<T: Formatter>(shape: dyn Shape, fmt: T) -> string {
+            let a = shape.area()
+            return fmt.format(a)
+        }
+        func main() {
+            let c = Circle { r: 5.0 }
+            let p = Plain { x: 1 }
+            let result = process(c, p)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+// (b) Generic struct implementing protocol — used as dyn
+TEST_F(SemaTest, GenericDyn_GenericStructAsDyn) {
+    auto result = check(R"--(
+        protocol Drawable {
+            func draw(self) -> i32
+        }
+        struct Wrapper<T> {
+            var val: T
+        }
+        impl Wrapper: Drawable {
+            func draw(self) -> i32 { return 1 }
+        }
+        func render(d: dyn Drawable) -> i32 {
+            return d.draw()
+        }
+        func main() {
+            let w = Wrapper { val: 42 }
+            let result = render(w)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (b2) Multiple generic struct instantiations as dyn in array
+TEST_F(SemaTest, GenericDyn_MultipleGenericStructsAsDynArray) {
+    auto result = check(R"--(
+        protocol Describable {
+            func describe(self) -> string
+        }
+        struct Box<T> {
+            var item: T
+        }
+        impl Box: Describable {
+            func describe(self) -> string { return "box" }
+        }
+        func showAll(items: [dyn Describable]) {
+            for item in items {
+                println(item.describe())
+            }
+        }
+        func main() {
+            let b1 = Box { item: 10 }
+            let b2 = Box { item: "hello" }
+            let items: [dyn Describable] = [b1, b2]
+            showAll(items)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (c) dyn Protocol as return type — factory pattern
+TEST_F(SemaTest, GenericDyn_DynReturnType) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle { var r: f64 }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r }
+        }
+        func makeShape() -> dyn Shape {
+            let c = Circle { r: 3.0 }
+            return c
+        }
+        func main() {
+            let s = makeShape()
+            let a = s.area()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (c2) dyn Protocol return type with generic factory
+TEST_F(SemaTest, GenericDyn_GenericFactoryDynReturn) {
+    auto result = check(R"--(
+        protocol Printable {
+            func display(self) -> string
+        }
+        struct Label { var text: string }
+        impl Label: Printable {
+            func display(self) -> string { return self.text }
+        }
+        struct Tag { var name: string }
+        impl Tag: Printable {
+            func display(self) -> string { return self.name }
+        }
+        func wrap<T: Printable>(item: T) -> dyn Printable {
+            return item
+        }
+        func main() {
+            let l = Label { text: "hello" }
+            let p = wrap(l)
+            println(p.display())
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (d) Multiple dyn Protocol parameters with different concrete types
+TEST_F(SemaTest, GenericDyn_MultipleDynParams) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle { var r: f64 }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r }
+        }
+        struct Rect { var w: f64; var h: f64 }
+        impl Rect: Shape {
+            func area(self) -> f64 { return self.w * self.h }
+        }
+        func compare(a: dyn Shape, b: dyn Shape) -> f64 {
+            return a.area() + b.area()
+        }
+        func main() {
+            let c = Circle { r: 5.0 }
+            let r = Rect { w: 3.0, h: 4.0 }
+            let total = compare(c, r)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (d2) Multiple dyn params from different protocols
+TEST_F(SemaTest, GenericDyn_MultipleDynDifferentProtocols) {
+    auto result = check(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        protocol Color {
+            func rgb(self) -> i32
+        }
+        struct Circle { var r: f64 }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r }
+        }
+        struct Red { var intensity: i32 }
+        impl Red: Color {
+            func rgb(self) -> i32 { return self.intensity }
+        }
+        func drawColored(s: dyn Shape, c: dyn Color) -> f64 {
+            return s.area()
+        }
+        func main() {
+            let circle = Circle { r: 2.0 }
+            let red = Red { intensity: 255 }
+            let result = drawColored(circle, red)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (e) Generic function with multiple bounds + dyn param
+TEST_F(SemaTest, GenericDyn_MultipleBoundsWithDyn) {
+    auto result = check(R"--(
+        protocol Serializable {
+            func serialize(self) -> string
+        }
+        protocol Loggable {
+            func log(self)
+        }
+        struct JsonWriter { var indent: i32 }
+        impl JsonWriter: Serializable {
+            func serialize(self) -> string { return "{}" }
+        }
+        impl JsonWriter: Loggable {
+            func log(self) { println("json") }
+        }
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Dot { var x: f64 }
+        impl Dot: Shape {
+            func area(self) -> f64 { return 0.0 }
+        }
+        func export_shape<T: Serializable>(shape: dyn Shape, writer: T) -> string {
+            let a = shape.area()
+            return writer.serialize()
+        }
+        func main() {
+            let d = Dot { x: 1.0 }
+            let w = JsonWriter { indent: 2 }
+            let out = export_shape(d, w)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (f) Object-unsafe protocol used as generic bound (OK) but not as dyn
+TEST_F(SemaTest, GenericDyn_UnsafeProtocolGenericBoundOK) {
+    auto result = check(R"--(
+        protocol Transformer {
+            func transform<U>(self) -> U
+        }
+        struct Identity { var x: i32 }
+        impl Identity: Transformer {
+            func transform<U>(self) -> U { return self.x }
+        }
+        func apply<T: Transformer>(t: T) -> i32 {
+            return 0
+        }
+        func main() {
+            let id = Identity { x: 42 }
+            let r = apply(id)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (f2) Object-unsafe protocol used as dyn should fail
+TEST_F(SemaTest, GenericDyn_UnsafeProtocolDynFails) {
+    auto result = check(R"--(
+        protocol Transformer {
+            func transform<U>(self) -> U
+        }
+        struct Identity { var x: i32 }
+        impl Identity: Transformer {
+            func transform<U>(self) -> U { return self.x }
+        }
+        func apply(t: dyn Transformer) -> i32 {
+            return 0
+        }
+        func main() { println(0) }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_protocol_not_object_safe));
+}
+
+// (g) dyn Protocol in struct field
+TEST_F(SemaTest, GenericDyn_DynInStructField) {
+    auto result = check(R"--(
+        protocol Drawable {
+            func draw(self) -> i32
+        }
+        struct Circle { var r: i32 }
+        impl Circle: Drawable {
+            func draw(self) -> i32 { return self.r }
+        }
+        struct Canvas {
+            var shape: dyn Drawable
+        }
+        func main() {
+            let c = Circle { r: 10 }
+            let canvas = Canvas { shape: c }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// (h) Passing concrete type to generic function with protocol bound
+TEST_F(SemaTest, GenericDyn_PassConcreteToGenericFunc) {
+    auto result = check(R"--(
+        protocol Printable {
+            func display(self) -> string
+        }
+        struct Msg { var text: string }
+        impl Msg: Printable {
+            func display(self) -> string { return self.text }
+        }
+        func show<T: Printable>(item: T) -> string {
+            return item.display()
+        }
+        func main() {
+            let m = Msg { text: "hi" }
+            let result = show(m)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
