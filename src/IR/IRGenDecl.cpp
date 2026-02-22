@@ -312,6 +312,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarOptionalTypes = varOptionalTypes_;
     auto oldVarFuncTypes = varFuncTypes_;
     auto oldVarProtocolTypes = varProtocolTypes_;
+    auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
     auto oldVarResultTypes = varResultTypes_;
     auto oldVarRefTypes = varRefTypes_;
     auto oldVarFileTypes = varFileTypes_;
@@ -353,6 +354,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
+    varConcreteProtocolTypes_.clear();
     varResultTypes_.clear();
     varRefTypes_.clear();
     varFileTypes_.clear();
@@ -621,6 +623,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varOptionalTypes_ = oldVarOptionalTypes;
     varFuncTypes_ = oldVarFuncTypes;
     varProtocolTypes_ = oldVarProtocolTypes;
+    varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
     varResultTypes_ = oldVarResultTypes;
     varRefTypes_ = oldVarRefTypes;
     varFileTypes_ = oldVarFileTypes;
@@ -650,6 +653,17 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             {i32Ty, llvm::PointerType::getUnqual(*context_)}, false);
         auto *mainFunc = llvm::Function::Create(
             mainFuncType, llvm::Function::ExternalLinkage, "main", *module_);
+        // Attach debug info subprogram to async main wrapper
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType();
+            unsigned lineNo = node->getStartLoc().isValid() ? node->getStartLoc().line : 0;
+            auto *sp = diBuilder_->createFunction(
+                diFile_, "main", "main", diFile_, lineNo,
+                funcDbgType, lineNo,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            mainFunc->setSubprogram(sp);
+        }
         mainFunc->getArg(0)->setName("argc");
         mainFunc->getArg(1)->setName("argv");
         auto *mainEntry = llvm::BasicBlock::Create(*context_, "entry", mainFunc);
@@ -782,6 +796,9 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
                 namedValues_[node->getName()] = alloca;
                 varProtocolTypes_[node->getName()] = protocolName;
+                if (!node->isMutable()) {
+                    varConcreteProtocolTypes_[node->getName()] = concreteType;
+                }
                 return alloca;
             }
         }
@@ -830,6 +847,9 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
                     namedValues_[node->getName()] = alloca;
                     varProtocolTypes_[node->getName()] = protocolName;
+                    if (!node->isMutable()) {
+                        varConcreteProtocolTypes_[node->getName()] = concreteType;
+                    }
                     return alloca;
                 }
             }
@@ -1589,6 +1609,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarOptionalTypes = varOptionalTypes_;
         auto oldVarFuncTypes = varFuncTypes_;
         auto oldVarProtocolTypes = varProtocolTypes_;
+        auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
         auto oldVarResultTypes = varResultTypes_;
         auto *oldFuncRI = currentFuncResultInfo_;
         auto *oldFuncOptInner = currentFuncOptionalInner_;
@@ -1607,6 +1628,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varOptionalTypes_.clear();
         varFuncTypes_.clear();
         varProtocolTypes_.clear();
+        varConcreteProtocolTypes_.clear();
         varResultTypes_.clear();
         varFileTypes_.clear();
         currentFuncResultInfo_ = nullptr;
@@ -1711,6 +1733,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varOptionalTypes_ = oldVarOptionalTypes;
         varFuncTypes_ = oldVarFuncTypes;
         varProtocolTypes_ = oldVarProtocolTypes;
+        varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
         varResultTypes_ = oldVarResultTypes;
         currentFuncResultInfo_ = oldFuncRI;
         currentFuncOptionalInner_ = oldFuncOptInner;
@@ -1757,6 +1780,17 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto *func = llvm::Function::Create(
                     funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
 
+                // Attach debug info subprogram to protocol thunk
+                if (diBuilder_) {
+                    auto *funcDbgType = createFunctionDebugType();
+                    auto *sp = diBuilder_->createFunction(
+                        diFile_, mangledName, mangledName, diFile_, 0,
+                        funcDbgType, 0,
+                        llvm::DINode::FlagPrototyped,
+                        llvm::DISubprogram::SPFlagDefinition);
+                    func->setSubprogram(sp);
+                }
+
                 size_t i = 0;
                 for (auto &arg : func->args()) {
                     arg.setName(protoMethod->getParams()[i].name);
@@ -1777,6 +1811,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto oldVarOptionalTypes = varOptionalTypes_;
                 auto oldVarFuncTypes = varFuncTypes_;
                 auto oldVarProtocolTypes = varProtocolTypes_;
+                auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
                 auto oldVarResultTypes = varResultTypes_;
                 auto *oldFuncRI = currentFuncResultInfo_;
                 auto *oldFuncOptInner2 = currentFuncOptionalInner_;
@@ -1794,6 +1829,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varOptionalTypes_.clear();
                 varFuncTypes_.clear();
                 varProtocolTypes_.clear();
+                varConcreteProtocolTypes_.clear();
                 varResultTypes_.clear();
                 varFileTypes_.clear();
                 currentFuncResultInfo_ = nullptr;
@@ -1857,6 +1893,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varOptionalTypes_ = oldVarOptionalTypes;
                 varFuncTypes_ = oldVarFuncTypes;
                 varProtocolTypes_ = oldVarProtocolTypes;
+                varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
                 varResultTypes_ = oldVarResultTypes;
                 currentFuncResultInfo_ = oldFuncRI;
                 currentFuncOptionalInner_ = oldFuncOptInner2;
@@ -2048,6 +2085,18 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *func = llvm::Function::Create(
             funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
 
+        // Attach debug info subprogram to class method
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType(method);
+            unsigned lineNo = method->getStartLoc().isValid() ? method->getStartLoc().line : 0;
+            auto *sp = diBuilder_->createFunction(
+                diFile_, mangledName, mangledName, diFile_, lineNo,
+                funcDbgType, lineNo,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            func->setSubprogram(sp);
+        }
+
         // Set arg names: self + user params
         auto argIt = func->arg_begin();
         argIt->setName("self");
@@ -2109,6 +2158,17 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *initFuncType = llvm::FunctionType::get(ptrTy, initParamTypes, false);
         auto *initFunc = llvm::Function::Create(
             initFuncType, llvm::Function::ExternalLinkage, initName, *module_);
+
+        // Attach debug info subprogram to class init
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType();
+            auto *sp = diBuilder_->createFunction(
+                diFile_, initName, initName, diFile_, 0,
+                funcDbgType, 0,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            initFunc->setSubprogram(sp);
+        }
 
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", initFunc);
         builder_->SetInsertPoint(entryBB);
@@ -2187,6 +2247,17 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *func = llvm::Function::Create(
             funcType, llvm::Function::ExternalLinkage, initFieldsName, *module_);
 
+        // Attach debug info subprogram to class initFields
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType();
+            auto *sp = diBuilder_->createFunction(
+                diFile_, initFieldsName, initFieldsName, diFile_, 0,
+                funcDbgType, 0,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            func->setSubprogram(sp);
+        }
+
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         builder_->SetInsertPoint(entryBB);
 
@@ -2235,6 +2306,17 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *funcType = llvm::FunctionType::get(voidTy, {ptrTy}, false);
         auto *func = llvm::Function::Create(
             funcType, llvm::Function::ExternalLinkage, deinitName, *module_);
+
+        // Attach debug info subprogram to class deinit
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType();
+            auto *sp = diBuilder_->createFunction(
+                diFile_, deinitName, deinitName, diFile_, 0,
+                funcDbgType, 0,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            func->setSubprogram(sp);
+        }
 
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         builder_->SetInsertPoint(entryBB);
@@ -2373,6 +2455,18 @@ llvm::Value *IRGen::visitTestDecl(TestDecl *node) {
     auto *func = llvm::Function::Create(funcTy, llvm::Function::InternalLinkage,
                                          funcName, module_.get());
 
+    // Attach debug info subprogram to test function
+    if (diBuilder_) {
+        auto *funcDbgType = createFunctionDebugType();
+        unsigned lineNo = node->getStartLoc().isValid() ? node->getStartLoc().line : 0;
+        auto *sp = diBuilder_->createFunction(
+            diFile_, funcName, funcName, diFile_, lineNo,
+            funcDbgType, lineNo,
+            llvm::DINode::FlagPrototyped,
+            llvm::DISubprogram::SPFlagDefinition);
+        func->setSubprogram(sp);
+    }
+
     auto *entry = llvm::BasicBlock::Create(*context_, "entry", func);
     auto *prevBB = builder_->GetInsertBlock();
     auto *prevFn = prevBB ? prevBB->getParent() : nullptr;
@@ -2410,6 +2504,16 @@ void IRGen::generateTestMain() {
     auto *mainTy = llvm::FunctionType::get(i32Ty, {}, false);
     auto *mainFn = llvm::Function::Create(mainTy, llvm::Function::ExternalLinkage,
                                             "main", module_.get());
+    // Attach debug info subprogram to test main
+    if (diBuilder_) {
+        auto *funcDbgType = createFunctionDebugType();
+        auto *sp = diBuilder_->createFunction(
+            diFile_, "main", "main", diFile_, 0,
+            funcDbgType, 0,
+            llvm::DINode::FlagPrototyped,
+            llvm::DISubprogram::SPFlagDefinition);
+        mainFn->setSubprogram(sp);
+    }
     auto *entry = llvm::BasicBlock::Create(*context_, "entry", mainFn);
     builder_->SetInsertPoint(entry);
 

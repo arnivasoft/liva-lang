@@ -36,6 +36,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto savedVarOptionalTypes = varOptionalTypes_;
     auto savedVarFuncTypes = varFuncTypes_;
     auto savedVarProtocolTypes = varProtocolTypes_;
+    auto savedVarConcreteProtocolTypes = varConcreteProtocolTypes_;
     auto savedVarResultTypes = varResultTypes_;
     auto *savedFuncRI = currentFuncResultInfo_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
@@ -60,6 +61,18 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto *func = llvm::Function::Create(
         funcType, llvm::Function::LinkOnceODRLinkage, mangledName, *module_);
 
+    // Attach debug info subprogram
+    if (diBuilder_) {
+        auto *funcDbgType = createFunctionDebugType(funcDecl);
+        unsigned lineNo = funcDecl->getStartLoc().isValid() ? funcDecl->getStartLoc().line : 0;
+        auto *sp = diBuilder_->createFunction(
+            diFile_, mangledName, mangledName, diFile_, lineNo,
+            funcDbgType, lineNo,
+            llvm::DINode::FlagPrototyped,
+            llvm::DISubprogram::SPFlagDefinition);
+        func->setSubprogram(sp);
+    }
+
     // Set parameter names
     size_t idx = 0;
     for (auto &arg : func->args()) {
@@ -81,6 +94,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
+    varConcreteProtocolTypes_.clear();
     varResultTypes_.clear();
     varFileTypes_.clear();
     varFileOptionalTypes_.clear();
@@ -126,6 +140,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     varOptionalTypes_ = savedVarOptionalTypes;
     varFuncTypes_ = savedVarFuncTypes;
     varProtocolTypes_ = savedVarProtocolTypes;
+    varConcreteProtocolTypes_ = savedVarConcreteProtocolTypes;
     varResultTypes_ = savedVarResultTypes;
     currentFuncResultInfo_ = savedFuncRI;
     movedVars_ = savedMovedVars;
@@ -253,6 +268,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto savedVarOptionalTypes = varOptionalTypes_;
     auto savedVarFuncTypes = varFuncTypes_;
     auto savedVarProtocolTypes2 = varProtocolTypes_;
+    auto savedVarConcreteProtocolTypes2 = varConcreteProtocolTypes_;
     auto savedVarResultTypes2 = varResultTypes_;
     auto *savedFuncRI2 = currentFuncResultInfo_;
     auto *savedInsertPoint = builder_->GetInsertBlock();
@@ -281,6 +297,18 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto *func = llvm::Function::Create(
         funcType, llvm::Function::LinkOnceODRLinkage, mangledName, *module_);
 
+    // Attach debug info subprogram
+    if (diBuilder_) {
+        auto *funcDbgType = createFunctionDebugType(methodDecl);
+        unsigned lineNo = methodDecl->getStartLoc().isValid() ? methodDecl->getStartLoc().line : 0;
+        auto *sp = diBuilder_->createFunction(
+            diFile_, mangledName, mangledName, diFile_, lineNo,
+            funcDbgType, lineNo,
+            llvm::DINode::FlagPrototyped,
+            llvm::DISubprogram::SPFlagDefinition);
+        func->setSubprogram(sp);
+    }
+
     // Set parameter names
     size_t idx = 0;
     for (auto &arg : func->args()) {
@@ -302,6 +330,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
+    varConcreteProtocolTypes_.clear();
     varResultTypes_.clear();
     varFileTypes_.clear();
     varFileOptionalTypes_.clear();
@@ -350,6 +379,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     varOptionalTypes_ = savedVarOptionalTypes;
     varFuncTypes_ = savedVarFuncTypes;
     varProtocolTypes_ = savedVarProtocolTypes2;
+    varConcreteProtocolTypes_ = savedVarConcreteProtocolTypes2;
     varResultTypes_ = savedVarResultTypes2;
     currentFuncResultInfo_ = savedFuncRI2;
     movedVars_ = savedMovedVars2;

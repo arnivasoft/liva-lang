@@ -491,6 +491,82 @@ func main() {
 }
 
 // ============================================================
+// 8b. Devirtualization (compile-time direct call optimization)
+// ============================================================
+
+TEST_F(SelfHostTest, DevirtualizationLetBinding) {
+    expectOutput(R"--(
+protocol Shape {
+    func area(self) -> f64
+}
+struct Circle {
+    let radius: f64
+}
+impl Circle: Shape {
+    func area(self) -> f64 {
+        return self.radius * self.radius * 3.14
+    }
+}
+func main() {
+    let c = Circle { radius: 5.0 }
+    let s: dyn Shape = c
+    println(s.area())
+}
+)--", "78.500000\n");
+}
+
+TEST_F(SelfHostTest, DevirtualizationMultipleMethods) {
+    expectOutput(R"--(
+protocol Animal {
+    func speak(self) -> i32
+    func legs(self) -> i32
+}
+struct Dog {
+    let x: i32
+}
+impl Dog: Animal {
+    func speak(self) -> i32 {
+        return 42
+    }
+    func legs(self) -> i32 {
+        return 4
+    }
+}
+func main() {
+    let d = Dog { x: 1 }
+    let a: dyn Animal = d
+    println(a.speak())
+    println(a.legs())
+}
+)--", "42\n4\n");
+}
+
+TEST_F(SelfHostTest, DevirtualizationWithParamFallback) {
+    expectOutput(R"--(
+protocol Shape {
+    func area(self) -> f64
+}
+struct Circle {
+    let radius: f64
+}
+impl Circle: Shape {
+    func area(self) -> f64 {
+        return self.radius * self.radius * 3.14
+    }
+}
+func printArea(s: dyn Shape) {
+    println(s.area())
+}
+func main() {
+    let c = Circle { radius: 5.0 }
+    let s: dyn Shape = c
+    println(s.area())
+    printArea(c)
+}
+)--", "78.500000\n78.500000\n");
+}
+
+// ============================================================
 // 9. Separate Compilation (--emit-obj + link)
 // ============================================================
 

@@ -965,6 +965,35 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             auto ptIt = varProtocolTypes_.find(ident->getName());
             if (ptIt != varProtocolTypes_.end()) {
                 const std::string &protocolName = ptIt->second;
+
+                // Devirtualization: direct call if concrete type is statically known
+                auto devirtIt = varConcreteProtocolTypes_.find(ident->getName());
+                if (devirtIt != varConcreteProtocolTypes_.end()) {
+                    const std::string &concreteType = devirtIt->second;
+                    std::string directFnName = concreteType + "_" + methodName;
+                    auto *directFn = module_->getFunction(directFnName);
+                    if (directFn) {
+                        auto *traitTy = getTraitObjectTy();
+                        auto nvIt = namedValues_.find(ident->getName());
+                        if (nvIt != namedValues_.end()) {
+                            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                            auto *dataGEP = builder_->CreateStructGEP(traitTy, nvIt->second, 0);
+                            auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "devirt.data");
+                            std::vector<llvm::Value *> args;
+                            args.push_back(dataPtr);
+                            for (auto &arg : node->getArgs()) {
+                                auto *val = visit(arg.get());
+                                if (!val) return nullptr;
+                                args.push_back(val);
+                            }
+                            if (directFn->getReturnType()->isVoidTy())
+                                return builder_->CreateCall(directFn, args);
+                            return builder_->CreateCall(directFn, args, "devirt.call");
+                        }
+                    }
+                }
+                // Fall through to vtable dispatch
+
                 auto miIt = protocolMethodIndices_.find(protocolName);
                 if (miIt != protocolMethodIndices_.end()) {
                     auto idxIt = miIt->second.find(methodName);

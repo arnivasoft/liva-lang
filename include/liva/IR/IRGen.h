@@ -479,6 +479,9 @@ private:
     /// Track which variables are protocol trait objects: varName → protocolName
     std::unordered_map<std::string, std::string> varProtocolTypes_;
 
+    /// Concrete type behind dyn Protocol vars for devirtualization (let bindings only)
+    std::unordered_map<std::string, std::string> varConcreteProtocolTypes_;
+
     /// Track DynArray vars with dyn Protocol elements: arrayVarName → protocolName
     std::unordered_map<std::string, std::string> varDynArrayProtocol_;
 

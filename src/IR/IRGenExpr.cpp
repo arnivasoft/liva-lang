@@ -660,6 +660,7 @@ static std::vector<CapturedVar> collectFreeVars(
 llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     // Save outer scope state
     auto savedBlock = builder_->GetInsertBlock();
+    auto savedDebugLoc = builder_->getCurrentDebugLocation();
     auto savedValues = namedValues_;
     auto savedStructTypes2 = varStructTypes_;
     auto savedEnumTypes2 = varEnumTypes_;
@@ -671,6 +672,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     auto savedOptionalTypes2 = varOptionalTypes_;
     auto savedFuncTypes2 = varFuncTypes_;
     auto savedProtocolTypes2 = varProtocolTypes_;
+    auto savedConcreteProtocolTypes2 = varConcreteProtocolTypes_;
     auto savedResultTypes2 = varResultTypes_;
     auto savedFileTypes2 = varFileTypes_;
     auto savedFileOptTypes2 = varFileOptionalTypes_;
@@ -739,9 +741,23 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     auto *func = llvm::Function::Create(
         funcTy, llvm::Function::InternalLinkage, name, module_.get());
 
+    // Attach debug info subprogram to closure function
+    if (diBuilder_) {
+        auto *funcDbgType = createFunctionDebugType();
+        unsigned lineNo = node->getStartLoc().isValid() ? node->getStartLoc().line : 0;
+        auto *sp = diBuilder_->createFunction(
+            diFile_, name, name, diFile_, lineNo,
+            funcDbgType, lineNo,
+            llvm::DINode::FlagPrototyped,
+            llvm::DISubprogram::SPFlagDefinition);
+        func->setSubprogram(sp);
+    }
+
     // --- Generate closure body ---
     auto *entry = llvm::BasicBlock::Create(*context_, "entry", func);
     builder_->SetInsertPoint(entry);
+    // Reset debug location to avoid outer scope leaking into closure
+    builder_->SetCurrentDebugLocation(llvm::DebugLoc());
     namedValues_.clear();
     varStructTypes_.clear();
     varEnumTypes_.clear();
@@ -753,6 +769,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varOptionalTypes_.clear();
     varFuncTypes_.clear();
     varProtocolTypes_.clear();
+    varConcreteProtocolTypes_.clear();
     varResultTypes_.clear();
     varFileTypes_.clear();
     varFileOptionalTypes_.clear();
@@ -826,6 +843,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
 
     // --- Restore outer scope and build closure object ---
     builder_->SetInsertPoint(savedBlock);
+    builder_->SetCurrentDebugLocation(savedDebugLoc);
     namedValues_ = savedValues;
     varStructTypes_ = savedStructTypes2;
     varEnumTypes_ = savedEnumTypes2;
@@ -837,6 +855,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     varOptionalTypes_ = savedOptionalTypes2;
     varFuncTypes_ = savedFuncTypes2;
     varProtocolTypes_ = savedProtocolTypes2;
+    varConcreteProtocolTypes_ = savedConcreteProtocolTypes2;
     varResultTypes_ = savedResultTypes2;
     varFileTypes_ = savedFileTypes2;
     varFileOptionalTypes_ = savedFileOptTypes2;
