@@ -69,6 +69,7 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
 }
 
 llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     // Check for method call or enum case constructor: obj.method(args) / Shape.Circle(3.14)
     if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
         auto *memberExpr = static_cast<MemberExpr *>(node->getCallee());
@@ -3794,6 +3795,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 }
 
 llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     auto *val = visit(node->getValue());
     if (!val)
         return nullptr;
@@ -4064,6 +4066,7 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
 }
 
 llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     // Optional chaining: obj?.field
     if (node->isOptionalChain())
         return emitOptionalChainMember(node);
@@ -4452,6 +4455,7 @@ llvm::Value *IRGen::emitEnumCaseConstruct(const std::string &enumName,
 }
 
 llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     auto *func = builder_->GetInsertBlock()->getParent();
 
     // Find enum type name from subject (if it's an identifier)

@@ -221,7 +221,9 @@ JSONValue DAPServer::handleInitialize(int64_t seq, const JSONValue & /*args*/) {
     auto body = JSONValue::object();
     body.set("supportsConfigurationDoneRequest", JSONValue(true));
     body.set("supportsFunctionBreakpoints", JSONValue(false));
-    body.set("supportsConditionalBreakpoints", JSONValue(false));
+    body.set("supportsConditionalBreakpoints", JSONValue(true));
+    body.set("supportsHitConditionalBreakpoints", JSONValue(true));
+    body.set("supportsLogPoints", JSONValue(true));
     body.set("supportsEvaluateForHovers", JSONValue(true));
 
     // Send initialized event
@@ -267,24 +269,28 @@ JSONValue DAPServer::handleDisconnect(int64_t seq, const JSONValue & /*args*/) {
 
 JSONValue DAPServer::handleSetBreakpoints(int64_t seq, const JSONValue &args) {
     auto sourcePath = args["source"]["path"].getString();
-    std::vector<int> lines;
+    std::vector<BreakpointInfo> breakpoints;
 
     auto body = JSONValue::object();
     auto bpArray = JSONValue::array();
 
     if (args["breakpoints"].isArray()) {
         for (const auto &bp : args["breakpoints"].getArray()) {
-            int line = static_cast<int>(bp["line"].getInteger());
-            lines.push_back(line);
+            BreakpointInfo info;
+            info.line = static_cast<int>(bp["line"].getInteger());
+            info.condition = bp["condition"].getString();
+            info.hitCondition = bp["hitCondition"].getString();
+            info.logMessage = bp["logMessage"].getString();
+            breakpoints.push_back(info);
 
             auto bpObj = JSONValue::object();
             bpObj.set("verified", JSONValue(true));
-            bpObj.set("line", JSONValue(static_cast<int64_t>(line)));
+            bpObj.set("line", JSONValue(static_cast<int64_t>(info.line)));
             bpArray.push(std::move(bpObj));
         }
     }
 
-    interpreter_.setBreakpoints(sourcePath, lines);
+    interpreter_.setBreakpoints(sourcePath, breakpoints);
     body.set("breakpoints", std::move(bpArray));
     return makeResponse(seq, "setBreakpoints", true, std::move(body));
 }
@@ -496,83 +502,16 @@ JSONValue DAPServer::handleEvaluate(int64_t seq, const JSONValue &args) {
     if (expression.empty())
         return makeErrorResponse(seq, "evaluate", "empty expression");
 
-    // Split expression by '.' for member access
-    std::vector<std::string> segments;
-    std::string current;
-    for (size_t i = 0; i < expression.size(); ++i) {
-        char c = expression[i];
-        if (c == '.') {
-            if (!current.empty()) {
-                segments.push_back(current);
-                current.clear();
-            }
-        } else if (c == '[') {
-            // Push current segment if any
-            if (!current.empty()) {
-                segments.push_back(current);
-                current.clear();
-            }
-            // Read index: [N]
-            ++i;
-            std::string idx;
-            while (i < expression.size() && expression[i] != ']') {
-                idx += expression[i++];
-            }
-            // Store as "[N]" to distinguish from field names
-            segments.push_back("[" + idx + "]");
-        } else {
-            current += c;
-        }
-    }
-    if (!current.empty())
-        segments.push_back(current);
-
-    if (segments.empty())
-        return makeErrorResponse(seq, "evaluate", "invalid expression");
-
-    // Look up first segment in frame locals
-    const auto &locals = interpreter_.getFrameLocals(frameId);
-    auto it = locals.find(segments[0]);
-    if (it == locals.end())
-        return makeErrorResponse(seq, "evaluate",
-                                 "variable not found: " + segments[0]);
-
-    const DAPValue *val = &it->second;
-
-    // Navigate remaining segments
-    for (size_t i = 1; i < segments.size(); ++i) {
-        const auto &seg = segments[i];
-        if (seg.size() >= 2 && seg[0] == '[' && seg.back() == ']') {
-            // Array index
-            if (val->kind != DAPValue::Array)
-                return makeErrorResponse(seq, "evaluate",
-                                         "not an array for index access");
-            auto idxStr = seg.substr(1, seg.size() - 2);
-            long idx = std::strtol(idxStr.c_str(), nullptr, 10);
-            if (idx < 0 || static_cast<size_t>(idx) >= val->arrayVal.size())
-                return makeErrorResponse(seq, "evaluate", "index out of bounds");
-            val = &val->arrayVal[static_cast<size_t>(idx)];
-        } else {
-            // Struct field
-            if (val->kind != DAPValue::Struct)
-                return makeErrorResponse(seq, "evaluate",
-                                         "not a struct for member access");
-            auto fit = val->structVal.find(seg);
-            if (fit == val->structVal.end())
-                return makeErrorResponse(seq, "evaluate",
-                                         "field not found: " + seg);
-            val = &fit->second;
-        }
-    }
+    auto val = interpreter_.evaluateExprString(expression, frameId);
 
     auto body = JSONValue::object();
-    body.set("result", JSONValue(val->display()));
-    body.set("type", JSONValue(val->typeName()));
+    body.set("result", JSONValue(val.display()));
+    body.set("type", JSONValue(val.typeName()));
 
     int64_t ref = 0;
-    if (val->kind == DAPValue::Struct || val->kind == DAPValue::Array) {
+    if (val.kind == DAPValue::Struct || val.kind == DAPValue::Array) {
         int r = nextVarRef_++;
-        structVarRefs_[r] = *val;
+        structVarRefs_[r] = val;
         ref = static_cast<int64_t>(r);
     }
     body.set("variablesReference", JSONValue(ref));

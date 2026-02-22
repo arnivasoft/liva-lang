@@ -62,7 +62,7 @@ void IRGen::emitDebugLocation(const SourceLocation &loc) {
             scope = func->getSubprogram();
     }
     if (!scope)
-        scope = diCU_;
+        return;  // DILocation requires DILocalScope, diCU_ is not valid
     builder_->SetCurrentDebugLocation(
         llvm::DILocation::get(*context_, loc.line, loc.column, scope));
 }
@@ -95,10 +95,87 @@ llvm::DIType *IRGen::toDIType(const TypeRepr *type) {
     case TypeRepr::Kind::String:
         return diBuilder_->createPointerType(
             diBuilder_->createBasicType("char", 8, llvm::dwarf::DW_ATE_signed_char), 64);
+    case TypeRepr::Kind::Optional: {
+        auto *optType = static_cast<const OptionalTypeRepr *>(type);
+        auto *innerDI = toDIType(optType->getInner());
+        if (!innerDI) return nullptr;
+        // Optional is {i1 hasValue, T value} struct
+        auto *innerLLVM = toLLVMType(optType->getInner());
+        if (!innerLLVM) return nullptr;
+        auto *optStructTy = getOptionalType(innerLLVM);
+        auto &dl = module_->getDataLayout();
+        auto *layout = dl.getStructLayout(optStructTy);
+        auto *boolDI = diBuilder_->createBasicType("bool", 8, llvm::dwarf::DW_ATE_boolean);
+        llvm::SmallVector<llvm::Metadata *, 2> elements;
+        elements.push_back(diBuilder_->createMemberType(
+            diCU_, "hasValue", diFile_, 0, 8, 0,
+            layout->getElementOffsetInBits(0),
+            llvm::DINode::FlagZero, boolDI));
+        elements.push_back(diBuilder_->createMemberType(
+            diCU_, "value", diFile_, 0,
+            dl.getTypeSizeInBits(innerLLVM), 0,
+            layout->getElementOffsetInBits(1),
+            llvm::DINode::FlagZero, innerDI));
+        return diBuilder_->createStructType(
+            diCU_, optType->toString(), diFile_, 0,
+            dl.getTypeSizeInBits(optStructTy),
+            0, llvm::DINode::FlagZero, nullptr,
+            diBuilder_->getOrCreateArray(elements));
+    }
+    case TypeRepr::Kind::Array: {
+        auto *arrType = static_cast<const ArrayTypeRepr *>(type);
+        auto *elemDI = toDIType(arrType->getElement());
+        if (!elemDI) return nullptr;
+        if (arrType->isDynamic()) {
+            // Dynamic array: {ptr data, i64 size, i64 capacity} — 192 bits
+            auto *ptrDI = diBuilder_->createPointerType(elemDI, 64);
+            auto *i64DI = diBuilder_->createBasicType("i64", 64, llvm::dwarf::DW_ATE_signed);
+            llvm::SmallVector<llvm::Metadata *, 3> elements;
+            elements.push_back(diBuilder_->createMemberType(
+                diCU_, "data", diFile_, 0, 64, 0, 0,
+                llvm::DINode::FlagZero, ptrDI));
+            elements.push_back(diBuilder_->createMemberType(
+                diCU_, "size", diFile_, 0, 64, 0, 64,
+                llvm::DINode::FlagZero, i64DI));
+            elements.push_back(diBuilder_->createMemberType(
+                diCU_, "capacity", diFile_, 0, 64, 0, 128,
+                llvm::DINode::FlagZero, i64DI));
+            return diBuilder_->createStructType(
+                diCU_, arrType->toString(), diFile_, 0,
+                192, 0, llvm::DINode::FlagZero, nullptr,
+                diBuilder_->getOrCreateArray(elements));
+        } else {
+            // Fixed array: [T; N]
+            auto *elemLLVM = toLLVMType(arrType->getElement());
+            if (!elemLLVM) return nullptr;
+            auto &dl = module_->getDataLayout();
+            uint64_t elemBits = dl.getTypeSizeInBits(elemLLVM);
+            int64_t count = arrType->getSize();
+            auto *subrange = diBuilder_->getOrCreateSubrange(0, count);
+            return diBuilder_->createArrayType(
+                static_cast<uint64_t>(count) * elemBits, 0, elemDI,
+                diBuilder_->getOrCreateArray({subrange}));
+        }
+    }
     case TypeRepr::Kind::Named: {
         auto *named = static_cast<const NamedTypeRepr *>(type);
         auto it = diStructTypes_.find(named->getName());
         if (it != diStructTypes_.end()) return it->second;
+        // Check if this is an enum type
+        auto enumIt = enumTypes_.find(named->getName());
+        if (enumIt != enumTypes_.end()) {
+            auto *i32DI = diBuilder_->createBasicType("i32", 32, llvm::dwarf::DW_ATE_signed);
+            llvm::SmallVector<llvm::Metadata *, 1> elements;
+            elements.push_back(diBuilder_->createMemberType(
+                diCU_, "tag", diFile_, 0, 32, 0, 0,
+                llvm::DINode::FlagZero, i32DI));
+            auto *enumDI = diBuilder_->createStructType(
+                diCU_, named->getName(), diFile_, 0,
+                32, 0, llvm::DINode::FlagZero, nullptr,
+                diBuilder_->getOrCreateArray(elements));
+            diStructTypes_[named->getName()] = enumDI;
+            return enumDI;
+        }
         return nullptr;
     }
     case TypeRepr::Kind::Void:

@@ -191,12 +191,387 @@ StepResult DAPInterpreter::resume(StepMode mode) {
 }
 
 void DAPInterpreter::setBreakpoints(const std::string &path,
-                                     const std::vector<int> &lines) {
-    auto &bpSet = breakpoints_[path];
-    bpSet.clear();
-    for (int line : lines) {
-        bpSet.insert(line);
+                                     const std::vector<BreakpointInfo> &breakpoints) {
+    breakpoints_[path] = breakpoints;
+}
+
+// ============================================================
+// Mini Expression Evaluator (string-based, for watch/conditional BP)
+// ============================================================
+
+namespace {
+
+enum class ExprTokenKind {
+    Ident, IntLit, FloatLit, StringLit, BoolLit, NilLit,
+    Plus, Minus, Star, Slash, Percent,
+    EqEq, NotEq, Less, LessEq, Greater, GreaterEq,
+    And, Or, Not,
+    Dot, LBrack, RBrack, LParen, RParen, Comma,
+    Eof
+};
+
+struct ExprToken {
+    ExprTokenKind kind = ExprTokenKind::Eof;
+    std::string text;
+    int64_t intVal = 0;
+    double floatVal = 0.0;
+};
+
+std::vector<ExprToken> tokenizeExpr(const std::string &src) {
+    std::vector<ExprToken> tokens;
+    size_t i = 0;
+    while (i < src.size()) {
+        char c = src[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') { ++i; continue; }
+        ExprToken tok;
+        if (std::isalpha(c) || c == '_') {
+            std::string id;
+            while (i < src.size() && (std::isalnum(src[i]) || src[i] == '_'))
+                id += src[i++];
+            if (id == "true") { tok.kind = ExprTokenKind::BoolLit; tok.intVal = 1; }
+            else if (id == "false") { tok.kind = ExprTokenKind::BoolLit; tok.intVal = 0; }
+            else if (id == "nil") { tok.kind = ExprTokenKind::NilLit; }
+            else { tok.kind = ExprTokenKind::Ident; tok.text = id; }
+            tokens.push_back(tok);
+            continue;
+        }
+        if (std::isdigit(c)) {
+            std::string num;
+            bool isFloat = false;
+            while (i < src.size() && (std::isdigit(src[i]) || src[i] == '.')) {
+                if (src[i] == '.') {
+                    if (isFloat) break;
+                    isFloat = true;
+                }
+                num += src[i++];
+            }
+            if (isFloat) {
+                tok.kind = ExprTokenKind::FloatLit;
+                tok.floatVal = std::strtod(num.c_str(), nullptr);
+            } else {
+                tok.kind = ExprTokenKind::IntLit;
+                tok.intVal = std::strtoll(num.c_str(), nullptr, 10);
+            }
+            tokens.push_back(tok);
+            continue;
+        }
+        if (c == '"') {
+            ++i;
+            std::string s;
+            while (i < src.size() && src[i] != '"') {
+                if (src[i] == '\\' && i + 1 < src.size()) { s += src[i + 1]; i += 2; }
+                else { s += src[i++]; }
+            }
+            if (i < src.size()) ++i; // skip closing quote
+            tok.kind = ExprTokenKind::StringLit;
+            tok.text = s;
+            tokens.push_back(tok);
+            continue;
+        }
+        // Two-char operators
+        if (i + 1 < src.size()) {
+            char c2 = src[i + 1];
+            if (c == '=' && c2 == '=') { tok.kind = ExprTokenKind::EqEq; i += 2; tokens.push_back(tok); continue; }
+            if (c == '!' && c2 == '=') { tok.kind = ExprTokenKind::NotEq; i += 2; tokens.push_back(tok); continue; }
+            if (c == '<' && c2 == '=') { tok.kind = ExprTokenKind::LessEq; i += 2; tokens.push_back(tok); continue; }
+            if (c == '>' && c2 == '=') { tok.kind = ExprTokenKind::GreaterEq; i += 2; tokens.push_back(tok); continue; }
+            if (c == '&' && c2 == '&') { tok.kind = ExprTokenKind::And; i += 2; tokens.push_back(tok); continue; }
+            if (c == '|' && c2 == '|') { tok.kind = ExprTokenKind::Or; i += 2; tokens.push_back(tok); continue; }
+        }
+        // Single-char operators
+        switch (c) {
+        case '+': tok.kind = ExprTokenKind::Plus; break;
+        case '-': tok.kind = ExprTokenKind::Minus; break;
+        case '*': tok.kind = ExprTokenKind::Star; break;
+        case '/': tok.kind = ExprTokenKind::Slash; break;
+        case '%': tok.kind = ExprTokenKind::Percent; break;
+        case '<': tok.kind = ExprTokenKind::Less; break;
+        case '>': tok.kind = ExprTokenKind::Greater; break;
+        case '!': tok.kind = ExprTokenKind::Not; break;
+        case '.': tok.kind = ExprTokenKind::Dot; break;
+        case '[': tok.kind = ExprTokenKind::LBrack; break;
+        case ']': tok.kind = ExprTokenKind::RBrack; break;
+        case '(': tok.kind = ExprTokenKind::LParen; break;
+        case ')': tok.kind = ExprTokenKind::RParen; break;
+        case ',': tok.kind = ExprTokenKind::Comma; break;
+        default: ++i; continue; // skip unknown
+        }
+        ++i;
+        tokens.push_back(tok);
     }
+    tokens.push_back({ExprTokenKind::Eof, "", 0, 0.0});
+    return tokens;
+}
+
+class ExprParser {
+public:
+    ExprParser(const std::vector<ExprToken> &tokens, DAPInterpreter &interp, int frameId)
+        : tokens_(tokens), interp_(interp), frameId_(frameId) {}
+
+    DAPValue parse() {
+        auto result = parseOr();
+        return result;
+    }
+
+private:
+    const std::vector<ExprToken> &tokens_;
+    DAPInterpreter &interp_;
+    int frameId_;
+    size_t pos_ = 0;
+
+    const ExprToken &peek() const {
+        return pos_ < tokens_.size() ? tokens_[pos_] : tokens_.back();
+    }
+    const ExprToken &advance() {
+        auto &tok = tokens_[pos_];
+        if (pos_ < tokens_.size() - 1) ++pos_;
+        return tok;
+    }
+    bool match(ExprTokenKind k) {
+        if (peek().kind == k) { advance(); return true; }
+        return false;
+    }
+
+    DAPValue parseOr() {
+        auto left = parseAnd();
+        while (peek().kind == ExprTokenKind::Or) {
+            advance();
+            auto right = parseAnd();
+            left = DAPValue::makeBool(left.isTruthy() || right.isTruthy());
+        }
+        return left;
+    }
+
+    DAPValue parseAnd() {
+        auto left = parseComparison();
+        while (peek().kind == ExprTokenKind::And) {
+            advance();
+            auto right = parseComparison();
+            left = DAPValue::makeBool(left.isTruthy() && right.isTruthy());
+        }
+        return left;
+    }
+
+    DAPValue parseComparison() {
+        auto left = parseAddSub();
+        while (true) {
+            auto k = peek().kind;
+            if (k != ExprTokenKind::EqEq && k != ExprTokenKind::NotEq &&
+                k != ExprTokenKind::Less && k != ExprTokenKind::LessEq &&
+                k != ExprTokenKind::Greater && k != ExprTokenKind::GreaterEq)
+                break;
+            advance();
+            auto right = parseAddSub();
+            double l = (left.kind == DAPValue::Float) ? left.floatVal : static_cast<double>(left.intVal);
+            double r = (right.kind == DAPValue::Float) ? right.floatVal : static_cast<double>(right.intVal);
+            bool useNum = (left.kind == DAPValue::Integer || left.kind == DAPValue::Float) &&
+                          (right.kind == DAPValue::Integer || right.kind == DAPValue::Float);
+            switch (k) {
+            case ExprTokenKind::EqEq:
+                if (left.kind == DAPValue::String && right.kind == DAPValue::String)
+                    left = DAPValue::makeBool(left.strVal == right.strVal);
+                else if (left.kind == DAPValue::Bool && right.kind == DAPValue::Bool)
+                    left = DAPValue::makeBool(left.boolVal == right.boolVal);
+                else if (useNum)
+                    left = DAPValue::makeBool(l == r);
+                else left = DAPValue::makeBool(false);
+                break;
+            case ExprTokenKind::NotEq:
+                if (left.kind == DAPValue::String && right.kind == DAPValue::String)
+                    left = DAPValue::makeBool(left.strVal != right.strVal);
+                else if (left.kind == DAPValue::Bool && right.kind == DAPValue::Bool)
+                    left = DAPValue::makeBool(left.boolVal != right.boolVal);
+                else if (useNum)
+                    left = DAPValue::makeBool(l != r);
+                else left = DAPValue::makeBool(true);
+                break;
+            case ExprTokenKind::Less: left = DAPValue::makeBool(useNum && l < r); break;
+            case ExprTokenKind::LessEq: left = DAPValue::makeBool(useNum && l <= r); break;
+            case ExprTokenKind::Greater: left = DAPValue::makeBool(useNum && l > r); break;
+            case ExprTokenKind::GreaterEq: left = DAPValue::makeBool(useNum && l >= r); break;
+            default: break;
+            }
+        }
+        return left;
+    }
+
+    DAPValue parseAddSub() {
+        auto left = parseMulDiv();
+        while (peek().kind == ExprTokenKind::Plus || peek().kind == ExprTokenKind::Minus) {
+            auto op = advance().kind;
+            auto right = parseMulDiv();
+            if (op == ExprTokenKind::Plus) {
+                if (left.kind == DAPValue::Integer && right.kind == DAPValue::Integer)
+                    left = DAPValue::makeInt(left.intVal + right.intVal);
+                else if (left.kind == DAPValue::String && right.kind == DAPValue::String)
+                    left = DAPValue::makeString(left.strVal + right.strVal);
+                else {
+                    double l = left.kind == DAPValue::Float ? left.floatVal : static_cast<double>(left.intVal);
+                    double r = right.kind == DAPValue::Float ? right.floatVal : static_cast<double>(right.intVal);
+                    left = DAPValue::makeFloat(l + r);
+                }
+            } else {
+                if (left.kind == DAPValue::Integer && right.kind == DAPValue::Integer)
+                    left = DAPValue::makeInt(left.intVal - right.intVal);
+                else {
+                    double l = left.kind == DAPValue::Float ? left.floatVal : static_cast<double>(left.intVal);
+                    double r = right.kind == DAPValue::Float ? right.floatVal : static_cast<double>(right.intVal);
+                    left = DAPValue::makeFloat(l - r);
+                }
+            }
+        }
+        return left;
+    }
+
+    DAPValue parseMulDiv() {
+        auto left = parseUnary();
+        while (peek().kind == ExprTokenKind::Star || peek().kind == ExprTokenKind::Slash ||
+               peek().kind == ExprTokenKind::Percent) {
+            auto op = advance().kind;
+            auto right = parseUnary();
+            if (op == ExprTokenKind::Star) {
+                if (left.kind == DAPValue::Integer && right.kind == DAPValue::Integer)
+                    left = DAPValue::makeInt(left.intVal * right.intVal);
+                else {
+                    double l = left.kind == DAPValue::Float ? left.floatVal : static_cast<double>(left.intVal);
+                    double r = right.kind == DAPValue::Float ? right.floatVal : static_cast<double>(right.intVal);
+                    left = DAPValue::makeFloat(l * r);
+                }
+            } else if (op == ExprTokenKind::Slash) {
+                if (left.kind == DAPValue::Integer && right.kind == DAPValue::Integer) {
+                    left = right.intVal != 0 ? DAPValue::makeInt(left.intVal / right.intVal) : DAPValue::makeInt(0);
+                } else {
+                    double l = left.kind == DAPValue::Float ? left.floatVal : static_cast<double>(left.intVal);
+                    double r = right.kind == DAPValue::Float ? right.floatVal : static_cast<double>(right.intVal);
+                    left = r != 0.0 ? DAPValue::makeFloat(l / r) : DAPValue::makeFloat(0.0);
+                }
+            } else {
+                if (left.kind == DAPValue::Integer && right.kind == DAPValue::Integer)
+                    left = right.intVal != 0 ? DAPValue::makeInt(left.intVal % right.intVal) : DAPValue::makeInt(0);
+                else left = DAPValue::makeNil();
+            }
+        }
+        return left;
+    }
+
+    DAPValue parseUnary() {
+        if (peek().kind == ExprTokenKind::Not) {
+            advance();
+            auto val = parseUnary();
+            return DAPValue::makeBool(!val.isTruthy());
+        }
+        if (peek().kind == ExprTokenKind::Minus) {
+            advance();
+            auto val = parseUnary();
+            if (val.kind == DAPValue::Integer) return DAPValue::makeInt(-val.intVal);
+            if (val.kind == DAPValue::Float) return DAPValue::makeFloat(-val.floatVal);
+            return DAPValue::makeNil();
+        }
+        return parsePrimary();
+    }
+
+    DAPValue parsePrimary() {
+        auto &tok = peek();
+        if (tok.kind == ExprTokenKind::IntLit) {
+            advance();
+            return DAPValue::makeInt(tok.intVal);
+        }
+        if (tok.kind == ExprTokenKind::FloatLit) {
+            advance();
+            return DAPValue::makeFloat(tok.floatVal);
+        }
+        if (tok.kind == ExprTokenKind::StringLit) {
+            advance();
+            return DAPValue::makeString(tok.text);
+        }
+        if (tok.kind == ExprTokenKind::BoolLit) {
+            advance();
+            return DAPValue::makeBool(tok.intVal != 0);
+        }
+        if (tok.kind == ExprTokenKind::NilLit) {
+            advance();
+            return DAPValue::makeNil();
+        }
+        if (tok.kind == ExprTokenKind::LParen) {
+            advance();
+            auto val = parseOr();
+            match(ExprTokenKind::RParen);
+            return val;
+        }
+        if (tok.kind == ExprTokenKind::Ident) {
+            std::string name = tok.text;
+            advance();
+            // Look up variable
+            DAPValue val = interp_.evaluateExprString(name, frameId_);
+            // Postfix: .field, [index]
+            while (true) {
+                if (peek().kind == ExprTokenKind::Dot) {
+                    advance();
+                    if (peek().kind == ExprTokenKind::Ident) {
+                        std::string field = peek().text;
+                        advance();
+                        if (val.kind == DAPValue::Struct) {
+                            auto it = val.structVal.find(field);
+                            val = it != val.structVal.end() ? it->second : DAPValue::makeNil();
+                        } else if (val.kind == DAPValue::Array) {
+                            if (field == "length" || field == "count")
+                                val = DAPValue::makeInt(static_cast<int64_t>(val.arrayVal.size()));
+                            else if (field == "isEmpty")
+                                val = DAPValue::makeBool(val.arrayVal.empty());
+                            else val = DAPValue::makeNil();
+                        } else if (val.kind == DAPValue::String) {
+                            if (field == "length")
+                                val = DAPValue::makeInt(static_cast<int64_t>(val.strVal.size()));
+                            else val = DAPValue::makeNil();
+                        } else val = DAPValue::makeNil();
+                    }
+                } else if (peek().kind == ExprTokenKind::LBrack) {
+                    advance();
+                    auto idx = parseOr();
+                    match(ExprTokenKind::RBrack);
+                    if (val.kind == DAPValue::Array && idx.kind == DAPValue::Integer) {
+                        auto i = idx.intVal;
+                        if (i >= 0 && i < static_cast<int64_t>(val.arrayVal.size()))
+                            val = val.arrayVal[static_cast<size_t>(i)];
+                        else val = DAPValue::makeNil();
+                    } else val = DAPValue::makeNil();
+                } else break;
+            }
+            return val;
+        }
+        return DAPValue::makeNil();
+    }
+};
+
+} // anonymous namespace
+
+DAPValue DAPInterpreter::evaluateExprString(const std::string &expr, int frameId) {
+    if (expr.empty()) return DAPValue::makeNil();
+
+    // Simple variable lookup (no operators, just a plain identifier)
+    bool isSimpleIdent = true;
+    for (char c : expr) {
+        if (!std::isalnum(c) && c != '_') { isSimpleIdent = false; break; }
+    }
+    if (isSimpleIdent) {
+        // Look up in specified frame or current
+        if (frameId >= 0) {
+            const auto &locals = getFrameLocals(frameId);
+            auto it = locals.find(expr);
+            if (it != locals.end()) return it->second;
+        }
+        // Fall back to interpreter variable lookup
+        for (auto it = callStack_.rbegin(); it != callStack_.rend(); ++it) {
+            auto found = it->locals.find(expr);
+            if (found != it->locals.end())
+                return found->second;
+        }
+        return DAPValue::makeNil();
+    }
+
+    auto tokens = tokenizeExpr(expr);
+    ExprParser parser(tokens, *this, frameId);
+    return parser.parse();
 }
 
 const std::map<std::string, DAPValue> &
@@ -206,6 +581,79 @@ DAPInterpreter::getFrameLocals(int frameId) const {
             return frame.locals;
     }
     return emptyLocals_;
+}
+
+bool DAPInterpreter::checkHitCondition(const std::string &cond, int hitCount) {
+    if (cond.empty()) return true;
+    // Parse patterns: ">N", ">=N", "==N", "<N", "<=N", "%N", or just "N" (== N)
+    size_t i = 0;
+    std::string op;
+    while (i < cond.size() && !std::isdigit(cond[i]) && cond[i] != '-') {
+        op += cond[i++];
+    }
+    long n = std::strtol(cond.c_str() + i, nullptr, 10);
+    if (op.empty() || op == "==") return hitCount == static_cast<int>(n);
+    if (op == ">") return hitCount > static_cast<int>(n);
+    if (op == ">=") return hitCount >= static_cast<int>(n);
+    if (op == "<") return hitCount < static_cast<int>(n);
+    if (op == "<=") return hitCount <= static_cast<int>(n);
+    if (op == "%") return n > 0 && (hitCount % static_cast<int>(n)) == 0;
+    return true;
+}
+
+std::string DAPInterpreter::interpolateLogMessage(const std::string &msg) {
+    std::string result;
+    size_t i = 0;
+    while (i < msg.size()) {
+        if (msg[i] == '{') {
+            ++i;
+            std::string expr;
+            int braceDepth = 1;
+            while (i < msg.size() && braceDepth > 0) {
+                if (msg[i] == '{') ++braceDepth;
+                else if (msg[i] == '}') { if (--braceDepth == 0) { ++i; break; } }
+                expr += msg[i++];
+            }
+            auto val = evaluateExprString(expr);
+            if (val.kind == DAPValue::String)
+                result += val.strVal;
+            else
+                result += val.display();
+        } else {
+            result += msg[i++];
+        }
+    }
+    return result;
+}
+
+bool DAPInterpreter::checkBreakpointAtLine(int line) {
+    for (auto &bpEntry : breakpoints_) {
+        for (auto &bp : bpEntry.second) {
+            if (bp.line != line) continue;
+            bp.hitCount++;
+
+            // Check hit condition
+            if (!bp.hitCondition.empty() && !checkHitCondition(bp.hitCondition, bp.hitCount))
+                continue;
+
+            // Check condition expression
+            if (!bp.condition.empty()) {
+                auto val = evaluateExprString(bp.condition);
+                if (!val.isTruthy()) continue;
+            }
+
+            // Logpoint: output message but don't pause
+            if (!bp.logMessage.empty()) {
+                outputBuffer_ += interpolateLogMessage(bp.logMessage) + "\n";
+                return false; // Don't pause for logpoints
+            }
+
+            stopReason_ = "breakpoint";
+            lastPausedLine_ = line;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool DAPInterpreter::shouldPause(const SourceLocation &loc) {
@@ -224,15 +672,7 @@ bool DAPInterpreter::shouldPause(const SourceLocation &loc) {
 
     switch (stepMode_) {
     case StepMode::Continue: {
-        // Only pause on breakpoints
-        for (const auto &bp : breakpoints_) {
-            if (bp.second.count(line)) {
-                stopReason_ = "breakpoint";
-                lastPausedLine_ = line;
-                return true;
-            }
-        }
-        return false;
+        return checkBreakpointAtLine(line);
     }
     case StepMode::StepIn:
         // Pause at every statement
@@ -248,14 +688,7 @@ bool DAPInterpreter::shouldPause(const SourceLocation &loc) {
             return true;
         }
         // Also check breakpoints
-        for (const auto &bp : breakpoints_) {
-            if (bp.second.count(line)) {
-                stopReason_ = "breakpoint";
-                lastPausedLine_ = line;
-                return true;
-            }
-        }
-        return false;
+        return checkBreakpointAtLine(line);
     }
     case StepMode::StepOut: {
         // Pause when frame depth decreases
@@ -266,14 +699,7 @@ bool DAPInterpreter::shouldPause(const SourceLocation &loc) {
             return true;
         }
         // Also check breakpoints
-        for (const auto &bp : breakpoints_) {
-            if (bp.second.count(line)) {
-                stopReason_ = "breakpoint";
-                lastPausedLine_ = line;
-                return true;
-            }
-        }
-        return false;
+        return checkBreakpointAtLine(line);
     }
     }
     return false;

@@ -1131,3 +1131,182 @@ TEST_F(DAPTest, StringInterpolationWithMemberAccess) {
     // Program should run to end without crash
     // Output should contain "Hello Alice"
 }
+
+// ============================================================
+// Helper for conditional breakpoints
+// ============================================================
+
+std::string setBreakpointsWithCondition(const std::string &path,
+                                         const std::vector<std::tuple<int, std::string, std::string, std::string>> &bps,
+                                         int seq = 3) {
+    // Each tuple: (line, condition, hitCondition, logMessage)
+    std::string bpArr = "[";
+    for (size_t i = 0; i < bps.size(); ++i) {
+        if (i > 0) bpArr += ",";
+        bpArr += R"({"line":)" + std::to_string(std::get<0>(bps[i]));
+        if (!std::get<1>(bps[i]).empty())
+            bpArr += R"(,"condition":")" + std::get<1>(bps[i]) + "\"";
+        if (!std::get<2>(bps[i]).empty())
+            bpArr += R"(,"hitCondition":")" + std::get<2>(bps[i]) + "\"";
+        if (!std::get<3>(bps[i]).empty())
+            bpArr += R"(,"logMessage":")" + std::get<3>(bps[i]) + "\"";
+        bpArr += "}";
+    }
+    bpArr += "]";
+    return R"({"seq":)" + std::to_string(seq) +
+           R"(,"type":"request","command":"setBreakpoints","arguments":{)"
+           R"("source":{"path":")" + path +
+           R"("},"breakpoints":)" + bpArr + "}}";
+}
+
+// ============================================================
+// Conditional Breakpoint Tests
+// ============================================================
+
+TEST_F(DAPTest, ConditionalBreakpoint) {
+    std::string src = "func main() {\n"
+                      "    var i: i32 = 0\n"
+                      "    while i < 10 {\n"
+                      "        i = i + 1\n"
+                      "    }\n"
+                      "}\n";
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    server.handleMessage(launchRequest(src));
+    server.takeEvents();
+    // Set conditional breakpoint on line 4 (i = i + 1) with condition "i == 5"
+    server.handleMessage(setBreakpointsWithCondition("test.liva",
+        {{4, "i == 5", "", ""}}));
+    server.takeEvents();
+    server.handleMessage(setExceptionBreakpointsRequest(5));
+    server.takeEvents();
+
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+    // Should stop at breakpoint
+    bool stopped = false;
+    for (const auto &ev : events) {
+        auto parsed = parseEvent(ev);
+        if (parsed["event"].getString() == "stopped") {
+            stopped = true;
+        }
+    }
+    EXPECT_TRUE(stopped);
+
+    // Check that i == 5
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto evalResp = parseResponse(server.handleMessage(evaluateRequest("i", frameId, 11)));
+    EXPECT_EQ(evalResp["body"]["result"].getString(), "5");
+}
+
+TEST_F(DAPTest, HitCountBreakpoint) {
+    std::string src = "func main() {\n"
+                      "    var i: i32 = 0\n"
+                      "    while i < 10 {\n"
+                      "        i = i + 1\n"
+                      "    }\n"
+                      "}\n";
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    server.handleMessage(launchRequest(src));
+    server.takeEvents();
+    // Set hit count breakpoint on line 4: stop on 3rd hit
+    server.handleMessage(setBreakpointsWithCondition("test.liva",
+        {{4, "", "==3", ""}}));
+    server.takeEvents();
+    server.handleMessage(setExceptionBreakpointsRequest(5));
+    server.takeEvents();
+
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+    bool stopped = false;
+    for (const auto &ev : events) {
+        auto parsed = parseEvent(ev);
+        if (parsed["event"].getString() == "stopped") {
+            stopped = true;
+        }
+    }
+    EXPECT_TRUE(stopped);
+
+    // After 3 hits, i should be 2 (about to become 3)
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+    auto evalResp = parseResponse(server.handleMessage(evaluateRequest("i", frameId, 11)));
+    EXPECT_EQ(evalResp["body"]["result"].getString(), "2");
+}
+
+TEST_F(DAPTest, Logpoint) {
+    std::string src = "func main() {\n"
+                      "    var i: i32 = 42\n"
+                      "    var x: i32 = 99\n"
+                      "}\n";
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    server.handleMessage(launchRequest(src));
+    server.takeEvents();
+    // Set logpoint on line 3 with message "value is {i}"
+    server.handleMessage(setBreakpointsWithCondition("test.liva",
+        {{3, "", "", "value is {i}"}}));
+    server.takeEvents();
+    server.handleMessage(setExceptionBreakpointsRequest(5));
+    server.takeEvents();
+
+    server.handleMessage(configDoneRequest());
+    auto events = server.takeEvents();
+    // Should NOT stop (logpoints don't pause), should get terminated
+    bool terminated = false;
+    bool hasStopped = false;
+    std::string outputStr;
+    for (const auto &ev : events) {
+        auto parsed = parseEvent(ev);
+        if (parsed["event"].getString() == "terminated") terminated = true;
+        if (parsed["event"].getString() == "stopped") hasStopped = true;
+        if (parsed["event"].getString() == "output") {
+            outputStr += parsed["body"]["output"].getString();
+        }
+    }
+    EXPECT_TRUE(terminated);
+    EXPECT_FALSE(hasStopped);
+    EXPECT_NE(outputStr.find("value is 42"), std::string::npos);
+}
+
+TEST_F(DAPTest, EvaluateArithmetic) {
+    std::string src = "func main() {\n"
+                      "    var x: i32 = 10\n"
+                      "    var y: i32 = 20\n"
+                      "    var z: i32 = 0\n"
+                      "}\n";
+    initAndLaunch(src, "test.liva", {4});
+    server.handleMessage(configDoneRequest());
+    server.takeEvents();
+
+    auto stResp = parseResponse(server.handleMessage(stackTraceRequest(10)));
+    auto frameId = static_cast<int>(
+        stResp["body"]["stackFrames"].getArray()[0]["id"].getInteger());
+
+    // x + y
+    auto r1 = parseResponse(server.handleMessage(evaluateRequest("x + y", frameId, 11)));
+    EXPECT_TRUE(r1["success"].getBool());
+    EXPECT_EQ(r1["body"]["result"].getString(), "30");
+
+    // x * 2 + 5
+    auto r2 = parseResponse(server.handleMessage(evaluateRequest("x * 2 + 5", frameId, 12)));
+    EXPECT_TRUE(r2["success"].getBool());
+    EXPECT_EQ(r2["body"]["result"].getString(), "25");
+
+    // x < y
+    auto r3 = parseResponse(server.handleMessage(evaluateRequest("x < y", frameId, 13)));
+    EXPECT_TRUE(r3["success"].getBool());
+    EXPECT_EQ(r3["body"]["result"].getString(), "true");
+}
+
+TEST_F(DAPTest, InitializeSupportsConditionalBreakpoints) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    EXPECT_TRUE(resp["success"].getBool());
+    EXPECT_TRUE(resp["body"]["supportsConditionalBreakpoints"].getBool());
+    EXPECT_TRUE(resp["body"]["supportsHitConditionalBreakpoints"].getBool());
+    EXPECT_TRUE(resp["body"]["supportsLogPoints"].getBool());
+}

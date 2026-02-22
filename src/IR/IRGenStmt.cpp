@@ -297,6 +297,7 @@ llvm::Value *IRGen::visitIfStmt(IfStmt *node) {
 }
 
 llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     llvm::AllocaInst *optAlloca = nullptr;
     llvm::Type *innerType = nullptr;
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
@@ -378,6 +379,7 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
 }
 
 llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     // while let x = optional { body }
     // Becomes: loop { check hasVal; if false -> exit; unwrap; body; continue }
     llvm::AllocaInst *optAlloca = nullptr;

@@ -87,6 +87,7 @@ llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
 }
 
 llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
+    if (diBuilder_) emitDebugLocation(node->getStartLoc());
     if (node->getOp() == BinaryExpr::Op::NilCoalesce) {
         return emitNilCoalesce(node);
     }

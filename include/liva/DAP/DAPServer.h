@@ -72,6 +72,18 @@ struct DAPValue {
 };
 
 // ============================================================
+// BreakpointInfo — conditional/hit-count/logpoint breakpoint
+// ============================================================
+
+struct BreakpointInfo {
+    int line = 0;
+    std::string condition;      // Expression; empty = unconditional
+    std::string hitCondition;   // ">5", "==10", "%3"; empty = none
+    std::string logMessage;     // "{expr}" interpolation; empty = normal bp
+    int hitCount = 0;           // Runtime: how many times hit
+};
+
+// ============================================================
 // CallFrame — call stack frame
 // ============================================================
 
@@ -111,7 +123,8 @@ public:
     void load(TranslationUnit *tu);
     bool start();
     StepResult resume(StepMode mode);
-    void setBreakpoints(const std::string &path, const std::vector<int> &lines);
+    void setBreakpoints(const std::string &path, const std::vector<BreakpointInfo> &breakpoints);
+    DAPValue evaluateExprString(const std::string &expr, int frameId = -1);
     const std::vector<CallFrame> &getCallStack() const { return callStack_; }
     const std::map<std::string, DAPValue> &getFrameLocals(int frameId) const;
     ExecState getState() const { return state_; }
@@ -161,7 +174,10 @@ private:
     ExecState state_ = ExecState::Terminated;
     StepMode stepMode_ = StepMode::Continue;
     int stepFrameDepth_ = 0;
-    std::map<std::string, std::set<int>> breakpoints_;
+    std::map<std::string, std::vector<BreakpointInfo>> breakpoints_;
+    bool checkBreakpointAtLine(int line);
+    bool checkHitCondition(const std::string &cond, int hitCount);
+    std::string interpolateLogMessage(const std::string &msg);
     std::map<std::string, const FuncDecl *> functions_;
     // implMethods_["TypeName"]["methodName"] = FuncDecl*
     std::map<std::string, std::map<std::string, const FuncDecl *>> implMethods_;
