@@ -8616,3 +8616,309 @@ TEST_F(SemaTest, FFI_ExternReturnOptionalWarning) {
     EXPECT_TRUE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::warn_extern_return_type));
 }
+
+// === Task Select & WithTimeout Tests ===
+
+TEST_F(SemaTest, TaskSelectReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let idx: i64 = taskSelect(0, 0)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskSelectWithArgs) {
+    auto result = check(R"--(
+        async func worker() -> i32 {
+            return 1
+        }
+        async func main() {
+            let idx: i64 = taskSelect(0, 2)
+            println(idx)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WithTimeoutReturnsBool) {
+    auto result = check(R"--(
+        async func worker() -> i32 {
+            return 42
+        }
+        async func main() {
+            let ok: bool = withTimeout(worker(), 1000)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WithTimeoutInExpression) {
+    auto result = check(R"--(
+        async func worker() -> i32 {
+            return 1
+        }
+        async func main() {
+            if withTimeout(worker(), 500) {
+                println("done")
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskSelectAndWithTimeoutTogether) {
+    auto result = check(R"--(
+        async func fast() -> i32 { return 1 }
+        async func slow() -> i32 { return 2 }
+        async func main() {
+            let idx: i64 = taskSelect(0, 2)
+            let ok: bool = withTimeout(fast(), 100)
+            println(idx)
+            println(ok)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskSelectWithChannelAndTaskGroup) {
+    auto result = check(R"--(
+        async func worker() -> i32 { return 1 }
+        async func main() {
+            let ch: i64 = channelCreate(10)
+            channelSend(ch, 42)
+            let g: i64 = taskGroupCreate()
+            taskGroupSpawn(g, worker())
+            let idx: i64 = taskSelect(0, 1)
+            let ok: bool = withTimeout(worker(), 500)
+            taskGroupAwaitAll(g)
+            channelFree(ch)
+            taskGroupFree(g)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, WithTimeoutAssignToBool) {
+    auto result = check(R"--(
+        async func compute() -> i32 { return 99 }
+        async func main() {
+            var success: bool = withTimeout(compute(), 2000)
+            println(success)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ConcurrencyFullWorkflow) {
+    auto result = check(R"--(
+        async func task1() -> i32 { return 1 }
+        async func task2() -> i32 { return 2 }
+        async func main() {
+            let g: i64 = taskGroupCreate()
+            taskGroupSpawn(g, task1())
+            taskGroupSpawn(g, task2())
+            let idx: i64 = taskSelect(0, 2)
+            let ok: bool = withTimeout(task1(), 1000)
+            taskGroupAwaitAll(g)
+            taskGroupFree(g)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === For Await Tests ===
+
+TEST_F(SemaTest, ForAwaitInAsyncFunction) {
+    auto result = check(R"--(
+        async func main() {
+            let items: [i32] = [1, 2, 3]
+            for await x in items {
+                println(x)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForAwaitOutsideAsyncFails) {
+    auto result = check(R"--(
+        func main() {
+            let items: [i32] = [1, 2, 3]
+            for await x in items {
+                println(x)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+TEST_F(SemaTest, ForAwaitWithRange) {
+    auto result = check(R"--(
+        async func main() {
+            for await i in 0..5 {
+                println(i)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ForAwaitDiagnostic) {
+    auto result = check(R"--(
+        func process() {
+            let items: [i32] = [1, 2]
+            for await x in items {
+                println(x)
+            }
+        }
+        func main() { process() }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_for_await_outside_async));
+}
+
+TEST_F(SemaTest, ForAwaitNested) {
+    auto result = check(R"--(
+        async func main() {
+            let outer: [i32] = [1, 2]
+            for await x in outer {
+                let inner: [i32] = [3, 4]
+                for await y in inner {
+                    println(x)
+                    println(y)
+                }
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RegularForStillWorks) {
+    auto result = check(R"--(
+        func main() {
+            let items: [i32] = [10, 20, 30]
+            for x in items {
+                println(x)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === std::async Module Tests ===
+
+TEST_F(SemaTest, StdAsyncModuleImport) {
+    auto result = checkWithModules(R"--(
+        import std::async
+        func main() {
+            let idx: i64 = taskSelect(0, 0)
+            println(idx)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdAsyncModuleWithTimeout) {
+    auto result = checkWithModules(R"--(
+        import std::async
+        async func worker() -> i32 { return 42 }
+        async func main() {
+            let ok: bool = withTimeout(worker(), 1000)
+            println(ok)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdAsyncModuleChannel) {
+    auto result = checkWithModules(R"--(
+        import std::async
+        func main() {
+            let ch: i64 = channelCreate(10)
+            channelSend(ch, 42)
+            channelClose(ch)
+            channelFree(ch)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, StdAsyncModuleTaskGroup) {
+    auto result = checkWithModules(R"--(
+        import std::async
+        async func worker() -> i32 { return 1 }
+        async func main() {
+            let g: i64 = taskGroupCreate()
+            taskGroupSpawn(g, worker())
+            taskGroupAwaitAll(g)
+            taskGroupFree(g)
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}
+
+// === Thread Pool Scheduler Tests ===
+
+TEST_F(SemaTest, SchedulerInitIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            schedulerInit(4)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SchedulerShutdownIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            schedulerShutdown()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SchedulerWorkerCountReturnsI32) {
+    auto result = check(R"--(
+        func main() {
+            let n: i32 = schedulerWorkerCount()
+            println(n)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// === Async I/O Tests ===
+
+TEST_F(SemaTest, AsyncFileReadReturnsOptionalString) {
+    auto result = check(R"--(
+        func main() {
+            let content: String? = asyncFileRead("test.txt")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncFileWriteReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ok: bool = asyncFileWrite("out.txt", "hello")
+            println(ok)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, AsyncIOViaStdAsyncModule) {
+    auto result = checkWithModules(R"--(
+        import std::async
+        func main() {
+            let content: String? = asyncFileRead("test.txt")
+            let ok: bool = asyncFileWrite("out.txt", "hello")
+            schedulerInit(2)
+            let n: i32 = schedulerWorkerCount()
+            schedulerShutdown()
+        }
+    )--", {});
+    EXPECT_TRUE(result.passed);
+}

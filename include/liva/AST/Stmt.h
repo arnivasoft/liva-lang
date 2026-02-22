@@ -121,6 +121,9 @@ public:
     const Expr *getIterable() const { return iterable_.get(); }
     const ASTNode *getBody() const { return body_.get(); }
 
+    bool isAwait() const { return isAwait_; }
+    void setAwait(bool v) { isAwait_ = v; }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::ForStmt;
     }
@@ -130,6 +133,7 @@ private:
     std::string varName2_;
     std::unique_ptr<Expr> iterable_;
     std::unique_ptr<ASTNode> body_;
+    bool isAwait_ = false;
 };
 
 /// Block statement: { stmts... }

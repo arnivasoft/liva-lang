@@ -101,7 +101,18 @@ void ModuleLoader::registerBuiltinModules() {
          "channelCreate", "channelSend", "channelReceive",
          "channelClose", "channelLen", "channelFree",
          "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
-         "taskGroupCancelAll", "taskGroupCount", "taskGroupFree"});
+         "taskGroupCancelAll", "taskGroupCount", "taskGroupFree",
+         "taskSelect", "withTimeout"});
+
+    // std::async — async concurrency utilities
+    cache_["std::async"] = createBuiltinModule("std::async",
+        {"taskSelect", "withTimeout",
+         "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
+         "taskGroupCancelAll", "taskGroupCount", "taskGroupFree",
+         "channelCreate", "channelSend", "channelReceive",
+         "channelClose", "channelLen", "channelFree",
+         "schedulerInit", "schedulerShutdown", "schedulerWorkerCount",
+         "asyncFileRead", "asyncFileWrite"});
 
     // std::collections — collection utility functions
     cache_["std::collections"] = createBuiltinModule("std::collections",
@@ -140,7 +151,7 @@ void ModuleLoader::registerBuiltinModules() {
                              "std::os", "std::random", "std::regex", "std::net",
                              "std::json", "std::log", "std::test",
                              "std::datetime", "std::compress", "std::crypto",
-                             "std::sync",
+                             "std::sync", "std::async",
                              "std::collections", "std::strings", "std::ui"}) {
         for (const auto &sym : cache_[sub]->exportedSymbols)
             umbrella->exportedSymbols.push_back(sym);

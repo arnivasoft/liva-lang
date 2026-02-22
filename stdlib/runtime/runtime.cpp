@@ -8,8 +8,12 @@
 #include <csetjmp>
 #include <ctime>
 #include <cmath>
+#include <condition_variable>
+#include <deque>
+#include <future>
 #include <mutex>
 #include <regex>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -2253,6 +2257,8 @@ char *liva_http_response_header(const LivaHttpResponse *resp, const char *name) 
 // --- Dynamic ready queue (resizable circular buffer) ---
 
 static std::mutex async_mutex_;  // protects ready_queue + timer_heap
+static std::condition_variable global_task_cv_;   // wakes awaitAll/select waiters
+static std::mutex global_task_cv_mtx_;
 
 static LivaTask **ready_queue = nullptr;
 static int64_t ready_cap = 0;
@@ -2401,6 +2407,10 @@ LivaTask *liva_task_create(void *coro_handle) {
     task->parent = nullptr;
     task->done = 0;
     task->cancelled = 0;
+    task->children = nullptr;
+    task->child_count = 0;
+    task->child_capacity = 0;
+    task->worker_id = -1;
     return task;
 }
 
@@ -2410,6 +2420,7 @@ void liva_task_complete(LivaTask *task) {
         std::lock_guard<std::mutex> lock(async_mutex_);
         ready_push(task->parent);
     }
+    global_task_cv_.notify_all();
 }
 
 int8_t liva_task_is_done(LivaTask *task) {
@@ -2422,14 +2433,28 @@ void *liva_task_get_handle(LivaTask *task) {
 
 void liva_task_set_parent(LivaTask *child, LivaTask *parent) {
     child->parent = parent;
+    if (parent) {
+        if (parent->child_count >= parent->child_capacity) {
+            parent->child_capacity = parent->child_capacity == 0 ? 4 : parent->child_capacity * 2;
+            parent->children = (LivaTask **)realloc(parent->children,
+                (size_t)parent->child_capacity * sizeof(LivaTask *));
+        }
+        parent->children[parent->child_count++] = child;
+    }
 }
 
 void liva_task_destroy(LivaTask *task) {
+    free(task->children);
     free(task);
 }
 
 void liva_task_cancel(LivaTask *task) {
+    if (!task || task->cancelled) return;
     task->cancelled = 1;
+    // Recursively cancel children
+    for (int64_t i = 0; i < task->child_count; i++) {
+        if (task->children[i]) liva_task_cancel(task->children[i]);
+    }
 }
 
 int8_t liva_task_is_cancelled(LivaTask *task) {
@@ -2494,6 +2519,154 @@ void liva_scheduler_run(LivaTask *root) {
 
     timer_cleanup();
     ready_cleanup();
+}
+
+// === Thread Pool Scheduler ===
+
+struct WorkerThread {
+    std::thread thread;
+    std::deque<LivaTask *> local_queue;
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool running = false;
+    int32_t id = -1;
+};
+
+static WorkerThread *workers_ = nullptr;
+static int32_t worker_count_ = 0;
+static bool scheduler_running_ = false;
+static std::mutex scheduler_mtx_;
+static std::condition_variable scheduler_cv_;
+
+// Global overflow queue for work-stealing
+static std::deque<LivaTask *> global_work_queue_;
+static std::mutex global_work_mtx_;
+
+static void worker_loop(WorkerThread *w) {
+    while (w->running) {
+        LivaTask *task = nullptr;
+
+        // 1. Try local queue
+        {
+            std::lock_guard<std::mutex> lock(w->mtx);
+            if (!w->local_queue.empty()) {
+                task = w->local_queue.front();
+                w->local_queue.pop_front();
+            }
+        }
+
+        // 2. Try global overflow queue
+        if (!task) {
+            std::lock_guard<std::mutex> lock(global_work_mtx_);
+            if (!global_work_queue_.empty()) {
+                task = global_work_queue_.front();
+                global_work_queue_.pop_front();
+            }
+        }
+
+        // 3. Try stealing from other workers
+        if (!task && worker_count_ > 1) {
+            for (int32_t i = 0; i < worker_count_ && !task; i++) {
+                if (i == w->id) continue;
+                std::lock_guard<std::mutex> lock(workers_[i].mtx);
+                if (!workers_[i].local_queue.empty()) {
+                    task = workers_[i].local_queue.back();  // steal from back
+                    workers_[i].local_queue.pop_back();
+                }
+            }
+        }
+
+        if (task) {
+            if (task->cancelled) {
+                task->done = 1;
+                global_task_cv_.notify_all();
+                continue;
+            }
+            task->worker_id = w->id;
+            if (!task->done && task->handle) {
+                liva_coro_resume(task->handle);
+            }
+        } else {
+            // No work — wait briefly
+            std::unique_lock<std::mutex> lock(w->mtx);
+            w->cv.wait_for(lock, std::chrono::milliseconds(5),
+                           [w]{ return !w->running || !w->local_queue.empty(); });
+        }
+    }
+}
+
+void liva_scheduler_init(int32_t num_workers) {
+    if (scheduler_running_) return;
+
+    if (num_workers <= 0) {
+        unsigned hw = std::thread::hardware_concurrency();
+        num_workers = (int32_t)(hw > 1 ? hw : 1);
+    }
+    worker_count_ = num_workers;
+    workers_ = new WorkerThread[worker_count_];
+    scheduler_running_ = true;
+
+    for (int32_t i = 0; i < worker_count_; i++) {
+        workers_[i].id = i;
+        workers_[i].running = true;
+        workers_[i].thread = std::thread(worker_loop, &workers_[i]);
+    }
+}
+
+void liva_scheduler_shutdown() {
+    if (!scheduler_running_) return;
+    scheduler_running_ = false;
+
+    for (int32_t i = 0; i < worker_count_; i++) {
+        workers_[i].running = false;
+        workers_[i].cv.notify_all();
+    }
+    for (int32_t i = 0; i < worker_count_; i++) {
+        if (workers_[i].thread.joinable()) {
+            workers_[i].thread.join();
+        }
+    }
+    delete[] workers_;
+    workers_ = nullptr;
+    worker_count_ = 0;
+}
+
+int32_t liva_scheduler_worker_count() {
+    return worker_count_;
+}
+
+// === Async I/O — Thread-Offloaded Blocking I/O ===
+
+char *liva_async_file_read(const char *path) {
+    if (!path) return nullptr;
+    auto fut = std::async(std::launch::async, [](const char *p) -> char * {
+        FILE *f = fopen(p, "rb");
+        if (!f) return nullptr;
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (sz < 0) { fclose(f); return nullptr; }
+        char *buf = (char *)malloc((size_t)sz + 1);
+        if (!buf) { fclose(f); return nullptr; }
+        size_t rd = fread(buf, 1, (size_t)sz, f);
+        buf[rd] = '\0';
+        fclose(f);
+        return buf;
+    }, path);
+    return fut.get();
+}
+
+int8_t liva_async_file_write(const char *path, const char *content) {
+    if (!path || !content) return 0;
+    auto fut = std::async(std::launch::async, [](const char *p, const char *c) -> int8_t {
+        FILE *f = fopen(p, "wb");
+        if (!f) return 0;
+        size_t len = strlen(c);
+        size_t written = fwrite(c, 1, len, f);
+        fclose(f);
+        return (written == len) ? 1 : 0;
+    }, path, content);
+    return fut.get();
 }
 
 // === JSON ===
@@ -3333,6 +3506,8 @@ struct LivaChannel {
     int64_t count;
     int8_t closed;
     std::mutex mtx;
+    std::condition_variable cv_not_full;
+    std::condition_variable cv_not_empty;
 };
 
 int64_t liva_channel_create(int64_t capacity) {
@@ -3350,58 +3525,43 @@ int64_t liva_channel_create(int64_t capacity) {
 void liva_channel_send(int64_t handle, int64_t value) {
     if (!handle) return;
     auto *ch = (LivaChannel *)(intptr_t)handle;
-    // Spin-wait until space available or channel closed
-    for (;;) {
-        {
-            std::lock_guard<std::mutex> lock(ch->mtx);
-            if (ch->closed) return;
-            if (ch->count < ch->capacity) {
-                ch->buffer[ch->tail] = value;
-                ch->tail = (ch->tail + 1) % ch->capacity;
-                ch->count++;
-                return;
-            }
-        }
-#ifdef _WIN32
-        Sleep(0);
-#else
-        usleep(100);
-#endif
-    }
+    std::unique_lock<std::mutex> lock(ch->mtx);
+    ch->cv_not_full.wait(lock, [ch]{ return ch->count < ch->capacity || ch->closed; });
+    if (ch->closed) return;
+    ch->buffer[ch->tail] = value;
+    ch->tail = (ch->tail + 1) % ch->capacity;
+    ch->count++;
+    lock.unlock();
+    ch->cv_not_empty.notify_one();
 }
 
 int64_t liva_channel_receive(int64_t handle, int8_t *ok) {
     if (!handle) { if (ok) *ok = 0; return 0; }
     auto *ch = (LivaChannel *)(intptr_t)handle;
-    // Spin-wait until data available or channel closed+empty
-    for (;;) {
-        {
-            std::lock_guard<std::mutex> lock(ch->mtx);
-            if (ch->count > 0) {
-                int64_t value = ch->buffer[ch->head];
-                ch->head = (ch->head + 1) % ch->capacity;
-                ch->count--;
-                if (ok) *ok = 1;
-                return value;
-            }
-            if (ch->closed) {
-                if (ok) *ok = 0;
-                return 0;
-            }
-        }
-#ifdef _WIN32
-        Sleep(0);
-#else
-        usleep(100);
-#endif
+    std::unique_lock<std::mutex> lock(ch->mtx);
+    ch->cv_not_empty.wait(lock, [ch]{ return ch->count > 0 || ch->closed; });
+    if (ch->count > 0) {
+        int64_t value = ch->buffer[ch->head];
+        ch->head = (ch->head + 1) % ch->capacity;
+        ch->count--;
+        if (ok) *ok = 1;
+        lock.unlock();
+        ch->cv_not_full.notify_one();
+        return value;
     }
+    if (ok) *ok = 0;
+    return 0;
 }
 
 void liva_channel_close(int64_t handle) {
     if (!handle) return;
     auto *ch = (LivaChannel *)(intptr_t)handle;
-    std::lock_guard<std::mutex> lock(ch->mtx);
-    ch->closed = 1;
+    {
+        std::lock_guard<std::mutex> lock(ch->mtx);
+        ch->closed = 1;
+    }
+    ch->cv_not_full.notify_all();
+    ch->cv_not_empty.notify_all();
 }
 
 int64_t liva_channel_len(int64_t handle) {
@@ -3452,23 +3612,17 @@ void liva_task_group_spawn(int64_t group, LivaTask *task) {
 void liva_task_group_await_all(int64_t group) {
     if (!group) return;
     auto *g = (LivaTaskGroup *)(intptr_t)group;
-    // Poll loop: resume suspended tasks until all done
-    for (;;) {
+    std::unique_lock<std::mutex> lock(global_task_cv_mtx_);
+    while (true) {
         bool allDone = true;
         for (int64_t i = 0; i < g->count; i++) {
-            if (g->tasks[i] && !liva_task_is_done(g->tasks[i])) {
+            if (g->tasks[i] && !g->tasks[i]->done) {
                 allDone = false;
-                if (g->tasks[i]->handle) {
-                    liva_coro_resume(g->tasks[i]->handle);
-                }
+                break;
             }
         }
         if (allDone) break;
-#ifdef _WIN32
-        Sleep(0);
-#else
-        usleep(100);
-#endif
+        global_task_cv_.wait_for(lock, std::chrono::milliseconds(10));
     }
 }
 
@@ -3502,6 +3656,45 @@ void liva_task_group_free(int64_t group) {
     }
     free(g->tasks);
     delete g;
+}
+
+// === Task Select & WithTimeout ===
+
+int64_t liva_task_select(LivaTask **tasks, int64_t count) {
+    if (!tasks || count <= 0) return -1;
+    // Resume all non-started tasks
+    for (int64_t i = 0; i < count; i++) {
+        if (tasks[i] && !tasks[i]->done && tasks[i]->handle) {
+            liva_coro_resume(tasks[i]->handle);
+        }
+    }
+    // Wait until at least one completes
+    std::unique_lock<std::mutex> lock(global_task_cv_mtx_);
+    while (true) {
+        for (int64_t i = 0; i < count; i++) {
+            if (tasks[i] && tasks[i]->done) return i;
+        }
+        global_task_cv_.wait_for(lock, std::chrono::milliseconds(1));
+    }
+}
+
+int8_t liva_task_with_timeout(LivaTask *task, int64_t timeout_ms) {
+    if (!task) return 0;
+    if (!task->done && task->handle) {
+        liva_coro_resume(task->handle);
+    }
+    int64_t deadline = liva_clock_ms() + timeout_ms;
+    std::unique_lock<std::mutex> lock(global_task_cv_mtx_);
+    while (!task->done) {
+        int64_t remaining = deadline - liva_clock_ms();
+        if (remaining <= 0) {
+            liva_task_cancel(task);
+            return 0;  // timeout
+        }
+        int64_t wait = remaining < 10 ? remaining : 10;
+        global_task_cv_.wait_for(lock, std::chrono::milliseconds(wait));
+    }
+    return 1;  // completed
 }
 
 // === String Utility Functions (std::string) ===

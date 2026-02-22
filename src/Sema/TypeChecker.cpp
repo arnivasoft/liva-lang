@@ -173,7 +173,10 @@ void TypeChecker::registerBuiltins() {
                         "channelCreate", "channelSend", "channelReceive",
                         "channelClose", "channelLen", "channelFree",
                         "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
-                        "taskGroupCancelAll", "taskGroupCount", "taskGroupFree"}) {
+                        "taskGroupCancelAll", "taskGroupCount", "taskGroupFree",
+                        "taskSelect", "withTimeout",
+                        "schedulerInit", "schedulerShutdown", "schedulerWorkerCount",
+                        "asyncFileRead", "asyncFileWrite"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -1261,6 +1264,11 @@ void TypeChecker::visitWhileLetStmt(WhileLetStmt *node) {
 }
 
 void TypeChecker::visitForStmt(ForStmt *node) {
+    // Validate for await context
+    if (node->isAwait() && !currentIsAsync_) {
+        diag_.report(node->getStartLoc(), DiagID::err_for_await_outside_async);
+    }
+
     visit(const_cast<Expr *>(node->getIterable()));
 
     scopes_.pushScope();
@@ -1933,6 +1941,23 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "taskGroupCancelAll" ||
                    ident->getName() == "taskGroupFree") {
             // void — no resolved type
+        // Stdlib: Task Select & WithTimeout
+        } else if (ident->getName() == "taskSelect") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "withTimeout") {
+            node->setResolvedType(makeBoolType());
+        // Stdlib: Thread Pool Scheduler
+        } else if (ident->getName() == "schedulerWorkerCount") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "schedulerInit" ||
+                   ident->getName() == "schedulerShutdown") {
+            // void — no resolved type
+        // Stdlib: Async I/O
+        } else if (ident->getName() == "asyncFileRead") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "asyncFileWrite") {
+            node->setResolvedType(makeBoolType());
         // Stdlib: Collections utility functions
         } else if (ident->getName() == "sorted" || ident->getName() == "reversed" ||
                    ident->getName() == "flatten") {

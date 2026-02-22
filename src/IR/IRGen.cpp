@@ -1185,6 +1185,36 @@ void IRGen::declareAsyncRuntimeFuncs() {
     // int8_t liva_task_is_cancelled(LivaTask *task)
     auto *isCancelledTy = llvm::FunctionType::get(i8Ty, {ptrTy}, false);
     module_->getOrInsertFunction("liva_task_is_cancelled", isCancelledTy);
+
+    // int64_t liva_task_select(LivaTask **tasks, int64_t count)
+    auto *i64Ty = builder_->getInt64Ty();
+    auto *selectTy = llvm::FunctionType::get(i64Ty, {ptrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_task_select", selectTy);
+
+    // int8_t liva_task_with_timeout(LivaTask *task, int64_t timeout_ms)
+    auto *withTimeoutTy = llvm::FunctionType::get(i8Ty, {ptrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_task_with_timeout", withTimeoutTy);
+
+    // void liva_scheduler_init(int32_t num_workers)
+    auto *i32Ty = builder_->getInt32Ty();
+    auto *schedInitTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_scheduler_init", schedInitTy);
+
+    // void liva_scheduler_shutdown()
+    auto *schedShutdownTy = llvm::FunctionType::get(voidTy, {}, false);
+    module_->getOrInsertFunction("liva_scheduler_shutdown", schedShutdownTy);
+
+    // int32_t liva_scheduler_worker_count()
+    auto *workerCountTy = llvm::FunctionType::get(i32Ty, {}, false);
+    module_->getOrInsertFunction("liva_scheduler_worker_count", workerCountTy);
+
+    // char *liva_async_file_read(const char *path)
+    auto *asyncReadTy = llvm::FunctionType::get(ptrTy, {ptrTy}, false);
+    module_->getOrInsertFunction("liva_async_file_read", asyncReadTy);
+
+    // int8_t liva_async_file_write(const char *path, const char *content)
+    auto *asyncWriteTy = llvm::FunctionType::get(i8Ty, {ptrTy, ptrTy}, false);
+    module_->getOrInsertFunction("liva_async_file_write", asyncWriteTy);
 }
 
 llvm::StructType *IRGen::getResultType(llvm::Type *okType, llvm::Type *errType) {

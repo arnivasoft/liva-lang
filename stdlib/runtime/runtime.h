@@ -416,6 +416,10 @@ typedef struct LivaTask {
     struct LivaTask *parent; // Parent task waiting on us (or NULL)
     int8_t done;             // 1 = completed
     int8_t cancelled;        // 1 = cancelled (cooperative)
+    struct LivaTask **children; // Child tasks for cancellation propagation
+    int64_t child_count;        // Number of children
+    int64_t child_capacity;     // Allocated capacity for children array
+    int32_t worker_id;          // Which worker thread (-1 = unassigned)
 } LivaTask;
 
 LivaTask *liva_task_create(void *coro_handle);
@@ -426,6 +430,28 @@ void liva_task_set_parent(LivaTask *child, LivaTask *parent);
 void liva_task_destroy(LivaTask *task);
 void liva_task_cancel(LivaTask *task);
 int8_t liva_task_is_cancelled(LivaTask *task);
+
+/// Select: wait for first completed task, returns index (0-based)
+int64_t liva_task_select(LivaTask **tasks, int64_t count);
+
+/// WithTimeout: run task with deadline, returns 1 if completed, 0 if timed out
+int8_t liva_task_with_timeout(LivaTask *task, int64_t timeout_ms);
+
+/// Initialize thread pool scheduler with N workers (0 = auto-detect)
+void liva_scheduler_init(int32_t num_workers);
+
+/// Shutdown thread pool scheduler
+void liva_scheduler_shutdown();
+
+/// Get number of worker threads
+int32_t liva_scheduler_worker_count();
+
+/// Async file read — offloads to thread pool, returns malloc'd content or NULL
+char *liva_async_file_read(const char *path);
+
+/// Async file write — offloads to thread pool, returns 1 on success, 0 on failure
+int8_t liva_async_file_write(const char *path, const char *content);
+
 void liva_coro_resume(void *handle);
 void liva_coro_destroy(void *handle);
 void liva_scheduler_run(LivaTask *root);

@@ -854,4 +854,101 @@ TEST_F(SelfHostTest, ParseI64OverflowReturnsZero) {
     EXPECT_DOUBLE_EQ(dval, 3.14);
 }
 
+// Include runtime header for LivaTask struct and function declarations
+#include "../../stdlib/runtime/runtime.h"
+
+// === Async Runtime: CV Wakeup, Child Cancel, Select, WithTimeout ===
+
+TEST_F(SelfHostTest, ChannelCVWakeupRuntime) {
+    // Test that channel CV wakeup functions link correctly
+    // (direct C++ runtime test — no Liva compilation)
+    int64_t ch = liva_channel_create(2);
+    ASSERT_NE(ch, 0);
+    liva_channel_send(ch, 10);
+    liva_channel_send(ch, 20);
+    int8_t ok1 = 0, ok2 = 0;
+    int64_t v1 = liva_channel_receive(ch, &ok1);
+    int64_t v2 = liva_channel_receive(ch, &ok2);
+    EXPECT_EQ(ok1, 1);
+    EXPECT_EQ(ok2, 1);
+    EXPECT_EQ(v1, 10);
+    EXPECT_EQ(v2, 20);
+    liva_channel_close(ch);
+    liva_channel_free(ch);
+}
+
+TEST_F(SelfHostTest, ChildCancellationPropagation) {
+    // Test that cancellation propagates to children (direct runtime test)
+    LivaTask *parent = liva_task_create(nullptr);
+    LivaTask *child1 = liva_task_create(nullptr);
+    LivaTask *child2 = liva_task_create(nullptr);
+    liva_task_set_parent(child1, parent);
+    liva_task_set_parent(child2, parent);
+    EXPECT_EQ(parent->child_count, 2);
+    EXPECT_EQ(child1->cancelled, 0);
+    EXPECT_EQ(child2->cancelled, 0);
+    // Cancel parent — should propagate to children
+    liva_task_cancel(parent);
+    EXPECT_EQ(parent->cancelled, 1);
+    EXPECT_EQ(child1->cancelled, 1);
+    EXPECT_EQ(child2->cancelled, 1);
+    liva_task_destroy(child1);
+    liva_task_destroy(child2);
+    liva_task_destroy(parent);
+}
+
+TEST_F(SelfHostTest, TaskSelectReturnsFirstDone) {
+    // Test taskSelect returns index of first completed task
+    LivaTask *t1 = liva_task_create(nullptr);
+    LivaTask *t2 = liva_task_create(nullptr);
+    t1->done = 0;
+    t2->done = 1;  // t2 is already done
+    LivaTask *tasks[2] = {t1, t2};
+    int64_t idx = liva_task_select(tasks, 2);
+    EXPECT_EQ(idx, 1);  // t2 was done
+    liva_task_destroy(t1);
+    liva_task_destroy(t2);
+}
+
+TEST_F(SelfHostTest, WithTimeoutCompletedTask) {
+    // Test withTimeout on an already-completed task returns 1
+    LivaTask *t = liva_task_create(nullptr);
+    t->done = 1;
+    int8_t result = liva_task_with_timeout(t, 100);
+    EXPECT_EQ(result, 1);
+    liva_task_destroy(t);
+}
+
+// === Thread Pool & Async I/O Runtime Tests ===
+
+TEST_F(SelfHostTest, ThreadPoolInitShutdown) {
+    liva_scheduler_init(2);
+    EXPECT_EQ(liva_scheduler_worker_count(), 2);
+    liva_scheduler_shutdown();
+    EXPECT_EQ(liva_scheduler_worker_count(), 0);
+}
+
+TEST_F(SelfHostTest, ThreadPoolAutoDetect) {
+    liva_scheduler_init(0);  // auto-detect
+    EXPECT_GE(liva_scheduler_worker_count(), 1);
+    liva_scheduler_shutdown();
+}
+
+TEST_F(SelfHostTest, AsyncFileReadWrite) {
+    // Write a temp file, then read it back
+    std::string tmpFile = buildDir_ + "/_async_test.txt";
+    int8_t writeOk = liva_async_file_write(tmpFile.c_str(), "hello async");
+    EXPECT_EQ(writeOk, 1);
+    char *content = liva_async_file_read(tmpFile.c_str());
+    ASSERT_NE(content, nullptr);
+    EXPECT_STREQ(content, "hello async");
+    free(content);
+    std::remove(tmpFile.c_str());
+}
+
+TEST_F(SelfHostTest, AsyncFileReadNonExistent) {
+    char *content = liva_async_file_read("__nonexistent_file_12345__");
+    EXPECT_EQ(content, nullptr);
+}
+
 #endif // LIVA_HAS_LLVM

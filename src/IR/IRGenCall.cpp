@@ -2035,6 +2035,88 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 
+    // === Stdlib: Task Select & WithTimeout ===
+
+    // taskSelect(tasks, count) -> i64 (index of first completed task)
+    if (funcName == "taskSelect" && node->getArgs().size() >= 2) {
+        auto *tasksArg = visit(node->getArgs()[0].get());
+        auto *countArg = visit(node->getArgs()[1].get());
+        if (!tasksArg || !countArg) return nullptr;
+        auto *tasksPtr = builder_->CreateBitOrPointerCast(tasksArg,
+            llvm::PointerType::getUnqual(*context_), "select.tasks.ptr");
+        auto *fn = getOrPanic("liva_task_select");
+        return builder_->CreateCall(fn, {tasksPtr, countArg}, "task.select");
+    }
+
+    // withTimeout(task, ms) -> bool (true if completed, false if timed out)
+    if (funcName == "withTimeout" && node->getArgs().size() >= 2) {
+        auto *taskArg = visit(node->getArgs()[0].get());
+        auto *msArg = visit(node->getArgs()[1].get());
+        if (!taskArg || !msArg) return nullptr;
+        auto *taskPtr = builder_->CreateBitOrPointerCast(taskArg,
+            llvm::PointerType::getUnqual(*context_), "timeout.task.ptr");
+        auto *fn = getOrPanic("liva_task_with_timeout");
+        auto *r = builder_->CreateCall(fn, {taskPtr, msArg}, "task.timeout");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "task.timeout.bool");
+    }
+
+    // === Stdlib: Thread Pool Scheduler ===
+
+    // schedulerInit(numWorkers) -> void
+    if (funcName == "schedulerInit" && !node->getArgs().empty()) {
+        auto *arg = visit(node->getArgs()[0].get());
+        if (!arg) return nullptr;
+        auto *fn = getOrPanic("liva_scheduler_init");
+        builder_->CreateCall(fn, {arg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // schedulerShutdown() -> void
+    if (funcName == "schedulerShutdown") {
+        auto *fn = getOrPanic("liva_scheduler_shutdown");
+        builder_->CreateCall(fn, {});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // schedulerWorkerCount() -> i32
+    if (funcName == "schedulerWorkerCount") {
+        auto *fn = getOrPanic("liva_scheduler_worker_count");
+        return builder_->CreateCall(fn, {}, "sched.workers");
+    }
+
+    // === Stdlib: Async I/O ===
+
+    // asyncFileRead(path) -> String?
+    if (funcName == "asyncFileRead" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_async_file_read");
+        auto *result = builder_->CreateCall(fn, {pathArg}, "async.fread.raw");
+        trackStringTemp(result);
+        // Wrap in Optional<string>
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "async.fread.isnull");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "async.fread.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        auto *hasVal = builder_->CreateNot(isNull, "async.fread.hasval");
+        builder_->CreateStore(hasVal, hasValPtr);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "async.fread.result");
+    }
+
+    // asyncFileWrite(path, content) -> bool
+    if (funcName == "asyncFileWrite" && node->getArgs().size() >= 2) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        auto *contentArg = visit(node->getArgs()[1].get());
+        if (!pathArg || !contentArg) return nullptr;
+        auto *fn = getOrPanic("liva_async_file_write");
+        auto *r = builder_->CreateCall(fn, {pathArg, contentArg}, "async.fwrite");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "async.fwrite.bool");
+    }
+
     // === Stdlib: Networking ===
     if (funcName == "httpGet" && !node->getArgs().empty()) {
         auto *urlArg = visit(node->getArgs()[0].get());

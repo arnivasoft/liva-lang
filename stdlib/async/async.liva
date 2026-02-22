@@ -1,0 +1,42 @@
+// std::async — Async concurrency utilities for Liva
+// Provides ergonomic wrappers around async runtime builtins.
+
+// === Task Group Convenience ===
+
+/// Run a closure with a TaskGroup, automatically awaiting all and cleaning up.
+func withTaskGroup(body: (i64) -> Void) {
+    let group = taskGroupCreate()
+    body(group)
+    taskGroupAwaitAll(group)
+    taskGroupFree(group)
+}
+
+// === Channel Convenience ===
+
+/// Run a closure with a Channel, automatically cleaning up.
+func withChannel(capacity: i64, body: (i64) -> Void) {
+    let ch = channelCreate(capacity)
+    body(ch)
+    channelFree(ch)
+}
+
+// === Sleep Wrapper ===
+
+/// Async delay — suspends current task for given milliseconds.
+async func delay(ms: i64) {
+    sleep(ms)
+}
+
+// === Timeout Convenience ===
+
+/// Run a task with a timeout. Returns true if completed, false if timed out.
+func runWithTimeout(task: i64, ms: i64) -> bool {
+    return withTimeout(task, ms)
+}
+
+// === Select Convenience ===
+
+/// Wait for first of multiple tasks to complete. Returns index of winner.
+func raceIndex(tasks: i64, count: i64) -> i64 {
+    return taskSelect(tasks, count)
+}

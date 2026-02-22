@@ -571,9 +571,9 @@ std::unique_ptr<ImportDecl> Parser::parseImportDecl() {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_import);
 
-    // Accept identifiers and 'test' keyword in import paths (std::test)
+    // Accept identifiers and keywords in import paths (std::test, std::async)
     auto consumePathSegment = [&]() -> Token {
-        if (check(TokenKind::kw_test)) {
+        if (check(TokenKind::kw_test) || check(TokenKind::kw_async)) {
             return advance();
         }
         return expect(TokenKind::identifier);

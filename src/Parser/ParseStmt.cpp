@@ -196,6 +196,13 @@ std::unique_ptr<ForStmt> Parser::parseForStmt() {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_for);
 
+    // Check for 'await' keyword: for await x in stream { ... }
+    bool isAwait = false;
+    if (current_.getKind() == TokenKind::kw_await) {
+        advance();
+        isAwait = true;
+    }
+
     // Tuple pattern: for (k, v) in map { ... }
     if (current_.getKind() == TokenKind::l_paren) {
         advance(); // '('
@@ -212,13 +219,15 @@ std::unique_ptr<ForStmt> Parser::parseForStmt() {
         if (!body)
             return nullptr;
 
-        return std::make_unique<ForStmt>(std::string(var1.getText()),
+        auto result = std::make_unique<ForStmt>(std::string(var1.getText()),
                                          std::string(var2.getText()),
                                          std::move(iterable), std::move(body),
                                          rangeFrom(startLoc));
+        result->setAwait(isAwait);
+        return result;
     }
 
-    // Single variable: for x in expr { ... }
+    // Single variable: for await x in stream { ... }  OR  for x in expr { ... }
     auto varName = expect(TokenKind::identifier);
     expect(TokenKind::kw_in);
 
@@ -229,8 +238,10 @@ std::unique_ptr<ForStmt> Parser::parseForStmt() {
     if (!body)
         return nullptr;
 
-    return std::make_unique<ForStmt>(std::string(varName.getText()), std::move(iterable),
+    auto result = std::make_unique<ForStmt>(std::string(varName.getText()), std::move(iterable),
                                      std::move(body), rangeFrom(startLoc));
+    result->setAwait(isAwait);
+    return result;
 }
 
 } // namespace liva
