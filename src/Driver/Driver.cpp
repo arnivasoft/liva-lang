@@ -337,6 +337,11 @@ bool Driver::parseArgs(int argc, const char **argv) {
             continue;
         }
 
+        if (std::strcmp(arg, "--dump-timings") == 0) {
+            options_.dumpTimings = true;
+            continue;
+        }
+
         // If starts with -, unknown flag
         if (arg[0] == '-') {
             std::cerr << "error: unknown option '" << arg << "'\n";
@@ -404,6 +409,7 @@ int Driver::executeLegacy() {
     compiler.setTargetTriple(options_.targetTriple);
     compiler.setColorMode(options_.colorMode);
     compiler.setTraceMacros(options_.traceMacros);
+    compiler.setDumpTimings(options_.dumpTimings);
     compiler.setPluginRegistry(&pluginRegistry);
     if (!compiler.loadFile(options_.inputFile))
         return 1;
@@ -637,6 +643,7 @@ int Driver::buildProject(bool runAfter) {
             compiler.setSearchPaths(searchPaths);
             compiler.setTargetTriple(cfg.target);
             compiler.setColorMode(options_.colorMode);
+            compiler.setDumpTimings(options_.dumpTimings);
             compiler.setPluginRegistry(&pluginRegistry);
 
             if (!compiler.loadFile(depFiles2[i]))
@@ -673,6 +680,7 @@ int Driver::buildProject(bool runAfter) {
         compiler.setSearchPaths(searchPaths);
         compiler.setTargetTriple(cfg.target);
         compiler.setColorMode(options_.colorMode);
+        compiler.setDumpTimings(options_.dumpTimings);
         compiler.setPluginRegistry(&pluginRegistry);
 
         if (!compiler.loadFile(entryPath))
@@ -822,6 +830,7 @@ int Driver::buildProject(bool runAfter) {
             compiler.setSearchPaths(searchPaths);
             compiler.setTargetTriple(cfg.target);
             compiler.setColorMode(options_.colorMode);
+            compiler.setDumpTimings(options_.dumpTimings);
             compiler.setPluginRegistry(&pluginRegistry);
 
             if (!compiler.loadFile(sourcePath)) {
@@ -876,6 +885,7 @@ int Driver::buildProject(bool runAfter) {
                 compiler.setSearchPaths(searchPaths);
                 compiler.setTargetTriple(cfg.target);
                 compiler.setColorMode(options_.colorMode);
+                compiler.setDumpTimings(options_.dumpTimings);
                 compiler.setPluginRegistry(&pluginRegistry);
 
                 if (!compiler.loadFile(sourcePath)) {
@@ -1616,8 +1626,36 @@ int Driver::linkObjects(const std::vector<std::string> &objPaths,
             return 1;
         }
         objects.push_back(runtimeLib);
+
+        // Auto-link UI runtime + raylib if available
+        auto fileExists = [](const std::string &path) {
+            std::ifstream f(path);
+            return f.is_open();
+        };
+        std::string uiLibCandidates[] = {
+            exeDir + "/lib/liva_ui.lib",
+            exeDir + "/../lib/liva_ui.lib",
+            exeDir + "/lib/libliva_ui.a",
+            exeDir + "/../lib/libliva_ui.a",
+        };
+        for (auto &c : uiLibCandidates) {
+            if (fileExists(c)) { objects.push_back(c); break; }
+        }
+        std::string raylibCandidates[] = {
+            exeDir + "/lib/raylib.lib",
+            exeDir + "/../lib/raylib.lib",
+            exeDir + "/lib/libraylib.a",
+            exeDir + "/../lib/libraylib.a",
+        };
+        for (auto &c : raylibCandidates) {
+            if (fileExists(c)) { objects.push_back(c); break; }
+        }
 #ifdef _WIN32
         flags.push_back("-lwinhttp");
+        flags.push_back("-lgdi32");
+        flags.push_back("-lwinmm");
+        flags.push_back("-luser32");
+        flags.push_back("-lshell32");
 #endif
     }
 
@@ -1697,7 +1735,8 @@ void Driver::printHelp() {
               << "  --rebuild           Force recompile all files (bypass cache)\n"
               << "  --target <triple>   Cross-compile for target triple\n"
               << "  --color=<mode>      Color output: auto, always, never (default: auto)\n"
-              << "  --trace-macros      Trace macro expansions to stderr\n";
+              << "  --trace-macros      Trace macro expansions to stderr\n"
+              << "  --dump-timings      Dump compilation phase timings to stderr\n";
 }
 
 } // namespace liva

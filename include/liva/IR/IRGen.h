@@ -20,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #endif
 
 namespace liva {
@@ -27,6 +28,16 @@ namespace liva {
 class ModuleLoader; // forward declaration for stub
 
 #ifdef LIVA_HAS_LLVM
+
+/// Monomorphization statistics
+struct MonoStats {
+    unsigned funcCount = 0;
+    unsigned methodCount = 0;
+    unsigned structCount = 0;
+    unsigned funcCacheHits = 0;
+    unsigned methodCacheHits = 0;
+    unsigned structCacheHits = 0;
+};
 
 /// Generates LLVM IR from the AST
 class IRGen : public ASTVisitor<IRGen, llvm::Value *> {
@@ -55,6 +66,9 @@ public:
     llvm::Module *getModule() { return module_.get(); }
     std::unique_ptr<llvm::Module> takeModule() { return std::move(module_); }
     std::unique_ptr<llvm::LLVMContext> takeContext() { return std::move(context_); }
+
+    /// Get monomorphization statistics
+    const MonoStats &getMonoStats() const { return monoStats_; }
 
     /// Dump IR to stderr
     void dump();
@@ -277,8 +291,8 @@ private:
     /// Generic struct AST nodes: "Box" -> StructDecl*
     std::unordered_map<std::string, const StructDecl *> genericStructDecls_;
 
-    /// Cache of monomorphized structs: "Box_i32" -> true
-    std::unordered_map<std::string, bool> monomorphizedStructs_;
+    /// Cache of monomorphized structs: "Box_i32"
+    std::unordered_set<std::string> monomorphizedStructs_;
 
     /// Generic impl AST nodes: "Box" -> ImplDecl*
     std::unordered_map<std::string, const ImplDecl *> genericImplDecls_;
@@ -500,6 +514,9 @@ private:
     /// Get or create a vtable for type conforming to protocol
     llvm::GlobalVariable *getOrCreateVtable(const std::string &protocolName,
                                               const std::string &typeName);
+
+    /// Monomorphization statistics
+    MonoStats monoStats_;
 
     /// Test framework support
     struct TestEntry { std::string name; llvm::Function *func; };

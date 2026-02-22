@@ -11,6 +11,7 @@
 #include "liva/Sema/ModuleLoader.h"
 #include "liva/Macro/MacroExpander.h"
 #include "liva/Sema/Sema.h"
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -381,12 +382,17 @@ CompilerInstance::CompileResult CompilerInstance::compileToObjectWithMeta(
 }
 
 bool CompilerInstance::compile(const std::string &outputPath) {
+    using Clock = std::chrono::high_resolution_clock;
+    auto t0 = Clock::now();
+
     auto tu = parseSource();
     if (!tu || diag_.hasErrors())
         return false;
 
     if (pluginRegistry_ && !pluginRegistry_->runAfterParse(*tu, diag_))
         return false;
+
+    auto t1 = Clock::now();
 
     ModuleLoader loader;
     std::string fname(sourceManager_->getFilename());
@@ -404,6 +410,8 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     if (pluginRegistry_ && !pluginRegistry_->runAfterSema(*tu, diag_))
         return false;
 
+    auto t2 = Clock::now();
+
 #ifdef LIVA_HAS_LLVM
     IRGen irgen(sourceManager_->getFilename().data(), diag_);
     irgen.setModuleLoader(&loader);
@@ -411,10 +419,14 @@ bool CompilerInstance::compile(const std::string &outputPath) {
     if (!irgen.generate(*tu))
         return false;
 
+    auto t3 = Clock::now();
+
     // Use CodeGen API: optimize → emit object/bitcode → link
     auto *module = irgen.getModule();
     CodeGen codegen(diag_, resolveTarget(targetTriple_));
     codegen.optimize(*module, optLevel_, ltoMode_, pgoMode_, pgoProfile_);
+
+    auto t4 = Clock::now();
 
     bool useLto = (ltoMode_ == "thin" || ltoMode_ == "full");
     std::string objPath = outputPath + (useLto ? ".bc" : ".o");
@@ -428,6 +440,8 @@ bool CompilerInstance::compile(const std::string &outputPath) {
                   << objPath << "'\n";
         return false;
     }
+
+    auto t5 = Clock::now();
 
     TargetInfo target = resolveTarget(targetTriple_);
 
@@ -515,6 +529,8 @@ bool CompilerInstance::compile(const std::string &outputPath) {
 
     bool linkOk = codegen.link(objects, outputPath, flags, ltoMode_, pgoMode_);
 
+    auto t6 = Clock::now();
+
     // Clean up temp object file (unless kept for caching)
     if (!keepObjectFile_)
         std::remove(objPath.c_str());
@@ -526,6 +542,40 @@ bool CompilerInstance::compile(const std::string &outputPath) {
             std::cerr << " " << o;
         std::cerr << "\n";
         return false;
+    }
+
+    if (dumpTimings_) {
+        auto ms = [](std::chrono::high_resolution_clock::duration d) {
+            return std::chrono::duration<double, std::milli>(d).count();
+        };
+        double parseMs    = ms(t1 - t0);
+        double semaMs     = ms(t2 - t1);
+        double irgenMs    = ms(t3 - t2);
+        double optimizeMs = ms(t4 - t3);
+        double emitMs     = ms(t5 - t4);
+        double linkMs     = ms(t6 - t5);
+        double totalMs    = ms(t6 - t0);
+
+        fprintf(stderr, "\n=== Compilation Timings ===\n");
+        fprintf(stderr, "  Parse:       %8.2f ms\n", parseMs);
+        fprintf(stderr, "  Sema:        %8.2f ms\n", semaMs);
+        fprintf(stderr, "  IRGen:       %8.2f ms\n", irgenMs);
+        fprintf(stderr, "  Optimize:    %8.2f ms\n", optimizeMs);
+        fprintf(stderr, "  Emit:        %8.2f ms\n", emitMs);
+        fprintf(stderr, "  Link:        %8.2f ms\n", linkMs);
+        fprintf(stderr, "  ─────────────────────────\n");
+        fprintf(stderr, "  Total:       %8.2f ms\n", totalMs);
+
+        const auto &mono = irgen.getMonoStats();
+        if (mono.funcCount || mono.methodCount || mono.structCount) {
+            fprintf(stderr, "\n  Monomorphization:\n");
+            fprintf(stderr, "    Functions:  %u  (cache hits: %u)\n",
+                    mono.funcCount, mono.funcCacheHits);
+            fprintf(stderr, "    Methods:    %u  (cache hits: %u)\n",
+                    mono.methodCount, mono.methodCacheHits);
+            fprintf(stderr, "    Structs:    %u  (cache hits: %u)\n",
+                    mono.structCount, mono.structCacheHits);
+        }
     }
 
     return true;

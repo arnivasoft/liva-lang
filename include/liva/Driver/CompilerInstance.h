@@ -50,6 +50,9 @@ public:
     /// Enable macro expansion tracing to stderr
     void setTraceMacros(bool v) { traceMacros_ = v; }
 
+    /// Enable compilation timing report to stderr
+    void setDumpTimings(bool v) { dumpTimings_ = v; }
+
     /// Set additional module search paths
     void setSearchPaths(const std::vector<std::string> &paths) {
         searchPaths_ = paths;
@@ -130,6 +133,7 @@ private:
     std::string targetTriple_;
     ColorMode colorMode_ = ColorMode::Auto;
     bool traceMacros_ = false;
+    bool dumpTimings_ = false;
     PluginRegistry *pluginRegistry_ = nullptr;
 };
 

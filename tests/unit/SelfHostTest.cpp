@@ -9,9 +9,16 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <gtest/gtest.h>
 #include <sstream>
 #include <string>
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#else
+#include <unistd.h>
+#endif
 
 class SelfHostTest : public ::testing::Test {
 protected:
@@ -678,6 +685,118 @@ TEST_F(SelfHostTest, LinkSubcommandParseError) {
     ASSERT_TRUE(driver.parseArgs(2, args));
     int ret = driver.execute();
     EXPECT_NE(ret, 0);
+}
+
+// Helper: capture stderr during a lambda execution
+static std::string captureStderr(std::function<void()> fn) {
+    // Create a temp file for capturing stderr
+    std::string tmpPath;
+#ifdef _WIN32
+    char tmpBuf[L_tmpnam];
+    tmpnam(tmpBuf);
+    tmpPath = tmpBuf;
+#else
+    tmpPath = "/tmp/_liva_stderr_capture.txt";
+#endif
+
+    fflush(stderr);
+#ifdef _WIN32
+    int origFd = _dup(_fileno(stderr));
+    FILE *tmpFile = fopen(tmpPath.c_str(), "w");
+    if (tmpFile) {
+        _dup2(_fileno(tmpFile), _fileno(stderr));
+        fclose(tmpFile);
+    }
+#else
+    int origFd = dup(fileno(stderr));
+    FILE *tmpFile = fopen(tmpPath.c_str(), "w");
+    if (tmpFile) {
+        dup2(fileno(tmpFile), fileno(stderr));
+        fclose(tmpFile);
+    }
+#endif
+
+    fn();
+
+    fflush(stderr);
+#ifdef _WIN32
+    _dup2(origFd, _fileno(stderr));
+    _close(origFd);
+#else
+    dup2(origFd, fileno(stderr));
+    close(origFd);
+#endif
+
+    std::ifstream ifs(tmpPath);
+    std::string result;
+    if (ifs.is_open()) {
+        std::stringstream ss;
+        ss << ifs.rdbuf();
+        result = ss.str();
+    }
+    std::remove(tmpPath.c_str());
+    return result;
+}
+
+TEST_F(SelfHostTest, DumpTimingsOutput) {
+    std::string captured;
+    bool compiled = false;
+    captured = captureStderr([&]() {
+        liva::CompilerInstance compiler;
+        compiler.setSource("_timing_test.liva", R"--(
+func main() {
+    println("hello")
+}
+)--");
+#ifdef _WIN32
+        compiler.setExecutablePath(buildDir_ + "/livac.exe");
+#else
+        compiler.setExecutablePath(buildDir_ + "/livac");
+#endif
+        compiler.setDumpTimings(true);
+        compiled = compiler.compile(tmpExe_);
+    });
+    ASSERT_TRUE(compiled) << "Compilation failed";
+    EXPECT_NE(captured.find("Compilation Timings"), std::string::npos)
+        << "Missing 'Compilation Timings' in:\n" << captured;
+    EXPECT_NE(captured.find("Parse:"), std::string::npos);
+    EXPECT_NE(captured.find("Sema:"), std::string::npos);
+    EXPECT_NE(captured.find("IRGen:"), std::string::npos);
+    EXPECT_NE(captured.find("Total:"), std::string::npos);
+}
+
+TEST_F(SelfHostTest, MonomorphizationStatsOutput) {
+    std::string captured;
+    bool compiled = false;
+    captured = captureStderr([&]() {
+        liva::CompilerInstance compiler;
+        compiler.setSource("_mono_test.liva", R"--(
+struct Box<T> {
+    let value: T
+}
+func identity<T>(x: T) -> T {
+    return x
+}
+func main() {
+    let a = identity(42)
+    let b = identity(3.14)
+    let box1 = Box { value: 10 }
+    let box2 = Box { value: "hi" }
+    println(a)
+}
+)--");
+#ifdef _WIN32
+        compiler.setExecutablePath(buildDir_ + "/livac.exe");
+#else
+        compiler.setExecutablePath(buildDir_ + "/livac");
+#endif
+        compiler.setDumpTimings(true);
+        compiled = compiler.compile(tmpExe_);
+    });
+    ASSERT_TRUE(compiled) << "Compilation failed";
+    EXPECT_NE(captured.find("Monomorphization:"), std::string::npos)
+        << "Missing 'Monomorphization:' in:\n" << captured;
+    EXPECT_NE(captured.find("Functions:"), std::string::npos);
 }
 
 #endif // LIVA_HAS_LLVM

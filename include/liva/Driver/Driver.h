@@ -45,6 +45,7 @@ struct DriverOptions {
     bool hasTargetOverride = false;
     ColorMode colorMode = ColorMode::Auto;  // --color=auto|always|never
     bool traceMacros = false;
+    bool dumpTimings = false;
 };
 
 /// Parses command-line arguments and drives compilation
