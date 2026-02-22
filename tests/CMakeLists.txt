@@ -86,6 +86,12 @@ liva_add_test(benchmark_test
 )
 target_link_libraries(benchmark_test PRIVATE liva_sema liva_parser)
 
+# Incremental compilation performance benchmarks (100+ files)
+liva_add_test(incremental_benchmark_test
+    unit/IncrementalBenchmarkTest.cpp
+)
+target_link_libraries(incremental_benchmark_test PRIVATE liva_driver)
+
 # Integration tests (file-based + inline)
 liva_add_test(integration_test
     unit/IntegrationTest.cpp
