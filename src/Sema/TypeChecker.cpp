@@ -289,9 +289,13 @@ void TypeChecker::check(TranslationUnit &tu) {
             sym.kind = Symbol::Kind::Function;
             sym.funcDecl = funcDecl;
             sym.type = funcDecl->getReturnType();
+            sym.declLoc = decl->getStartLoc();
             if (!scopes_.declare(sym.name, sym)) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              funcDecl->getName());
+                auto *prev = scopes_.lookup(sym.name);
+                if (prev && prev->declLoc.isValid())
+                    diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
             }
         } else if (decl->getKind() == ASTNode::NodeKind::StructDecl) {
             auto *structDecl = static_cast<StructDecl *>(decl.get());
@@ -299,9 +303,13 @@ void TypeChecker::check(TranslationUnit &tu) {
             sym.name = structDecl->getName();
             sym.kind = Symbol::Kind::StructType;
             sym.structDecl = structDecl;
+            sym.declLoc = decl->getStartLoc();
             if (!scopes_.declare(sym.name, sym)) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              structDecl->getName());
+                auto *prev = scopes_.lookup(sym.name);
+                if (prev && prev->declLoc.isValid())
+                    diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
             }
         } else if (decl->getKind() == ASTNode::NodeKind::EnumDecl) {
             auto *enumDecl = static_cast<EnumDecl *>(decl.get());
@@ -309,9 +317,13 @@ void TypeChecker::check(TranslationUnit &tu) {
             sym.name = enumDecl->getName();
             sym.kind = Symbol::Kind::EnumType;
             sym.enumDecl = enumDecl;
+            sym.declLoc = decl->getStartLoc();
             if (!scopes_.declare(sym.name, sym)) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              enumDecl->getName());
+                auto *prev = scopes_.lookup(sym.name);
+                if (prev && prev->declLoc.isValid())
+                    diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
             }
         } else if (decl->getKind() == ASTNode::NodeKind::ProtocolDecl) {
             auto *protocolDecl = static_cast<ProtocolDecl *>(decl.get());
@@ -319,9 +331,13 @@ void TypeChecker::check(TranslationUnit &tu) {
             sym.name = protocolDecl->getName();
             sym.kind = Symbol::Kind::ProtocolType;
             sym.protocolDecl = protocolDecl;
+            sym.declLoc = decl->getStartLoc();
             if (!scopes_.declare(sym.name, sym)) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              protocolDecl->getName());
+                auto *prev = scopes_.lookup(sym.name);
+                if (prev && prev->declLoc.isValid())
+                    diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
             }
         } else if (decl->getKind() == ASTNode::NodeKind::TypeAliasDecl) {
             auto *aliasDecl = static_cast<TypeAliasDecl *>(decl.get());
@@ -329,9 +345,13 @@ void TypeChecker::check(TranslationUnit &tu) {
             sym.name = aliasDecl->getName();
             sym.kind = Symbol::Kind::TypeAlias;
             sym.aliasTarget = aliasDecl->getTargetType();
+            sym.declLoc = decl->getStartLoc();
             if (!scopes_.declare(sym.name, sym)) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              aliasDecl->getName());
+                auto *prev = scopes_.lookup(sym.name);
+                if (prev && prev->declLoc.isValid())
+                    diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
             }
             typeAliases_[aliasDecl->getName()] = aliasDecl->getTargetType();
         } else if (decl->getKind() == ASTNode::NodeKind::ClassDecl) {
@@ -340,9 +360,13 @@ void TypeChecker::check(TranslationUnit &tu) {
             sym.name = classDecl->getName();
             sym.kind = Symbol::Kind::ClassType;
             sym.classDecl = classDecl;
+            sym.declLoc = decl->getStartLoc();
             if (!scopes_.declare(sym.name, sym)) {
                 diag_.report(decl->getStartLoc(), DiagID::err_redefinition,
                              classDecl->getName());
+                auto *prev = scopes_.lookup(sym.name);
+                if (prev && prev->declLoc.isValid())
+                    diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
             }
             classDecls_[classDecl->getName()] = classDecl;
             if (classDecl->hasParentClass()) {
@@ -434,6 +458,7 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
             sym.kind = Symbol::Kind::Parameter;
             sym.type = param.type.get();
             sym.isMutable = param.isMutRef;
+            sym.declLoc = param.location;
             scopes_.declare(sym.name, sym);
         }
         currentReturnType_ = node->getReturnType();
@@ -456,6 +481,7 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         Symbol sym;
         sym.name = tp;
         sym.kind = Symbol::Kind::TypeParam;
+        sym.declLoc = node->getStartLoc();
         scopes_.declare(tp, sym);
     }
 
@@ -531,6 +557,7 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
             sym.type = param.type.get();
         }
         sym.isMutable = param.isMutRef;
+        sym.declLoc = param.location;
         scopes_.declare(sym.name, sym);
     }
 
@@ -588,11 +615,15 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
         sym.type = node->getType();
         sym.isMutable = false;
         sym.isConstant = true;
+        sym.declLoc = node->getStartLoc();
         if ((!sym.type || sym.type->isInferred()) && node->getInit()->getResolvedType()) {
             sym.type = node->getInit()->getResolvedType();
         }
         if (!scopes_.declare(sym.name, sym)) {
             diag_.report(node->getStartLoc(), DiagID::err_redefinition, node->getName());
+            auto *prev = scopes_.lookup(sym.name);
+            if (prev && prev->declLoc.isValid())
+                diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
         }
         return;
     }
@@ -611,6 +642,7 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                         sym.kind = Symbol::Kind::Variable;
                         sym.isMutable = node->isMutable();
                         sym.type = tupleType->getElements()[i].get();
+                        sym.declLoc = node->getStartLoc();
                         scopes_.declare(sym.name, sym);
                     }
                 } else {
@@ -618,6 +650,10 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                                  std::to_string(tupleType->getArity()),
                                  std::to_string(node->getDestructuredNames().size()));
                 }
+            } else if (initType) {
+                // Non-tuple type assigned to destructuring pattern
+                diag_.report(node->getStartLoc(), DiagID::err_type_mismatch,
+                             "tuple", initType->toString());
             }
         }
         return;
@@ -654,11 +690,18 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
     sym.kind = Symbol::Kind::Variable;
     sym.type = node->getType();
     sym.isMutable = node->isMutable();
+    sym.declLoc = node->getStartLoc();
 
     // Propagate init's resolved type when annotation is inferred
     if ((!sym.type || sym.type->isInferred()) && node->hasInit() &&
         node->getInit()->getResolvedType()) {
         sym.type = node->getInit()->getResolvedType();
+    }
+
+    // Report if type cannot be inferred (no annotation, init didn't resolve)
+    if (!sym.type && node->hasInit() && !node->getInit()->getResolvedType()
+        && node->getInit()->getKind() != ASTNode::NodeKind::NilLiteralExpr) {
+        diag_.report(node->getStartLoc(), DiagID::err_cannot_infer_type, node->getName());
     }
 
     // Object safety check for dyn Protocol annotations (independent of type mismatch)
@@ -738,6 +781,9 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
 
     if (!scopes_.declare(sym.name, sym)) {
         diag_.report(node->getStartLoc(), DiagID::err_redefinition, node->getName());
+        auto *prev = scopes_.lookup(sym.name);
+        if (prev && prev->declLoc.isValid())
+            diag_.report(prev->declLoc, DiagID::note_previous_declaration, sym.name);
     }
 
     // Track variable for unused variable warnings
@@ -760,6 +806,7 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
         Symbol sym;
         sym.name = tp;
         sym.kind = Symbol::Kind::TypeParam;
+        sym.declLoc = node->getStartLoc();
         scopes_.declare(tp, sym);
     }
     // Validate trait bounds reference real protocols
@@ -790,6 +837,7 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
         Symbol sym;
         sym.name = tp;
         sym.kind = Symbol::Kind::TypeParam;
+        sym.declLoc = node->getStartLoc();
         scopes_.declare(tp, sym);
     }
 
@@ -1181,6 +1229,7 @@ void TypeChecker::visitIfLetStmt(IfLetStmt *node) {
     sym.name = node->getBindingName();
     sym.kind = Symbol::Kind::Variable;
     sym.isMutable = false;
+    sym.declLoc = node->getStartLoc();
 
     // If unwrapping File.open() result, mark binding as File-typed
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
@@ -1244,6 +1293,7 @@ void TypeChecker::visitWhileLetStmt(WhileLetStmt *node) {
     sym.name = node->getBindingName();
     sym.kind = Symbol::Kind::Variable;
     sym.isMutable = false;
+    sym.declLoc = node->getStartLoc();
 
     // Unwrap optional type for binding — look up from scope, not resolvedType
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
@@ -1307,6 +1357,7 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                 sym1.kind = Symbol::Kind::Variable;
                 sym1.isMutable = false;
                 sym1.type = genType->getTypeArgs()[0].get();
+                sym1.declLoc = node->getStartLoc();
                 scopes_.declare(sym1.name, sym1);
 
                 Symbol sym2;
@@ -1314,6 +1365,7 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                 sym2.kind = Symbol::Kind::Variable;
                 sym2.isMutable = false;
                 sym2.type = genType->getTypeArgs()[1].get();
+                sym2.declLoc = node->getStartLoc();
                 scopes_.declare(sym2.name, sym2);
             }
         }
@@ -1324,11 +1376,13 @@ void TypeChecker::visitForStmt(ForStmt *node) {
             sym1.name = node->getVarName();
             sym1.kind = Symbol::Kind::Variable;
             sym1.isMutable = false;
+            sym1.declLoc = node->getStartLoc();
             scopes_.declare(sym1.name, sym1);
             Symbol sym2;
             sym2.name = node->getVarName2();
             sym2.kind = Symbol::Kind::Variable;
             sym2.isMutable = false;
+            sym2.declLoc = node->getStartLoc();
             scopes_.declare(sym2.name, sym2);
         }
     } else {
@@ -1337,6 +1391,7 @@ void TypeChecker::visitForStmt(ForStmt *node) {
         sym.name = node->getVarName();
         sym.kind = Symbol::Kind::Variable;
         sym.isMutable = false;
+        sym.declLoc = node->getStartLoc();
 
         if (iterableType) {
             // Dynamic array [T] → element type T
@@ -2637,9 +2692,15 @@ bool TypeChecker::alwaysReturns(const ASTNode *node) const {
                 if (arm.pattern == "_") hasWildcard = true;
             }
             if (hasWildcard) {
-                // Match with wildcard is exhaustive — simplified analysis
-                // Full analysis of match arm bodies requires deeper inspection
-                return false;
+                // Match with wildcard is exhaustive — check all arm bodies
+                bool allArmsReturn = true;
+                for (auto &arm : match->getArms()) {
+                    if (!alwaysReturns(arm.body.get())) {
+                        allArmsReturn = false;
+                        break;
+                    }
+                }
+                return allArmsReturn;
             }
         }
         return false;
@@ -3277,8 +3338,13 @@ void TypeChecker::visitMacroInvokeExpr(MacroInvokeExpr *node) {
     if (!node->getExpanded()) {
         std::string expanded = macroExpander_.expand(
             node->getName(), node->getArgTokens(), diag_, node->getStartLoc());
-        if (expanded.empty())
+        if (expanded.empty()) {
+            // macroExpander may have already reported err_macro_no_matching_arm;
+            // if not, report a generic failure as a root-cause diagnostic
+            diag_.report(node->getStartLoc(), DiagID::err_macro_expansion_failed,
+                         node->getName(), "expansion produced empty result");
             return;
+        }
 
         node->setExpandedSource(expanded);
 

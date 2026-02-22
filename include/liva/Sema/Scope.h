@@ -1,6 +1,7 @@
 #pragma once
 
 #include "liva/AST/Type.h"
+#include "liva/Common/SourceLocation.h"
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -43,6 +44,7 @@ struct Symbol {
     const ProtocolDecl *protocolDecl = nullptr;
     const ClassDecl *classDecl = nullptr;
     const TypeRepr *aliasTarget = nullptr;
+    SourceLocation declLoc;
 };
 
 /// Lexical scope for name resolution

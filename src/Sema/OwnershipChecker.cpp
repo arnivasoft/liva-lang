@@ -247,7 +247,7 @@ bool OwnershipChecker::checkUse(const std::string &name, SourceLocation loc) {
 bool OwnershipChecker::checkMutation(const std::string &name, SourceLocation loc) {
     auto *info = getInfo(name);
     if (!info)
-        return true;
+        return true; // Not tracked (e.g. global, field, or non-owned) — allow silently
 
     if (!info->isMutable) {
         diag_.report(loc, DiagID::err_assign_to_immutable, name);
@@ -262,7 +262,7 @@ bool OwnershipChecker::addBorrow(const std::string &name, bool isMutable,
                                   SourceLocation loc) {
     auto *info = getInfo(name);
     if (!info)
-        return true;
+        return true; // Not tracked (e.g. global, field, or non-owned) — allow silently
 
     if (info->state == OwnershipState::Moved) {
         diag_.report(loc, DiagID::err_use_after_move, name);
