@@ -261,7 +261,9 @@ void TypeChecker::suggestSimilar(SourceLocation loc, const std::string &name,
                                   const std::vector<std::string> &candidates) {
     std::string match = findClosestMatch(name, candidates);
     if (!match.empty())
-        diag_.report(loc, DiagID::note_did_you_mean, match);
+        diag_.reportHelp(loc, static_cast<uint32_t>(name.size()),
+                         "did you mean '" + match + "'?", match,
+                         DiagID::note_did_you_mean);
 }
 
 void TypeChecker::check(TranslationUnit &tu) {
@@ -927,8 +929,10 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
                 auto *named = static_cast<const NamedTypeRepr *>(m.field->getType());
                 auto *sym = scopes_.lookup(named->getName());
                 if (!sym) {
-                    diag_.report(m.field->getStartLoc(), DiagID::err_undefined_type,
-                                 named->getName());
+                    diag_.reportRange(m.field->getStartLoc(),
+                                      static_cast<uint32_t>(named->getName().size()),
+                                      DiagID::err_undefined_type,
+                                      named->getName());
                 }
             }
         }
@@ -1009,7 +1013,9 @@ void TypeChecker::visitTypeAliasDecl(TypeAliasDecl *node) {
         auto *named = static_cast<const NamedTypeRepr *>(target);
         auto *sym = scopes_.lookup(named->getName());
         if (!sym) {
-            diag_.report(node->getStartLoc(), DiagID::err_undefined_type, named->getName());
+            diag_.reportRange(node->getStartLoc(),
+                              static_cast<uint32_t>(named->getName().size()),
+                              DiagID::err_undefined_type, named->getName());
             std::vector<std::string> typeCandidates;
             scopes_.collectNames(Symbol::Kind::StructType, typeCandidates);
             scopes_.collectNames(Symbol::Kind::EnumType, typeCandidates);
@@ -1030,7 +1036,9 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
     // Look up the type (struct, enum, or class)
     auto *sym = scopes_.lookup(node->getTypeName());
     if (!sym) {
-        diag_.report(node->getStartLoc(), DiagID::err_undefined_type, node->getTypeName());
+        diag_.reportRange(node->getStartLoc(),
+                          static_cast<uint32_t>(node->getTypeName().size()),
+                          DiagID::err_undefined_type, node->getTypeName());
         std::vector<std::string> typeCandidates;
         scopes_.collectNames(Symbol::Kind::StructType, typeCandidates);
         scopes_.collectNames(Symbol::Kind::EnumType, typeCandidates);
@@ -1524,7 +1532,10 @@ void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
     if (!sym) {
         // Result is a built-in type constructor, not a declared identifier
         if (node->getName() == "Result") return;
-        diag_.report(node->getStartLoc(), DiagID::err_undeclared_identifier, node->getName());
+        diag_.reportRangeLabel(node->getStartLoc(),
+                               static_cast<uint32_t>(node->getName().size()),
+                               "not found in this scope",
+                               DiagID::err_undeclared_identifier, node->getName());
         // "Did you mean?" suggestion
         std::vector<std::string> candidates;
         scopes_.collectAllNames(candidates);
@@ -2485,9 +2496,14 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
         auto *ident = static_cast<IdentifierExpr *>(node->getTarget());
         auto *sym = scopes_.lookup(ident->getName());
         if (sym && !sym->isMutable) {
-            diag_.report(node->getStartLoc(), DiagID::err_assign_to_immutable,
-                         ident->getName());
-            diag_.report(node->getStartLoc(), DiagID::note_use_var_for_mutable);
+            diag_.reportRange(node->getStartLoc(),
+                              static_cast<uint32_t>(ident->getName().size()),
+                              DiagID::err_assign_to_immutable,
+                              ident->getName());
+            diag_.reportHelp(node->getStartLoc(),
+                             static_cast<uint32_t>(ident->getName().size()),
+                             "declare with 'var' instead of 'let' to make it mutable",
+                             "", DiagID::note_use_var_for_mutable);
         }
     }
 }
@@ -2502,7 +2518,9 @@ void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
         }
     }
     if (!sym || sym->kind != Symbol::Kind::StructType) {
-        diag_.report(node->getStartLoc(), DiagID::err_undefined_type, node->getTypeName());
+        diag_.reportRange(node->getStartLoc(),
+                          static_cast<uint32_t>(node->getTypeName().size()),
+                          DiagID::err_undefined_type, node->getTypeName());
         std::vector<std::string> typeCandidates;
         scopes_.collectNames(Symbol::Kind::StructType, typeCandidates);
         suggestSimilar(node->getStartLoc(), node->getTypeName(), typeCandidates);

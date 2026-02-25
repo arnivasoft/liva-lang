@@ -210,7 +210,8 @@ void OwnershipChecker::markMoved(const std::string &name, SourceLocation loc) {
         return; // Copy types don't move
 
     if (info->state == OwnershipState::Moved) {
-        diag_.report(loc, DiagID::err_double_move, name);
+        diag_.reportRange(loc, static_cast<uint32_t>(name.size()),
+                          DiagID::err_double_move, name);
         diag_.report(info->lastMoveLocation, DiagID::note_moved_here, name);
         return;
     }
@@ -230,14 +231,16 @@ bool OwnershipChecker::checkUse(const std::string &name, SourceLocation loc) {
         return true; // Unknown variable, let TypeChecker handle it
 
     if (info->state == OwnershipState::Moved) {
-        diag_.report(loc, DiagID::err_use_after_move, name);
+        diag_.reportRange(loc, static_cast<uint32_t>(name.size()),
+                          DiagID::err_use_after_move, name);
         diag_.report(info->lastMoveLocation, DiagID::note_moved_here, name);
         diag_.report(loc, DiagID::note_consider_ref, name);
         return false;
     }
 
     if (info->state == OwnershipState::Dropped) {
-        diag_.report(loc, DiagID::err_use_after_move, name);
+        diag_.reportRange(loc, static_cast<uint32_t>(name.size()),
+                          DiagID::err_use_after_move, name);
         return false;
     }
 
@@ -250,8 +253,11 @@ bool OwnershipChecker::checkMutation(const std::string &name, SourceLocation loc
         return true; // Not tracked (e.g. global, field, or non-owned) — allow silently
 
     if (!info->isMutable) {
-        diag_.report(loc, DiagID::err_assign_to_immutable, name);
-        diag_.report(loc, DiagID::note_use_var_for_mutable);
+        diag_.reportRange(loc, static_cast<uint32_t>(name.size()),
+                          DiagID::err_assign_to_immutable, name);
+        diag_.reportHelp(loc, static_cast<uint32_t>(name.size()),
+                         "declare with 'var' instead of 'let' to make it mutable",
+                         "", DiagID::note_use_var_for_mutable);
         return false;
     }
 
@@ -265,7 +271,8 @@ bool OwnershipChecker::addBorrow(const std::string &name, bool isMutable,
         return true; // Not tracked (e.g. global, field, or non-owned) — allow silently
 
     if (info->state == OwnershipState::Moved) {
-        diag_.report(loc, DiagID::err_use_after_move, name);
+        diag_.reportRange(loc, static_cast<uint32_t>(name.size()),
+                          DiagID::err_use_after_move, name);
         return false;
     }
 

@@ -522,6 +522,7 @@ void LSPServer::publishDiagnostics(const DocumentState &doc) {
         case DiagLevel::Error:   severity = 1; break;
         case DiagLevel::Warning: severity = 2; break;
         case DiagLevel::Note:    severity = 3; break;
+        case DiagLevel::Help:    severity = 4; break;
         }
         diagObj.set("severity", JSONValue(static_cast<int64_t>(severity)));
 

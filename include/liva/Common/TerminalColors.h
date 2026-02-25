@@ -31,6 +31,7 @@ inline constexpr const char *BoldRed   = "\033[1;31m";
 inline constexpr const char *BoldYellow = "\033[1;33m";
 inline constexpr const char *BoldCyan  = "\033[1;36m";
 inline constexpr const char *BoldBlue  = "\033[1;34m";
+inline constexpr const char *BoldGreen = "\033[1;32m";
 inline constexpr const char *BoldWhite = "\033[1;37m";
 } // namespace color
 

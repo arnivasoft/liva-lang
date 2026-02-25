@@ -118,3 +118,103 @@ TEST(DiagColorTest, ShouldUseColorNever) {
 TEST(DiagColorTest, ShouldUseColorAlways) {
     EXPECT_TRUE(shouldUseColor(ColorMode::Always));
 }
+
+// ---- Rich diagnostic tests ----
+
+TEST(DiagColorTest, UnderlineSpan) {
+    SourceManager sm("test.liva", "let x = foo + 1\n");
+    Diagnostic diag;
+    diag.id = DiagID::err_undeclared_identifier;
+    diag.level = DiagLevel::Error;
+    diag.location = {1, 9};
+    diag.message = "use of undeclared identifier 'foo'";
+    diag.highlightLength = 3;
+
+    auto output = captureStderr([&]() {
+        DiagnosticsEngine::printToStderr(diag, &sm, false);
+    });
+
+    // Should have 3 carets instead of 1
+    EXPECT_NE(output.find("^^^"), std::string::npos);
+}
+
+TEST(DiagColorTest, HelpSuggestion) {
+    SourceManager sm("test.liva", "let x = foo + 1\n");
+    Diagnostic diag;
+    diag.id = DiagID::NUM_DIAGNOSTICS;
+    diag.level = DiagLevel::Help;
+    diag.location = {1, 9};
+    diag.message = "did you mean 'for'?";
+    diag.highlightLength = 3;
+    diag.suggestion = "for";
+
+    auto output = captureStderr([&]() {
+        DiagnosticsEngine::printToStderr(diag, &sm, false);
+    });
+
+    // Should have help: label
+    EXPECT_NE(output.find("help: did you mean 'for'?"), std::string::npos);
+    // Should show modified source line with suggestion applied
+    EXPECT_NE(output.find("let x = for + 1"), std::string::npos);
+    // Should have tildes under the suggestion
+    EXPECT_NE(output.find("~~~"), std::string::npos);
+    // Should NOT have --> arrow for help diagnostics
+    EXPECT_EQ(output.find("-->"), std::string::npos);
+}
+
+TEST(DiagColorTest, HelpUsesGreenColor) {
+    SourceManager sm("test.liva", "let x = foo + 1\n");
+    Diagnostic diag;
+    diag.id = DiagID::NUM_DIAGNOSTICS;
+    diag.level = DiagLevel::Help;
+    diag.location = {1, 9};
+    diag.message = "did you mean 'for'?";
+    diag.highlightLength = 3;
+    diag.suggestion = "for";
+
+    auto output = captureStderr([&]() {
+        DiagnosticsEngine::printToStderr(diag, &sm, true);
+    });
+
+    // Bold green for help
+    EXPECT_NE(output.find("\033[1;32m"), std::string::npos);
+    EXPECT_NE(output.find("help:"), std::string::npos);
+}
+
+TEST(DiagColorTest, InlineLabel) {
+    SourceManager sm("test.liva", "let x = foo + 1\n");
+    Diagnostic diag;
+    diag.id = DiagID::err_undeclared_identifier;
+    diag.level = DiagLevel::Error;
+    diag.location = {1, 9};
+    diag.message = "use of undeclared identifier 'foo'";
+    diag.highlightLength = 3;
+    diag.inlineLabel = "not found in this scope";
+
+    auto output = captureStderr([&]() {
+        DiagnosticsEngine::printToStderr(diag, &sm, false);
+    });
+
+    // Should have inline label after carets
+    EXPECT_NE(output.find("^^^ not found in this scope"), std::string::npos);
+}
+
+TEST(DiagColorTest, DefaultHighlightLengthOne) {
+    SourceManager sm("test.liva", "let x = 1\n");
+    Diagnostic diag;
+    diag.id = DiagID::err_undeclared_identifier;
+    diag.level = DiagLevel::Error;
+    diag.location = {1, 5};
+    diag.message = "some error";
+    // highlightLength defaults to 1
+
+    auto output = captureStderr([&]() {
+        DiagnosticsEngine::printToStderr(diag, &sm, false);
+    });
+
+    // Should have exactly one caret (not multiple)
+    auto pos = output.find("^");
+    ASSERT_NE(pos, std::string::npos);
+    // The character after the single ^ should NOT be another ^
+    EXPECT_NE(output[pos + 1], '^');
+}

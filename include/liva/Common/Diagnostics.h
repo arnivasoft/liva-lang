@@ -15,6 +15,7 @@ enum class DiagLevel : uint8_t {
     Note,
     Warning,
     Error,
+    Help,
 };
 
 /// Unique identifier for each diagnostic message
@@ -30,6 +31,9 @@ struct Diagnostic {
     DiagLevel level;
     SourceLocation location;
     std::string message;
+    uint32_t highlightLength = 1;   ///< Number of columns to underline (default: 1 = single ^)
+    std::string inlineLabel;        ///< Label shown after ^^^ on the caret line
+    std::string suggestion;         ///< Replacement text for help: suggestion block
 };
 
 /// Diagnostic engine: collects and reports compiler diagnostics
@@ -47,7 +51,12 @@ public:
 
         auto [level, fmt] = getDiagInfo(id);
         std::string msg = formatMessage(fmt, std::forward<Args>(args)...);
-        diagnostics_.push_back({id, level, loc, std::move(msg)});
+        Diagnostic d;
+        d.id = id;
+        d.level = level;
+        d.location = loc;
+        d.message = std::move(msg);
+        diagnostics_.push_back(std::move(d));
         if (level == DiagLevel::Error) {
             ++errorCount_;
         }
@@ -57,14 +66,69 @@ public:
 
         // Emit a final "too many errors" diagnostic when we just hit the limit
         if (level == DiagLevel::Error && hasMaxErrors()) {
-            auto [limLevel, limFmt] = getDiagInfo(DiagID::err_too_many_errors);
-            std::string limMsg = formatMessage(limFmt);
-            diagnostics_.push_back({DiagID::err_too_many_errors, limLevel, loc, std::move(limMsg)});
-            if (printCallback_) {
-                printCallback_(diagnostics_.back());
-            }
+            emitTooManyErrors(loc);
         }
     }
+
+    /// Report a diagnostic with a multi-column underline span
+    template <typename... Args>
+    void reportRange(SourceLocation loc, uint32_t length, DiagID id, Args &&...args) {
+        if (hasMaxErrors()) return;
+
+        auto [level, fmt] = getDiagInfo(id);
+        std::string msg = formatMessage(fmt, std::forward<Args>(args)...);
+        Diagnostic d;
+        d.id = id;
+        d.level = level;
+        d.location = loc;
+        d.message = std::move(msg);
+        d.highlightLength = length;
+        diagnostics_.push_back(std::move(d));
+        if (level == DiagLevel::Error) {
+            ++errorCount_;
+        }
+        if (printCallback_) {
+            printCallback_(diagnostics_.back());
+        }
+
+        if (level == DiagLevel::Error && hasMaxErrors()) {
+            emitTooManyErrors(loc);
+        }
+    }
+
+    /// Report a diagnostic with multi-column underline and an inline label
+    template <typename... Args>
+    void reportRangeLabel(SourceLocation loc, uint32_t length,
+                          std::string_view label, DiagID id, Args &&...args) {
+        if (hasMaxErrors()) return;
+
+        auto [level, fmt] = getDiagInfo(id);
+        std::string msg = formatMessage(fmt, std::forward<Args>(args)...);
+        Diagnostic d;
+        d.id = id;
+        d.level = level;
+        d.location = loc;
+        d.message = std::move(msg);
+        d.highlightLength = length;
+        d.inlineLabel = std::string(label);
+        diagnostics_.push_back(std::move(d));
+        if (level == DiagLevel::Error) {
+            ++errorCount_;
+        }
+        if (printCallback_) {
+            printCallback_(diagnostics_.back());
+        }
+
+        if (level == DiagLevel::Error && hasMaxErrors()) {
+            emitTooManyErrors(loc);
+        }
+    }
+
+    /// Emit a help diagnostic with optional replacement suggestion
+    void reportHelp(SourceLocation loc, uint32_t length,
+                    const std::string &helpMessage,
+                    const std::string &suggestion = "",
+                    DiagID id = DiagID::NUM_DIAGNOSTICS);
 
     bool hasErrors() const { return errorCount_ > 0; }
     uint32_t getErrorCount() const { return errorCount_; }
@@ -95,6 +159,20 @@ private:
     };
 
     static DiagInfo getDiagInfo(DiagID id);
+
+    void emitTooManyErrors(SourceLocation loc) {
+        auto [limLevel, limFmt] = getDiagInfo(DiagID::err_too_many_errors);
+        std::string limMsg = formatMessage(limFmt);
+        Diagnostic d;
+        d.id = DiagID::err_too_many_errors;
+        d.level = limLevel;
+        d.location = loc;
+        d.message = std::move(limMsg);
+        diagnostics_.push_back(std::move(d));
+        if (printCallback_) {
+            printCallback_(diagnostics_.back());
+        }
+    }
 
     // Format message with argument substitution (%0, %1, etc.)
     static std::string formatMessage(const char *fmt);

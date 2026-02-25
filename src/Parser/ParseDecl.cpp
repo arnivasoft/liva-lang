@@ -55,16 +55,27 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         if (current_.getKind() == TokenKind::identifier) {
             auto text = current_.getText();
             if (text == "fn" || text == "def" || text == "function") {
-                diag_.report(current_.getLocation(), DiagID::err_foreign_keyword,
-                             std::string(text), "func");
-                diag_.report(current_.getLocation(), DiagID::note_use_func_keyword);
+                diag_.reportRange(current_.getLocation(),
+                                  static_cast<uint32_t>(text.size()),
+                                  DiagID::err_foreign_keyword,
+                                  std::string(text), "func");
+                diag_.reportHelp(current_.getLocation(),
+                                 static_cast<uint32_t>(text.size()),
+                                 "Liva uses 'func' to declare functions", "func",
+                                 DiagID::note_use_func_keyword);
                 advance(); // skip the foreign keyword
                 return parseFuncDecl(isPublic);
             }
             // "class" is now a keyword — no need for foreign keyword detection
             if (text == "interface" || text == "trait") {
-                diag_.report(current_.getLocation(), DiagID::err_foreign_keyword,
-                             std::string(text), "protocol");
+                diag_.reportRange(current_.getLocation(),
+                                  static_cast<uint32_t>(text.size()),
+                                  DiagID::err_foreign_keyword,
+                                  std::string(text), "protocol");
+                diag_.reportHelp(current_.getLocation(),
+                                 static_cast<uint32_t>(text.size()),
+                                 "Liva uses 'protocol' to declare protocols", "protocol",
+                                 DiagID::note_use_func_keyword);
                 advance();
                 return parseProtocolDecl(isPublic);
             }
@@ -209,7 +220,8 @@ std::unique_ptr<VarDecl> Parser::parseVarDecl() {
 
     // Detect Rust-style "let mut" and suggest "var"
     if (!isMutable && current_.is(TokenKind::kw_mut)) {
-        diag_.report(startLoc, DiagID::err_let_mut_not_supported);
+        diag_.reportRange(startLoc, 7, DiagID::err_let_mut_not_supported); // "let mut" = 7 chars
+        diag_.reportHelp(startLoc, 7, "use 'var' for mutable variables", "var");
         advance(); // consume 'mut', continue parsing as mutable variable
         isMutable = true;
     }
