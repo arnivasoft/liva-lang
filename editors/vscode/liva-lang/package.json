@@ -120,6 +120,44 @@
                 "command": "liva.restartServer",
                 "title": "Liva: Restart Server",
                 "category": "Liva"
+            },
+            {
+                "command": "liva.build",
+                "title": "Liva: Build Current File",
+                "category": "Liva"
+            },
+            {
+                "command": "liva.run",
+                "title": "Liva: Run Current File",
+                "category": "Liva"
+            },
+            {
+                "command": "liva.test",
+                "title": "Liva: Run Tests",
+                "category": "Liva"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "liva.build",
+                "key": "ctrl+shift+b",
+                "when": "editorLangId == liva"
+            },
+            {
+                "command": "liva.run",
+                "key": "ctrl+f5",
+                "when": "editorLangId == liva"
+            },
+            {
+                "command": "liva.test",
+                "key": "ctrl+shift+t",
+                "when": "editorLangId == liva"
+            }
+        ],
+        "snippets": [
+            {
+                "language": "liva",
+                "path": "./snippets/liva.json"
             }
         ],
         "configuration": {

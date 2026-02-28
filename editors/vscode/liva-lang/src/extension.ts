@@ -9,6 +9,7 @@ import {
 } from "vscode-languageclient/node";
 
 let client: LanguageClient | undefined;
+let statusBarItem: vscode.StatusBarItem | undefined;
 
 // ---------------------------------------------------------------------------
 // LSP Client
@@ -42,6 +43,25 @@ function createServerOptions(livacPath: string): ServerOptions {
     };
 }
 
+function updateStatusBar(state: "starting" | "running" | "stopped"): void {
+    if (!statusBarItem) return;
+    switch (state) {
+        case "starting":
+            statusBarItem.text = "$(loading~spin) Liva LSP";
+            statusBarItem.tooltip = "Liva Language Server starting...";
+            break;
+        case "running":
+            statusBarItem.text = "$(check) Liva LSP";
+            statusBarItem.tooltip = "Liva Language Server running";
+            break;
+        case "stopped":
+            statusBarItem.text = "$(circle-slash) Liva LSP";
+            statusBarItem.tooltip = "Liva Language Server stopped";
+            break;
+    }
+    statusBarItem.show();
+}
+
 function startClient(context: vscode.ExtensionContext): void {
     const config = vscode.workspace.getConfiguration("liva");
     const livacPath = config.get<string>("livacPath", "livac");
@@ -56,7 +76,13 @@ function startClient(context: vscode.ExtensionContext): void {
         clientOptions
     );
 
-    client.start();
+    updateStatusBar("starting");
+
+    client.start().then(() => {
+        updateStatusBar("running");
+    }, () => {
+        updateStatusBar("stopped");
+    });
 
     context.subscriptions.push({
         dispose: () => {
@@ -192,10 +218,35 @@ class LivaDebugAdapterDescriptorFactory
 }
 
 // ---------------------------------------------------------------------------
+// Build / Run / Test commands
+// ---------------------------------------------------------------------------
+
+function getActiveFilePath(): string | undefined {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== "liva") {
+        vscode.window.showWarningMessage("No active .liva file.");
+        return undefined;
+    }
+    return editor.document.uri.fsPath;
+}
+
+function getLivacCommand(): string {
+    const config = vscode.workspace.getConfiguration("liva");
+    return config.get<string>("livacPath", "livac");
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
+    // Status bar
+    statusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left, 100
+    );
+    statusBarItem.command = "liva.restartServer";
+    context.subscriptions.push(statusBarItem);
+
     // LSP
     startClient(context);
 
@@ -226,6 +277,42 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // Build command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("liva.build", () => {
+            const filePath = getActiveFilePath();
+            if (!filePath) return;
+            const livac = getLivacCommand();
+            const terminal = vscode.window.createTerminal("Liva Build");
+            terminal.show();
+            terminal.sendText(`${livac} "${filePath}"`);
+        })
+    );
+
+    // Run command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("liva.run", () => {
+            const filePath = getActiveFilePath();
+            if (!filePath) return;
+            const livac = getLivacCommand();
+            const terminal = vscode.window.createTerminal("Liva Run");
+            terminal.show();
+            terminal.sendText(`${livac} run "${filePath}"`);
+        })
+    );
+
+    // Test command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("liva.test", () => {
+            const filePath = getActiveFilePath();
+            if (!filePath) return;
+            const livac = getLivacCommand();
+            const terminal = vscode.window.createTerminal("Liva Test");
+            terminal.show();
+            terminal.sendText(`${livac} test "${filePath}"`);
+        })
+    );
+
     // Debug
     const configProvider = new LivaDebugConfigurationProvider();
     const adapterFactory = new LivaDebugAdapterDescriptorFactory();
@@ -237,6 +324,10 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): Thenable<void> | undefined {
+    if (statusBarItem) {
+        statusBarItem.dispose();
+        statusBarItem = undefined;
+    }
     if (!client) {
         return undefined;
     }

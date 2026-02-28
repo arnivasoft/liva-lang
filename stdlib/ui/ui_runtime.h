@@ -65,6 +65,10 @@ void     liva_ui_draw_text_font(int32_t handle, const char* text,
                                  int32_t r, int32_t g, int32_t b, int32_t a);
 int32_t  liva_ui_measure_text_font(int32_t handle, const char* text, int32_t size);
 
+// === Clipboard ===
+const char* liva_ui_get_clipboard_text(void);
+void        liva_ui_set_clipboard_text(const char* text);
+
 // === Word-Wrap ===
 int32_t  liva_ui_draw_text_wrapped(const char* text, int32_t x, int32_t y,
                                     int32_t fontSize, int32_t maxWidth,

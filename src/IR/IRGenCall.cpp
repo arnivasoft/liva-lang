@@ -3590,6 +3590,19 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(getOrPanic("liva_ui_get_frame_time"), {}, "ui.ft");
     }
 
+    // getClipboardText() -> string
+    if (funcName == "getClipboardText" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_get_clipboard_text"), {}, "ui.clip");
+    }
+
+    // setClipboardText(text) -> void
+    if (funcName == "setClipboardText" && node->getArgs().size() == 1) {
+        auto *text = visit(node->getArgs()[0].get());
+        if (!text) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_clipboard_text"), {text});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
     // Handle print/println built-ins
     if (funcName == "print" || funcName == "println") {
         auto *printfFunc = module_->getFunction("printf");

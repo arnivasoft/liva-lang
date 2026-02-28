@@ -1,0 +1,173 @@
+{
+    "Function": {
+        "prefix": "func",
+        "body": [
+            "func ${1:name}(${2:params}) -> ${3:void} {",
+            "    $0",
+            "}"
+        ],
+        "description": "Function declaration"
+    },
+    "Async Function": {
+        "prefix": "afunc",
+        "body": [
+            "async func ${1:name}(${2:params}) -> ${3:void} {",
+            "    $0",
+            "}"
+        ],
+        "description": "Async function declaration"
+    },
+    "Struct": {
+        "prefix": "struct",
+        "body": [
+            "struct ${1:Name} {",
+            "    ${2:field}: ${3:type}",
+            "    $0",
+            "}"
+        ],
+        "description": "Struct declaration"
+    },
+    "Class": {
+        "prefix": "class",
+        "body": [
+            "class ${1:Name} {",
+            "    init(${2:params}) {",
+            "        $0",
+            "    }",
+            "}"
+        ],
+        "description": "Class declaration with init"
+    },
+    "Enum": {
+        "prefix": "enum",
+        "body": [
+            "enum ${1:Name} {",
+            "    case ${2:variant}",
+            "    $0",
+            "}"
+        ],
+        "description": "Enum declaration"
+    },
+    "Protocol": {
+        "prefix": "protocol",
+        "body": [
+            "protocol ${1:Name} {",
+            "    func ${2:method}(${3:params}) -> ${4:void}",
+            "    $0",
+            "}"
+        ],
+        "description": "Protocol declaration"
+    },
+    "Match": {
+        "prefix": "match",
+        "body": [
+            "match ${1:value} {",
+            "    case ${2:pattern} => {",
+            "        $0",
+            "    }",
+            "}"
+        ],
+        "description": "Match expression"
+    },
+    "If Let": {
+        "prefix": "iflet",
+        "body": [
+            "if let ${1:value} = ${2:optional} {",
+            "    $0",
+            "}"
+        ],
+        "description": "If-let optional binding"
+    },
+    "For Loop": {
+        "prefix": "for",
+        "body": [
+            "for ${1:item} in ${2:collection} {",
+            "    $0",
+            "}"
+        ],
+        "description": "For-in loop"
+    },
+    "While Loop": {
+        "prefix": "while",
+        "body": [
+            "while ${1:condition} {",
+            "    $0",
+            "}"
+        ],
+        "description": "While loop"
+    },
+    "Test Block": {
+        "prefix": "test",
+        "body": [
+            "test \"${1:test name}\" {",
+            "    $0",
+            "}"
+        ],
+        "description": "Test block"
+    },
+    "Impl Block": {
+        "prefix": "impl",
+        "body": [
+            "impl ${1:Type} {",
+            "    func ${2:method}(self${3:, params}) -> ${4:void} {",
+            "        $0",
+            "    }",
+            "}"
+        ],
+        "description": "Impl block"
+    },
+    "Guard": {
+        "prefix": "guard",
+        "body": [
+            "guard ${1:condition} else {",
+            "    return${2}",
+            "}",
+            "$0"
+        ],
+        "description": "Guard clause"
+    },
+    "Extern C": {
+        "prefix": "extern",
+        "body": [
+            "extern \"C\" {",
+            "    func ${1:name}(${2:params}) -> ${3:void}",
+            "    $0",
+            "}"
+        ],
+        "description": "Extern C block"
+    },
+    "Import": {
+        "prefix": "import",
+        "body": [
+            "import ${1:std::${2:io}}"
+        ],
+        "description": "Import statement"
+    },
+    "Closure": {
+        "prefix": "closure",
+        "body": [
+            "|${1:params}| -> ${2:void} {",
+            "    $0",
+            "}"
+        ],
+        "description": "Closure expression"
+    },
+    "Comptime": {
+        "prefix": "comptime",
+        "body": [
+            "comptime {",
+            "    $0",
+            "}"
+        ],
+        "description": "Comptime block"
+    },
+    "Macro": {
+        "prefix": "macro",
+        "body": [
+            "macro ${1:name}(${2:params}) {",
+            "    $0",
+            "}"
+        ],
+        "description": "Macro declaration"
+    }
+}

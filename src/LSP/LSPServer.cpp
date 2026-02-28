@@ -374,7 +374,7 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
 
     auto serverInfo = JSONValue::object();
     serverInfo.set("name", JSONValue("liva-lsp"));
-    serverInfo.set("version", JSONValue("0.1.0"));
+    serverInfo.set("version", JSONValue("1.0.0"));
 
     auto result = JSONValue::object();
     result.set("capabilities", std::move(capabilities));
@@ -1137,7 +1137,8 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "return", "match", "enum", "impl", "protocol", "ref", "mut", "as",
             "import", "pub", "self", "break", "continue", "nil", "where",
             "async", "await", "const", "try", "type", "true", "false", "in",
-            "case", "dyn", "extern"
+            "case", "dyn", "extern", "guard", "comptime", "macro", "class",
+            "init", "deinit", "override", "super", "private", "test"
         };
         for (const char *kw : keywords) {
             auto item = JSONValue::object();
@@ -1148,16 +1149,71 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
 
         // 2. Built-in functions (CompletionItemKind::Function = 3)
         static const char *builtins[] = {
-            "println", "print", "len", "toString", "abs", "sqrt", "pow",
-            "min", "max", "readLine", "format", "parseInt", "parseFloat",
-            "randInt", "randFloat",
+            // I/O
+            "print", "println", "readLine", "format",
+            // Conversion
+            "toString", "parseInt", "parseInt64", "parseFloat", "charToString",
+            // Math
+            "abs", "min", "max", "sqrt", "pow", "floor", "ceil", "round",
+            "sin", "cos", "tan", "log", "log10",
+            // Collections
+            "len", "push", "pop", "append",
             "sorted", "reversed", "enumerate", "zip", "flatten",
-            "any", "all", "count", "forEach",
+            "any", "all", "count", "forEach", "map", "filter", "reduce",
+            // String
             "strRepeat", "strPadLeft", "strPadRight", "strJoin",
             "strTrim", "strTrimLeft", "strTrimRight",
-            "strReverse", "strChars", "strLines",
-            "strContains", "strStartsWith", "strEndsWith",
-            "strReplace", "strSplit", "strToUpper", "strToLower"
+            "strContains", "strReplace", "strSplit",
+            "strStartsWith", "strEndsWith",
+            "strToUpper", "strToLower", "strReverse", "strChars", "strLines",
+            // Random
+            "randInt", "randFloat",
+            // OS/Process
+            "sleep", "env", "exit", "args", "clock", "clockMs",
+            "exec", "execOutput",
+            "processStart", "processWait", "processKill", "processRead", "processClose",
+            // Assertions
+            "assert", "assertMsg", "assertEq", "assertEqStr", "assertEqFloat",
+            // File
+            "fileRead", "fileWrite", "fileAppend", "fileRemove", "fileCopy", "isFile",
+            // Directory
+            "dirList", "dirCreate", "dirRemove", "dirExists",
+            // Path
+            "pathJoin", "pathDirname", "pathBasename", "pathExtension",
+            "pathExists", "pathAbsolute",
+            // Network
+            "httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
+            // JSON
+            "jsonCreate", "jsonSet", "jsonSetInt", "jsonSetFloat", "jsonSetBool",
+            "jsonRemove", "jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
+            "jsonGetArray", "jsonGetObject", "jsonIsValid", "jsonKeys", "jsonCount",
+            // Regex
+            "regexCompile", "regexTest", "regexMatch", "regexFind", "regexFindAll",
+            "regexReplace", "regexExec", "regexExecGroups", "regexFindGroups",
+            "regexReplaceCompiled", "regexFree",
+            // Crypto
+            "sha256", "md5", "hmacSha256",
+            "base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32",
+            // Concurrency
+            "mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",
+            "atomicCreate", "atomicLoad", "atomicStore", "atomicAdd", "atomicSub",
+            "atomicCas", "atomicFree",
+            "channelCreate", "channelSend", "channelReceive", "channelClose",
+            "channelLen", "channelFree",
+            "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
+            "taskGroupCancelAll", "taskGroupCount", "taskGroupFree",
+            "taskSelect", "withTimeout",
+            "schedulerInit", "schedulerShutdown", "schedulerWorkerCount",
+            "asyncFileRead", "asyncFileWrite", "isCancelled",
+            // Logging
+            "logDebug", "logInfo", "logWarn", "logError", "logSetLevel",
+            // DateTime
+            "dateNow", "timeNow", "datetimeNow", "dateFormat",
+            "dateYear", "dateMonth", "dateDay", "dateWeekday", "dateTimestamp",
+            "dateParse", "dateAdd", "dateDiff",
+            "dateHour", "dateMinute", "dateSecond",
+            // Benchmark
+            "benchStart", "benchIter", "benchDone", "benchReport", "benchReset"
         };
         for (const char *bi : builtins) {
             auto item = JSONValue::object();
@@ -1843,21 +1899,54 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
             std::vector<const char *> params;
         };
         static const BuiltinSig builtins[] = {
+            // I/O
             {"println", "func println(value: any)", {"value: any"}},
             {"print", "func print(value: any)", {"value: any"}},
-            {"len", "func len(collection: any) -> i64", {"collection: any"}},
+            {"readLine", "func readLine() -> string", {}},
+            {"format", "func format(fmt: string, args: any...) -> string", {"fmt: string", "args: any..."}},
+            // Conversion
             {"toString", "func toString(value: any) -> string", {"value: any"}},
             {"parseInt", "func parseInt(s: string) -> i32?", {"s: string"}},
+            {"parseInt64", "func parseInt64(s: string) -> i64?", {"s: string"}},
+            {"parseFloat", "func parseFloat(s: string) -> f64?", {"s: string"}},
+            {"charToString", "func charToString(c: i32) -> string", {"c: i32"}},
+            // Math
             {"abs", "func abs(x: numeric) -> numeric", {"x: numeric"}},
             {"min", "func min(a: numeric, b: numeric) -> numeric", {"a: numeric", "b: numeric"}},
             {"max", "func max(a: numeric, b: numeric) -> numeric", {"a: numeric", "b: numeric"}},
             {"sqrt", "func sqrt(x: f64) -> f64", {"x: f64"}},
             {"pow", "func pow(base: f64, exp: f64) -> f64", {"base: f64", "exp: f64"}},
-            {"format", "func format(fmt: string, args: any...) -> string", {"fmt: string", "args: any..."}},
-            {"readLine", "func readLine() -> string", {}},
-            {"parseFloat", "func parseFloat(s: string) -> f64?", {"s: string"}},
+            {"floor", "func floor(x: f64) -> f64", {"x: f64"}},
+            {"ceil", "func ceil(x: f64) -> f64", {"x: f64"}},
+            {"round", "func round(x: f64) -> f64", {"x: f64"}},
+            // Random
             {"randInt", "func randInt(min: i64, max: i64) -> i64", {"min: i64", "max: i64"}},
             {"randFloat", "func randFloat() -> f64", {}},
+            // Collections
+            {"len", "func len(collection: any) -> i64", {"collection: any"}},
+            {"push", "func push(array: [any], value: any)", {"array: [any]", "value: any"}},
+            {"pop", "func pop(array: [any]) -> any", {"array: [any]"}},
+            {"append", "func append(array: [any], value: any)", {"array: [any]", "value: any"}},
+            // Assertions
+            {"assert", "func assert(condition: bool)", {"condition: bool"}},
+            {"assertMsg", "func assertMsg(condition: bool, msg: string)", {"condition: bool", "msg: string"}},
+            {"assertEq", "func assertEq(a: any, b: any)", {"a: any", "b: any"}},
+            // File
+            {"fileRead", "func fileRead(path: string) -> string?", {"path: string"}},
+            {"fileWrite", "func fileWrite(path: string, content: string) -> bool", {"path: string", "content: string"}},
+            {"fileAppend", "func fileAppend(path: string, content: string) -> bool", {"path: string", "content: string"}},
+            // JSON
+            {"jsonCreate", "func jsonCreate() -> string", {}},
+            {"jsonSet", "func jsonSet(json: string, key: string, value: string) -> string", {"json: string", "key: string", "value: string"}},
+            {"jsonGet", "func jsonGet(json: string, key: string) -> string?", {"json: string", "key: string"}},
+            // Crypto
+            {"sha256", "func sha256(data: string) -> string", {"data: string"}},
+            {"md5", "func md5(data: string) -> string", {"data: string"}},
+            {"hmacSha256", "func hmacSha256(key: string, data: string) -> string", {"key: string", "data: string"}},
+            // Concurrency
+            {"channelCreate", "func channelCreate(capacity: i64) -> i64", {"capacity: i64"}},
+            {"channelSend", "func channelSend(ch: i64, value: any)", {"ch: i64", "value: any"}},
+            {"channelReceive", "func channelReceive(ch: i64) -> any", {"ch: i64"}},
         };
 
         bool found = false;
@@ -2044,6 +2133,15 @@ JSONValue LSPServer::handleSemanticTokens(const JSONValue &id,
         case TokenKind::kw_mut:
         case TokenKind::kw_dyn:
         case TokenKind::kw_extern:
+        case TokenKind::kw_comptime:
+        case TokenKind::kw_macro:
+        case TokenKind::kw_class:
+        case TokenKind::kw_init:
+        case TokenKind::kw_deinit:
+        case TokenKind::kw_override:
+        case TokenKind::kw_super:
+        case TokenKind::kw_private:
+        case TokenKind::kw_test:
             tokenType = 0; // keyword
             break;
 

@@ -5,7 +5,11 @@
     "patterns": [
         { "include": "#comments" },
         { "include": "#strings" },
+        { "include": "#char-literal" },
         { "include": "#numbers" },
+        { "include": "#test-block" },
+        { "include": "#extern-block" },
+        { "include": "#for-await" },
         { "include": "#keywords" },
         { "include": "#storage-types" },
         { "include": "#constants" },
@@ -16,8 +20,8 @@
         { "include": "#protocol-definition" },
         { "include": "#impl-definition" },
         { "include": "#type-alias" },
-        { "include": "#function-call" },
         { "include": "#builtin-functions" },
+        { "include": "#function-call" },
         { "include": "#type-annotation" },
         { "include": "#return-type" },
         { "include": "#closure" },
@@ -28,6 +32,10 @@
     "repository": {
         "comments": {
             "patterns": [
+                {
+                    "name": "comment.line.documentation.liva",
+                    "match": "///.*$"
+                },
                 {
                     "name": "comment.line.double-slash.liva",
                     "match": "//.*$"
@@ -61,6 +69,14 @@
                         { "include": "#string-escape" },
                         { "include": "#string-interpolation" }
                     ]
+                }
+            ]
+        },
+        "char-literal": {
+            "patterns": [
+                {
+                    "name": "string.quoted.single.char.liva",
+                    "match": "'(?:[^'\\\\]|\\\\[nrt\\\\'0]|\\\\u\\{[0-9a-fA-F]+\\})'"
                 }
             ]
         },
@@ -115,6 +131,47 @@
                 {
                     "name": "constant.numeric.integer.liva",
                     "match": "\\b[0-9][0-9_]*\\b"
+                }
+            ]
+        },
+        "test-block": {
+            "patterns": [
+                {
+                    "match": "\\b(test)\\s+(\"[^\"]*\")\\s*(?=\\{)",
+                    "captures": {
+                        "1": { "name": "keyword.control.flow.liva" },
+                        "2": { "name": "string.quoted.double.liva" }
+                    }
+                }
+            ]
+        },
+        "extern-block": {
+            "patterns": [
+                {
+                    "match": "\\b(extern)\\s+(\"C\")\\s*(?=\\{)",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "string.quoted.double.liva" }
+                    }
+                },
+                {
+                    "match": "\\b(extern)\\s+(\"C\")\\s+(func)\\b",
+                    "captures": {
+                        "1": { "name": "keyword.declaration.liva" },
+                        "2": { "name": "string.quoted.double.liva" },
+                        "3": { "name": "keyword.declaration.liva" }
+                    }
+                }
+            ]
+        },
+        "for-await": {
+            "patterns": [
+                {
+                    "match": "\\b(for)\\s+(await)\\b",
+                    "captures": {
+                        "1": { "name": "keyword.control.flow.liva" },
+                        "2": { "name": "keyword.other.async.liva" }
+                    }
                 }
             ]
         },
@@ -263,7 +320,7 @@
             "patterns": [
                 {
                     "name": "support.function.builtin.liva",
-                    "match": "\\b(println|print|len|push|pop|append|readLine|sqrt|abs|pow|sin|cos|tan|log|ceil|floor|round|min|max|randInt|randFloat|toString|parseInt|parseFloat)\\s*(?=\\()"
+                    "match": "\\b(print|println|readLine|format|toString|parseInt|parseInt64|parseFloat|charToString|abs|min|max|sqrt|pow|floor|ceil|round|sin|cos|tan|log|log10|len|push|pop|append|sorted|reversed|enumerate|zip|flatten|any|all|count|forEach|map|filter|reduce|strRepeat|strPadLeft|strPadRight|strJoin|strTrim|strTrimLeft|strTrimRight|strContains|strReplace|strSplit|strStartsWith|strEndsWith|strToUpper|strToLower|strReverse|strChars|strLines|randInt|randFloat|sleep|env|exit|args|clock|clockMs|exec|execOutput|processStart|processWait|processKill|processRead|processClose|assert|assertMsg|assertEq|assertEqStr|assertEqFloat|fileRead|fileWrite|fileAppend|fileRemove|fileCopy|isFile|dirList|dirCreate|dirRemove|dirExists|pathJoin|pathDirname|pathBasename|pathExtension|pathExists|pathAbsolute|httpGet|httpPost|httpPut|httpPatch|httpDelete|jsonCreate|jsonSet|jsonSetInt|jsonSetFloat|jsonSetBool|jsonRemove|jsonGet|jsonGetInt|jsonGetFloat|jsonGetBool|jsonGetArray|jsonGetObject|jsonIsValid|jsonKeys|jsonCount|regexCompile|regexTest|regexMatch|regexFind|regexFindAll|regexReplace|regexExec|regexExecGroups|regexFindGroups|regexReplaceCompiled|regexFree|sha256|md5|hmacSha256|base64Encode|base64Decode|hexEncode|hexDecode|crc32|mutexCreate|mutexLock|mutexUnlock|mutexTryLock|mutexFree|atomicCreate|atomicLoad|atomicStore|atomicAdd|atomicSub|atomicCas|atomicFree|channelCreate|channelSend|channelReceive|channelClose|channelLen|channelFree|taskGroupCreate|taskGroupSpawn|taskGroupAwaitAll|taskGroupCancelAll|taskGroupCount|taskGroupFree|taskSelect|withTimeout|schedulerInit|schedulerShutdown|schedulerWorkerCount|asyncFileRead|asyncFileWrite|isCancelled|logDebug|logInfo|logWarn|logError|logSetLevel|dateNow|timeNow|datetimeNow|dateFormat|dateYear|dateMonth|dateDay|dateWeekday|dateTimestamp|dateParse|dateAdd|dateDiff|dateHour|dateMinute|dateSecond|benchStart|benchIter|benchDone|benchReport|benchReset)\\s*(?=\\()"
                 }
             ]
         },
@@ -286,13 +343,14 @@
         "type-annotation": {
             "patterns": [
                 {
-                    "match": ":\\s*(?:(\\[)\\s*)?(?:(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)|(Map|Set)\\s*<|([A-Z][a-zA-Z0-9_]*))(?:\\s*(\\]))?",
+                    "match": ":\\s*(?:(\\[)\\s*)?(?:(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)|(Result|Array|Optional|Map|Set)\\s*<|([A-Z][a-zA-Z0-9_]*))(?:(\\?))?(?:\\s*(\\]))?",
                     "captures": {
                         "1": { "name": "punctuation.definition.array.begin.liva" },
                         "2": { "name": "storage.type.primitive.liva" },
                         "3": { "name": "support.type.collection.liva" },
                         "4": { "name": "entity.name.type.liva" },
-                        "5": { "name": "punctuation.definition.array.end.liva" }
+                        "5": { "name": "keyword.operator.optional.liva" },
+                        "6": { "name": "punctuation.definition.array.end.liva" }
                     }
                 }
             ]
@@ -300,10 +358,11 @@
         "return-type": {
             "patterns": [
                 {
-                    "match": "->\\s*(?:(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)|([A-Z][a-zA-Z0-9_]*))",
+                    "match": "->\\s*(?:(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)|([A-Z][a-zA-Z0-9_]*))(?:(\\?))?",
                     "captures": {
                         "1": { "name": "storage.type.primitive.liva" },
-                        "2": { "name": "entity.name.type.liva" }
+                        "2": { "name": "entity.name.type.liva" },
+                        "3": { "name": "keyword.operator.optional.liva" }
                     }
                 }
             ]

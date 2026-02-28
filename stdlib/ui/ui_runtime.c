@@ -193,6 +193,17 @@ int32_t liva_ui_measure_text_font(int32_t handle, const char* text, int32_t size
     return (int32_t)MeasureTextEx(fontSlots[handle], text, (float)size, spacing).x;
 }
 
+// === Clipboard ===
+
+const char* liva_ui_get_clipboard_text(void) {
+    const char* text = GetClipboardText();
+    return text ? text : "";
+}
+
+void liva_ui_set_clipboard_text(const char* text) {
+    if (text) SetClipboardText(text);
+}
+
 // === Word-Wrap ===
 
 // Helper: draw or measure word-wrapped text. If draw==true, actually draw.

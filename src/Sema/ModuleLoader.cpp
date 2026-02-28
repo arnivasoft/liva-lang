@@ -142,7 +142,8 @@ void ModuleLoader::registerBuiltinModules() {
          "isKeyPressed", "isKeyDown", "getCharPressed", "getKeyPressed",
          "beginScissor", "endScissor", "getFrameTime",
          "loadFont", "unloadFont", "drawTextFont", "measureTextFont",
-         "drawTextWrapped", "measureTextWrapped"});
+         "drawTextWrapped", "measureTextWrapped",
+         "getClipboardText", "setClipboardText"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

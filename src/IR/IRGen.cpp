@@ -1089,6 +1089,14 @@ void IRGen::createRuntimeDecls() {
     auto *uiMeasureTextWrapTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i32Ty, i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_measure_text_wrapped", uiMeasureTextWrapTy);
 
+    // liva_ui_get_clipboard_text() -> ptr
+    auto *uiGetClipTy = llvm::FunctionType::get(i8PtrTy, {}, false);
+    module_->getOrInsertFunction("liva_ui_get_clipboard_text", uiGetClipTy);
+
+    // liva_ui_set_clipboard_text(ptr) -> void
+    auto *uiSetClipTy = llvm::FunctionType::get(voidTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_set_clipboard_text", uiSetClipTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();
