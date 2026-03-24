@@ -2616,6 +2616,44 @@ JSONValue LSPServer::handleCodeAction(const JSONValue &id,
                                      suggested)));
                 }
             }
+
+            // --- Auto-import: suggest adding import for known symbols ---
+            if (!wrongName.empty()) {
+                // Map well-known stdlib wrapper types/functions to their modules
+                static const struct { const char *sym; const char *mod; } autoImports[] = {
+                    // json::json wrapper types
+                    {"JsonObject", "json::json"},
+                    // time::time wrapper types
+                    {"Duration", "time::time"}, {"Instant", "time::time"},
+                    {"Timer", "time::time"}, {"DateTime", "time::time"},
+                    // path::path wrapper types
+                    {"Path", "path::path"}, {"Dir", "path::path"},
+                    // testing::testing wrapper types
+                    {"TestSuite", "testing::testing"}, {"Expect", "testing::testing"},
+                    // crypto::crypto wrapper types
+                    {"Hash", "crypto::crypto"}, {"Hmac", "crypto::crypto"},
+                    // http::http wrapper types
+                    {"HttpClient", "http::http"}, {"HttpResponse", "http::http"},
+                    {"HttpHeaders", "http::http"},
+                    // sync::sync wrapper types
+                    {"Mutex", "sync::sync"}, {"AtomicI64", "sync::sync"},
+                    {"Channel", "sync::sync"}, {"TaskGroup", "sync::sync"},
+                    // std::collections types
+                    {"Map", "std::collections"}, {"Set", "std::collections"},
+                };
+                for (const auto &ai : autoImports) {
+                    if (wrongName == ai.sym) {
+                        // Check if the import already exists in document
+                        if (doc.content.find(std::string("import ") + ai.mod) == std::string::npos) {
+                            actions.push(makeCodeAction(
+                                "Add 'import " + std::string(ai.mod) + "'",
+                                "quickfix", uri,
+                                makeTextEdit(0, 0, 0, std::string("import ") + ai.mod + "\n")));
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
         // --- warn_lint_bool_comparison: simplify boolean comparison ---

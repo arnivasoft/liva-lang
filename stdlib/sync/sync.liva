@@ -1,0 +1,128 @@
+// sync::sync — Concurrency primitives wrapper API
+// Import with: import sync::sync
+
+import std::sync
+
+// === Mutex ===
+
+pub struct Mutex {
+    var handle: i64
+}
+
+impl Mutex {
+    pub func new() -> Mutex {
+        return Mutex { handle: mutexCreate() }
+    }
+
+    pub func lock(ref self) {
+        mutexLock(self.handle)
+    }
+
+    pub func unlock(ref self) {
+        mutexUnlock(self.handle)
+    }
+
+    pub func tryLock(ref self) -> bool {
+        return mutexTryLock(self.handle)
+    }
+
+    pub func free(mut self) {
+        mutexFree(self.handle)
+    }
+}
+
+// === Atomic ===
+
+pub struct AtomicI64 {
+    var handle: i64
+}
+
+impl AtomicI64 {
+    pub func new(value: i64) -> AtomicI64 {
+        return AtomicI64 { handle: atomicCreate(value) }
+    }
+
+    pub func load(ref self) -> i64 {
+        return atomicLoad(self.handle)
+    }
+
+    pub func store(ref self, value: i64) {
+        atomicStore(self.handle, value)
+    }
+
+    pub func add(ref self, delta: i64) -> i64 {
+        return atomicAdd(self.handle, delta)
+    }
+
+    pub func sub(ref self, delta: i64) -> i64 {
+        return atomicSub(self.handle, delta)
+    }
+
+    pub func compareAndSwap(ref self, expected: i64, desired: i64) -> bool {
+        return atomicCas(self.handle, expected, desired)
+    }
+
+    pub func free(mut self) {
+        atomicFree(self.handle)
+    }
+}
+
+// === Channel ===
+
+pub struct Channel {
+    var handle: i64
+}
+
+impl Channel {
+    pub func new(capacity: i64) -> Channel {
+        return Channel { handle: channelCreate(capacity) }
+    }
+
+    pub func send(ref self, value: i64) {
+        channelSend(self.handle, value)
+    }
+
+    pub func receive(ref self) -> i64? {
+        return channelReceive(self.handle)
+    }
+
+    pub func close(ref self) {
+        channelClose(self.handle)
+    }
+
+    pub func len(ref self) -> i64 {
+        return channelLen(self.handle)
+    }
+
+    pub func free(mut self) {
+        channelFree(self.handle)
+    }
+}
+
+// === TaskGroup ===
+
+pub struct TaskGroup {
+    var handle: i64
+}
+
+impl TaskGroup {
+    pub func new() -> TaskGroup {
+        return TaskGroup { handle: taskGroupCreate() }
+    }
+
+    pub func awaitAll(ref self) {
+        taskGroupAwaitAll(self.handle)
+    }
+
+    pub func cancelAll(ref self) {
+        taskGroupCancelAll(self.handle)
+    }
+
+    pub func count(ref self) -> i64 {
+        return taskGroupCount(self.handle)
+    }
+
+    pub func free(mut self) {
+        taskGroupFree(self.handle)
+    }
+}

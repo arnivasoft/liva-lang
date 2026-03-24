@@ -2147,6 +2147,58 @@ TEST_F(LSPTest, CodeActionMultipleDiags) {
 }
 
 // ============================================================
+// Auto-Import Code Action Tests
+// ============================================================
+
+TEST_F(LSPTest, CodeActionAutoImportJsonObject) {
+    // Using JsonObject without importing json::json should suggest auto-import
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let obj = JsonObject.create()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasAutoImport = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("import json::json") != std::string::npos) {
+            hasAutoImport = true;
+            EXPECT_EQ(a["kind"].getString(), "quickfix");
+        }
+    }
+    EXPECT_TRUE(hasAutoImport) << "Should suggest 'import json::json' for JsonObject";
+}
+
+TEST_F(LSPTest, CodeActionAutoImportHttpClient) {
+    initAndOpen("file:///test.liva",
+                "func main() {\n    let c = HttpClient.new()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 2, 1)));
+    const auto &actions = resp["result"].getArray();
+    bool hasAutoImport = false;
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        if (title.find("import http::http") != std::string::npos) {
+            hasAutoImport = true;
+        }
+    }
+    EXPECT_TRUE(hasAutoImport) << "Should suggest 'import http::http' for HttpClient";
+}
+
+TEST_F(LSPTest, CodeActionAutoImportNotDuplicate) {
+    // Already has the import — should NOT suggest it again
+    initAndOpen("file:///test.liva",
+                "import json::json\nfunc main() {\n    let obj = JsonObject.create()\n}");
+    auto resp = parseResponse(
+        server.handleMessage(codeActionRequest("file:///test.liva", 0, 0, 3, 1)));
+    const auto &actions = resp["result"].getArray();
+    for (const auto &a : actions) {
+        std::string title = a["title"].getString();
+        EXPECT_TRUE(title.find("import json::json") == std::string::npos)
+            << "Should not suggest duplicate import";
+    }
+}
+
+// ============================================================
 // Code Lens Tests
 // ============================================================
 

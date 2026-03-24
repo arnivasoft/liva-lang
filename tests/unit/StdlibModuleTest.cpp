@@ -340,6 +340,78 @@ TEST_F(StdlibModuleTest, HttpHeadersBuilder) {
 }
 
 // ============================================================
+// Module 7: sync::sync
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportSyncModule) {
+    auto r = check(
+        "import sync::sync\n"
+        "func main() {\n"
+        "    let m = Mutex.new()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import sync::sync should resolve Mutex";
+}
+
+TEST_F(StdlibModuleTest, SyncMutexMethods) {
+    auto r = check(
+        "import sync::sync\n"
+        "func main() {\n"
+        "    var m = Mutex.new()\n"
+        "    m.lock()\n"
+        "    let ok = m.tryLock()\n"
+        "    m.unlock()\n"
+        "    m.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Mutex methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, SyncAtomicMethods) {
+    auto r = check(
+        "import sync::sync\n"
+        "func main() {\n"
+        "    var a = AtomicI64.new(0)\n"
+        "    let v = a.load()\n"
+        "    a.store(42)\n"
+        "    let prev = a.add(1)\n"
+        "    let cas = a.compareAndSwap(43, 100)\n"
+        "    a.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "AtomicI64 methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, SyncChannelMethods) {
+    auto r = check(
+        "import sync::sync\n"
+        "func main() {\n"
+        "    var ch = Channel.new(10)\n"
+        "    ch.send(42)\n"
+        "    let v = ch.receive()\n"
+        "    let n = ch.len()\n"
+        "    ch.close()\n"
+        "    ch.free()\n"  // receive returns i64?
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Channel methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, SyncTaskGroupMethods) {
+    auto r = check(
+        "import sync::sync\n"
+        "func main() {\n"
+        "    var g = TaskGroup.new()\n"
+        "    let c = g.count()\n"
+        "    g.cancelAll()\n"
+        "    g.awaitAll()\n"
+        "    g.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TaskGroup methods should type-check";
+}
+
+// ============================================================
 // Umbrella import includes crypto
 // ============================================================
 

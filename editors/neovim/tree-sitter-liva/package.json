@@ -1,0 +1,27 @@
+{
+  "name": "tree-sitter-liva",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Liva programming language",
+  "main": "bindings/node",
+  "keywords": ["parser", "lexer", "tree-sitter", "liva"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livaprogramming/tree-sitter-liva"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "nan": "^2.17.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.20.8"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.liva",
+      "file-types": ["liva"],
+      "highlights": "queries/highlights.scm",
+      "indents": "queries/indents.scm",
+      "folds": "queries/folds.scm"
+    }
+  ]
+}
