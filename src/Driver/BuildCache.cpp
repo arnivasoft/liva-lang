@@ -395,6 +395,13 @@ std::string BuildCache::objectPathForSource(const std::string &sourcePath) {
     return stem + "_" + std::string(hashBuf) + ".o";
 }
 
+std::string BuildCache::bcPathForObjPath(const std::string &objPath) {
+    if (objPath.size() >= 2 && objPath.substr(objPath.size() - 2) == ".o") {
+        return objPath.substr(0, objPath.size() - 2) + ".bc";
+    }
+    return objPath + ".bc";
+}
+
 std::vector<FileCompileStatus> BuildCache::checkFilesCache(
     const std::vector<std::string> &sourceFiles, int optLevel, bool debugInfo) {
 
@@ -439,6 +446,15 @@ std::vector<FileCompileStatus> BuildCache::checkFilesCache(
 
         // Check if build config changed
         if (!hasManifest || cachedOpt != optLevel || cachedDebug != debugInfo) {
+            // Config changed but source unchanged — check for .bc cache
+            if (cached && cached->hash == status.currentHash &&
+                !cached->objFile.empty()) {
+                std::string bcPath = bcPathForObjPath(
+                    joinPath(cacheDir_, cached->objFile));
+                if (fileExists(bcPath)) {
+                    status.cachedBcPath = bcPath;
+                }
+            }
             result.push_back(status);
             continue;
         }
@@ -460,8 +476,12 @@ std::vector<FileCompileStatus> BuildCache::checkFilesCache(
             continue;
         }
 
-        // Cache hit
+        // Cache hit — also check for .bc
         status.cachedObjPath = cachedObjPath;
+        std::string bcPath = bcPathForObjPath(cachedObjPath);
+        if (fileExists(bcPath)) {
+            status.cachedBcPath = bcPath;
+        }
         status.needsRecompile = false;
         result.push_back(status);
     }

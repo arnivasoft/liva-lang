@@ -358,8 +358,42 @@ ConstraintParseResult parseVersionConstraint(const std::string &str) {
         return result;
     }
 
+    // Caret: "^X.Y.Z" → >=X.Y.Z, <(X+1).0.0 (compatible with)
+    if (s[0] == '^') {
+        auto verRes = parseSemVer(trimStr(s.substr(1)));
+        if (!verRes.success) {
+            result.errorMsg = "invalid version after '^': " + verRes.errorMsg;
+            return result;
+        }
+        result.success = true;
+        result.constraint.kind = VersionConstraint::Range;
+        result.constraint.min = verRes.version;
+        if (verRes.version.major > 0) {
+            result.constraint.max = {verRes.version.major + 1, 0, 0};
+        } else if (verRes.version.minor > 0) {
+            result.constraint.max = {0, verRes.version.minor + 1, 0};
+        } else {
+            result.constraint.max = {0, 0, verRes.version.patch + 1};
+        }
+        return result;
+    }
+
+    // Tilde: "~X.Y.Z" → >=X.Y.Z, <X.(Y+1).0 (approximately)
+    if (s[0] == '~') {
+        auto verRes = parseSemVer(trimStr(s.substr(1)));
+        if (!verRes.success) {
+            result.errorMsg = "invalid version after '~': " + verRes.errorMsg;
+            return result;
+        }
+        result.success = true;
+        result.constraint.kind = VersionConstraint::Range;
+        result.constraint.min = verRes.version;
+        result.constraint.max = {verRes.version.major, verRes.version.minor + 1, 0};
+        return result;
+    }
+
     // Reject other operators
-    if (s[0] == '>' || s[0] == '<' || s[0] == '!' || s[0] == '~' || s[0] == '^') {
+    if (s[0] == '>' || s[0] == '<' || s[0] == '!') {
         result.errorMsg = "unsupported constraint operator";
         return result;
     }

@@ -415,6 +415,75 @@ TEST_F(IncrementalBenchmarkTest, PruneStaleEntries_100Files) {
         << "Remaining files should still be cached after prune";
 }
 
+// === 6. bcPathForObjPath — IR cache path generation ===
+
+TEST(BuildCacheIRPath, BcPathFromObj) {
+    EXPECT_EQ(BuildCache::bcPathForObjPath("foo.o"), "foo.bc");
+    EXPECT_EQ(BuildCache::bcPathForObjPath("main_abcd1234.o"), "main_abcd1234.bc");
+    EXPECT_EQ(BuildCache::bcPathForObjPath("/cache/bar.o"), "/cache/bar.bc");
+}
+
+TEST(BuildCacheIRPath, BcPathNonStandard) {
+    // Non-.o extension appends .bc
+    EXPECT_EQ(BuildCache::bcPathForObjPath("foo.obj"), "foo.obj.bc");
+    EXPECT_EQ(BuildCache::bcPathForObjPath("test"), "test.bc");
+}
+
+// === 7. IR cache field in FileCompileStatus ===
+
+TEST_F(IncrementalBenchmarkTest, CachedBcPathSetOnHit) {
+    generateStarProject(3);
+    BuildCache cache(tempDir_.string());
+    auto files = collectSourceFiles();
+
+    // Build cache with fake .o and .bc files
+    auto initial = cache.checkFilesCache(files, 2, false);
+    for (auto &s : initial) {
+        std::string objPath = (tempDir_ / cache.objectPathForSource(s.sourcePath)).string();
+        { std::ofstream ofs(objPath); ofs << "fake_obj"; }
+        cache.storeFileObject(s.sourcePath, s.currentHash, objPath, 2, false);
+        // Create .bc file alongside cached .o in cache dir
+        std::string cachedObjName = cache.objectPathForSource(s.sourcePath);
+        std::string cachedObjPath = cache.getCacheDir() + "/" + cachedObjName;
+        std::string bcPath = BuildCache::bcPathForObjPath(cachedObjPath);
+        { std::ofstream ofs(bcPath); ofs << "fake_bc"; }
+    }
+
+    // Check cache again — should have both obj and bc paths
+    auto cached = cache.checkFilesCache(files, 2, false);
+    for (auto &s : cached) {
+        EXPECT_FALSE(s.needsRecompile) << s.sourcePath << " should be cached";
+        EXPECT_FALSE(s.cachedObjPath.empty()) << s.sourcePath << " should have obj";
+        EXPECT_FALSE(s.cachedBcPath.empty()) << s.sourcePath << " should have bc";
+    }
+}
+
+TEST_F(IncrementalBenchmarkTest, BcPathAvailableOnOptLevelChange) {
+    generateStarProject(2);
+    BuildCache cache(tempDir_.string());
+    auto files = collectSourceFiles();
+
+    // Build with O2
+    auto initial = cache.checkFilesCache(files, 2, false);
+    for (auto &s : initial) {
+        std::string objPath = (tempDir_ / cache.objectPathForSource(s.sourcePath)).string();
+        { std::ofstream ofs(objPath); ofs << "fake_obj"; }
+        cache.storeFileObject(s.sourcePath, s.currentHash, objPath, 2, false);
+        // Create .bc file in cache dir
+        std::string cachedObjName = cache.objectPathForSource(s.sourcePath);
+        std::string cachedObjPath = cache.getCacheDir() + "/" + cachedObjName;
+        std::string bcPath = BuildCache::bcPathForObjPath(cachedObjPath);
+        { std::ofstream ofs(bcPath); ofs << "fake_bc"; }
+    }
+
+    // Check with O3 — source unchanged, opt changed → needs recompile but bc available
+    auto changed = cache.checkFilesCache(files, 3, false);
+    for (auto &s : changed) {
+        EXPECT_TRUE(s.needsRecompile) << s.sourcePath << " should need recompile (opt changed)";
+        EXPECT_FALSE(s.cachedBcPath.empty()) << s.sourcePath << " should have bc for IR reuse";
+    }
+}
+
 // === 6. Scaling test — Linear scaling verification ===
 
 TEST_F(IncrementalBenchmarkTest, ScanDependencies_ScalingLinear) {

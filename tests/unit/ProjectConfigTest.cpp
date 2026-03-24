@@ -352,8 +352,74 @@ TEST(VersionConstraint, ParseInvalid) {
 }
 
 TEST(VersionConstraint, ParseBadOp) {
-    auto r = parseVersionConstraint("~1.0.0");
+    auto r = parseVersionConstraint("!1.0.0");
     EXPECT_FALSE(r.success);
+}
+
+// === Caret (^) Constraint Parsing ===
+
+TEST(VersionConstraint, ParseCaretMajor) {
+    auto r = parseVersionConstraint("^1.2.3");
+    ASSERT_TRUE(r.success);
+    EXPECT_EQ(r.constraint.kind, VersionConstraint::Range);
+    EXPECT_EQ(r.constraint.min.major, 1);
+    EXPECT_EQ(r.constraint.min.minor, 2);
+    EXPECT_EQ(r.constraint.min.patch, 3);
+    // ^1.2.3 → <2.0.0
+    EXPECT_EQ(r.constraint.max.major, 2);
+    EXPECT_EQ(r.constraint.max.minor, 0);
+    EXPECT_EQ(r.constraint.max.patch, 0);
+}
+
+TEST(VersionConstraint, ParseCaretZeroMajor) {
+    // ^0.2.3 → >=0.2.3, <0.3.0 (minor bump when major is 0)
+    auto r = parseVersionConstraint("^0.2.3");
+    ASSERT_TRUE(r.success);
+    EXPECT_EQ(r.constraint.max.major, 0);
+    EXPECT_EQ(r.constraint.max.minor, 3);
+    EXPECT_EQ(r.constraint.max.patch, 0);
+}
+
+TEST(VersionConstraint, ParseCaretZeroMinor) {
+    // ^0.0.3 → >=0.0.3, <0.0.4 (patch bump when major and minor are 0)
+    auto r = parseVersionConstraint("^0.0.3");
+    ASSERT_TRUE(r.success);
+    EXPECT_EQ(r.constraint.max.major, 0);
+    EXPECT_EQ(r.constraint.max.minor, 0);
+    EXPECT_EQ(r.constraint.max.patch, 4);
+}
+
+TEST(VersionConstraint, CaretSatisfaction) {
+    auto r = parseVersionConstraint("^1.2.0");
+    ASSERT_TRUE(r.success);
+    EXPECT_TRUE(r.constraint.satisfiedBy(SemVer{1, 2, 0}));
+    EXPECT_TRUE(r.constraint.satisfiedBy(SemVer{1, 9, 9}));
+    EXPECT_FALSE(r.constraint.satisfiedBy(SemVer{2, 0, 0}));
+    EXPECT_FALSE(r.constraint.satisfiedBy(SemVer{1, 1, 9}));
+}
+
+// === Tilde (~) Constraint Parsing ===
+
+TEST(VersionConstraint, ParseTilde) {
+    auto r = parseVersionConstraint("~1.2.3");
+    ASSERT_TRUE(r.success);
+    EXPECT_EQ(r.constraint.kind, VersionConstraint::Range);
+    EXPECT_EQ(r.constraint.min.major, 1);
+    EXPECT_EQ(r.constraint.min.minor, 2);
+    EXPECT_EQ(r.constraint.min.patch, 3);
+    // ~1.2.3 → <1.3.0
+    EXPECT_EQ(r.constraint.max.major, 1);
+    EXPECT_EQ(r.constraint.max.minor, 3);
+    EXPECT_EQ(r.constraint.max.patch, 0);
+}
+
+TEST(VersionConstraint, TildeSatisfaction) {
+    auto r = parseVersionConstraint("~1.2.0");
+    ASSERT_TRUE(r.success);
+    EXPECT_TRUE(r.constraint.satisfiedBy(SemVer{1, 2, 0}));
+    EXPECT_TRUE(r.constraint.satisfiedBy(SemVer{1, 2, 9}));
+    EXPECT_FALSE(r.constraint.satisfiedBy(SemVer{1, 3, 0}));
+    EXPECT_FALSE(r.constraint.satisfiedBy(SemVer{1, 1, 9}));
 }
 
 // === VersionConstraint Satisfaction ===
@@ -427,6 +493,22 @@ TEST(DependencyParsing, SingleDep) {
     EXPECT_EQ(deps[0].name, "json");
     EXPECT_EQ(deps[0].constraint.kind, VersionConstraint::Exact);
     EXPECT_EQ(deps[0].constraint.min.major, 1);
+}
+
+TEST(DependencyParsing, CaretAndTildeDeps) {
+    auto r = parseTOML(
+        "[dependencies]\njson = \"^1.0.0\"\nhttp = \"~2.1.0\"\n");
+    ASSERT_TRUE(r.success);
+    auto deps = parseDependencies(r.doc);
+    ASSERT_EQ(deps.size(), 2u);
+    // ^1.0.0 → Range [1.0.0, 2.0.0)
+    EXPECT_EQ(deps[0].name, "json");
+    EXPECT_EQ(deps[0].constraint.kind, VersionConstraint::Range);
+    EXPECT_EQ(deps[0].constraint.max.major, 2);
+    // ~2.1.0 → Range [2.1.0, 2.2.0)
+    EXPECT_EQ(deps[1].name, "http");
+    EXPECT_EQ(deps[1].constraint.kind, VersionConstraint::Range);
+    EXPECT_EQ(deps[1].constraint.max.minor, 2);
 }
 
 TEST(DependencyParsing, MultipleDeps) {
@@ -1975,8 +2057,8 @@ TEST_F(SemaCacheTest, CheckAllClean) {
 
     // Re-create cache (simulates new build)
     liva::SemaCache cache2(testDir_);
-    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
-    liva::FileCompileStatus statusB{"b.liva", "hashB", "", false};
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", "", false};
+    liva::FileCompileStatus statusB{"b.liva", "hashB", "", "", false};
 
     auto results = cache2.check({"a.liva", "b.liva"}, {statusA, statusB});
     ASSERT_EQ(results.size(), 2u);
@@ -1990,7 +2072,7 @@ TEST_F(SemaCacheTest, CheckSourceChanged) {
     cache.saveManifest();
 
     liva::SemaCache cache2(testDir_);
-    liva::FileCompileStatus statusA{"a.liva", "newHash", "", true};
+    liva::FileCompileStatus statusA{"a.liva", "newHash", "", "", true};
 
     auto results = cache2.check({"a.liva"}, {statusA});
     ASSERT_EQ(results.size(), 1u);
@@ -2010,8 +2092,8 @@ TEST_F(SemaCacheTest, CheckDepInterfaceChanged) {
     liva::SemaCache cache2(testDir_);
     // Manually update B's interface hash in manifest
     // First load, then update
-    liva::FileCompileStatus statusB{"b.liva", "hashB_new", "", true};
-    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
+    liva::FileCompileStatus statusB{"b.liva", "hashB_new", "", "", true};
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", "", false};
 
     // B has source changes → B needs resema
     // A imports B → cascade → A also needs resema
@@ -2035,8 +2117,8 @@ TEST_F(SemaCacheTest, CheckDepBodyOnlyChanged) {
 
     // New build: both source hashes match current manifest
     liva::SemaCache cache2(testDir_);
-    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
-    liva::FileCompileStatus statusB{"b.liva", "hashB_v2", "", false};
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", "", false};
+    liva::FileCompileStatus statusB{"b.liva", "hashB_v2", "", "", false};
 
     auto results = cache2.check({"a.liva", "b.liva"}, {statusA, statusB});
     ASSERT_EQ(results.size(), 2u);
@@ -2055,9 +2137,9 @@ TEST_F(SemaCacheTest, CascadeInvalidation) {
 
     // C source changed → cascades to B (imports C) → cascades to A (imports B)
     liva::SemaCache cache2(testDir_);
-    liva::FileCompileStatus statusA{"a.liva", "hashA", "", false};
-    liva::FileCompileStatus statusB{"b.liva", "hashB", "", false};
-    liva::FileCompileStatus statusC{"c.liva", "newHashC", "", true};
+    liva::FileCompileStatus statusA{"a.liva", "hashA", "", "", false};
+    liva::FileCompileStatus statusB{"b.liva", "hashB", "", "", false};
+    liva::FileCompileStatus statusC{"c.liva", "newHashC", "", "", true};
 
     auto results = cache2.check(
         {"a.liva", "b.liva", "c.liva"},
@@ -2076,8 +2158,8 @@ TEST_F(SemaCacheTest, ManifestRoundTrip) {
 
     // Load into new cache
     liva::SemaCache cache2(testDir_);
-    liva::FileCompileStatus s1{"lib.liva", "hash1", "", false};
-    liva::FileCompileStatus s2{"main.liva", "hash2", "", false};
+    liva::FileCompileStatus s1{"lib.liva", "hash1", "", "", false};
+    liva::FileCompileStatus s2{"main.liva", "hash2", "", "", false};
     auto results = cache2.check({"lib.liva", "main.liva"}, {s1, s2});
     ASSERT_EQ(results.size(), 2u);
     EXPECT_FALSE(results[0].needsResema);
@@ -2089,8 +2171,8 @@ TEST_F(SemaCacheTest, ManifestRoundTrip) {
 TEST_F(SemaCacheTest, CheckNoManifest) {
     // No manifest file → all files need resema
     liva::SemaCache cache(testDir_);
-    liva::FileCompileStatus s1{"a.liva", "hashA", "", false};
-    liva::FileCompileStatus s2{"b.liva", "hashB", "", false};
+    liva::FileCompileStatus s1{"a.liva", "hashA", "", "", false};
+    liva::FileCompileStatus s2{"b.liva", "hashB", "", "", false};
 
     auto results = cache.check({"a.liva", "b.liva"}, {s1, s2});
     ASSERT_EQ(results.size(), 2u);

@@ -24,6 +24,7 @@ struct FileCompileStatus {
     std::string sourcePath;
     std::string currentHash;
     std::string cachedObjPath; // non-empty if cache hit (absolute path)
+    std::string cachedBcPath;  // non-empty if IR bitcode cache exists
     bool needsRecompile;
 };
 
@@ -60,6 +61,9 @@ public:
 
     /// Generate a unique .o filename for a source path
     std::string objectPathForSource(const std::string &sourcePath);
+
+    /// Generate the .bc (bitcode) path corresponding to an object path
+    static std::string bcPathForObjPath(const std::string &objPath);
 
     /// Remove cache entries for source files no longer in the project
     void pruneStaleEntries(const std::vector<std::string> &currentSources);
