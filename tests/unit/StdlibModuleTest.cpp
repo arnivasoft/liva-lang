@@ -264,6 +264,82 @@ TEST_F(StdlibModuleTest, CryptoEncodingHelpers) {
 }
 
 // ============================================================
+// Module 6: http::http
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportHttpModule) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    let client = HttpClient.new()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import http::http should resolve HttpClient";
+}
+
+TEST_F(StdlibModuleTest, HttpClientMethods) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    let client = HttpClient.withBaseUrl(\"https://api.example.com\")\n"
+        "    let resp = client.get(\"/users\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpClient get should type-check";
+}
+
+TEST_F(StdlibModuleTest, HttpClientPostPutPatchDelete) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    let client = HttpClient.new()\n"
+        "    let r1 = client.post(\"/api\", \"{\\\"key\\\": 1}\")\n"
+        "    let r2 = client.put(\"/api/1\", \"{}\")\n"
+        "    let r3 = client.patch(\"/api/1\", \"{}\")\n"
+        "    let r4 = client.delete(\"/api/1\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpClient post/put/patch/delete should type-check";
+}
+
+TEST_F(StdlibModuleTest, HttpResponseStruct) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    let resp = HttpResponse { body: \"hello\", ok: true }\n"
+        "    let t = resp.text()\n"
+        "    let o = resp.isOk()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpResponse struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, HttpConvenienceFunctions) {
+    // Use HttpClient directly — convenience wrapper for simple HTTP calls
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    let client = HttpClient.new()\n"
+        "    let r1 = client.get(\"https://example.com\")\n"
+        "    let r2 = client.post(\"https://example.com\", \"data\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpClient convenience calls should type-check";
+}
+
+TEST_F(StdlibModuleTest, HttpHeadersBuilder) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    var headers = HttpHeaders.new()\n"
+        "    headers.set(\"Content-Type\", \"application/json\")\n"
+        "    let s = headers.toString()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpHeaders builder should type-check";
+}
+
+// ============================================================
 // Umbrella import includes crypto
 // ============================================================
 

@@ -1,0 +1,67 @@
+// http::http — Ergonomic HTTP client wrapper API
+// Import with: import http::http
+
+import std::net
+
+pub struct HttpResponse {
+    var body: String
+    var ok: bool
+}
+
+impl HttpResponse {
+    pub func text(ref self) -> String {
+        return self.body
+    }
+
+    pub func isOk(ref self) -> bool {
+        return self.ok
+    }
+}
+
+pub struct HttpHeaders {
+    var data: String
+}
+
+impl HttpHeaders {
+    pub func new() -> HttpHeaders {
+        return HttpHeaders { data: "" }
+    }
+
+    pub func toString(ref self) -> String {
+        return self.data
+    }
+}
+
+pub struct HttpClient {
+    var baseUrl: String
+}
+
+impl HttpClient {
+    pub func new() -> HttpClient {
+        return HttpClient { baseUrl: "" }
+    }
+
+    pub func withBaseUrl(url: String) -> HttpClient {
+        return HttpClient { baseUrl: url }
+    }
+
+    pub func get(ref self, url: String) -> String? {
+        return httpGet(url)
+    }
+
+    pub func post(ref self, url: String, body: String) -> String? {
+        return httpPost(url, body)
+    }
+
+    pub func put(ref self, url: String, body: String) -> String? {
+        return httpPut(url, body)
+    }
+
+    pub func patch(ref self, url: String, body: String) -> String? {
+        return httpPatch(url, body)
+    }
+
+    pub func delete(ref self, url: String) -> String? {
+        return httpDelete(url)
+    }
+}

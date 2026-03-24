@@ -97,6 +97,11 @@ private:
     /// Skip forward to the next '{' and consume the balanced block including the matching '}'
     void skipBalancedBraces();
 
+    /// Skip tokens inside a delimited expression list (call args, array elements, struct fields)
+    /// until we find a comma, the given closing delimiter, or EOF.
+    /// Returns true if stopped at comma or closing delimiter (recoverable), false if EOF.
+    bool skipToExprDelimiter(TokenKind closeDelim);
+
     /// Create a source range from start to current position
     SourceRange rangeFrom(SourceLocation start) const;
 

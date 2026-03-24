@@ -95,6 +95,40 @@ void Parser::skipBalancedBraces() {
     } while (depth > 0 && !check(TokenKind::eof));
 }
 
+bool Parser::skipToExprDelimiter(TokenKind closeDelim) {
+    int parenDepth = 0, bracketDepth = 0, braceDepth = 0;
+    while (!check(TokenKind::eof)) {
+        auto kind = current_.getKind();
+        // Track nesting
+        if (kind == TokenKind::l_paren) ++parenDepth;
+        else if (kind == TokenKind::r_paren) {
+            if (parenDepth > 0) { --parenDepth; advance(); continue; }
+            if (closeDelim == TokenKind::r_paren) return true;
+        }
+        else if (kind == TokenKind::l_bracket) ++bracketDepth;
+        else if (kind == TokenKind::r_bracket) {
+            if (bracketDepth > 0) { --bracketDepth; advance(); continue; }
+            if (closeDelim == TokenKind::r_bracket) return true;
+        }
+        else if (kind == TokenKind::l_brace) ++braceDepth;
+        else if (kind == TokenKind::r_brace) {
+            if (braceDepth > 0) { --braceDepth; advance(); continue; }
+            if (closeDelim == TokenKind::r_brace) return true;
+            return false; // hit enclosing block boundary
+        }
+        // At nesting depth 0, comma is a delimiter
+        if (kind == TokenKind::comma && parenDepth == 0 &&
+            bracketDepth == 0 && braceDepth == 0)
+            return true;
+        // Semicolon or statement keywords → bail out
+        if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
+            if (kind == TokenKind::semicolon) return false;
+        }
+        advance();
+    }
+    return false;
+}
+
 void Parser::synchronizeBody() {
     while (current_.getKind() != TokenKind::eof) {
         if (current_.getKind() == TokenKind::r_brace)

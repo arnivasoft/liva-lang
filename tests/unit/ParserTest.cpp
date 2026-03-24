@@ -2134,6 +2134,80 @@ TEST_F(ParserTest, ErrorRecovery_MultipleErrorsReported) {
     EXPECT_GE(result.diag.getDiagnostics().size(), 2u);
 }
 
+TEST_F(ParserTest, ErrorRecovery_CallExpr_BadArgSkipsToNext) {
+    // Bad argument in function call should recover and continue parsing
+    auto result = parse(R"--(
+        func foo(a: i32, b: i32) {}
+        func main() {
+            foo(@@, 42)
+            let x = 10
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    // main() should still be parsed
+    bool foundMain = false;
+    for (auto &d : result.tu->getDeclarations()) {
+        auto *fn = dynamic_cast<FuncDecl *>(d.get());
+        if (fn && fn->getName() == "main") foundMain = true;
+    }
+    EXPECT_TRUE(foundMain);
+}
+
+TEST_F(ParserTest, ErrorRecovery_ArrayLiteral_BadElement) {
+    // Bad element in array literal should recover
+    auto result = parse(R"--(
+        func main() {
+            let a = [1, @@, 3]
+            let b = 42
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    bool foundMain = false;
+    for (auto &d : result.tu->getDeclarations()) {
+        auto *fn = dynamic_cast<FuncDecl *>(d.get());
+        if (fn && fn->getName() == "main") foundMain = true;
+    }
+    EXPECT_TRUE(foundMain);
+}
+
+TEST_F(ParserTest, ErrorRecovery_StructLiteral_BadFieldValue) {
+    // Bad field value in struct literal should recover
+    auto result = parse(R"--(
+        struct Point { var x: i32; var y: i32 }
+        func main() {
+            let p = Point { x: @@, y: 5 }
+            let z = 10
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    bool foundMain = false;
+    for (auto &d : result.tu->getDeclarations()) {
+        auto *fn = dynamic_cast<FuncDecl *>(d.get());
+        if (fn && fn->getName() == "main") foundMain = true;
+    }
+    EXPECT_TRUE(foundMain);
+}
+
+TEST_F(ParserTest, ErrorRecovery_MultipleExprErrors_AllReported) {
+    // Multiple expression errors should all be reported
+    auto result = parse(R"--(
+        func f1() {
+            foo(@@)
+        }
+        func f2() {
+            bar(@@)
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    EXPECT_GE(result.diag.getDiagnostics().size(), 2u);
+    // Both functions should be parsed
+    int funcCount = 0;
+    for (auto &d : result.tu->getDeclarations()) {
+        if (dynamic_cast<FuncDecl *>(d.get())) funcCount++;
+    }
+    EXPECT_EQ(funcCount, 2);
+}
+
 TEST_F(ParserTest, ErrorRecovery_PreservesEnclosingBrace) {
     auto result = parse(R"--(
         func outer() {

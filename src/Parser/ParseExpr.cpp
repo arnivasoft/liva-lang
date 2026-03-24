@@ -373,8 +373,14 @@ std::unique_ptr<Expr> Parser::parseCallExpr(std::unique_ptr<Expr> callee) {
     if (!check(TokenKind::r_paren)) {
         do {
             auto arg = parseExpression();
-            if (!arg)
-                return nullptr;
+            if (!arg) {
+                // Skip to next comma or closing paren to recover
+                if (!skipToExprDelimiter(TokenKind::r_paren))
+                    return nullptr;
+                if (check(TokenKind::r_paren)) break;
+                if (match(TokenKind::comma)) continue;
+                break;
+            }
             args.push_back(std::move(arg));
         } while (match(TokenKind::comma));
     }
@@ -420,8 +426,12 @@ std::unique_ptr<Expr> Parser::parseIndexExpr(std::unique_ptr<Expr> base) {
     expect(TokenKind::l_bracket);
 
     auto index = parseExpression();
-    if (!index)
+    if (!index) {
+        // Skip to closing bracket to recover
+        skipToExprDelimiter(TokenKind::r_bracket);
+        if (check(TokenKind::r_bracket)) advance();
         return nullptr;
+    }
 
     expect(TokenKind::r_bracket);
 
@@ -435,11 +445,19 @@ std::unique_ptr<Expr> Parser::parseStructLiteral(const std::string &name,
 
     std::vector<StructLiteralExpr::FieldInit> fields;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        if (diag_.hasMaxErrors()) break;
+
         auto fieldName = expect(TokenKind::identifier);
         expect(TokenKind::colon);
         auto value = parseExpression();
-        if (!value)
-            return nullptr;
+        if (!value) {
+            // Skip to next comma or closing brace to recover
+            if (!skipToExprDelimiter(TokenKind::r_brace))
+                return nullptr;
+            if (check(TokenKind::r_brace)) break;
+            if (match(TokenKind::comma)) continue;
+            break;
+        }
 
         fields.push_back({std::string(fieldName.getText()), std::move(value)});
 
@@ -461,8 +479,13 @@ std::unique_ptr<Expr> Parser::parseArrayLiteral() {
     if (!check(TokenKind::r_bracket)) {
         do {
             auto elem = parseExpression();
-            if (!elem)
-                return nullptr;
+            if (!elem) {
+                if (!skipToExprDelimiter(TokenKind::r_bracket))
+                    return nullptr;
+                if (check(TokenKind::r_bracket)) break;
+                if (match(TokenKind::comma)) continue;
+                break;
+            }
             elements.push_back(std::move(elem));
         } while (match(TokenKind::comma));
     }

@@ -2584,6 +2584,69 @@ TEST_F(LSPTest, EnsureAnalyzedBeforeHover) {
     EXPECT_TRUE(contents.find("greet") != std::string::npos);
 }
 
+// ============================================================
+// Parameter Name Inlay Hint Tests
+// ============================================================
+
+TEST_F(LSPTest, InlayHintParamNames_MultiArg) {
+    // Multi-arg function call should show parameter name hints
+    initAndOpen("file:///test.liva",
+        "func add(a: i32, b: i32) -> i32 { return a + b }\n"
+        "func main() {\n"
+        "    let r = add(1, 2)\n"
+        "}");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 4)));
+    const auto &hints = resp["result"].getArray();
+    // Should have type hint for 'r' + param hints for 'a:' and 'b:'
+    bool foundParamA = false, foundParamB = false;
+    for (const auto &h : hints) {
+        std::string label = h["label"].getString();
+        if (label == "a: " && h["kind"].getInteger() == 2) foundParamA = true;
+        if (label == "b: " && h["kind"].getInteger() == 2) foundParamB = true;
+    }
+    EXPECT_TRUE(foundParamA);
+    EXPECT_TRUE(foundParamB);
+}
+
+TEST_F(LSPTest, InlayHintParamNames_SingleArgSkipped) {
+    // Single-arg function calls should NOT show parameter hints (obvious context)
+    initAndOpen("file:///test.liva",
+        "func double(x: i32) -> i32 { return x * 2 }\n"
+        "func main() {\n"
+        "    let r = double(5)\n"
+        "}");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 4)));
+    const auto &hints = resp["result"].getArray();
+    // Should only have type hint for 'r', no parameter hints
+    for (const auto &h : hints) {
+        if (h["kind"].getInteger() == 2) {
+            FAIL() << "Single-arg calls should not get parameter hints";
+        }
+    }
+}
+
+TEST_F(LSPTest, InlayHintParamNames_ArgMatchingParamSkipped) {
+    // When argument name matches parameter name, skip the hint
+    initAndOpen("file:///test.liva",
+        "func add(a: i32, b: i32) -> i32 { return a + b }\n"
+        "func main() {\n"
+        "    let a = 1\n"
+        "    let b = 2\n"
+        "    let r = add(a, b)\n"
+        "}");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 6)));
+    const auto &hints = resp["result"].getArray();
+    // Parameter hints should be suppressed when arg name matches param name
+    for (const auto &h : hints) {
+        if (h["kind"].getInteger() == 2) {
+            FAIL() << "Arg name matching param name should suppress hint";
+        }
+    }
+}
+
 TEST_F(LSPTest, DidChangeUpdatesLineIndex) {
     initAndOpen("file:///test.liva", "func foo() {}");
     // Change to multi-line

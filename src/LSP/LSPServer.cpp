@@ -3430,6 +3430,154 @@ void LSPServer::collectMacroHints(const ASTNode *node, uint32_t startLine,
 }
 
 // ============================================================
+// Call Parameter Inlay Hints
+// ============================================================
+
+void LSPServer::collectCallParamHints(const ASTNode *node, uint32_t startLine,
+                                       uint32_t endLine, JSONValue &hints,
+                                       const TranslationUnit *tu) {
+    if (!node) return;
+
+    // Helper: emit parameter name hints for a CallExpr
+    auto emitParamHints = [&](const CallExpr *call) {
+        if (!call || call->getArgs().empty()) return;
+
+        uint32_t line = call->getRange().start.line;
+        if (line < startLine || line > endLine) return;
+
+        // Get the function name from the callee
+        std::string funcName;
+        if (auto *id = dynamic_cast<const IdentifierExpr *>(call->getCallee())) {
+            funcName = id->getName();
+        } else if (auto *me = dynamic_cast<const MemberExpr *>(call->getCallee())) {
+            funcName = me->getMember();
+        }
+        if (funcName.empty()) return;
+
+        // Find the FuncDecl
+        const FuncDecl *fd = nullptr;
+
+        // Search top-level declarations
+        if (tu) {
+            auto *d = findDeclByName(tu, funcName);
+            if (d) fd = dynamic_cast<const FuncDecl *>(d);
+        }
+
+        // Search impl blocks
+        if (!fd && tu) {
+            for (const auto &d : tu->getDeclarations()) {
+                auto *impl = dynamic_cast<const ImplDecl *>(d.get());
+                if (!impl) {
+                    auto *cls = dynamic_cast<const ClassDecl *>(d.get());
+                    if (cls) {
+                        for (const auto *m : cls->getMethods()) {
+                            if (m->getName() == funcName) { fd = m; break; }
+                        }
+                    }
+                    continue;
+                }
+                for (const auto &m : impl->getMethods()) {
+                    if (m->getName() == funcName) { fd = m.get(); break; }
+                }
+                if (fd) break;
+            }
+        }
+
+        if (!fd) return;
+
+        // Get non-self parameters
+        std::vector<const ParamDecl *> params;
+        for (const auto &p : fd->getParams()) {
+            if (!p.isSelf) params.push_back(&p);
+        }
+
+        // Emit hints for each argument that has a named parameter
+        const auto &args = call->getArgs();
+        for (size_t i = 0; i < args.size() && i < params.size(); ++i) {
+            const auto &paramName = params[i]->name;
+            if (paramName.empty()) continue;
+
+            // Skip if the argument is already a named literal matching the param
+            if (auto *argId = dynamic_cast<const IdentifierExpr *>(args[i].get())) {
+                if (argId->getName() == paramName) continue;
+            }
+
+            // Skip single-argument calls (obvious context)
+            if (args.size() == 1 && params.size() == 1) continue;
+
+            uint32_t argLine = args[i]->getRange().start.line;
+            uint32_t argCol = args[i]->getRange().start.column;
+            if (argLine < startLine || argLine > endLine) continue;
+
+            auto hint = JSONValue::object();
+            auto pos = JSONValue::object();
+            pos.set("line", JSONValue(static_cast<int64_t>(argLine - 1)));
+            pos.set("character", JSONValue(static_cast<int64_t>(argCol - 1)));
+            hint.set("position", std::move(pos));
+            hint.set("label", JSONValue(paramName + ": "));
+            hint.set("kind", JSONValue(static_cast<int64_t>(2))); // Parameter
+            hint.set("paddingRight", JSONValue(true));
+            hints.push(std::move(hint));
+        }
+    };
+
+    // Walk AST to find CallExprs
+
+    if (auto *es = dynamic_cast<const ExprStmt *>(node)) {
+        if (auto *call = dynamic_cast<const CallExpr *>(es->getExpr()))
+            emitParamHints(call);
+        return;
+    }
+
+    if (auto *vd = dynamic_cast<const VarDecl *>(node)) {
+        if (vd->hasInit()) {
+            if (auto *call = dynamic_cast<const CallExpr *>(vd->getInit()))
+                emitParamHints(call);
+        }
+        return;
+    }
+
+    if (auto *rs = dynamic_cast<const ReturnStmt *>(node)) {
+        if (rs->hasValue()) {
+            if (auto *call = dynamic_cast<const CallExpr *>(rs->getValue()))
+                emitParamHints(call);
+        }
+        return;
+    }
+
+    if (auto *fd = dynamic_cast<const FuncDecl *>(node)) {
+        if (fd->getBody()) {
+            for (const auto &stmt : fd->getBody()->getStatements())
+                collectCallParamHints(stmt.get(), startLine, endLine, hints, tu);
+        }
+        return;
+    }
+
+    if (auto *bs = dynamic_cast<const BlockStmt *>(node)) {
+        for (const auto &stmt : bs->getStatements())
+            collectCallParamHints(stmt.get(), startLine, endLine, hints, tu);
+        return;
+    }
+
+    if (auto *is = dynamic_cast<const IfStmt *>(node)) {
+        collectCallParamHints(is->getThenBody(), startLine, endLine, hints, tu);
+        if (is->hasElse())
+            collectCallParamHints(is->getElseBody(), startLine, endLine, hints, tu);
+        return;
+    }
+
+    if (auto *ws = dynamic_cast<const WhileStmt *>(node)) {
+        collectCallParamHints(ws->getBody(), startLine, endLine, hints, tu);
+        return;
+    }
+
+    if (auto *fs = dynamic_cast<const ForStmt *>(node)) {
+        collectCallParamHints(fs->getBody(), startLine, endLine, hints, tu);
+        return;
+    }
+}
+
+// ============================================================
 // Workspace Symbol
 // ============================================================
 
@@ -3539,6 +3687,8 @@ JSONValue LSPServer::handleInlayHint(const JSONValue &id,
     for (const auto &decl : it->second.tu->getDeclarations()) {
         collectVarDeclHints(decl.get(), startLine, endLine, hints);
         collectMacroHints(decl.get(), startLine, endLine, hints);
+        collectCallParamHints(decl.get(), startLine, endLine, hints,
+                              it->second.tu.get());
     }
 
     return makeResponse(id, std::move(hints));

@@ -118,6 +118,9 @@ private:
                              uint32_t endLine, JSONValue &hints);
     void collectMacroHints(const ASTNode *node, uint32_t startLine,
                            uint32_t endLine, JSONValue &hints);
+    void collectCallParamHints(const ASTNode *node, uint32_t startLine,
+                               uint32_t endLine, JSONValue &hints,
+                               const TranslationUnit *tu);
 
     // Analysis helpers
     void analyzeDocument(DocumentState &doc);
