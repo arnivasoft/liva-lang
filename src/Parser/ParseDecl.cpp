@@ -99,15 +99,21 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     }
     std::string name(nameTok.getText());
 
-    // Parse optional generic type parameters: <T, U> or <T: Protocol> or <const N: i32>
+    // Parse optional generic parameters: <'a, T, U: Protocol, const N: i32>
+    std::vector<std::string> lifetimeParams;
     std::vector<std::string> typeParams;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds;
     std::vector<FuncDecl::ConstGenericParam> constParams;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
+                // Lifetime parameter: 'a, 'b, 'static
+                if (check(TokenKind::lifetime_literal)) {
+                    lifetimeParams.push_back(std::string(current_.getText()));
+                    advance();
+                }
                 // Check for const generic parameter: const N: i32
-                if (match(TokenKind::kw_const)) {
+                else if (match(TokenKind::kw_const)) {
                     FuncDecl::ConstGenericParam cp;
                     auto cpName = expect(TokenKind::identifier);
                     cp.name = std::string(cpName.getText());
@@ -218,6 +224,9 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
                                                 isPublic, rangeFrom(startLoc), isAsync);
     if (hasCVarargs) {
         funcDecl->setCVarargs(true);
+    }
+    if (!lifetimeParams.empty()) {
+        funcDecl->setLifetimeParams(std::move(lifetimeParams));
     }
     if (!typeParams.empty()) {
         funcDecl->setTypeParams(std::move(typeParams));

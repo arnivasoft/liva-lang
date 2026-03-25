@@ -29,6 +29,7 @@ TOKEN(string_interp_begin, "string interpolation begin")
 TOKEN(string_interp_mid,   "string interpolation mid")
 TOKEN(string_interp_end,   "string interpolation end")
 TOKEN(doc_comment,         "doc comment")
+TOKEN(lifetime_literal,    "lifetime literal")
 
 // === Keywords ===
 KEYWORD(let,        "let")

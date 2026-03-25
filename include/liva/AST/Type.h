@@ -80,7 +80,7 @@ private:
     std::string name_;
 };
 
-/// Reference type: ref T or ref mut T
+/// Reference type: ref T, ref mut T, ref 'a T, ref 'a mut T
 class ReferenceTypeRepr : public TypeRepr {
 public:
     ReferenceTypeRepr(std::unique_ptr<TypeRepr> inner, bool isMutable)
@@ -90,9 +90,15 @@ public:
     bool isMutable() const { return isMutable_; }
     std::string toString() const override;
 
+    /// Explicit lifetime annotation: 'a, 'static
+    const std::string &getLifetime() const { return lifetime_; }
+    void setLifetime(std::string lt) { lifetime_ = std::move(lt); }
+    bool hasLifetime() const { return !lifetime_.empty(); }
+
 private:
     std::unique_ptr<TypeRepr> inner_;
     bool isMutable_;
+    std::string lifetime_;
 };
 
 /// Array type: [T; N] or [T]

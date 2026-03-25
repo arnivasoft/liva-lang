@@ -602,3 +602,41 @@ TEST_F(LexerTest, TestKeyword) {
     expectToken(tokens[2], TokenKind::l_brace);
     expectToken(tokens[3], TokenKind::r_brace);
 }
+
+// ============================================================
+// Lifetime Literals
+// ============================================================
+
+TEST_F(LexerTest, LifetimeLiteral_Basic) {
+    auto tokens = lex("'a");
+    ASSERT_GE(tokens.size(), 1u);
+    expectToken(tokens[0], TokenKind::lifetime_literal);
+    EXPECT_EQ(tokens[0].getText(), "'a");
+}
+
+TEST_F(LexerTest, LifetimeLiteral_Static) {
+    auto tokens = lex("'static");
+    ASSERT_GE(tokens.size(), 1u);
+    expectToken(tokens[0], TokenKind::lifetime_literal);
+    EXPECT_EQ(tokens[0].getText(), "'static");
+}
+
+TEST_F(LexerTest, LifetimeLiteral_InContext) {
+    auto tokens = lex("ref 'a i32");
+    ASSERT_GE(tokens.size(), 3u);
+    expectToken(tokens[0], TokenKind::kw_ref);
+    expectToken(tokens[1], TokenKind::lifetime_literal);
+    EXPECT_EQ(tokens[1].getText(), "'a");
+    expectToken(tokens[2], TokenKind::kw_i32);
+}
+
+TEST_F(LexerTest, LifetimeLiteral_VsCharLiteral) {
+    // 'x' should be char literal, 'x should be lifetime
+    auto tokens1 = lex("'x'");
+    ASSERT_GE(tokens1.size(), 1u);
+    expectToken(tokens1[0], TokenKind::char_literal);
+
+    auto tokens2 = lex("'x ");
+    ASSERT_GE(tokens2.size(), 1u);
+    expectToken(tokens2[0], TokenKind::lifetime_literal);
+}

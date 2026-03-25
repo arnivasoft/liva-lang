@@ -76,6 +76,12 @@ public:
     bool isAsync() const { return isAsync_; }
     bool isGenerator() const { return isGenerator_; }
     void setGenerator(bool v) { isGenerator_ = v; }
+
+    /// Lifetime parameters (e.g. {"'a", "'b"})
+    void setLifetimeParams(std::vector<std::string> params) { lifetimeParams_ = std::move(params); }
+    const std::vector<std::string> &getLifetimeParams() const { return lifetimeParams_; }
+    bool hasLifetimeParams() const { return !lifetimeParams_.empty(); }
+
     bool hasBody() const { return body_ != nullptr; }
     void setExtern(bool v) { isExtern_ = v; }
     bool isExtern() const { return isExtern_; }
@@ -129,6 +135,7 @@ private:
     bool isGenerator_ = false;
     bool isExtern_ = false;
     bool isCVarargs_ = false;
+    std::vector<std::string> lifetimeParams_;
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
     std::vector<WhereConstraint> whereConstraints_;

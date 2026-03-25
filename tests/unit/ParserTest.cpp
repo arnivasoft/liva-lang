@@ -2226,6 +2226,55 @@ TEST_F(ParserTest, ErrorRecovery_PreservesEnclosingBrace) {
 // ============================================================
 
 // ============================================================
+// Explicit Lifetime Syntax
+// ============================================================
+
+TEST_F(ParserTest, LifetimeParam_FuncDecl) {
+    auto result = parse(R"--(
+        func foo<'a>(x: ref 'a i32) {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    ASSERT_EQ(fn->getLifetimeParams().size(), 1u);
+    EXPECT_EQ(fn->getLifetimeParams()[0], "'a");
+}
+
+TEST_F(ParserTest, LifetimeParam_Mixed) {
+    auto result = parse(R"--(
+        func bar<'a, T>(x: ref 'a T) {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getLifetimeParams().size(), 1u);
+    EXPECT_EQ(fn->getLifetimeParams()[0], "'a");
+    EXPECT_EQ(fn->getTypeParams().size(), 1u);
+    EXPECT_EQ(fn->getTypeParams()[0], "T");
+}
+
+TEST_F(ParserTest, LifetimeParam_MultipleLifetimes) {
+    auto result = parse(R"--(
+        func merge<'a, 'b>(x: ref 'a i32, y: ref 'b i32) {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    ASSERT_EQ(fn->getLifetimeParams().size(), 2u);
+    EXPECT_EQ(fn->getLifetimeParams()[0], "'a");
+    EXPECT_EQ(fn->getLifetimeParams()[1], "'b");
+}
+
+TEST_F(ParserTest, LifetimeParam_Static) {
+    auto result = parse(R"--(
+        func global() -> ref 'static i32 {
+            return ref x
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+// ============================================================
 // Const Generics
 // ============================================================
 

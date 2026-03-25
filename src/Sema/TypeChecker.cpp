@@ -481,6 +481,15 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         diag_.report(node->getStartLoc(), DiagID::err_cvarargs_not_extern, node->getName());
     }
 
+    // Register lifetime parameters in scope
+    for (const auto &lp : node->getLifetimeParams()) {
+        Symbol sym;
+        sym.name = lp;
+        sym.kind = Symbol::Kind::LifetimeParam;
+        sym.declLoc = node->getStartLoc();
+        scopes_.declare(lp, sym);
+    }
+
     // Register type parameters in scope
     for (const auto &tp : node->getTypeParams()) {
         Symbol sym;

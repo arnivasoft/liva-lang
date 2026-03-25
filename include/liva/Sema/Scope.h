@@ -26,6 +26,7 @@ struct Symbol {
         Field,
         TypeParam,
         ConstParam,
+        LifetimeParam,
         ProtocolType,
         TypeAlias,
         ClassType,

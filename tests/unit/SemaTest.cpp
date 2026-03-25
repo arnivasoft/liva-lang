@@ -8924,6 +8924,37 @@ TEST_F(SemaTest, AsyncIOViaStdAsyncModule) {
 }
 
 // ============================================================
+// Explicit Lifetime Syntax
+// ============================================================
+
+TEST_F(SemaTest, Lifetime_DeclaredParam) {
+    auto result = check(R"--(
+        func first<'a>(x: ref 'a i32) {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Declared lifetime param should be valid";
+}
+
+TEST_F(SemaTest, Lifetime_MultipleParams) {
+    auto result = check(R"--(
+        func merge<'a, 'b>(x: ref 'a i32, y: ref 'b i32) {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Multiple lifetime params should be valid";
+}
+
+TEST_F(SemaTest, Lifetime_MixedWithType) {
+    auto result = check(R"--(
+        func wrap<'a, T>(x: ref 'a T) {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Mixed lifetime + type params should be valid";
+}
+
+// ============================================================
 // Generators / Yield (B3)
 // ============================================================
 

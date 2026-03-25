@@ -3,12 +3,19 @@
 namespace liva {
 
 std::unique_ptr<TypeRepr> Parser::parseType() {
-    // ref T / ref mut T
+    // ref T / ref mut T / ref 'a T / ref 'a mut T
     if (check(TokenKind::kw_ref)) {
         advance();
+        std::string lifetime;
+        if (check(TokenKind::lifetime_literal)) {
+            lifetime = std::string(current_.getText());
+            advance();
+        }
         bool isMut = match(TokenKind::kw_mut);
         auto inner = parseType();
-        return std::make_unique<ReferenceTypeRepr>(std::move(inner), isMut);
+        auto refType = std::make_unique<ReferenceTypeRepr>(std::move(inner), isMut);
+        if (!lifetime.empty()) refType->setLifetime(std::move(lifetime));
+        return refType;
     }
 
     auto base = parseBaseType();
@@ -211,10 +218,14 @@ ParamDecl Parser::parseParamDecl() {
 
     expect(TokenKind::colon);
 
-    // Check for ref/ref mut in type position
+    // Check for ref/ref mut in type position (with optional lifetime)
     if (check(TokenKind::kw_ref)) {
         param.isRef = true;
         advance();
+        // Skip lifetime annotation in param ref context
+        if (check(TokenKind::lifetime_literal)) {
+            advance(); // consume lifetime (handled by parseType's ReferenceTypeRepr)
+        }
         if (match(TokenKind::kw_mut)) {
             param.isMutRef = true;
         }

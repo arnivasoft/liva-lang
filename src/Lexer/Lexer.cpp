@@ -142,8 +142,31 @@ Token Lexer::nextToken() {
         return lexString();
     }
 
-    // Character literals
+    // Lifetime literals ('a, 'static) vs character literals ('x')
     if (c == '\'') {
+        // Peek ahead: if next is alpha/_ and the char after that is NOT a closing quote,
+        // then it's a lifetime literal ('a, 'static), not a char literal ('x')
+        size_t peekPos = currentPos_ + 1;
+        if (peekPos < source_.size() &&
+            (std::isalpha(static_cast<unsigned char>(source_[peekPos])) ||
+             source_[peekPos] == '_')) {
+            // Scan the identifier part
+            size_t idEnd = peekPos + 1;
+            while (idEnd < source_.size() &&
+                   (std::isalnum(static_cast<unsigned char>(source_[idEnd])) ||
+                    source_[idEnd] == '_'))
+                ++idEnd;
+            // If NOT followed by closing quote → lifetime
+            if (idEnd >= source_.size() || source_[idEnd] != '\'') {
+                size_t startOffset = currentPos_;
+                advance(); // skip '
+                while (currentPos_ < source_.size() &&
+                       (std::isalnum(static_cast<unsigned char>(source_[currentPos_])) ||
+                        source_[currentPos_] == '_'))
+                    advance();
+                return makeToken(TokenKind::lifetime_literal, startOffset);
+            }
+        }
         return lexChar();
     }
 
