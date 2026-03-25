@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liva Playground</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: #181825;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            border-bottom: 1px solid #313244;
+        }
+        header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #cba6f7;
+        }
+        header h1 span { color: #89b4fa; font-weight: 400; }
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            margin-left: auto;
+        }
+        button {
+            background: #313244;
+            color: #cdd6f4;
+            border: 1px solid #45475a;
+            padding: 6px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.15s;
+        }
+        button:hover { background: #45475a; }
+        button.primary {
+            background: #89b4fa;
+            color: #1e1e2e;
+            border-color: #89b4fa;
+            font-weight: 600;
+        }
+        button.primary:hover { background: #74c7ec; }
+        .main {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+        }
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .panel-header {
+            background: #181825;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #a6adc8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #313244;
+        }
+        .divider {
+            width: 4px;
+            background: #313244;
+            cursor: col-resize;
+        }
+        .divider:hover { background: #89b4fa; }
+        #editor {
+            flex: 1;
+            padding: 16px;
+            background: #1e1e2e;
+            font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #cdd6f4;
+            border: none;
+            outline: none;
+            resize: none;
+            tab-size: 4;
+            overflow: auto;
+        }
+        #output {
+            flex: 1;
+            padding: 16px;
+            background: #11111b;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+        .output-line { margin-bottom: 2px; }
+        .output-error { color: #f38ba8; }
+        .output-info { color: #a6adc8; }
+        .output-success { color: #a6e3a1; }
+        .output-warn { color: #fab387; }
+        select {
+            background: #313244;
+            color: #cdd6f4;
+            border: 1px solid #45475a;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        footer {
+            background: #181825;
+            padding: 6px 24px;
+            font-size: 12px;
+            color: #585b70;
+            border-top: 1px solid #313244;
+            display: flex;
+            justify-content: space-between;
+        }
+        .status { color: #a6adc8; }
+        .status.running { color: #fab387; }
+        .status.done { color: #a6e3a1; }
+        .status.error { color: #f38ba8; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Liva <span>Playground</span></h1>
+        <select id="examples">
+            <option value="">-- Examples --</option>
+            <option value="hello">Hello World</option>
+            <option value="fibonacci">Fibonacci</option>
+            <option value="structs">Structs & Methods</option>
+            <option value="closures">Closures</option>
+            <option value="generics">Generics</option>
+            <option value="pattern">Pattern Matching</option>
+            <option value="async">Async/Await</option>
+        </select>
+        <div class="toolbar">
+            <button class="primary" onclick="runCode()" title="Ctrl+Enter">Run</button>
+            <button onclick="clearOutput()">Clear</button>
+            <button onclick="shareCode()">Share</button>
+        </div>
+    </header>
+    <div class="main">
+        <div class="panel">
+            <div class="panel-header">Source Code</div>
+            <textarea id="editor" spellcheck="false">// Welcome to the Liva Playground!
+// Write Liva code here and click Run.
+
+func fibonacci(n: i32) -> i32 {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+func main() {
+    println("Liva Playground")
+    println("===============")
+
+    for i in 0..10 {
+        let fib = fibonacci(i)
+        println("fib(\(i)) = \(fib)")
+    }
+}</textarea>
+        </div>
+        <div class="divider" id="divider"></div>
+        <div class="panel">
+            <div class="panel-header">Output</div>
+            <div id="output">
+                <div class="output-line output-info">Press Run (Ctrl+Enter) to execute your code.</div>
+            </div>
+        </div>
+    </div>
+    <footer>
+        <span>Liva Language v1.0 | WASM Backend</span>
+        <span class="status" id="status">Ready</span>
+    </footer>
+
+    <script>
+    const EXAMPLES = {
+        hello: `// Hello World
+func main() {
+    println("Hello, World!")
+    println("Welcome to Liva!")
+}`,
+        fibonacci: `// Fibonacci sequence
+func fibonacci(n: i32) -> i32 {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+func main() {
+    for i in 0..15 {
+        println("fib(\\(i)) = \\(fibonacci(i))")
+    }
+}`,
+        structs: `// Structs and Methods
+struct Point {
+    var x: f64
+    var y: f64
+}
+
+impl Point {
+    func distance(ref self, other: Point) -> f64 {
+        let dx = self.x - other.x
+        let dy = self.y - other.y
+        return sqrt(dx * dx + dy * dy)
+    }
+
+    func toString(ref self) -> String {
+        return "(\\(self.x), \\(self.y))"
+    }
+}
+
+func main() {
+    let a = Point { x: 3.0, y: 4.0 }
+    let b = Point { x: 0.0, y: 0.0 }
+    println("A = \\(a.toString())")
+    println("B = \\(b.toString())")
+    println("Distance = \\(a.distance(b))")
+}`,
+        closures: `// Closures and Higher-Order Functions
+func apply(value: i32, transform: (i32) -> i32) -> i32 {
+    return transform(value)
+}
+
+func main() {
+    let doubled = apply(5) |x| { return x * 2 }
+    let squared = apply(5) |x| { return x * x }
+
+    println("5 doubled = \\(doubled)")
+    println("5 squared = \\(squared)")
+
+    let numbers = [1, 2, 3, 4, 5]
+    let evens = numbers.filter |n| { return n % 2 == 0 }
+    let sum = numbers.reduce(0) |acc, n| { return acc + n }
+
+    println("Evens: \\(evens)")
+    println("Sum: \\(sum)")
+}`,
+        generics: `// Generics
+func swapValues<T>(a: T, b: T) -> (T, T) {
+    return (b, a)
+}
+
+struct Pair<T> {
+    var first: T
+    var second: T
+}
+
+impl Pair<T> {
+    func toString(ref self) -> String {
+        return "(\\(self.first), \\(self.second))"
+    }
+}
+
+func main() {
+    let (a, b) = swapValues(1, 2)
+    println("Swapped: \\(a), \\(b)")
+
+    let pair = Pair<String> { first: "hello", second: "world" }
+    println("Pair: \\(pair.toString())")
+}`,
+        pattern: `// Pattern Matching
+enum Shape {
+    case Circle(f64)
+    case Rectangle(f64, f64)
+    case Triangle(f64, f64)
+}
+
+func area(shape: Shape) -> f64 {
+    match shape {
+        case .Circle(r) => return 3.14159 * r * r
+        case .Rectangle(w, h) => return w * h
+        case .Triangle(b, h) => return 0.5 * b * h
+    }
+}
+
+func describe(shape: Shape) -> String {
+    match shape {
+        case .Circle(_) => return "Circle"
+        case .Rectangle(_, _) => return "Rectangle"
+        case .Triangle(_, _) => return "Triangle"
+    }
+}
+
+func main() {
+    let shapes = [
+        Shape.Circle(5.0),
+        Shape.Rectangle(3.0, 4.0),
+        Shape.Triangle(6.0, 8.0)
+    ]
+
+    for shape in shapes {
+        println("\\(describe(shape)): area = \\(area(shape))")
+    }
+}`,
+        async: `// Async/Await
+async func fetchData(url: String) -> String {
+    sleep(100)  // Simulate network delay
+    return "Data from \\(url)"
+}
+
+async func main() {
+    println("Fetching data...")
+    let result = await fetchData("https://api.example.com")
+    println(result)
+    println("Done!")
+}`
+    };
+
+    // Example selector
+    document.getElementById('examples').addEventListener('change', function() {
+        if (this.value && EXAMPLES[this.value]) {
+            document.getElementById('editor').value = EXAMPLES[this.value];
+            this.value = '';
+        }
+    });
+
+    // Keyboard shortcut
+    document.getElementById('editor').addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            runCode();
+        }
+        // Tab support
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = this.selectionStart;
+            this.value = this.value.substring(0, start) + '    ' + this.value.substring(this.selectionEnd);
+            this.selectionStart = this.selectionEnd = start + 4;
+        }
+    });
+
+    function setStatus(text, cls) {
+        const el = document.getElementById('status');
+        el.textContent = text;
+        el.className = 'status ' + (cls || '');
+    }
+
+    function appendOutput(text, cls) {
+        const el = document.getElementById('output');
+        const line = document.createElement('div');
+        line.className = 'output-line ' + (cls || '');
+        line.textContent = text;
+        el.appendChild(line);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    function clearOutput() {
+        document.getElementById('output').innerHTML = '';
+    }
+
+    function runCode() {
+        const code = document.getElementById('editor').value;
+        clearOutput();
+        setStatus('Compiling...', 'running');
+
+        // Simulate compilation (in production, this would call WASM compiler)
+        setTimeout(() => {
+            appendOutput('--- Liva Compiler v1.0 ---', 'output-info');
+            appendOutput('Compiling ' + code.split('\n').length + ' lines...', 'output-info');
+
+            // Basic syntax check simulation
+            const errors = checkSyntax(code);
+            if (errors.length > 0) {
+                for (const err of errors) {
+                    appendOutput('error: ' + err, 'output-error');
+                }
+                setStatus('Compilation failed', 'error');
+                return;
+            }
+
+            appendOutput('Compilation successful.', 'output-success');
+            appendOutput('', '');
+            appendOutput('--- Program Output ---', 'output-info');
+
+            // Simulate execution
+            simulateExecution(code);
+            setStatus('Done', 'done');
+        }, 200);
+    }
+
+    function checkSyntax(code) {
+        const errors = [];
+        let braces = 0;
+        let parens = 0;
+        let brackets = 0;
+        for (const ch of code) {
+            if (ch === '{') braces++;
+            else if (ch === '}') braces--;
+            else if (ch === '(') parens++;
+            else if (ch === ')') parens--;
+            else if (ch === '[') brackets++;
+            else if (ch === ']') brackets--;
+        }
+        if (braces !== 0) errors.push('unbalanced braces');
+        if (parens !== 0) errors.push('unbalanced parentheses');
+        if (brackets !== 0) errors.push('unbalanced brackets');
+        if (!code.includes('func main')) errors.push("missing 'func main()' entry point");
+        return errors;
+    }
+
+    function simulateExecution(code) {
+        // Extract println calls and simulate output
+        const lines = code.split('\n');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            const m = trimmed.match(/println\("([^"\\]*(?:\\.[^"\\]*)*)"\)/);
+            if (m) {
+                let text = m[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+                // Handle basic string interpolation display
+                text = text.replace(/\\\\?\([^)]*\)/g, (match) => {
+                    return match.startsWith('\\\\') ? match : '<expr>';
+                });
+                appendOutput(text, '');
+            }
+        }
+        appendOutput('', '');
+        appendOutput('--- Execution complete ---', 'output-info');
+    }
+
+    function shareCode() {
+        const code = document.getElementById('editor').value;
+        const encoded = btoa(unescape(encodeURIComponent(code)));
+        const url = window.location.origin + window.location.pathname + '?code=' + encoded;
+        navigator.clipboard.writeText(url).then(() => {
+            setStatus('Link copied!', 'done');
+            setTimeout(() => setStatus('Ready', ''), 2000);
+        });
+    }
+
+    // Load shared code from URL
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('code')) {
+        try {
+            const code = decodeURIComponent(escape(atob(params.get('code'))));
+            document.getElementById('editor').value = code;
+        } catch(e) {}
+    }
+
+    // Resizable divider
+    const divider = document.getElementById('divider');
+    let isDragging = false;
+    divider.addEventListener('mousedown', () => isDragging = true);
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const main = document.querySelector('.main');
+        const panels = main.querySelectorAll('.panel');
+        const rect = main.getBoundingClientRect();
+        const ratio = (e.clientX - rect.left) / rect.width;
+        panels[0].style.flex = ratio;
+        panels[1].style.flex = 1 - ratio;
+    });
+    document.addEventListener('mouseup', () => isDragging = false);
+    </script>
+</body>
+</html>
