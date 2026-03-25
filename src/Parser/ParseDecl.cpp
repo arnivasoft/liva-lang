@@ -99,20 +99,38 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     }
     std::string name(nameTok.getText());
 
-    // Parse optional generic type parameters: <T, U> or <T: Protocol> or <T: A + B>
+    // Parse optional generic type parameters: <T, U> or <T: Protocol> or <const N: i32>
     std::vector<std::string> typeParams;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds;
+    std::vector<FuncDecl::ConstGenericParam> constParams;
     if (match(TokenKind::less)) {
         if (!check(TokenKind::greater)) {
             do {
-                auto paramTok = expect(TokenKind::identifier);
-                std::string paramName(paramTok.getText());
-                typeParams.push_back(paramName);
-                if (match(TokenKind::colon)) {
-                    do {
-                        auto boundTok = expect(TokenKind::identifier);
-                        typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
-                    } while (match(TokenKind::plus));
+                // Check for const generic parameter: const N: i32
+                if (match(TokenKind::kw_const)) {
+                    FuncDecl::ConstGenericParam cp;
+                    auto cpName = expect(TokenKind::identifier);
+                    cp.name = std::string(cpName.getText());
+                    expect(TokenKind::colon);
+                    cp.type = parseType();
+                    if (match(TokenKind::equal)) {
+                        if (check(TokenKind::integer_literal)) {
+                            cp.defaultValue = current_.getIntegerValue();
+                            cp.hasDefault = true;
+                            advance();
+                        }
+                    }
+                    constParams.push_back(std::move(cp));
+                } else {
+                    auto paramTok = expect(TokenKind::identifier);
+                    std::string paramName(paramTok.getText());
+                    typeParams.push_back(paramName);
+                    if (match(TokenKind::colon)) {
+                        do {
+                            auto boundTok = expect(TokenKind::identifier);
+                            typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
+                        } while (match(TokenKind::plus));
+                    }
                 }
             } while (match(TokenKind::comma));
         }
@@ -206,6 +224,9 @@ std::unique_ptr<FuncDecl> Parser::parseFuncDecl(bool isPublic, bool isAsync) {
     }
     if (!typeParamBounds.empty()) {
         funcDecl->setTypeParamBounds(std::move(typeParamBounds));
+    }
+    if (!constParams.empty()) {
+        funcDecl->setConstParams(std::move(constParams));
     }
     if (!whereConstraints.empty()) {
         funcDecl->setWhereConstraints(std::move(whereConstraints));

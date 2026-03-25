@@ -8922,3 +8922,35 @@ TEST_F(SemaTest, AsyncIOViaStdAsyncModule) {
     )--", {});
     EXPECT_TRUE(result.passed);
 }
+
+// ============================================================
+// Const Generics (B1)
+// ============================================================
+
+TEST_F(SemaTest, ConstGeneric_FuncDecl) {
+    auto result = check(R"--(
+        func repeat<const N: i32>() {
+            println(0)
+        }
+    )--");
+    // Const generic params are parsed and registered in scope
+    EXPECT_FALSE(result.diag.hasErrors()) << "const generic func should parse+sema without error";
+}
+
+TEST_F(SemaTest, ConstGeneric_MixedParams) {
+    auto result = check(R"--(
+        func fill<T, const N: i32>(value: T) -> i32 {
+            return N
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "mixed type+const params should work";
+}
+
+TEST_F(SemaTest, ConstGeneric_DefaultValue) {
+    auto result = check(R"--(
+        func make<const N: i32 = 10>() -> i32 {
+            return N
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "const param with default should work";
+}

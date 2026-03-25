@@ -487,6 +487,16 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         scopes_.declare(tp, sym);
     }
 
+    // Register const generic parameters in scope
+    for (const auto &cp : node->getConstParams()) {
+        Symbol sym;
+        sym.name = cp.name;
+        sym.kind = Symbol::Kind::ConstParam;
+        sym.type = cp.type.get();
+        sym.declLoc = node->getStartLoc();
+        scopes_.declare(cp.name, sym);
+    }
+
     // Validate trait bounds reference real protocols
     for (auto &[paramName, boundProtos] : node->getTypeParamBounds()) {
         for (auto &boundProto : boundProtos) {
@@ -2062,6 +2072,24 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "strLines") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
             node->setResolvedType(std::move(arrType));
+        // Stdlib: UI (raylib backend)
+        } else if (ident->getName() == "getClipboardText") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "getScreenWidth" || ident->getName() == "getScreenHeight" ||
+                   ident->getName() == "getMouseX" || ident->getName() == "getMouseY" ||
+                   ident->getName() == "getCharPressed" || ident->getName() == "getKeyPressed" ||
+                   ident->getName() == "measureText" || ident->getName() == "measureTextFont" ||
+                   ident->getName() == "measureTextWrapped" || ident->getName() == "loadFont" ||
+                   ident->getName() == "loadImage" || ident->getName() == "getImageWidth" ||
+                   ident->getName() == "getImageHeight") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "getFrameTime" || ident->getName() == "getMouseWheel") {
+            node->setResolvedType(makeF64Type());
+        } else if (ident->getName() == "windowShouldClose" ||
+                   ident->getName() == "isMousePressed" || ident->getName() == "isMouseReleased" ||
+                   ident->getName() == "isMouseDown" ||
+                   ident->getName() == "isKeyPressed" || ident->getName() == "isKeyDown") {
+            node->setResolvedType(makeBoolType());
         } else {
             auto *sym = scopes_.lookup(ident->getName());
             if (sym && sym->type &&

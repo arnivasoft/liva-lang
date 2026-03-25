@@ -2225,6 +2225,71 @@ TEST_F(ParserTest, ErrorRecovery_PreservesEnclosingBrace) {
 // Enum Discriminant Values
 // ============================================================
 
+// ============================================================
+// Const Generics
+// ============================================================
+
+TEST_F(ParserTest, ConstGenericParam_Basic) {
+    auto result = parse(R"--(
+        func repeat<const N: i32>() {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getName(), "repeat");
+    ASSERT_EQ(fn->getConstParams().size(), 1u);
+    EXPECT_EQ(fn->getConstParams()[0].name, "N");
+    EXPECT_FALSE(fn->getConstParams()[0].hasDefault);
+    EXPECT_TRUE(fn->isGeneric());
+}
+
+TEST_F(ParserTest, ConstGenericParam_WithDefault) {
+    auto result = parse(R"--(
+        func foo<const N: i32 = 10>() {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    ASSERT_EQ(fn->getConstParams().size(), 1u);
+    EXPECT_EQ(fn->getConstParams()[0].name, "N");
+    EXPECT_TRUE(fn->getConstParams()[0].hasDefault);
+    EXPECT_EQ(fn->getConstParams()[0].defaultValue, 10);
+}
+
+TEST_F(ParserTest, ConstGenericParam_Mixed) {
+    auto result = parse(R"--(
+        func bar<T, const N: i32>() {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getTypeParams().size(), 1u);
+    EXPECT_EQ(fn->getTypeParams()[0], "T");
+    EXPECT_EQ(fn->getConstParams().size(), 1u);
+    EXPECT_EQ(fn->getConstParams()[0].name, "N");
+    EXPECT_TRUE(fn->isGeneric());
+}
+
+TEST_F(ParserTest, ConstGenericParam_MultipleConst) {
+    auto result = parse(R"--(
+        func baz<T, const M: i32, const N: i64 = 5>() {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getTypeParams().size(), 1u);
+    ASSERT_EQ(fn->getConstParams().size(), 2u);
+    EXPECT_EQ(fn->getConstParams()[0].name, "M");
+    EXPECT_FALSE(fn->getConstParams()[0].hasDefault);
+    EXPECT_EQ(fn->getConstParams()[1].name, "N");
+    EXPECT_TRUE(fn->getConstParams()[1].hasDefault);
+    EXPECT_EQ(fn->getConstParams()[1].defaultValue, 5);
+}
+
+// ============================================================
+// Enum Discriminant Values
+// ============================================================
+
 TEST_F(ParserTest, EnumDiscriminantValues) {
     auto result = parse(R"--(
         enum Status {

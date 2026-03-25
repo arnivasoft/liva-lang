@@ -38,6 +38,7 @@ public:
         Inferred,    // Type to be inferred by the compiler
         DynProtocol,    // dyn Protocol (trait object)
         AssociatedType, // T.Item
+        ConstValue,  // Compile-time const value (for const generics)
     };
 
     explicit TypeRepr(Kind kind) : kind_(kind) {}
@@ -155,6 +156,29 @@ public:
 private:
     std::string baseName_;
     std::vector<std::unique_ptr<TypeRepr>> typeArgs_;
+};
+
+/// Compile-time const value for const generics: 42, N
+class ConstValueTypeRepr : public TypeRepr {
+public:
+    /// Literal const value: FixedArray<i32, 10>
+    explicit ConstValueTypeRepr(int64_t value)
+        : TypeRepr(Kind::ConstValue), value_(value) {}
+
+    /// Const param reference: FixedArray<T, N>
+    explicit ConstValueTypeRepr(std::string paramName)
+        : TypeRepr(Kind::ConstValue), paramName_(std::move(paramName)) {}
+
+    bool isLiteral() const { return paramName_.empty(); }
+    int64_t getValue() const { return value_; }
+    const std::string &getParamName() const { return paramName_; }
+    std::string toString() const override {
+        return isLiteral() ? std::to_string(value_) : paramName_;
+    }
+
+private:
+    int64_t value_ = 0;
+    std::string paramName_;
 };
 
 /// Optional type: T?

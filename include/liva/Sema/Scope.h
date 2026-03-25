@@ -25,6 +25,7 @@ struct Symbol {
         EnumType,
         Field,
         TypeParam,
+        ConstParam,
         ProtocolType,
         TypeAlias,
         ClassType,

@@ -90,7 +90,6 @@ public:
         typeParams_ = std::move(typeParams);
     }
     const std::vector<std::string> &getTypeParams() const { return typeParams_; }
-    bool isGeneric() const { return !typeParams_.empty(); }
 
     void setTypeParamBounds(std::unordered_map<std::string, std::vector<std::string>> bounds) {
         typeParamBounds_ = std::move(bounds);
@@ -101,6 +100,18 @@ public:
 
     void setWhereConstraints(std::vector<WhereConstraint> c) { whereConstraints_ = std::move(c); }
     const std::vector<WhereConstraint> &getWhereConstraints() const { return whereConstraints_; }
+
+    /// Const generic parameters: const N: i32
+    struct ConstGenericParam {
+        std::string name;
+        std::unique_ptr<TypeRepr> type;
+        int64_t defaultValue = 0;
+        bool hasDefault = false;
+    };
+    void setConstParams(std::vector<ConstGenericParam> params) { constParams_ = std::move(params); }
+    const std::vector<ConstGenericParam> &getConstParams() const { return constParams_; }
+    bool hasConstParams() const { return !constParams_.empty(); }
+    bool isGeneric() const { return !typeParams_.empty() || !constParams_.empty(); }
 
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::FuncDecl;
@@ -118,6 +129,7 @@ private:
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
     std::vector<WhereConstraint> whereConstraints_;
+    std::vector<ConstGenericParam> constParams_;
 };
 
 /// Variable declaration: let x: i32 = 42, var y = 10
