@@ -16,6 +16,10 @@ Common patterns, recipes, and idioms for the Liva programming language. Each rec
 8. [Channel-Based Producer/Consumer](#8-channel-based-producerconsumer)
 9. [FFI with C Libraries](#9-ffi-with-c-libraries)
 10. [Cross-Compilation to WASM](#10-cross-compilation-to-wasm)
+11. [Classes and Inheritance](#11-classes-and-inheritance)
+12. [Async with For Await and Channels](#12-async-with-for-await-and-channels)
+13. [Crypto: Hashing and HMAC](#13-crypto-hashing-and-hmac)
+14. [Separate Compilation](#14-separate-compilation)
 
 ---
 
@@ -497,4 +501,266 @@ livac build --target aarch64-apple-darwin
 
 ---
 
-*This cookbook covers common patterns in Liva. For a complete language reference, see [LANGUAGE-REFERENCE.md](LANGUAGE-REFERENCE.md). For the standard library API, see [API-REFERENCE.md](API-REFERENCE.md).*
+## 11. Classes and Inheritance
+
+Use classes for reference-type objects with inheritance and virtual dispatch.
+
+```liva
+protocol Serializable {
+    func toJSON(ref self) -> string
+}
+
+class Shape {
+    var color: string
+
+    init(color: string) {
+        self.color = color
+    }
+
+    func area(ref self) -> f64 {
+        return 0.0
+    }
+}
+
+class Circle : Shape {
+    var radius: f64
+
+    init(radius: f64, color: string) {
+        super.init(color)
+        self.radius = radius
+    }
+
+    override func area(ref self) -> f64 {
+        return 3.14159 * self.radius * self.radius
+    }
+}
+
+class Rectangle : Shape {
+    var width: f64
+    var height: f64
+
+    init(width: f64, height: f64, color: string) {
+        super.init(color)
+        self.width = width
+        self.height = height
+    }
+
+    override func area(ref self) -> f64 {
+        return self.width * self.height
+    }
+}
+
+func main() {
+    let shapes = [
+        Circle(5.0, "red"),
+        Rectangle(3.0, 4.0, "blue")
+    ]
+    for shape in shapes {
+        println("Area: \(shape.area()), Color: \(shape.color)")
+    }
+}
+```
+
+**Key points:**
+- Classes use heap allocation and reference semantics
+- `override` is required when overriding parent methods
+- `super.init(...)` calls the parent constructor
+- `deinit` runs automatically when the object goes out of scope
+
+---
+
+## 12. Async with For Await and Channels
+
+Combine channels and async iteration for streaming data.
+
+```liva
+import std::channel
+import std::task
+import std::async
+
+func main() {
+    let ch = channelCreate(100)
+    let group = taskGroupCreate()
+
+    // Producer: generate data
+    taskGroupSpawn(group, || {
+        for i in 0..10 {
+            channelSend(ch, i * i)
+        }
+        channelClose(ch)
+    })
+
+    // Consumer with select
+    taskGroupSpawn(group, || {
+        var total = 0
+        for i in 0..10 {
+            let val = channelRecv(ch)
+            total = total + val
+            println("Received: \(val)")
+        }
+        println("Total: \(total)")
+    })
+
+    taskGroupAwaitAll(group)
+}
+```
+
+**Key points:**
+- `for await` iterates over async streams
+- `taskSelect` waits for the first of multiple tasks to complete
+- `withTimeout` adds a deadline to any async operation
+- Channels use condition variables for efficient wakeup (no busy-waiting)
+
+---
+
+## 13. Crypto: Hashing and HMAC
+
+Use the crypto module for hashing and message authentication.
+
+```liva
+import std::crypto
+
+func main() {
+    // SHA-256 hash
+    let hash = sha256("hello world")
+    println("SHA-256: \(hash)")
+
+    // MD5 hash (for checksums, not security)
+    let md5hash = md5("hello world")
+    println("MD5: \(md5hash)")
+
+    // HMAC-SHA256 for message authentication
+    let mac = hmacSha256("my-secret-key", "important message")
+    println("HMAC: \(mac)")
+
+    // Verify: recompute and compare
+    let verify = hmacSha256("my-secret-key", "important message")
+    if mac == verify {
+        println("Message is authentic")
+    }
+}
+```
+
+---
+
+## 14. Separate Compilation
+
+Compile individual files to object files and link them later.
+
+```bash
+# Compile each file to .o
+livac --emit-obj module_a.liva
+livac --emit-obj module_b.liva
+
+# Link all object files
+livac link module_a.o module_b.o -o myapp
+```
+
+```liva
+// module_a.liva
+pub func greet(name: string) {
+    println("Hello, \(name)!")
+}
+
+// module_b.liva
+import module_a
+
+func main() {
+    greet("World")
+}
+```
+
+**Key points:**
+- `--emit-obj` produces a `.o` object file without linking
+- `livac link` links multiple object files into a final executable
+- Useful for large projects where you want incremental compilation
+- The `livac build` command handles this automatically with caching
+
+---
+
+## 14. Const Generics
+
+```liva
+// Compile-time size parameters
+func repeat<const N: i32>(value: i32) -> i32 {
+    return N * value
+}
+
+func fillArray<T, const SIZE: i32 = 10>(value: T) {
+    // SIZE is known at compile time
+    println(SIZE)
+}
+
+let result = repeat<5>(3)   // N = 5, result = 15
+```
+
+## 15. Explicit Lifetimes
+
+```liva
+// Lifetime annotations on references
+func longest<'a>(x: ref 'a String, y: ref 'a String) -> ref 'a String {
+    if x.length() > y.length() {
+        return x
+    }
+    return y
+}
+
+// Multiple lifetimes
+func first<'a, 'b>(x: ref 'a i32, y: ref 'b i32) -> ref 'a i32 {
+    return x
+}
+
+// 'static lifetime
+let global: ref 'static i32 = ref CONSTANT
+```
+
+## 16. Generator Functions (Yield)
+
+```liva
+// Generators produce values lazily with yield
+func fibonacci() {
+    var a = 0
+    var b = 1
+    while true {
+        yield a        // produce value and suspend
+        let tmp = a
+        a = b
+        b = tmp + b
+    }
+}
+```
+
+## 17. Enum Discriminant Values
+
+```liva
+// Explicit integer values for enum cases (useful for FFI)
+enum HttpStatus {
+    case OK = 200
+    case NotFound = 404
+    case InternalError = 500
+}
+
+enum Signal {
+    case SIGINT = 2
+    case SIGTERM = 15
+    case SIGKILL = -9
+}
+```
+
+## 18. Generic Associated Types (GATs)
+
+```liva
+// Associated types with generic parameters in protocols
+protocol LendingIterator {
+    type Item<'a>
+    func next(mut self) -> i32
+}
+
+protocol Container {
+    type Element<T>
+}
+```
+
+---
+
+*This cookbook covers common patterns in Liva as of version 1.0.0. For a complete language reference, see [LANGUAGE-REFERENCE.md](LANGUAGE-REFERENCE.md). For the standard library API, see [API-REFERENCE.md](API-REFERENCE.md).*

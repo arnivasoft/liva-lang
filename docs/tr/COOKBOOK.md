@@ -16,6 +16,10 @@ Liva programlama dili için yaygın kalıplar, tarifler ve deyimler. Her tarif b
 8. [Kanal Tabanlı Üretici/Tüketici](#8-kanal-tabanlı-üreticitüketici)
 9. [C Kütüphaneleri ile FFI](#9-c-kütüphaneleri-ile-ffi)
 10. [WASM'a Çapraz Derleme](#10-wasma-çapraz-derleme)
+11. [Sınıflar ve Kalıtım](#11-sınıflar-ve-kalıtım)
+12. [For Await ve Channel'larla Async](#12-for-await-ve-channellarla-async)
+13. [Crypto: Hash ve HMAC](#13-crypto-hash-ve-hmac)
+14. [Ayrı Derleme](#14-ayrı-derleme)
 
 ---
 
@@ -497,4 +501,184 @@ livac build --target aarch64-apple-darwin
 
 ---
 
-*Bu yemek kitabı Liva'daki yaygın kalıpları kapsar. Eksiksiz dil referansı için [LANGUAGE-REFERENCE.md](LANGUAGE-REFERENCE.md) belgesine bakın. Standart kütüphane API'si için [API-REFERENCE.md](API-REFERENCE.md) belgesine bakın.*
+## 11. Sınıflar ve Kalıtım
+
+Kalıtım ve sanal dispatch ile referans tipli nesneler için sınıfları kullanın.
+
+```liva
+class Shape {
+    var color: string
+
+    init(color: string) {
+        self.color = color
+    }
+
+    func area(ref self) -> f64 {
+        return 0.0
+    }
+}
+
+class Circle : Shape {
+    var radius: f64
+
+    init(radius: f64, color: string) {
+        super.init(color)
+        self.radius = radius
+    }
+
+    override func area(ref self) -> f64 {
+        return 3.14159 * self.radius * self.radius
+    }
+}
+
+func main() {
+    let c = Circle(5.0, "kırmızı")
+    println("Alan: \(c.area()), Renk: \(c.color)")
+}
+```
+
+**Önemli noktalar:**
+- Sınıflar heap allocation ve referans semantiği kullanır
+- Üst sınıf metodlarını geçersiz kılarken `override` zorunludur
+- `super.init(...)` üst sınıf yapıcısını çağırır
+- `deinit` nesne kapsam dışına çıktığında otomatik çalışır
+
+---
+
+## 12. For Await ve Channel'larla Async
+
+Veri akışı için channel ve async iterasyonu birleştirin.
+
+```liva
+import std::channel
+import std::task
+
+func main() {
+    let ch = channelCreate(100)
+    let group = taskGroupCreate()
+
+    // Üretici
+    taskGroupSpawn(group, || {
+        for i in 0..10 {
+            channelSend(ch, i * i)
+        }
+        channelClose(ch)
+    })
+
+    // Tüketici
+    taskGroupSpawn(group, || {
+        var total = 0
+        for i in 0..10 {
+            let val = channelRecv(ch)
+            total = total + val
+        }
+        println("Toplam: \(total)")
+    })
+
+    taskGroupAwaitAll(group)
+}
+```
+
+---
+
+## 13. Crypto: Hash ve HMAC
+
+Hashleme ve mesaj doğrulama için crypto modülünü kullanın.
+
+```liva
+import std::crypto
+
+func main() {
+    let hash = sha256("merhaba dünya")
+    println("SHA-256: \(hash)")
+
+    let md5hash = md5("merhaba dünya")
+    println("MD5: \(md5hash)")
+
+    let mac = hmacSha256("gizli-anahtar", "önemli mesaj")
+    println("HMAC: \(mac)")
+}
+```
+
+---
+
+## 14. Ayrı Derleme
+
+Dosyaları tek tek obje dosyalarına derleyip sonra linkleyin.
+
+```bash
+# Her dosyayı .o'ya derle
+livac --emit-obj modul_a.liva
+livac --emit-obj modul_b.liva
+
+# Tüm obje dosyalarını linkle
+livac link modul_a.o modul_b.o -o uygulama
+```
+
+**Önemli noktalar:**
+- `--emit-obj` linkleme yapmadan `.o` obje dosyası üretir
+- `livac link` birden fazla obje dosyasını final çalıştırılabilire linkler
+- `livac build` komutu bunu otomatik olarak önbellekleme ile yapar
+
+---
+
+## 14. Const Generics
+
+```liva
+// Derleme zamani boyut parametreleri
+func repeat<const N: i32>(value: i32) -> i32 {
+    return N * value
+}
+
+let result = repeat<5>(3)   // N = 5, sonuc = 15
+```
+
+## 15. Explicit Lifetime Syntax
+
+```liva
+// Referanslarda yasam suresi anotasyonu
+func longest<'a>(x: ref 'a String, y: ref 'a String) -> ref 'a String {
+    if x.length() > y.length() {
+        return x
+    }
+    return y
+}
+```
+
+## 16. Generator Fonksiyonlar (Yield)
+
+```liva
+func fibonacci() {
+    var a = 0
+    var b = 1
+    while true {
+        yield a        // deger uret ve askiya al
+        let tmp = a
+        a = b
+        b = tmp + b
+    }
+}
+```
+
+## 17. Enum Discriminant Degerleri
+
+```liva
+enum HttpStatus {
+    case OK = 200
+    case NotFound = 404
+    case InternalError = 500
+}
+```
+
+## 18. Generic Associated Types (GATs)
+
+```liva
+protocol LendingIterator {
+    type Item<'a>
+    func next(mut self) -> i32
+}
+```
+
+---
+
+*Bu yemek kitabi, 1.0.0 surumu itibariyla Liva'daki yaygin kaliplari kapsar.*
