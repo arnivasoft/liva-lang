@@ -275,6 +275,8 @@ private:
 
     /// Monomorphization: active type substitution map ("T" -> TypeRepr*)
     std::unordered_map<std::string, const TypeRepr *> currentTypeSubst_;
+    /// Monomorphization: active const substitution map ("N" -> 42)
+    std::unordered_map<std::string, int64_t> currentConstSubst_;
 
     /// Cache of monomorphized functions: "identity_i32" -> Function*
     std::unordered_map<std::string, llvm::Function *> monomorphizedFuncs_;

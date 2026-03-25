@@ -90,12 +90,25 @@ std::unique_ptr<TypeRepr> Parser::parseBaseType() {
             }
         }
 
-        // Check for generic parameters: Type<T, U>
+        // Check for generic parameters: Type<T, U> or Type<T, 10>
         if (match(TokenKind::less)) {
             std::vector<std::unique_ptr<TypeRepr>> typeArgs;
             if (!check(TokenKind::greater)) {
                 do {
-                    typeArgs.push_back(parseType());
+                    // Const value arg: integer literal (e.g., Type<i32, 10>)
+                    if (check(TokenKind::integer_literal)) {
+                        int64_t val = current_.getIntegerValue();
+                        advance();
+                        typeArgs.push_back(std::make_unique<ConstValueTypeRepr>(val));
+                    } else if (check(TokenKind::minus) &&
+                               peek().is(TokenKind::integer_literal)) {
+                        advance(); // consume -
+                        int64_t val = -current_.getIntegerValue();
+                        advance();
+                        typeArgs.push_back(std::make_unique<ConstValueTypeRepr>(val));
+                    } else {
+                        typeArgs.push_back(parseType());
+                    }
                 } while (match(TokenKind::comma));
             }
             expect(TokenKind::greater);

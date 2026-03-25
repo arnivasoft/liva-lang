@@ -25,8 +25,15 @@ std::string IRGen::mangleGenericFunc(const std::string &baseName,
     result = baseName;
     for (const auto *arg : typeArgs) {
         result += '_';
-        const char *fast = primitiveTypeName(arg->getKind());
-        result += fast ? fast : arg->toString();
+        if (arg->getKind() == TypeRepr::Kind::ConstValue) {
+            auto *cv = static_cast<const ConstValueTypeRepr *>(arg);
+            result += 'c';
+            result += cv->isLiteral() ? std::to_string(cv->getValue())
+                                      : cv->getParamName();
+        } else {
+            const char *fast = primitiveTypeName(arg->getKind());
+            result += fast ? fast : arg->toString();
+        }
     }
     return result;
 }
@@ -44,6 +51,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
 
     // Save state (move for O(1) swap)
     auto savedSubst = std::move(currentTypeSubst_);
+    auto savedConstSubst = std::move(currentConstSubst_);
     auto savedNamedValues = std::move(namedValues_);
     auto savedVarStructTypes = std::move(varStructTypes_);
     auto savedVarEnumTypes = std::move(varEnumTypes_);
@@ -68,6 +76,18 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     const auto &typeParams = funcDecl->getTypeParams();
     for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i) {
         currentTypeSubst_[typeParams[i]] = typeArgs[i];
+    }
+
+    // Set up const substitution from ConstValueTypeRepr in typeArgs
+    const auto &constParams = funcDecl->getConstParams();
+    size_t constIdx = 0;
+    for (size_t i = 0; i < typeArgs.size() && constIdx < constParams.size(); ++i) {
+        if (typeArgs[i]->getKind() == TypeRepr::Kind::ConstValue) {
+            auto *cv = static_cast<const ConstValueTypeRepr *>(typeArgs[i]);
+            currentConstSubst_[constParams[constIdx].name] =
+                cv->isLiteral() ? cv->getValue() : 0;
+            ++constIdx;
+        }
     }
 
     // Build function type with substituted types
@@ -134,6 +154,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
 
     // Restore state (move back)
     currentTypeSubst_ = std::move(savedSubst);
+    currentConstSubst_ = std::move(savedConstSubst);
     namedValues_ = std::move(savedNamedValues);
     varStructTypes_ = std::move(savedVarStructTypes);
     varEnumTypes_ = std::move(savedVarEnumTypes);
@@ -179,10 +200,15 @@ void IRGen::monomorphizeStruct(const StructDecl *structDecl,
     }
 
     auto savedSubst = currentTypeSubst_;
+    auto savedConstSubst = currentConstSubst_;
     currentTypeSubst_.clear();
+    currentConstSubst_.clear();
     const auto &typeParams = structDecl->getTypeParams();
     for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i)
         currentTypeSubst_[typeParams[i]] = typeArgs[i];
+
+    // Set up const substitution for struct const params
+    // (ConstValueTypeRepr in typeArgs maps to constParams by index)
 
     std::vector<llvm::Type *> fieldTypes;
     std::vector<std::string> fieldNames;
@@ -198,6 +224,7 @@ void IRGen::monomorphizeStruct(const StructDecl *structDecl,
     structTypeArgs_[mangledName] = typeArgs;
     ++monoStats_.structCount;
     currentTypeSubst_ = savedSubst;
+    currentConstSubst_ = savedConstSubst;
 }
 
 std::vector<const TypeRepr *> IRGen::inferStructTypeArgs(
@@ -276,6 +303,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
 
     // Save state (move for O(1) swap)
     auto savedSubst = std::move(currentTypeSubst_);
+    auto savedConstSubst = std::move(currentConstSubst_);
     auto savedNamedValues = std::move(namedValues_);
     auto savedVarStructTypes = std::move(varStructTypes_);
     auto savedVarEnumTypes = std::move(varEnumTypes_);
@@ -373,6 +401,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
 
     // Restore state (move back)
     currentTypeSubst_ = std::move(savedSubst);
+    currentConstSubst_ = std::move(savedConstSubst);
     namedValues_ = std::move(savedNamedValues);
     varStructTypes_ = std::move(savedVarStructTypes);
     varEnumTypes_ = std::move(savedVarEnumTypes);
