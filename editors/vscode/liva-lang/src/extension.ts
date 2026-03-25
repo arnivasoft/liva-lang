@@ -236,6 +236,124 @@ function getLivacCommand(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Test Explorer
+// ---------------------------------------------------------------------------
+
+function setupTestExplorer(context: vscode.ExtensionContext): void {
+    const ctrl = vscode.tests.createTestController("livaTests", "Liva Tests");
+    context.subscriptions.push(ctrl);
+
+    // Discover tests in a document
+    function discoverTests(doc: vscode.TextDocument): void {
+        if (doc.languageId !== "liva") return;
+
+        const uri = doc.uri;
+        let fileItem = ctrl.items.get(uri.toString());
+        if (!fileItem) {
+            fileItem = ctrl.createTestItem(
+                uri.toString(),
+                path.basename(uri.fsPath),
+                uri
+            );
+            ctrl.items.add(fileItem);
+        }
+        fileItem.children.replace([]);
+
+        const text = doc.getText();
+        const testRegex = /^\s*test\s+"([^"]+)"\s*\{/gm;
+        let match: RegExpExecArray | null;
+        while ((match = testRegex.exec(text)) !== null) {
+            const testName = match[1];
+            const line = doc.positionAt(match.index).line;
+            const testItem = ctrl.createTestItem(
+                `${uri.toString()}::${testName}`,
+                testName,
+                uri
+            );
+            testItem.range = new vscode.Range(line, 0, line, match[0].length);
+            fileItem.children.add(testItem);
+        }
+
+        // Remove file item if no tests found
+        if (fileItem.children.size === 0) {
+            ctrl.items.delete(uri.toString());
+        }
+    }
+
+    // Watch for document changes
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*.liva");
+    watcher.onDidChange(uri => {
+        vscode.workspace.openTextDocument(uri).then(doc => discoverTests(doc));
+    });
+    watcher.onDidCreate(uri => {
+        vscode.workspace.openTextDocument(uri).then(doc => discoverTests(doc));
+    });
+    watcher.onDidDelete(uri => {
+        ctrl.items.delete(uri.toString());
+    });
+    context.subscriptions.push(watcher);
+
+    // Discover in currently open documents
+    vscode.workspace.textDocuments.forEach(discoverTests);
+    vscode.workspace.onDidOpenTextDocument(discoverTests, undefined, context.subscriptions);
+
+    // Run profile
+    ctrl.createRunProfile(
+        "Run Tests",
+        vscode.TestRunProfileKind.Run,
+        async (request, token) => {
+            const run = ctrl.createTestRun(request);
+            const livac = getLivacCommand();
+
+            const items: vscode.TestItem[] = [];
+            if (request.include) {
+                request.include.forEach(item => items.push(item));
+            } else {
+                ctrl.items.forEach(item => items.push(item));
+            }
+
+            for (const item of items) {
+                if (token.isCancellationRequested) break;
+
+                // If file-level item, run all tests in that file
+                const fileUri = item.uri;
+                if (!fileUri) continue;
+
+                run.started(item);
+
+                try {
+                    const result = await new Promise<{ code: number; output: string }>((resolve) => {
+                        const proc = require("child_process").spawn(
+                            livac, ["test", fileUri.fsPath],
+                            { cwd: path.dirname(fileUri.fsPath) }
+                        );
+                        let output = "";
+                        proc.stdout?.on("data", (data: Buffer) => output += data.toString());
+                        proc.stderr?.on("data", (data: Buffer) => output += data.toString());
+                        proc.on("close", (code: number) => resolve({ code: code ?? 1, output }));
+                        if (token.isCancellationRequested) proc.kill();
+                    });
+
+                    if (result.code === 0) {
+                        // Mark all children as passed
+                        item.children.forEach(child => run.passed(child));
+                        if (item.children.size === 0) run.passed(item);
+                    } else {
+                        const msg = new vscode.TestMessage(result.output);
+                        item.children.forEach(child => run.failed(child, msg));
+                        if (item.children.size === 0) run.failed(item, msg);
+                    }
+                } catch (err) {
+                    run.failed(item, new vscode.TestMessage(`Error: ${err}`));
+                }
+            }
+
+            run.end();
+        }
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
@@ -312,6 +430,9 @@ export function activate(context: vscode.ExtensionContext): void {
             terminal.sendText(`${livac} test "${filePath}"`);
         })
     );
+
+    // Test Explorer
+    setupTestExplorer(context);
 
     // Debug
     const configProvider = new LivaDebugConfigurationProvider();
