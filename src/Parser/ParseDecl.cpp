@@ -406,9 +406,25 @@ std::unique_ptr<EnumDecl> Parser::parseEnumDecl(bool isPublic) {
             expect(TokenKind::r_paren);
         }
 
-        cases.push_back(std::make_unique<EnumCaseDecl>(
+        auto caseDecl = std::make_unique<EnumCaseDecl>(
             std::string(caseName.getText()), std::move(associatedTypes),
-            rangeFrom(caseStart)));
+            rangeFrom(caseStart));
+
+        // Optional discriminant value: case OK = 200
+        if (match(TokenKind::equal)) {
+            if (check(TokenKind::integer_literal)) {
+                caseDecl->setDiscriminant(current_.getIntegerValue());
+                advance();
+            } else if (check(TokenKind::minus) && peek().is(TokenKind::integer_literal)) {
+                advance(); // consume -
+                caseDecl->setDiscriminant(-current_.getIntegerValue());
+                advance();
+            } else {
+                diag_.report(current_.getLocation(), DiagID::err_expected_expression);
+            }
+        }
+
+        cases.push_back(std::move(caseDecl));
     }
 
     expect(TokenKind::r_brace);

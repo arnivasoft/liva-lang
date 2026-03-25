@@ -258,6 +258,8 @@ private:
     int nextVarRef_ = 1;
     std::string launchedFile_;
     std::string sourceContent_;
+    bool breakOnAllExceptions_ = false;
+    bool breakOnUncaughtExceptions_ = true;
 };
 
 } // namespace liva

@@ -226,6 +226,27 @@ JSONValue DAPServer::handleInitialize(int64_t seq, const JSONValue & /*args*/) {
     body.set("supportsLogPoints", JSONValue(true));
     body.set("supportsEvaluateForHovers", JSONValue(true));
 
+    // Exception breakpoint filters
+    auto filters = JSONValue::array();
+    {
+        auto f = JSONValue::object();
+        f.set("filter", JSONValue("all"));
+        f.set("label", JSONValue("All Exceptions"));
+        f.set("description", JSONValue("Break on any runtime error or panic"));
+        f.set("default", JSONValue(false));
+        filters.push(std::move(f));
+    }
+    {
+        auto f = JSONValue::object();
+        f.set("filter", JSONValue("uncaught"));
+        f.set("label", JSONValue("Uncaught Exceptions"));
+        f.set("description", JSONValue("Break on unhandled errors"));
+        f.set("default", JSONValue(true));
+        filters.push(std::move(f));
+    }
+    body.set("exceptionBreakpointFilters", std::move(filters));
+    body.set("supportsExceptionFilterOptions", JSONValue(true));
+
     // Send initialized event
     sendEvent("initialized");
 
@@ -296,7 +317,18 @@ JSONValue DAPServer::handleSetBreakpoints(int64_t seq, const JSONValue &args) {
 }
 
 JSONValue DAPServer::handleSetExceptionBreakpoints(int64_t seq,
-                                                    const JSONValue & /*args*/) {
+                                                    const JSONValue &args) {
+    breakOnAllExceptions_ = false;
+    breakOnUncaughtExceptions_ = false;
+
+    if (args["filters"].isArray()) {
+        for (const auto &f : args["filters"].getArray()) {
+            std::string filter = f.getString();
+            if (filter == "all") breakOnAllExceptions_ = true;
+            if (filter == "uncaught") breakOnUncaughtExceptions_ = true;
+        }
+    }
+
     return makeResponse(seq, "setExceptionBreakpoints", true);
 }
 

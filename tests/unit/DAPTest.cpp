@@ -1310,3 +1310,48 @@ TEST_F(DAPTest, InitializeSupportsConditionalBreakpoints) {
     EXPECT_TRUE(resp["body"]["supportsHitConditionalBreakpoints"].getBool());
     EXPECT_TRUE(resp["body"]["supportsLogPoints"].getBool());
 }
+
+// ============================================================
+// Exception Breakpoint Tests
+// ============================================================
+
+TEST_F(DAPTest, ExceptionBreakpointFilters) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    EXPECT_TRUE(resp["success"].getBool());
+    // Should have exceptionBreakpointFilters
+    const auto &filters = resp["body"]["exceptionBreakpointFilters"].getArray();
+    ASSERT_GE(filters.size(), 2u);
+    // Check "all" filter
+    EXPECT_EQ(filters[0]["filter"].getString(), "all");
+    EXPECT_EQ(filters[0]["label"].getString(), "All Exceptions");
+    EXPECT_FALSE(filters[0]["default"].getBool());
+    // Check "uncaught" filter
+    EXPECT_EQ(filters[1]["filter"].getString(), "uncaught");
+    EXPECT_EQ(filters[1]["label"].getString(), "Uncaught Exceptions");
+    EXPECT_TRUE(filters[1]["default"].getBool());
+}
+
+TEST_F(DAPTest, SetExceptionBreakpointsAll) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    // Set "all" filter
+    std::string req = R"({"seq":10,"type":"request","command":"setExceptionBreakpoints",)"
+                      R"("arguments":{"filters":["all"]}})";
+    auto resp = parseResponse(server.handleMessage(req));
+    EXPECT_TRUE(resp["success"].getBool());
+}
+
+TEST_F(DAPTest, SetExceptionBreakpointsUncaught) {
+    server.handleMessage(initRequest());
+    server.takeEvents();
+    // Set "uncaught" filter
+    std::string req = R"({"seq":10,"type":"request","command":"setExceptionBreakpoints",)"
+                      R"("arguments":{"filters":["uncaught"]}})";
+    auto resp = parseResponse(server.handleMessage(req));
+    EXPECT_TRUE(resp["success"].getBool());
+}
+
+TEST_F(DAPTest, ExceptionFilterOptionCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    EXPECT_TRUE(resp["body"]["supportsExceptionFilterOptions"].getBool());
+}

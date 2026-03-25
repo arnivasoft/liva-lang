@@ -2220,3 +2220,78 @@ TEST_F(ParserTest, ErrorRecovery_PreservesEnclosingBrace) {
     EXPECT_EQ(func->getName(), "outer");
     EXPECT_TRUE(func->hasBody());
 }
+
+// ============================================================
+// Enum Discriminant Values
+// ============================================================
+
+TEST_F(ParserTest, EnumDiscriminantValues) {
+    auto result = parse(R"--(
+        enum Status {
+            case OK = 200
+            case NotFound = 404
+            case Error = 500
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *e = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(e->getCases().size(), 3u);
+    EXPECT_TRUE(e->getCases()[0]->hasDiscriminant());
+    EXPECT_EQ(e->getCases()[0]->getDiscriminant(), 200);
+    EXPECT_TRUE(e->getCases()[1]->hasDiscriminant());
+    EXPECT_EQ(e->getCases()[1]->getDiscriminant(), 404);
+    EXPECT_TRUE(e->getCases()[2]->hasDiscriminant());
+    EXPECT_EQ(e->getCases()[2]->getDiscriminant(), 500);
+}
+
+TEST_F(ParserTest, EnumMixedDiscriminant) {
+    // Some cases with discriminant, some without
+    auto result = parse(R"--(
+        enum Color {
+            case Red
+            case Green = 10
+            case Blue
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *e = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(e->getCases().size(), 3u);
+    EXPECT_FALSE(e->getCases()[0]->hasDiscriminant());
+    EXPECT_TRUE(e->getCases()[1]->hasDiscriminant());
+    EXPECT_EQ(e->getCases()[1]->getDiscriminant(), 10);
+    EXPECT_FALSE(e->getCases()[2]->hasDiscriminant());
+}
+
+TEST_F(ParserTest, EnumNegativeDiscriminant) {
+    auto result = parse(R"--(
+        enum Offset {
+            case Negative = -1
+            case Zero = 0
+            case Positive = 1
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *e = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(e, nullptr);
+    EXPECT_EQ(e->getCases()[0]->getDiscriminant(), -1);
+    EXPECT_EQ(e->getCases()[1]->getDiscriminant(), 0);
+    EXPECT_EQ(e->getCases()[2]->getDiscriminant(), 1);
+}
+
+TEST_F(ParserTest, EnumDiscriminantWithAssociatedValues) {
+    // Associated values and discriminant shouldn't conflict
+    auto result = parse(R"--(
+        enum Result {
+            case Success(i32) = 0
+            case Failure(String) = 1
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *e = dynamic_cast<EnumDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(e, nullptr);
+    EXPECT_TRUE(e->getCases()[0]->hasAssociatedValues());
+    EXPECT_TRUE(e->getCases()[0]->hasDiscriminant());
+    EXPECT_EQ(e->getCases()[0]->getDiscriminant(), 0);
+}

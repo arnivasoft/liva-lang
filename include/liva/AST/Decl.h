@@ -234,6 +234,11 @@ public:
     }
     bool hasAssociatedValues() const { return !associatedTypes_.empty(); }
 
+    /// Explicit discriminant value: case OK = 200
+    bool hasDiscriminant() const { return hasDiscriminant_; }
+    int64_t getDiscriminant() const { return discriminant_; }
+    void setDiscriminant(int64_t value) { discriminant_ = value; hasDiscriminant_ = true; }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::EnumCaseDecl;
     }
@@ -241,6 +246,8 @@ public:
 private:
     std::string name_;
     std::vector<std::unique_ptr<TypeRepr>> associatedTypes_;
+    int64_t discriminant_ = 0;
+    bool hasDiscriminant_ = false;
 };
 
 /// Enum declaration
