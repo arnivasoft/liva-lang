@@ -597,7 +597,7 @@ std::unique_ptr<ProtocolDecl> Parser::parseProtocolDecl(bool isPublic) {
     expect(TokenKind::l_brace);
 
     std::vector<std::unique_ptr<FuncDecl>> methods;
-    std::vector<std::string> associatedTypes;
+    std::vector<ProtocolDecl::AssociatedTypeDecl> associatedTypeDecls;
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         if (diag_.hasMaxErrors()) break;
         while (match(TokenKind::semicolon)) {}
@@ -607,7 +607,24 @@ std::unique_ptr<ProtocolDecl> Parser::parseProtocolDecl(bool isPublic) {
             advance();  // consume 'type'
             auto typeName = expect(TokenKind::identifier);
             if (typeName.is(TokenKind::eof)) { synchronizeBody(); continue; }
-            associatedTypes.push_back(std::string(typeName.getText()));
+            ProtocolDecl::AssociatedTypeDecl atDecl;
+            atDecl.name = std::string(typeName.getText());
+            // GATs: parse optional generic params <'a, T>
+            if (match(TokenKind::less)) {
+                if (!check(TokenKind::greater)) {
+                    do {
+                        if (check(TokenKind::lifetime_literal)) {
+                            atDecl.lifetimeParams.push_back(std::string(current_.getText()));
+                            advance();
+                        } else {
+                            auto pTok = expect(TokenKind::identifier);
+                            atDecl.typeParams.push_back(std::string(pTok.getText()));
+                        }
+                    } while (match(TokenKind::comma));
+                }
+                expect(TokenKind::greater);
+            }
+            associatedTypeDecls.push_back(std::move(atDecl));
         } else if (check(TokenKind::kw_func) || check(TokenKind::kw_async)) {
             methods.push_back(parseFuncDecl(false));
         } else {
@@ -620,9 +637,37 @@ std::unique_ptr<ProtocolDecl> Parser::parseProtocolDecl(bool isPublic) {
 
     expect(TokenKind::r_brace);
 
-    return std::make_unique<ProtocolDecl>(std::move(name), std::move(methods),
-                                          std::move(associatedTypes), isPublic,
-                                          rangeFrom(startLoc));
+    // Convert AssociatedTypeDecls to simple names for constructor
+    std::vector<std::string> associatedTypeNames;
+    for (const auto &d : associatedTypeDecls) associatedTypeNames.push_back(d.name);
+    auto proto = std::make_unique<ProtocolDecl>(std::move(name), std::move(methods),
+                                                 std::move(associatedTypeNames), isPublic,
+                                                 rangeFrom(startLoc));
+    // Overwrite with full GATs decls if any have generic params
+    bool hasGATs = false;
+    for (const auto &d : associatedTypeDecls)
+        if (!d.lifetimeParams.empty() || !d.typeParams.empty()) { hasGATs = true; break; }
+    if (hasGATs) {
+        // Replace internal decls with full versions via addAssociatedTypeDecl
+        // First clear the simple ones added by constructor
+        // Re-add all with full GATs info
+        // (Since ProtocolDecl stores vector, we use a workaround: reconstruct)
+        auto proto2 = std::make_unique<ProtocolDecl>(
+            proto->getName(), std::vector<std::unique_ptr<FuncDecl>>{},
+            std::vector<std::string>{}, isPublic, rangeFrom(startLoc));
+        // Move methods back
+        // Unfortunately we can't easily move methods out of proto, so rebuild
+        // Instead, just add GATs decls to existing proto
+    }
+    // Directly set the GATs decls on the internal storage
+    for (size_t i = 0; i < associatedTypeDecls.size(); ++i) {
+        auto &src = associatedTypeDecls[i];
+        auto &dst = const_cast<ProtocolDecl::AssociatedTypeDecl &>(
+            proto->getAssociatedTypeDecls()[i]);
+        dst.lifetimeParams = std::move(src.lifetimeParams);
+        dst.typeParams = std::move(src.typeParams);
+    }
+    return proto;
 }
 
 std::unique_ptr<ImportDecl> Parser::parseImportDecl() {

@@ -345,17 +345,37 @@ private:
 /// Protocol (trait) declaration
 class ProtocolDecl : public Decl {
 public:
+    /// Generic associated type: type Item<'a, T>
+    struct AssociatedTypeDecl {
+        std::string name;
+        std::vector<std::string> lifetimeParams;  // GATs: 'a, 'b
+        std::vector<std::string> typeParams;       // GATs: T, U
+    };
+
     ProtocolDecl(std::string name, std::vector<std::unique_ptr<FuncDecl>> methods,
                  std::vector<std::string> associatedTypes,
                  bool isPublic, SourceRange range)
         : Decl(NodeKind::ProtocolDecl, range), name_(std::move(name)),
-          methods_(std::move(methods)), associatedTypes_(std::move(associatedTypes)),
-          isPublic_(isPublic) {}
+          methods_(std::move(methods)), isPublic_(isPublic) {
+        // Convert simple names to AssociatedTypeDecl for backward compat
+        for (auto &n : associatedTypes)
+            associatedTypeDecls_.push_back({std::move(n), {}, {}});
+    }
 
     const std::string &getName() const { return name_; }
     const std::vector<std::unique_ptr<FuncDecl>> &getMethods() const { return methods_; }
-    const std::vector<std::string> &getAssociatedTypes() const { return associatedTypes_; }
+    const std::vector<AssociatedTypeDecl> &getAssociatedTypeDecls() const { return associatedTypeDecls_; }
+    /// Backward compat: return just the names
+    std::vector<std::string> getAssociatedTypes() const {
+        std::vector<std::string> result;
+        for (const auto &d : associatedTypeDecls_) result.push_back(d.name);
+        return result;
+    }
     bool isPublic() const { return isPublic_; }
+
+    void addAssociatedTypeDecl(AssociatedTypeDecl decl) {
+        associatedTypeDecls_.push_back(std::move(decl));
+    }
 
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::ProtocolDecl;
@@ -364,7 +384,7 @@ public:
 private:
     std::string name_;
     std::vector<std::unique_ptr<FuncDecl>> methods_;
-    std::vector<std::string> associatedTypes_;
+    std::vector<AssociatedTypeDecl> associatedTypeDecls_;
     bool isPublic_;
 };
 

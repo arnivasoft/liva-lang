@@ -2275,6 +2275,73 @@ TEST_F(ParserTest, LifetimeParam_Static) {
 }
 
 // ============================================================
+// GATs — Generic Associated Types
+// ============================================================
+
+TEST_F(ParserTest, GATs_SimpleAssociatedType) {
+    auto result = parse(R"--(
+        protocol Iterator {
+            type Item
+            func next(mut self) -> i32
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *p = dynamic_cast<ProtocolDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(p, nullptr);
+    auto types = p->getAssociatedTypes();
+    ASSERT_EQ(types.size(), 1u);
+    EXPECT_EQ(types[0], "Item");
+}
+
+TEST_F(ParserTest, GATs_LifetimeParam) {
+    auto result = parse(R"--(
+        protocol LendingIterator {
+            type Item<'a>
+            func next(mut self) -> i32
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *p = dynamic_cast<ProtocolDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(p, nullptr);
+    const auto &decls = p->getAssociatedTypeDecls();
+    ASSERT_EQ(decls.size(), 1u);
+    EXPECT_EQ(decls[0].name, "Item");
+    ASSERT_EQ(decls[0].lifetimeParams.size(), 1u);
+    EXPECT_EQ(decls[0].lifetimeParams[0], "'a");
+}
+
+TEST_F(ParserTest, GATs_TypeParam) {
+    auto result = parse(R"--(
+        protocol Container {
+            type Element<T>
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *p = dynamic_cast<ProtocolDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(p, nullptr);
+    const auto &decls = p->getAssociatedTypeDecls();
+    ASSERT_EQ(decls.size(), 1u);
+    EXPECT_EQ(decls[0].name, "Element");
+    ASSERT_EQ(decls[0].typeParams.size(), 1u);
+    EXPECT_EQ(decls[0].typeParams[0], "T");
+}
+
+TEST_F(ParserTest, GATs_MixedParams) {
+    auto result = parse(R"--(
+        protocol Streaming {
+            type Item<'a, T>
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *p = dynamic_cast<ProtocolDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(p, nullptr);
+    const auto &decls = p->getAssociatedTypeDecls();
+    ASSERT_EQ(decls.size(), 1u);
+    EXPECT_EQ(decls[0].lifetimeParams.size(), 1u);
+    EXPECT_EQ(decls[0].typeParams.size(), 1u);
+}
+
+// ============================================================
 // Const Generics
 // ============================================================
 
