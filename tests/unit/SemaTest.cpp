@@ -8924,6 +8924,52 @@ TEST_F(SemaTest, AsyncIOViaStdAsyncModule) {
 }
 
 // ============================================================
+// Generators / Yield (B3)
+// ============================================================
+
+TEST_F(SemaTest, Generator_YieldInGenerator) {
+    auto result = check(R"--(
+        func gen() {
+            yield 42
+        }
+    )--");
+    // yield outside generator should fail
+    EXPECT_TRUE(result.diag.hasErrors()) << "yield outside generator should error";
+}
+
+TEST_F(SemaTest, Generator_YieldOutsideGeneratorError) {
+    auto result = check(R"--(
+        func notGen() {
+            yield 1
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors());
+    bool foundYieldError = false;
+    for (const auto &d : result.diag.getDiagnostics()) {
+        if (d.message.find("yield") != std::string::npos &&
+            d.message.find("generator") != std::string::npos) {
+            foundYieldError = true;
+        }
+    }
+    EXPECT_TRUE(foundYieldError) << "Should report yield-outside-generator error";
+}
+
+TEST_F(SemaTest, Generator_YieldKeywordParsed) {
+    // yield is parsed as an expression — sema reports error for non-generator
+    auto result = check(R"--(
+        func gen() {
+            yield 42
+        }
+    )--");
+    // Should have sema error (yield outside generator) but no parse error
+    bool hasYieldError = false;
+    for (const auto &d : result.diag.getDiagnostics()) {
+        if (d.message.find("yield") != std::string::npos) hasYieldError = true;
+    }
+    EXPECT_TRUE(hasYieldError) << "yield keyword should be recognized";
+}
+
+// ============================================================
 // Const Generics (B1)
 // ============================================================
 

@@ -113,6 +113,14 @@ std::unique_ptr<Expr> Parser::parseUnaryExpr() {
         return std::make_unique<AwaitExpr>(std::move(operand), rangeFrom(startLoc));
     }
 
+    // yield expression (generator)
+    if (check(TokenKind::kw_yield)) {
+        advance();
+        auto value = parseUnaryExpr();
+        if (!value) return nullptr;
+        return std::make_unique<YieldExpr>(std::move(value), rangeFrom(startLoc));
+    }
+
     // ref / ref mut
     if (check(TokenKind::kw_ref)) {
         advance();

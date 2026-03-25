@@ -419,9 +419,11 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
 
     // Note: err_async_main intentionally not emitted — Liva supports async main
 
-    // Save/restore async state
+    // Save/restore async and generator state
     bool prevIsAsync = currentIsAsync_;
+    bool prevIsGenerator = currentIsGenerator_;
     currentIsAsync_ = node->isAsync();
+    currentIsGenerator_ = node->isGenerator();
 
     // Save unused-variable tracking state (for nested functions/closures)
     auto prevUsedSymbols = std::move(usedSymbols_);
@@ -466,6 +468,7 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         currentReturnType_ = node->getReturnType();
         // Restore state and return early
         currentIsAsync_ = prevIsAsync;
+        currentIsGenerator_ = prevIsGenerator;
         usedSymbols_ = std::move(prevUsedSymbols);
         currentFuncVars_ = std::move(prevFuncVars);
         forLoopVars_ = std::move(prevForLoopVars);
@@ -603,6 +606,7 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
 
     currentReturnType_ = nullptr;
     currentIsAsync_ = prevIsAsync;
+    currentIsGenerator_ = prevIsGenerator;
     scopes_.popScope();
 }
 
@@ -2979,6 +2983,18 @@ void TypeChecker::visitAwaitExpr(AwaitExpr *node) {
     // If not a Task type, propagate operand type (tolerant for non-async calls)
     if (operandType) {
         node->setResolvedType(cloneTypeRepr(operandType));
+    }
+}
+
+void TypeChecker::visitYieldExpr(YieldExpr *node) {
+    if (!currentIsGenerator_) {
+        diag_.report(node->getStartLoc(), DiagID::err_yield_outside_generator);
+    }
+    visit(node->getValue());
+    // Yield propagates the value type
+    auto *valueType = node->getValue()->getResolvedType();
+    if (valueType) {
+        node->setResolvedType(cloneTypeRepr(valueType));
     }
 }
 

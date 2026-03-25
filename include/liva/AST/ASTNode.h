@@ -62,6 +62,7 @@ public:
         TryExpr,     // try expr
         TernaryExpr, // condition ? then : else
         AwaitExpr,   // await expr
+        YieldExpr,   // yield expr
         ComptimeExpr, // comptime { ... }
         MacroInvokeExpr, // name!(args)
     };

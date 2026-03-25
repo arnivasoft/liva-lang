@@ -538,6 +538,18 @@ private:
     std::unique_ptr<Expr> operand_;
 };
 
+/// Yield expression: yield expr (produce a value from a generator)
+class YieldExpr : public Expr {
+public:
+    YieldExpr(std::unique_ptr<Expr> value, SourceRange range)
+        : Expr(NodeKind::YieldExpr, range), value_(std::move(value)) {}
+    const Expr *getValue() const { return value_.get(); }
+    Expr *getValue() { return value_.get(); }
+    static bool classof(const ASTNode *n) { return n->getKind() == NodeKind::YieldExpr; }
+private:
+    std::unique_ptr<Expr> value_;
+};
+
 /// Compile-time expression block: comptime { ... }
 class ComptimeExpr : public Expr {
 public:

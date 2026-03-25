@@ -88,6 +88,7 @@ DIAG(err_await_outside_async, error, "'await' can only be used inside an async f
 DIAG(err_async_main,          error, "'main' function cannot be declared async")
 DIAG(err_is_cancelled_outside_async, error, "'isCancelled' can only be used inside an async function")
 DIAG(err_for_await_outside_async,   error, "'for await' can only be used inside an async function")
+DIAG(err_yield_outside_generator,   error, "'yield' can only be used inside a generator function")
 
 // === Sema - Variadic ===
 DIAG(err_variadic_not_last,          error,   "variadic parameter '%0' must be the last parameter")

@@ -71,6 +71,7 @@ public:
     void visitTryExpr(TryExpr *node);
     void visitTernaryExpr(TernaryExpr *node);
     void visitAwaitExpr(AwaitExpr *node);
+    void visitYieldExpr(YieldExpr *node);
     void visitComptimeExpr(ComptimeExpr *node);
     void visitMacroDecl(MacroDecl *node);
     void visitMacroInvokeExpr(MacroInvokeExpr *node);
@@ -137,6 +138,9 @@ private:
     /// Async function tracking
     bool currentIsAsync_ = false;
     std::set<std::string> asyncFuncNames_;
+
+    /// Generator function tracking
+    bool currentIsGenerator_ = false;
 
     /// Iterator element types: typeName → element TypeRepr*
     std::unordered_map<std::string, const TypeRepr *> iteratorElementTypes_;

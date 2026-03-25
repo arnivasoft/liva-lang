@@ -74,6 +74,8 @@ public:
     BlockStmt *getBody() { return body_.get(); }
     bool isPublic() const { return isPublic_; }
     bool isAsync() const { return isAsync_; }
+    bool isGenerator() const { return isGenerator_; }
+    void setGenerator(bool v) { isGenerator_ = v; }
     bool hasBody() const { return body_ != nullptr; }
     void setExtern(bool v) { isExtern_ = v; }
     bool isExtern() const { return isExtern_; }
@@ -124,6 +126,7 @@ private:
     std::unique_ptr<BlockStmt> body_;
     bool isPublic_;
     bool isAsync_ = false;
+    bool isGenerator_ = false;
     bool isExtern_ = false;
     bool isCVarargs_ = false;
     std::vector<std::string> typeParams_;
