@@ -412,6 +412,47 @@ TEST_F(StdlibModuleTest, SyncTaskGroupMethods) {
 }
 
 // ============================================================
+// Module 8: regex::regex
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportRegexModule) {
+    auto r = check(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\"[0-9]+\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import regex::regex should resolve Regex";
+}
+
+TEST_F(StdlibModuleTest, RegexPatternMethods) {
+    auto r = check(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\"hello\")\n"
+        "    let matched = re.isMatch(\"hello world\")\n"
+        "    let found = re.find(\"say hello\")\n"
+        "    let all = re.findAll(\"hello hello\")\n"
+        "    let replaced = re.replace(\"hello world\", \"hi\")\n"
+        "    let groups = re.groups(\"(hello) (world)\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Regex pattern methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, RegexReplaceAndToString) {
+    auto r = check(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\"[0-9]+\")\n"
+        "    let s = re.toString()\n"
+        "    let replaced = re.replace(\"abc123def\", \"NUM\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Regex replace and toString should type-check";
+}
+
+// ============================================================
 // Umbrella import includes crypto
 // ============================================================
 

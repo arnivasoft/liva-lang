@@ -1,0 +1,38 @@
+// regex::regex — Ergonomic regular expression wrapper API
+// Import with: import regex::regex
+
+import std::regex
+
+pub struct Regex {
+    var pattern: String
+}
+
+impl Regex {
+    pub func new(pattern: String) -> Regex {
+        return Regex { pattern: pattern }
+    }
+
+    pub func isMatch(ref self, text: String) -> bool {
+        return regexMatch(self.pattern, text)
+    }
+
+    pub func find(ref self, text: String) -> String? {
+        return regexFind(self.pattern, text)
+    }
+
+    pub func findAll(ref self, text: String) -> [String] {
+        return regexFindAll(self.pattern, text)
+    }
+
+    pub func replace(ref self, text: String, replacement: String) -> String {
+        return regexReplace(self.pattern, text, replacement)
+    }
+
+    pub func groups(ref self, text: String) -> [String] {
+        return regexFindGroups(self.pattern, text)
+    }
+
+    pub func toString(ref self) -> String {
+        return self.pattern
+    }
+}
