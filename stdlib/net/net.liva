@@ -1,0 +1,34 @@
+// net::net — Networking utilities wrapper API
+// Import with: import net::net
+
+import std::net
+
+pub struct Url {
+    var raw: String
+}
+
+impl Url {
+    pub func parse(s: String) -> Url {
+        return Url { raw: s }
+    }
+
+    pub func toString(ref self) -> String {
+        return self.raw
+    }
+}
+
+pub struct Request {
+    var method: String
+    var url: String
+    var body: String
+}
+
+impl Request {
+    pub func get(url: String) -> Request {
+        return Request { method: "GET", url: url, body: "" }
+    }
+
+    pub func post(url: String, body: String) -> Request {
+        return Request { method: "POST", url: url, body: body }
+    }
+}

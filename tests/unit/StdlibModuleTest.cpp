@@ -453,6 +453,57 @@ TEST_F(StdlibModuleTest, RegexReplaceAndToString) {
 }
 
 // ============================================================
+// Module 9: fs::fs
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportFsModule) {
+    auto r = check(
+        "import fs::fs\n"
+        "func main() {\n"
+        "    let info = FileInfo.new(\"/tmp/test\")\n"
+        "    let n = info.name()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import fs::fs should resolve FileInfo";
+}
+
+TEST_F(StdlibModuleTest, FsDirStruct) {
+    auto r = check(
+        "import fs::fs\n"
+        "func main() {\n"
+        "    let d = Dir.new(\"/tmp\")\n"
+        "    let s = d.toString()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Dir struct should type-check";
+}
+
+// ============================================================
+// Module 10: net::net
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportNetModule) {
+    auto r = check(
+        "import net::net\n"
+        "func main() {\n"
+        "    let url = Url.parse(\"https://example.com\")\n"
+        "    let s = url.toString()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import net::net should resolve Url";
+}
+
+TEST_F(StdlibModuleTest, NetRequestStruct) {
+    auto r = check(
+        "import net::net\n"
+        "func main() {\n"
+        "    let req = Request.get(\"https://api.example.com\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Request struct should type-check";
+}
+
+// ============================================================
 // Umbrella import includes crypto
 // ============================================================
 

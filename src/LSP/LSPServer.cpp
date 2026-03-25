@@ -326,6 +326,7 @@ JSONValue LSPServer::handleInitialize(const JSONValue &id,
     tokenTypes.push(JSONValue("enumMember"));     // 8
     tokenTypes.push(JSONValue("struct"));         // 9
     tokenTypes.push(JSONValue("parameter"));      // 10
+    tokenTypes.push(JSONValue("lifetime"));       // 11 (custom — for 'a, 'static)
 
     auto tokenModifiers = JSONValue::array();
     tokenModifiers.push(JSONValue("declaration"));  // 0
@@ -2142,7 +2143,13 @@ JSONValue LSPServer::handleSemanticTokens(const JSONValue &id,
         case TokenKind::kw_super:
         case TokenKind::kw_private:
         case TokenKind::kw_test:
+        case TokenKind::kw_yield:
             tokenType = 0; // keyword
+            break;
+
+        // Lifetime literals: 'a, 'static
+        case TokenKind::lifetime_literal:
+            tokenType = 11; // lifetime
             break;
 
         // Type keywords

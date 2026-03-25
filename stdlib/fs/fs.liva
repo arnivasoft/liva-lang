@@ -1,0 +1,52 @@
+// fs::fs — File system utilities wrapper API
+// Import with: import fs::fs
+
+import std::io
+
+pub struct FileInfo {
+    var path: String
+}
+
+impl FileInfo {
+    pub func new(path: String) -> FileInfo {
+        return FileInfo { path: path }
+    }
+
+    pub func name(ref self) -> String {
+        return pathBasename(self.path)
+    }
+
+    pub func extension(ref self) -> String {
+        return pathExtension(self.path)
+    }
+
+    pub func parent(ref self) -> String {
+        return pathDirname(self.path)
+    }
+
+    pub func exists(ref self) -> bool {
+        return pathExists(self.path)
+    }
+
+    pub func toString(ref self) -> String {
+        return self.path
+    }
+}
+
+pub struct Dir {
+    var path: String
+}
+
+impl Dir {
+    pub func new(path: String) -> Dir {
+        return Dir { path: path }
+    }
+
+    pub func list(ref self) -> [String] {
+        return dirList(self.path)
+    }
+
+    pub func toString(ref self) -> String {
+        return self.path
+    }
+}
