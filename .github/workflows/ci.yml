@@ -79,6 +79,21 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --parallel 4
 
+      - name: Run benchmark regression check
+        if: matrix.gcc == 14
+        run: |
+          chmod +x scripts/benchmark-check.sh
+          scripts/benchmark-check.sh build
+        shell: bash
+
+      - name: Upload benchmark results
+        if: matrix.gcc == 14
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: build/benchmark-results.json
+          retention-days: 30
+
   build-macos:
     name: macOS (Apple Clang)
     runs-on: macos-latest
