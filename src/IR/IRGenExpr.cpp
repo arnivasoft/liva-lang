@@ -1277,6 +1277,34 @@ llvm::Value *IRGen::visitAwaitExpr(AwaitExpr *node) {
     return result;
 }
 
+llvm::Value *IRGen::visitYieldExpr(YieldExpr *node) {
+    auto *value = visit(node->getValue());
+    if (!value) return nullptr;
+
+    // Store yielded value in coroutine promise (if in async/generator context)
+    if (currentCoroPromise_) {
+        builder_->CreateStore(value, currentCoroPromise_);
+
+        // Suspend the coroutine (non-final suspend)
+        auto *coroSuspendFn = llvm::Intrinsic::getOrInsertDeclaration(
+            module_.get(), llvm::Intrinsic::coro_suspend);
+        auto *noneToken = llvm::ConstantTokenNone::get(*context_);
+        auto *suspVal = builder_->CreateCall(
+            coroSuspendFn, {noneToken, builder_->getFalse()}, "yield.sus");
+
+        auto *func = builder_->GetInsertBlock()->getParent();
+        auto *resumeBB = llvm::BasicBlock::Create(*context_, "yield.resume", func);
+
+        auto *sw = builder_->CreateSwitch(suspVal, currentCoroSuspendBB_, 2);
+        sw->addCase(builder_->getInt8(0), resumeBB);        // resumed
+        sw->addCase(builder_->getInt8(1), currentCoroCleanupBB_); // destroyed
+
+        builder_->SetInsertPoint(resumeBB);
+    }
+
+    return value;
+}
+
 llvm::Value *IRGen::visitComptimeExpr(ComptimeExpr *node) {
     // Comptime block is validated at sema time; at IRGen we simply
     // evaluate the block's statements (const/var → constValues_) and

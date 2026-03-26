@@ -129,21 +129,29 @@ std::unique_ptr<TypeRepr> Parser::parseBaseType() {
         return makeNamedType(name);
     }
 
-    // Array type: [T] or [T; N]
+    // Array type: [T] or [T; N] or [T; 10]
     case TokenKind::l_bracket: {
         advance();
         auto elemType = parseType();
 
         int64_t size = -1;
+        std::string sizeParamName;
         if (match(TokenKind::semicolon)) {
             if (check(TokenKind::integer_literal)) {
                 size = current_.getIntegerValue();
+                advance();
+            } else if (check(TokenKind::identifier)) {
+                // Const generic param reference: [T; N]
+                sizeParamName = std::string(current_.getText());
                 advance();
             }
         }
 
         expect(TokenKind::r_bracket);
-        return std::make_unique<ArrayTypeRepr>(std::move(elemType), size);
+        auto arr = std::make_unique<ArrayTypeRepr>(std::move(elemType), size);
+        if (!sizeParamName.empty())
+            arr->setSizeParamName(std::move(sizeParamName));
+        return arr;
     }
 
     // Function type: (T1, T2) -> T3  or  Tuple type: (T1, T2)

@@ -2278,6 +2278,24 @@ TEST_F(ParserTest, LifetimeParam_Static) {
 // GATs — Generic Associated Types
 // ============================================================
 
+TEST_F(ParserTest, ConstGenericArraySizeParam) {
+    // [T; N] where N is a const generic parameter
+    auto result = parse(R"--(
+        func fill<T, const N: i32>(value: T, data: [T; N]) {}
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->getConstParams().size(), 1u);
+    // Check that data param type is array with size param "N"
+    const auto &params = fn->getParams();
+    ASSERT_GE(params.size(), 2u);
+    auto *arrType = dynamic_cast<const ArrayTypeRepr *>(params[1].type.get());
+    ASSERT_NE(arrType, nullptr);
+    EXPECT_TRUE(arrType->hasSizeParam());
+    EXPECT_EQ(arrType->getSizeParamName(), "N");
+}
+
 TEST_F(ParserTest, GATs_SimpleAssociatedType) {
     auto result = parse(R"--(
         protocol Iterator {

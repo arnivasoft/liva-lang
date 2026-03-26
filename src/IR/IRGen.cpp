@@ -1097,6 +1097,27 @@ void IRGen::createRuntimeDecls() {
     auto *uiSetClipTy = llvm::FunctionType::get(voidTy, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_ui_set_clipboard_text", uiSetClipTy);
 
+    // liva_ui_load_image(path) -> i32
+    auto *uiLoadImgTy = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_load_image", uiLoadImgTy);
+
+    // liva_ui_unload_image(handle) -> void
+    auto *uiUnloadImgTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_unload_image", uiUnloadImgTy);
+
+    // liva_ui_draw_image(handle, x, y) -> void
+    auto *uiDrawImgTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_image", uiDrawImgTy);
+
+    // liva_ui_draw_image_scaled(handle, x, y, w, h) -> void
+    auto *uiDrawImgScTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_draw_image_scaled", uiDrawImgScTy);
+
+    // liva_ui_get_image_width/height(handle) -> i32
+    auto *uiImgDimTy = llvm::FunctionType::get(i32Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_get_image_width", uiImgDimTy);
+    module_->getOrInsertFunction("liva_ui_get_image_height", uiImgDimTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();
@@ -1356,7 +1377,14 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         auto *elemType = toLLVMType(arrayType->getElement());
         if (arrayType->isDynamic())
             return llvm::PointerType::getUnqual(*context_);
-        return llvm::ArrayType::get(elemType, static_cast<uint64_t>(arrayType->getSize()));
+        // Resolve const generic param name to value
+        int64_t size = arrayType->getSize();
+        if (arrayType->hasSizeParam()) {
+            auto it = currentConstSubst_.find(arrayType->getSizeParamName());
+            if (it != currentConstSubst_.end())
+                size = it->second;
+        }
+        return llvm::ArrayType::get(elemType, static_cast<uint64_t>(size));
     }
     case TypeRepr::Kind::Optional: {
         auto *optType = static_cast<const OptionalTypeRepr *>(type);
@@ -1388,6 +1416,9 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         return llvm::PointerType::getUnqual(*context_);
     case TypeRepr::Kind::DynProtocol:
         return getTraitObjectTy();
+    case TypeRepr::Kind::ConstValue:
+        // Const generic values resolve to i64 at IR level
+        return builder_->getInt64Ty();
     default:
         return builder_->getInt32Ty();
     }

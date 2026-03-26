@@ -124,6 +124,7 @@ public:
     llvm::Value *visitRefExpr(RefExpr *node);
     llvm::Value *visitTypeAliasDecl(TypeAliasDecl *node);
     llvm::Value *visitAwaitExpr(AwaitExpr *node);
+    llvm::Value *visitYieldExpr(YieldExpr *node);
     llvm::Value *visitComptimeExpr(ComptimeExpr *node);
 
 private:

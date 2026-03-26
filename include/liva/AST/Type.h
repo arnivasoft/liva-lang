@@ -109,12 +109,18 @@ public:
 
     const TypeRepr *getElement() const { return element_.get(); }
     int64_t getSize() const { return size_; }
-    bool isDynamic() const { return size_ < 0; }
+    bool isDynamic() const { return size_ < 0 && sizeParamName_.empty(); }
     std::string toString() const override;
+
+    /// Const generic param reference: [T; N] where N is a const param
+    const std::string &getSizeParamName() const { return sizeParamName_; }
+    void setSizeParamName(std::string name) { sizeParamName_ = std::move(name); }
+    bool hasSizeParam() const { return !sizeParamName_.empty(); }
 
 private:
     std::unique_ptr<TypeRepr> element_;
     int64_t size_;
+    std::string sizeParamName_;
 };
 
 /// Function type: (T1, T2) -> T3
