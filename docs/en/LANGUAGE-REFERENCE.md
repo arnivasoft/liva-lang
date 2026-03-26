@@ -41,6 +41,11 @@ A comprehensive reference for the Liva programming language — a statically typ
 33. [Concurrency](#33-concurrency)
 34. [dyn Protocol (Trait Objects)](#34-dyn-protocol-trait-objects)
 35. [Guard Clauses](#35-guard-clauses)
+36. [Const Generics](#36-const-generics)
+37. [Explicit Lifetimes](#37-explicit-lifetimes)
+38. [Generators and Yield](#38-generators-and-yield)
+39. [Generic Associated Types (GATs)](#39-generic-associated-types-gats)
+40. [Enum Discriminant Values](#40-enum-discriminant-values)
 
 ---
 
@@ -1104,6 +1109,19 @@ func processFile() -> Result<string, FileError> {
 }
 ```
 
+### Postfix `?` Operator
+
+The `?` operator is a shorthand for error propagation on `Result` types:
+
+```liva
+func processFile() -> Result<string, FileError> {
+    let content = readFile("input.txt")?   // returns Err early if failed
+    return Ok(content)
+}
+```
+
+The `?` operator unwraps `Ok(T)` or immediately returns the `Err(E)` from the enclosing function.
+
 ---
 
 ## 15. Collections
@@ -1326,12 +1344,23 @@ import std::convert       // import conversion functions
 | Module | Provides |
 |--------|----------|
 | `std::math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `log`, `log10`, `sin`, `cos`, `tan` |
-| `std::io` | `print`, `println`, `readLine`, `format`, `File` |
+| `std::io` | `readLine`, `readFile`, `writeFile`, `appendFile`, `fileExists` |
 | `std::convert` | `parseInt`, `parseInt64`, `parseFloat`, `toString` |
-| `std::os` | `env`, `exit`, `args`, `clock`, `clockMs`, `sleep` |
-| `std::random` | `randInt`, `randFloat` |
+| `std::os` | `env`, `exit`, `args`, `exec`, `cwd`, `sleep` |
+| `std::random` | `randInt`, `randFloat`, `random`, `randomChoice` |
 | `std::regex` | `regexMatch`, `regexFind`, `regexFindAll`, `regexReplace` |
-| `std::net` | `httpGet`, `httpPost` |
+| `std::net` | `httpGet`, `httpPost`, `httpPut`, `httpDelete` |
+| `std::json` | `jsonParse`, `jsonStringify` |
+| `std::time` | `now`, `clock`, `clockMs`, `sleep` |
+| `std::channel` | `channelCreate`, `channelSend`, `channelRecv`, `channelClose` |
+| `std::task` | `taskGroupCreate`, `taskGroupSpawn`, `taskGroupAwaitAll`, `taskGroupCancelAll` |
+| `std::crypto` | `sha256`, `md5`, `hmacSha256` |
+| `std::async` | `taskSelect`, `withTimeout`, `schedulerInit`, `asyncFileRead`, `asyncFileWrite` |
+| `std::path` | `pathJoin`, `pathExtension`, `pathBasename`, `pathDirname` |
+| `std::testing` | `assertEqual`, `assertNotEqual`, `assertTrue`, `assertFalse` |
+| `std::collections` | List, Map, Set helper functions |
+| `std::strings` | String manipulation utilities |
+| `std::ui` | raylib-based UI framework (widgets, layout, theming, animation) |
 | `std` | All of the above combined |
 
 ### User Modules
@@ -1382,6 +1411,37 @@ async func main() {
 ```
 
 The `await` keyword can only be used inside `async` functions. It suspends execution until the asynchronous operation completes.
+
+### For Await
+
+Iterate asynchronously over streams:
+
+```liva
+async func processStream() {
+    for await item in asyncStream {
+        println(item)
+    }
+}
+```
+
+`for await` can only be used inside `async` functions.
+
+### Async Runtime Features
+
+```liva
+import std::async
+
+// Select first completed task
+let result = taskSelect([task1, task2, task3])
+
+// Run with timeout
+let result = withTimeout(myTask, 5000)  // 5 second timeout
+
+// Thread pool scheduler
+schedulerInit(4)    // 4 worker threads
+// ... spawn tasks ...
+schedulerShutdown()
+```
 
 ### Limitations
 
@@ -1703,6 +1763,10 @@ Diagnostics:
   --dump-ast <file>      Print AST tree
   --check-only <file>    Type-check without code generation
   --emit-ir <file>       Output LLVM IR
+  --emit-obj <file>      Output object file (.o)
+  --emit-asm <file>      Output assembly (.s)
+  --dump-timings         Show per-phase compilation timing
+  --trace-macros         Trace macro expansions
 
 Project:
   init [name]            Create a new Liva project
@@ -1717,9 +1781,16 @@ Testing & Benchmarking:
 Cross-compilation:
   --target <triple>      Cross-compile for target (e.g., x86_64-linux-gnu, wasm32)
 
+Separate Compilation:
+  --emit-obj             Compile to object file without linking
+  link <files> -o <out>  Link object files into executable
+
 Tools:
   lsp                    Start Language Server Protocol server
+  dap                    Start Debug Adapter Protocol server
   repl                   Start interactive REPL
+  format [file]          Format source code
+  lint [file]            Run linter checks
 ```
 
 ### LSP Server
@@ -2220,6 +2291,159 @@ func greet(name: string?) {
 - The `else` block must exit the enclosing scope (`return`, `break`, `continue`)
 - Variables bound in `guard let` are available after the guard statement
 - Guard is preferred over nested `if` for precondition checking
+
+---
+
+## 36. Const Generics
+
+Compile-time value parameters in generic declarations.
+
+```liva
+func repeat<const N: i32>(value: i32) -> i32 {
+    return N * value
+}
+
+func withDefault<T, const SIZE: i32 = 10>(value: T) {
+    println(SIZE)
+}
+
+// Array size from const param
+func fill<T, const N: i32>(value: T, data: [T; N]) {}
+
+let result = repeat<5>(3)   // N = 5
+```
+
+- Syntax: `const NAME: TYPE` or `const NAME: TYPE = DEFAULT` inside `<...>`
+- Supported types: i32, i64, bool
+- Used for fixed-size arrays `[T; N]`, compile-time configuration
+- Monomorphized: `repeat<5>` generates unique code for N=5
+
+---
+
+## 37. Explicit Lifetimes
+
+Rust-style lifetime annotations for references.
+
+```liva
+// Lifetime parameters declared in <...>
+func first<'a>(items: ref 'a [i32]) -> ref 'a i32 {
+    return ref items[0]
+}
+
+// Multiple lifetimes
+func merge<'a, 'b>(x: ref 'a i32, y: ref 'b i32) {}
+
+// Static lifetime
+let global: ref 'static i32 = ref CONSTANT
+
+// ref 'a mut T — mutable reference with lifetime
+func modify<'a>(x: ref 'a mut i32) {}
+```
+
+### Lifetime Elision Rules
+
+When lifetimes are unambiguous, the compiler infers them automatically:
+
+1. **Each input ref gets its own lifetime**: `func f(x: ref i32, y: ref i32)` -> each gets unique '_0, '_1
+2. **Single input ref -> output gets same**: `func f(x: ref i32) -> ref i32` -> output shares input's lifetime
+3. **&self method -> output gets self's lifetime**: method return ref shares self's lifetime
+
+Explicit annotations always take precedence over elision.
+
+---
+
+## 38. Generators and Yield
+
+Generator functions produce values lazily using `yield`.
+
+```liva
+func fibonacci() {
+    var a = 0
+    var b = 1
+    while true {
+        yield a        // suspend and produce value
+        let tmp = a
+        a = b
+        b = tmp + b
+    }
+}
+
+func countTo(n: i32) {
+    var i = 0
+    while i < n {
+        yield i
+        i = i + 1
+    }
+}
+```
+
+- Functions containing `yield` are automatically detected as generators
+- No explicit `gen` keyword needed
+- Generators use LLVM coroutine infrastructure (same as async/await)
+- `yield` stores value in coroutine promise and suspends execution
+
+---
+
+## 39. Generic Associated Types (GATs)
+
+Associated types in protocols can have their own generic parameters.
+
+```liva
+protocol LendingIterator {
+    type Item<'a>          // lifetime-parameterized associated type
+    func next(mut self) -> i32
+}
+
+protocol Container {
+    type Element<T>        // type-parameterized associated type
+}
+
+// Simple associated type (no GAT params)
+protocol Printable {
+    type Output
+    func print(self) -> Output
+}
+
+struct IntList { var data: i32 }
+impl IntList: Printable {
+    type Output = String
+    func print(self) -> String { return "list" }
+}
+```
+
+---
+
+## 40. Enum Discriminant Values
+
+Enum cases can have explicit integer discriminant values for FFI interop.
+
+```liva
+enum HttpStatus {
+    case OK = 200
+    case NotFound = 404
+    case InternalError = 500
+}
+
+enum Signal {
+    case None
+    case SIGINT = 2
+    case SIGTERM = 15
+    case SIGKILL = -9    // negative values supported
+}
+
+// Mixed: some cases with discriminant, some auto-assigned
+enum Color {
+    case Red           // auto: 0
+    case Green = 10    // explicit: 10
+    case Blue          // auto: 11
+}
+
+// Compatible with associated values
+enum Result {
+    case Success(i32) = 0
+    case Failure(String) = 1
+}
+```
 
 ---
 

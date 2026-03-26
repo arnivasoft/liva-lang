@@ -1710,12 +1710,18 @@ Liva provides built-in standard library modules:
 
 ```liva
 import std::math      // abs, sqrt, pow, sin, cos, tan, floor, ceil, round, log, log10, min, max
-import std::io        // readLine, File.open, File.readAll, File.writeLine, File.close
+import std::io        // readLine, readFile, writeFile, appendFile, fileExists
 import std::convert   // parseInt, parseInt64, parseFloat, toString
 import std::os        // env, args, exit, exec
 import std::random    // randInt, randFloat
 import std::regex     // Regex.new, match, replace, split
 import std::net       // httpGet, httpPost
+import std::json      // jsonParse, jsonStringify
+import std::time      // now, clock, clockMs, sleep
+import std::crypto    // sha256, md5, hmacSha256
+import std::async     // taskSelect, withTimeout, async I/O
+import std::path      // pathJoin, pathBasename, pathDirname
+import std::ui        // raylib-based UI framework
 ```
 
 You can also import the umbrella module:
@@ -1799,6 +1805,20 @@ async func fetchMultiple() {
 - Use `await` to wait for an async operation to complete
 - Async functions return a coroutine that is executed by the runtime
 - `await` can only be used inside `async` functions
+
+### For await (async iteration)
+
+Use `for await` to iterate over async streams:
+
+```liva
+async func processItems() {
+    for await item in asyncStream {
+        println(item)
+    }
+}
+```
+
+Note: `for await` can only be used inside `async` functions.
 
 ### Networking example
 
@@ -2419,4 +2439,48 @@ func main() {
 
 ---
 
-*This tutorial covers Liva as of version 0.2.0 with 1600+ tests. The language is under active development — new features and improvements are added regularly.*
+## New Language Features (v1.0)
+
+### Const Generics
+
+```liva
+func repeat<const N: i32>(value: i32) -> i32 {
+    return N * value
+}
+let r = repeat<5>(3)  // 15
+```
+
+### Explicit Lifetimes
+
+```liva
+func first<'a>(x: ref 'a i32) -> ref 'a i32 {
+    return x
+}
+// Elision: func identity(x: ref i32) -> ref i32 { return x }
+```
+
+### Generators
+
+```liva
+func fibonacci() {
+    var a = 0
+    var b = 1
+    while true {
+        yield a
+        let tmp = a; a = b; b = tmp + b
+    }
+}
+```
+
+### Enum Discriminant Values
+
+```liva
+enum HttpStatus {
+    case OK = 200
+    case NotFound = 404
+}
+```
+
+---
+
+*This tutorial covers Liva as of version 0.3.0 with 2149 tests. The language is under active development — new features and improvements are added regularly.*

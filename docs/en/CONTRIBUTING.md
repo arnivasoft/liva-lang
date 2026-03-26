@@ -42,7 +42,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build-clang --output-on-failure
 ```
 
-All 1600+ tests must pass before submitting a pull request.
+All 2149 tests must pass before submitting a pull request.
 
 ## Project Structure
 
@@ -56,6 +56,9 @@ All 1600+ tests must pass before submitting a pull request.
 | `examples/` | Example Liva programs |
 | `stdlib/runtime/` | C++ runtime library |
 | `cmake/` | CMake modules and toolchain files |
+| `stdlib/` | Standard library (.liva modules and C++ runtime) |
+| `editors/` | Editor support (VS Code, Neovim, Emacs, JetBrains, Notepad++) |
+| `docs/` | Documentation in English and Turkish |
 
 ## Code Style
 
@@ -96,8 +99,17 @@ Tests use GoogleTest. Each component has its own test file:
 | SelfHost | `tests/unit/SelfHostTest.cpp` |
 | JIT | `tests/unit/JITTest.cpp` |
 | DAP | `tests/unit/DAPTest.cpp` |
+| UI Module | `tests/unit/UIModuleTest.cpp` |
+| StdlibModule | `tests/unit/StdlibModuleTest.cpp` |
+| DiagColor | `tests/unit/DiagColorTest.cpp` |
+| IncrementalBenchmark | `tests/unit/IncrementalBenchmarkTest.cpp` |
+| PropertyTest | `tests/unit/PropertyTest.cpp` |
 
-To add a new test:
+### Property-based Testing
+
+Liva supports property-based testing for automated verification with input shrinking. Property tests generate random inputs and verify invariants, automatically shrinking failing cases to minimal reproductions. See `tests/unit/PropertyTest.cpp` for examples.
+
+### Adding a Test
 
 ```cpp
 TEST(SemaTest, MyNewFeature) {
@@ -132,7 +144,7 @@ func main() {
 
 1. Create a feature branch from `main`
 2. Make your changes with clear, focused commits
-3. Ensure all 1600+ tests pass
+3. Ensure all 2149 tests pass
 4. Add new tests for any new functionality
 5. Update `plan.md` if adding a milestone
 6. Submit a pull request with a clear description

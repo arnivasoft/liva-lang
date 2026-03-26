@@ -1104,6 +1104,19 @@ func processFile() -> Result<string, FileError> {
 }
 ```
 
+### Postfix `?` Operatörü
+
+`?` operatörü, `Result` tipleri üzerinde hata yayılımının kısaltmasıdır:
+
+```liva
+func processFile() -> Result<string, FileError> {
+    let content = readFile("input.txt")?   // başarısız olursa erken Err döner
+    return Ok(content)
+}
+```
+
+`?` operatörü `Ok(T)` değerini açar veya `Err(E)` değerini çevreleyen fonksiyondan anında döndürür.
+
 ---
 
 ## 15. Koleksiyonlar
@@ -1326,13 +1339,24 @@ import std::convert       // dönüşüm fonksiyonlarını import et
 | Modül | Sağladıkları |
 |-------|-------------|
 | `std::math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `log`, `log10`, `sin`, `cos`, `tan` |
-| `std::io` | `print`, `println`, `readLine`, `format`, `File` |
+| `std::io` | `readLine`, `readFile`, `writeFile`, `appendFile`, `fileExists` |
 | `std::convert` | `parseInt`, `parseInt64`, `parseFloat`, `toString` |
-| `std::os` | `env`, `exit`, `args`, `clock`, `clockMs`, `sleep` |
-| `std::random` | `randInt`, `randFloat` |
+| `std::os` | `env`, `exit`, `args`, `exec`, `cwd`, `sleep` |
+| `std::random` | `randInt`, `randFloat`, `random`, `randomChoice` |
 | `std::regex` | `regexMatch`, `regexFind`, `regexFindAll`, `regexReplace` |
-| `std::net` | `httpGet`, `httpPost` |
-| `std` | Yukarıdakilerin hepsini birleştirir |
+| `std::net` | `httpGet`, `httpPost`, `httpPut`, `httpDelete` |
+| `std::json` | `jsonParse`, `jsonStringify` |
+| `std::time` | `now`, `clock`, `clockMs`, `sleep` |
+| `std::channel` | `channelCreate`, `channelSend`, `channelRecv`, `channelClose` |
+| `std::task` | `taskGroupCreate`, `taskGroupSpawn`, `taskGroupAwaitAll`, `taskGroupCancelAll` |
+| `std::crypto` | `sha256`, `md5`, `hmacSha256` |
+| `std::async` | `taskSelect`, `withTimeout`, `schedulerInit`, `asyncFileRead`, `asyncFileWrite` |
+| `std::path` | `pathJoin`, `pathExtension`, `pathBasename`, `pathDirname` |
+| `std::testing` | `assertEqual`, `assertNotEqual`, `assertTrue`, `assertFalse` |
+| `std::collections` | List, Map, Set yardımcı fonksiyonları |
+| `std::strings` | String manipülasyon yardımcıları |
+| `std::ui` | raylib tabanlı UI framework (widget'lar, layout, tema, animasyon) |
+| `std` | Yukarıdakilerin tümü |
 
 ### Kullanıcı Modülleri
 
@@ -1382,6 +1406,37 @@ async func main() {
 ```
 
 `await` anahtar kelimesi yalnızca `async` fonksiyonlar içinde kullanılabilir. Asenkron işlem tamamlanana kadar yürütmeyi askıya alır.
+
+### For Await
+
+Akışlar üzerinde asenkron iterasyon:
+
+```liva
+async func processStream() {
+    for await item in asyncStream {
+        println(item)
+    }
+}
+```
+
+`for await` sadece `async` fonksiyonların içinde kullanılabilir.
+
+### Async Runtime Özellikleri
+
+```liva
+import std::async
+
+// İlk tamamlanan görevi seç
+let result = taskSelect([task1, task2, task3])
+
+// Zaman aşımıyla çalıştır
+let result = withTimeout(myTask, 5000)  // 5 saniye zaman aşımı
+
+// İş parçacığı havuzu zamanlayıcısı
+schedulerInit(4)    // 4 işçi iş parçacığı
+// ... görevleri başlat ...
+schedulerShutdown()
+```
 
 ### Kısıtlamalar
 
@@ -1703,6 +1758,10 @@ Tanılama:
   --dump-ast <dosya>       AST ağacını yazdır
   --check-only <dosya>     Kod üretimi olmadan tip kontrolü
   --emit-ir <dosya>        LLVM IR çıktısı
+  --emit-obj <dosya>       Obje dosyası çıktısı (.o)
+  --emit-asm <dosya>       Assembly çıktısı (.s)
+  --dump-timings           Faz bazlı derleme zamanlamasını göster
+  --trace-macros           Macro genişletmelerini izle
 
 Proje:
   init [isim]              Yeni Liva projesi oluştur
@@ -1717,9 +1776,16 @@ Test & Benchmark:
 Çapraz Derleme:
   --target <triple>        Hedef platform için derle (ör. x86_64-linux-gnu, wasm32)
 
+Ayrı Derleme:
+  --emit-obj               Linkleme yapmadan obje dosyasına derle
+  link <dosyalar> -o <çıktı>  Obje dosyalarını çalıştırılabilire linkle
+
 Araçlar:
   lsp                      Language Server Protocol sunucusunu başlat
-  repl                     İnteraktif REPL'i başlat
+  dap                      Debug Adapter Protocol sunucusunu başlat
+  repl                     İnteraktif REPL başlat
+  format [dosya]           Kaynak kodu biçimlendir
+  lint [dosya]             Linter kontrolleri çalıştır
 ```
 
 ### LSP Sunucusu
@@ -2293,6 +2359,104 @@ type          = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
               | "(" type ("," type)* ")" "->" type
               | "(" type ("," type)* ")"
               | "ref" ["mut"] type
+              | "ref" LIFETIME ["mut"] type
               | type "?"
               | "dyn" IDENT
+```
+
+## 23. Const Generics
+
+Derleme zamani sabit parametreler:
+
+```liva
+func repeat<const N: i32>(value: i32) -> i32 {
+    return N * value
+}
+
+func withDefault<T, const SIZE: i32 = 10>(value: T) {
+    println(SIZE)
+}
+
+// Sabit boyutlu dizi: [T; N]
+func fill<T, const N: i32>(value: T, data: [T; N]) {}
+```
+
+- Sozdizimi: `const AD: TIP` veya `const AD: TIP = VARSAYILAN`
+- Desteklenen tipler: i32, i64, bool
+- Monomorphize edilir: `repeat<5>` icin benzersiz kod uretilir
+
+## 24. Explicit Lifetime Sozdizimi
+
+Rust tarzi yasam suresi anotasyonlari:
+
+```liva
+func first<'a>(items: ref 'a [i32]) -> ref 'a i32 {
+    return ref items[0]
+}
+
+func merge<'a, 'b>(x: ref 'a i32, y: ref 'b i32) {}
+
+// 'static yasam suresi
+let global: ref 'static i32 = ref CONSTANT
+```
+
+### Lifetime Elision Kurallari
+
+Belirsizlik olmayan durumlarda derleyici yasam surelerini otomatik cikarir:
+
+1. Her girdi ref kendi yasam suresini alir
+2. Tek girdi ref → cikis ayni yasam suresini alir
+3. &self metotlarda → cikis self'in yasam suresini alir
+
+## 25. Generator ve Yield
+
+Generator fonksiyonlar `yield` ile deger uretir:
+
+```liva
+func fibonacci() {
+    var a = 0
+    var b = 1
+    while true {
+        yield a
+        let tmp = a
+        a = b
+        b = tmp + b
+    }
+}
+```
+
+- `yield` iceren fonksiyonlar otomatik generator olarak algilanir
+- LLVM coroutine altyapisi kullanilir (async/await ile ayni)
+
+## 26. Generic Associated Types (GATs)
+
+Protokollerdeki associated type'lar kendi generic parametrelerine sahip olabilir:
+
+```liva
+protocol LendingIterator {
+    type Item<'a>
+    func next(mut self) -> i32
+}
+
+protocol Container {
+    type Element<T>
+}
+```
+
+## 27. Enum Discriminant Degerleri
+
+Enum case'leri acik tamsayi degerlerine sahip olabilir:
+
+```liva
+enum HttpStatus {
+    case OK = 200
+    case NotFound = 404
+    case InternalError = 500
+}
+
+enum Signal {
+    case None
+    case SIGINT = 2
+    case SIGKILL = -9    // negatif degerler desteklenir
+}
 ```

@@ -100,6 +100,17 @@ Durmadan mesaj yazdirir:
 
 `{suslu parantez}` icindeki degiskenler degerlendirilir.
 
+### Exception Breakpoint'leri
+
+Calisma zamani hatalari oldugunda otomatik durma:
+
+- **All Exceptions**: Her turlu hata veya panic'te dur
+- **Uncaught Exceptions**: Sadece islenmemis hatalarda dur (varsayilan: acik)
+
+VS Code'da: Breakpoints panelinde "All Exceptions" veya "Uncaught Exceptions" isaretleyin.
+
+Kullanilabilir filtreler: `"all"` (her hata), `"uncaught"` (sadece islenmemis).
+
 ## Watch Ifadeleri
 
 Debug sirasinda degerleri izlemek icin watch ifadeleri ekleyin:

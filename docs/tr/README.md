@@ -25,6 +25,12 @@ Liva, LLVM aracılığıyla native koda derlenir; garbage collector olmadan bell
 - **Çapraz Derleme** — Çoklu platform desteği için `--target` bayrağı
 - **Plugin Sistemi** — Özel analiz için derleyici plugin API'si
 - **WASM** — WebAssembly hedef desteği (`--target wasm32`)
+- **UI Framework** — raylib tabanlı widget sistemi (12 faz: widget'lar, layout, tema, animasyon, odak, tooltip)
+- **Zengin Tanılama** — Rust tarzı alt çizgi span'ları, yardım önerileri, "bunu mu demek istediniz" önerileri
+- **Debug Adapter** — Koşullu breakpoint, ifade değerlendiricili DAP sunucusu
+- **Ayrı Derleme** — Artımlı iş akışları için `--emit-obj` ve `livac link`
+- **Güvenlik** — Dilim sınır kontrolü, ayrıştırma taşma korumaları, FFI tip güvenliği uyarıları
+- **Async Runtime** — İş parçacığı havuzu zamanlayıcısı, channel'lar, task grupları, `for await`, async I/O
 
 ## Hızlı Başlangıç
 
@@ -119,6 +125,13 @@ livac --dump-tokens file.liva    # Token akışını göster
 livac --dump-ast file.liva       # AST'yi göster
 livac --check-only file.liva     # Codegen olmadan tip kontrolü
 livac --emit-ir file.liva        # LLVM IR çıktısı
+livac --emit-obj file.liva      # Obje dosyası çıktısı
+livac --dump-timings file.liva  # Faz bazlı derleme zamanlamasını göster
+livac --trace-macros file.liva  # Macro genişletmelerini izle
+livac link a.o b.o -o app       # Obje dosyalarını linkle
+livac format file.liva          # Kaynak kodu biçimlendir
+livac lint file.liva            # Linter çalıştır
+livac dap                       # Debug Adapter Protocol sunucusunu başlat
 ```
 
 ## Dile Genel Bakış
@@ -292,9 +305,16 @@ import std::random    // randInt, randFloat
 import std::regex     // Regex, match, replace
 import std::net       // httpGet, httpPost
 import std::json      // jsonParse, jsonStringify
-import std::time      // now, sleep
+import std::time      // now, sleep, clock
 import std::channel   // Channel, send, recv
 import std::task      // TaskGroup, spawn, awaitAll
+import std::crypto    // sha256, md5, hmacSha256
+import std::async     // async runtime yardımcıları
+import std::path      // yol manipülasyonu
+import std::testing   // test yardımcıları
+import std::collections // List, Map, Set yardımcıları
+import std::strings   // string manipülasyonu
+import std::ui        // raylib tabanlı UI framework
 ```
 
 ## Proje Manifest'i
@@ -354,7 +374,7 @@ liva-lang/
     REPL/              # İnteraktif REPL
     Driver/            # CLI sürücüsü, proje konfigürasyonu (TOML)
   tests/
-    unit/              # GoogleTest birim testleri (1600+ test)
+    unit/              # GoogleTest birim testleri (2149 test)
     integration/       # Uçtan uca .liva programları
     error/             # Beklenen hata test senaryoları
   examples/            # Örnek Liva programları
@@ -364,26 +384,29 @@ liva-lang/
 
 ## Test Paketi
 
-16 test dosyasında 1600+ test:
+19 test dosyasında 2149 test:
 
 | Bileşen | Test Sayısı | Kapsam |
 |---------|-------------|--------|
-| Lexer | 41 | Token'lar, literal'ler, yorumlar, pozisyonlar, string interpolation |
-| Parser | 82 | Bildirimler, ifadeler, generics, closure'lar, protocol'ler, sınıflar |
-| Sema | 530+ | Tip kontrolü, ownership, generics, sınıflar, FFI, comptime, macro'lar |
-| Type | 12 | Tip uyumluluğu, dönüşümler, bit genişlikleri |
-| Ownership | 9 | Move, borrow, use-after-move, lifetime |
-| ProjectConfig | 74 | TOML ayrıştırma, SemVer, bağımlılıklar, lock dosyaları, registry |
-| LSP | 37 | JSON, yaşam döngüsü, senkronizasyon, completion, hover, definition, code actions |
-| REPL | 37 | Giriş sınıflandırma, komutlar, çok satırlı, ifade sarmalama |
-| CodeGen | 95+ | LLVM IR üretimi, debug bilgisi, çapraz derleme |
-| Integration | 280+ | Uçtan uca programlar, hata kurtarma, modül sistemi |
-| Macro | 40+ | Macro tanımlama, genişletme, hijyen |
-| Plugin | 20+ | Plugin API, isimlendirme kuralı, kullanılmayan fonksiyon tespiti |
-| Benchmark | 15+ | Bench builtin'leri, bench runner, rapor biçimlendirme |
-| SelfHost | 10+ | Self-hosting derleme testleri (sadece Clang) |
-| JIT | 10+ | JIT derleme, REPL JIT çalıştırma (sadece Clang) |
-| DAP | 8+ | Debug bilgisi, DWARF tipleri, değişken debug kayıtları |
+| Sema | 645 | Tip kontrolü, ownership, generics, sınıflar, FFI, comptime, macro'lar, UI |
+| ProjectConfig | 241 | TOML ayrıştırma, SemVer, bağımlılıklar, lock dosyaları, uzak registry |
+| Integration | 196 | Uçtan uca programlar, hata kurtarma, modül sistemi |
+| LSP | 153 | JSON, yaşam döngüsü, senkronizasyon, completion, hover, definition, code actions |
+| Parser | 149 | Bildirimler, ifadeler, generics, closure'lar, protocol'ler, sınıflar |
+| UI Module | 111 | Widget tipleri, layout, tema, animasyon, odak, tooltip |
+| Ownership | 98 | Move, borrow, use-after-move, lifetime, class, closure |
+| REPL | 57 | Giriş sınıflandırma, komutlar, çok satırlı, ifade sarmalama |
+| Lexer | 56 | Token'lar, literal'ler, yorumlar, pozisyonlar, string interpolation |
+| Type | 53 | Tip uyumluluğu, dönüşümler, bit genişlikleri |
+| SelfHost | 48 | Self-hosting derleme, async runtime (sadece Clang) |
+| DAP | 45 | Koşullu breakpoint'ler, ifade değerlendirici, DWARF debug |
+| Macro | 34 | Macro tanımlama, genişletme, hijyen, comptime |
+| CodeGen | 21 | LLVM IR üretimi, çapraz derleme hedefleri |
+| Plugin | 18 | Plugin API, isimlendirme kuralı, kullanılmayan fonksiyon tespiti |
+| StdlibModule | 16 | JSON, time, path, testing, crypto sarmalayıcıları |
+| Benchmark | 14 | Bench builtin'leri, bench runner, rapor biçimlendirme |
+| DiagColor | 12 | Zengin tanılama biçimlendirme, alt çizgi span'ları, renkli çıktı |
+| IncrementalBenchmark | 11 | 100+ dosya artımlı derleme benchmarkları |
 
 Tüm test paketini çalıştırın:
 
@@ -394,6 +417,21 @@ ctest --test-dir build --output-on-failure
 # Clang build (önerilen, codegen + JIT testlerini içerir)
 ctest --test-dir build-clang --output-on-failure
 ```
+
+## IDE Desteği
+
+Liva 5 editör için destek sunar:
+
+| Editör | Özellikler | Konum |
+|--------|-----------|-------|
+| **VS Code** | Syntax highlighting, LSP istemcisi, DAP istemcisi | `editors/vscode/` |
+| **Neovim** | Syntax, ftdetect, indent, ftplugin + LSP/DAP rehberi | `editors/neovim/` |
+| **Emacs** | liva-mode.el major mode + eglot/lsp-mode/dap-mode rehberi | `editors/emacs/` |
+| **JetBrains** | TextMate grammar + LSP4IJ plugin rehberi | `editors/jetbrains/` |
+| **Notepad++** | UDL XML syntax highlighting | `editors/notepadpp/` |
+
+LSP sunucusu: `livac lsp` (stdio JSON-RPC 2.0)
+DAP sunucusu: `livac dap` (stdio Debug Adapter Protocol)
 
 ## Katkıda Bulunma
 

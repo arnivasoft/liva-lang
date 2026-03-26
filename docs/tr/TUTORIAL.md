@@ -1710,12 +1710,18 @@ Liva yerleşik standart kütüphane modülleri sağlar:
 
 ```liva
 import std::math      // abs, sqrt, pow, sin, cos, tan, floor, ceil, round, log, log10, min, max
-import std::io        // readLine, File.open, File.readAll, File.writeLine, File.close
+import std::io        // readLine, readFile, writeFile, appendFile, fileExists
 import std::convert   // parseInt, parseInt64, parseFloat, toString
 import std::os        // env, args, exit, exec
 import std::random    // randInt, randFloat
 import std::regex     // Regex.new, match, replace, split
 import std::net       // httpGet, httpPost
+import std::json      // jsonParse, jsonStringify
+import std::time      // now, clock, clockMs, sleep
+import std::crypto    // sha256, md5, hmacSha256
+import std::async     // taskSelect, withTimeout, async I/O
+import std::path      // pathJoin, pathBasename, pathDirname
+import std::ui        // raylib tabanlı UI framework
 ```
 
 Şemsiye modülü de import edebilirsiniz:
@@ -1799,6 +1805,20 @@ async func fetchMultiple() {
 - Asenkron bir işlemin tamamlanmasını beklemek için `await` kullanın
 - Async fonksiyonlar runtime tarafından çalıştırılan bir coroutine döndürür
 - `await` yalnızca `async` fonksiyonlar içinde kullanılabilir
+
+### For await (asenkron iterasyon)
+
+Asenkron akışlar üzerinde iterasyon için `for await` kullanın:
+
+```liva
+async func processItems() {
+    for await item in asyncStream {
+        println(item)
+    }
+}
+```
+
+Not: `for await` sadece `async` fonksiyonların içinde kullanılabilir.
 
 ### Ağ örneği
 
@@ -2419,4 +2439,68 @@ func main() {
 
 ---
 
-*Bu eğitim Liva'nın 0.2.0 sürümünü ve 1600+ testi kapsar. Dil aktif olarak geliştirilmektedir — düzenli olarak yeni özellikler ve iyileştirmeler eklenmektedir.*
+## Yeni Dil Ozellikleri (v1.0)
+
+### Const Generics
+
+Derleme zamani sabit parametreler:
+
+```liva
+func repeat<const N: i32>(value: i32) -> i32 {
+    return N * value
+}
+
+let r = repeat<5>(3)  // N=5, sonuc=15
+```
+
+### Explicit Lifetime Sozdizimi
+
+Referanslarda yasam suresi anotasyonlari:
+
+```liva
+func first<'a>(x: ref 'a i32) -> ref 'a i32 {
+    return x
+}
+
+// Elision: derleyici otomatik cikarir
+func identity(x: ref i32) -> ref i32 { return x }
+```
+
+### Generator Fonksiyonlar
+
+`yield` ile tembel deger uretimi:
+
+```liva
+func fibonacci() {
+    var a = 0
+    var b = 1
+    while true {
+        yield a
+        let tmp = a
+        a = b
+        b = tmp + b
+    }
+}
+```
+
+### Enum Discriminant Degerleri
+
+```liva
+enum HttpStatus {
+    case OK = 200
+    case NotFound = 404
+}
+```
+
+### Generic Associated Types (GATs)
+
+```liva
+protocol LendingIterator {
+    type Item<'a>
+    func next(mut self) -> i32
+}
+```
+
+---
+
+*Bu egitim, 2149 teste sahip Liva'nin 1.0.0 surumunu kapsar.*

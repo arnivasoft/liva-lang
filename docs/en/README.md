@@ -7,7 +7,11 @@ Liva compiles to native code via LLVM, offering memory safety without garbage co
 ## Features
 
 - **Ownership & Borrowing** — Move semantics, references (`ref`, `ref mut`), lifetime analysis
-- **Type System** — Generics, protocols (traits), optional types, result types, type aliases
+- **Type System** — Generics, protocols (traits), optional types, result types, type aliases, const generics (`func foo<T, const N: i32>()`)
+- **Explicit Lifetimes** — `'a` syntax (`ref 'a T`), lifetime elision (automatic inference)
+- **Generators/Yield** — Generator functions with `yield expr`
+- **GATs** — Generic associated types in protocols (`type Item<'a>`)
+- **Enum Discriminants** — Custom enum case values (`case OK = 200`)
 - **Pattern Matching** — Exhaustive `match` expressions with nested patterns, enum associated values
 - **Closures** — Capture by value/reference, trailing closure syntax, type inference
 - **Async/Await** — Coroutine-based asynchronous programming
@@ -24,7 +28,17 @@ Liva compiles to native code via LLVM, offering memory safety without garbage co
 - **JIT Compilation** — LLJIT-based just-in-time execution
 - **Cross-compilation** — `--target` flag for multi-platform builds
 - **Plugin System** — Compiler plugin API for custom analyses
+- **Property-based Testing** — Automated property checks with shrinking
 - **WASM** — WebAssembly target support (`--target wasm32`)
+- **Online Playground** — Browser-based playground with JS interpreter
+- **UI Framework** — raylib-based widget system (12 phases: widgets, layout, theming, animation, focus, tooltips)
+- **Rich Diagnostics** — Rust-style underline spans, help suggestions, did-you-mean
+- **Debug Adapter** — DAP server with conditional breakpoints, expression evaluator
+- **Separate Compilation** — `--emit-obj` and `livac link` for incremental workflows
+- **Security** — Slice bounds checking, parse overflow guards, FFI type safety warnings
+- **Async Runtime** — Thread pool scheduler, channels, task groups, `for await`, async I/O
+- **SemVer Constraints** — `^` and `~` version constraint operators in `liva.toml`
+- **CI Benchmarks** — Benchmark regression tracking in CI
 
 ## Quick Start
 
@@ -119,6 +133,13 @@ livac --dump-tokens file.liva    # Show token stream
 livac --dump-ast file.liva       # Show AST
 livac --check-only file.liva     # Type-check without codegen
 livac --emit-ir file.liva        # Output LLVM IR
+livac --emit-obj file.liva      # Output object file
+livac --dump-timings file.liva  # Show per-phase compilation timing
+livac --trace-macros file.liva  # Trace macro expansions
+livac link a.o b.o -o app       # Link object files
+livac format file.liva          # Format source code
+livac lint file.liva            # Run linter
+livac dap                       # Start Debug Adapter Protocol server
 ```
 
 ## Language Overview
@@ -292,9 +313,20 @@ import std::random    // randInt, randFloat
 import std::regex     // Regex, match, replace
 import std::net       // httpGet, httpPost
 import std::json      // jsonParse, jsonStringify
-import std::time      // now, sleep
+import std::time      // now, sleep, clock
 import std::channel   // Channel, send, recv
 import std::task      // TaskGroup, spawn, awaitAll
+import std::crypto    // sha256, md5, hmacSha256
+import std::async     // async runtime helpers
+import std::path      // path manipulation utilities
+import std::testing   // test utilities
+import std::collections // List, Map, Set helpers
+import std::strings   // string manipulation
+import std::ui        // raylib-based UI framework (widgets, layout, theming)
+import std::http      // HttpClient, HttpResponse, HttpHeaders
+import std::sync      // Mutex, AtomicI64, Channel, TaskGroup
+import std::fs        // FileInfo, Dir
+import std::net2      // Url, Request
 ```
 
 ## Project Manifest
@@ -354,7 +386,7 @@ liva-lang/
     REPL/              # Interactive REPL
     Driver/            # CLI driver, project config (TOML)
   tests/
-    unit/              # GoogleTest unit tests (1600+ tests)
+    unit/              # GoogleTest unit tests (2149 tests)
     integration/       # End-to-end .liva programs
     error/             # Expected-error test cases
   examples/            # Example Liva programs
@@ -364,26 +396,29 @@ liva-lang/
 
 ## Test Suite
 
-1600+ tests across 16 test files:
+2149 tests across 19 test files:
 
 | Component | Tests | Coverage |
 |-----------|-------|----------|
-| Lexer | 41 | Tokens, literals, comments, positions, string interpolation |
-| Parser | 82 | Declarations, expressions, generics, closures, protocols, classes |
-| Sema | 530+ | Type checking, ownership, generics, classes, FFI, comptime, macros |
-| Type | 12 | Type compatibility, conversions, bit widths |
-| Ownership | 9 | Move, borrow, use-after-move, lifetime |
-| ProjectConfig | 74 | TOML parsing, SemVer, dependencies, lock files, registry |
-| LSP | 37 | JSON, lifecycle, sync, completion, hover, definition, code actions |
-| REPL | 37 | Input classification, commands, multi-line, expression wrapping |
-| CodeGen | 95+ | LLVM IR generation, debug info, cross-compilation |
-| Integration | 280+ | End-to-end programs, error recovery, module system |
-| Macro | 40+ | Macro definition, expansion, hygiene |
-| Plugin | 20+ | Plugin API, naming convention, unused function detection |
-| Benchmark | 15+ | Bench builtins, bench runner, report formatting |
-| SelfHost | 10+ | Self-hosting compilation tests (Clang only) |
-| JIT | 10+ | JIT compilation, REPL JIT execution (Clang only) |
-| DAP | 8+ | Debug info, DWARF types, variable debug records |
+| Sema | 645 | Type checking, ownership, generics, classes, FFI, comptime, macros, UI |
+| ProjectConfig | 241 | TOML parsing, SemVer, dependencies, lock files, remote registry |
+| Integration | 196 | End-to-end programs, error recovery, module system |
+| LSP | 153 | JSON, lifecycle, sync, completion, hover, definition, code actions, code lens, call hierarchy |
+| Parser | 149 | Declarations, expressions, generics, closures, protocols, classes |
+| UI Module | 111 | Widget types, layout, theming, animation, focus, tooltip |
+| Ownership | 98 | Move, borrow, use-after-move, lifetime, class, closure |
+| REPL | 57 | Input classification, commands, multi-line, expression wrapping |
+| Lexer | 56 | Tokens, literals, comments, positions, string interpolation |
+| Type | 53 | Type compatibility, conversions, bit widths |
+| SelfHost | 48 | Self-hosting compilation, async runtime (Clang only) |
+| DAP | 45 | Conditional breakpoints, expression evaluator, DWARF debug |
+| Macro | 34 | Macro definition, expansion, hygiene, comptime |
+| CodeGen | 21 | LLVM IR generation, cross-compilation targets |
+| Plugin | 18 | Plugin API, naming convention, unused function detection |
+| StdlibModule | 16 | JSON, time, path, testing, crypto wrappers |
+| Benchmark | 14 | Bench builtins, bench runner, report formatting |
+| DiagColor | 12 | Rich diagnostic formatting, underline spans, colored output |
+| IncrementalBenchmark | 11 | 100+ file incremental build benchmarks |
 
 Run the full test suite:
 
@@ -394,6 +429,25 @@ ctest --test-dir build --output-on-failure
 # Clang build (recommended, includes codegen + JIT tests)
 ctest --test-dir build-clang --output-on-failure
 ```
+
+## IDE Support
+
+Liva has editor support for 5 editors:
+
+| Editor | Features | Location |
+|--------|----------|----------|
+| **VS Code** | Syntax highlighting, LSP client, DAP client | `editors/vscode/` |
+| **Neovim** | Syntax, ftdetect, indent, ftplugin + LSP/DAP guide | `editors/neovim/` |
+| **Emacs** | liva-mode.el major mode + eglot/lsp-mode/dap-mode guide | `editors/emacs/` |
+| **JetBrains** | TextMate grammar + LSP4IJ plugin guide | `editors/jetbrains/` |
+| **Notepad++** | UDL XML syntax highlighting | `editors/notepadpp/` |
+
+Additional tooling:
+- **Tree-sitter grammar** for Neovim (`editors/neovim/tree-sitter-liva/`)
+- **VS Code Test Explorer** integration for running Liva tests from the editor
+
+LSP server: `livac lsp` (stdio JSON-RPC 2.0)
+DAP server: `livac dap` (stdio Debug Adapter Protocol)
 
 ## Contributing
 

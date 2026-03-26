@@ -22,6 +22,11 @@ Tüm standart kütüphane modülleri için eksiksiz referans. "Yerleşik" olarak
 14. [Görev](#14-görev)
 15. [Benchmark](#15-benchmark)
 16. [Dönüştürme](#16-dönüştürme)
+17. [Crypto](#17-crypto)
+18. [Async](#18-async)
+19. [Path](#19-path)
+20. [Testing](#20-testing)
+21. [UI](#21-ui)
 
 ---
 
@@ -635,4 +640,209 @@ func main() {
 
 ---
 
-*Bu API referansı, 15 modüle sahip Liva standart kütüphanesinin 0.2.0 sürümünü kapsar. Kütüphane aktif geliştirme altındadır.*
+## 17. Crypto
+
+```liva
+import std::crypto
+```
+
+| Fonksiyon | İmza | Açıklama |
+|-----------|------|----------|
+| `sha256` | `(string) -> string` | Girdi stringinin SHA-256 hash'i |
+| `md5` | `(string) -> string` | Girdi stringinin MD5 hash'i |
+| `hmacSha256` | `(string, string) -> string` | Anahtar ve mesajla HMAC-SHA256 |
+
+### Örnek
+
+```liva
+import std::crypto
+
+func main() {
+    let hash = sha256("hello world")
+    println(hash)
+
+    let mac = hmacSha256("gizli-anahtar", "mesaj")
+    println(mac)
+}
+```
+
+---
+
+## 18. Async
+
+```liva
+import std::async
+```
+
+| Fonksiyon | İmza | Açıklama |
+|-----------|------|----------|
+| `taskSelect` | `([Task]) -> Task` | İlk tamamlanan görevi bekle |
+| `withTimeout` | `(Task, i64) -> Task` | Zaman aşımıyla görev çalıştır (ms) |
+| `schedulerInit` | `(i32) -> void` | N işçili iş parçacığı havuzunu başlat |
+| `schedulerShutdown` | `() -> void` | İş parçacığı havuzunu kapat |
+| `asyncFileRead` | `(string) -> string` | Asenkron dosya okuma |
+| `asyncFileWrite` | `(string, string) -> void` | Asenkron dosya yazma |
+
+---
+
+## 19. Path
+
+```liva
+import std::path
+```
+
+| Fonksiyon | İmza | Açıklama |
+|-----------|------|----------|
+| `pathJoin` | `(string, string) -> string` | İki yol bileşenini birleştir |
+| `pathExtension` | `(string) -> string` | Dosya uzantısını al |
+| `pathBasename` | `(string) -> string` | Yoldan dosya adını al |
+| `pathDirname` | `(string) -> string` | Yoldan dizin adını al |
+| `pathIsAbsolute` | `(string) -> bool` | Yolun mutlak olup olmadığını kontrol et |
+
+---
+
+## 20. Testing
+
+```liva
+import std::testing
+```
+
+| Fonksiyon | İmza | Açıklama |
+|-----------|------|----------|
+| `assertEqual` | `(any, any) -> void` | İki değerin eşit olduğunu doğrula |
+| `assertNotEqual` | `(any, any) -> void` | İki değerin farklı olduğunu doğrula |
+| `assertTrue` | `(bool) -> void` | Koşulun doğru olduğunu doğrula |
+| `assertFalse` | `(bool) -> void` | Koşulun yanlış olduğunu doğrula |
+
+---
+
+## 21. UI
+
+```liva
+import std::ui
+```
+
+UI modülü, 12 geliştirme fazına sahip raylib tabanlı bir widget sistemi sunar:
+
+- **Canvas**: Pencere yönetimi, çizim ilkelleri (dikdörtgen, daire, çizgi, metin)
+- **Widget'lar**: Button, Label, TextInput, Checkbox, Slider, ScrollView, ProgressBar, RadioGroup, TabView, Dropdown, Dialog, TextArea, Tooltip, Popover
+- **Layout**: VStack, HStack, Grid, Hizalı/Boşluklu/Dolgulu konteynerler
+- **Tema**: Karanlık/aydınlık ön ayarlı Theme yapısı, temalı widget fabrikaları
+- **Animasyon**: Easing fonksiyonları, Tween, ColorTransition, HoverAnimator
+- **Odak**: FocusManager (Tab/Ok tuşu navigasyonu), FocusRing, KeyAction kısayolları
+- **Olaylar**: Callback alanları (onClick, onToggle, onValueChange)
+
+### Örnek
+
+```liva
+import std::ui
+
+func main() {
+    initWindow(800, 600, "Uygulamam")
+    let theme = Theme.dark()
+
+    while !windowShouldClose() {
+        beginDrawing()
+        clearBackground(theme.background)
+
+        let btn = Button.themed(theme, 100.0, 50.0, 200.0, 40.0, "Tıkla")
+        btn.draw()
+
+        endDrawing()
+    }
+    closeWindow()
+}
+```
+
+---
+
+## 22. HTTP Client (http::http)
+
+```liva
+import http::http
+
+let client = HttpClient.new()
+let resp = client.get("/api/users")
+
+let client2 = HttpClient.withBaseUrl("https://api.example.com")
+let r = client2.post("/data", "{}")
+let r2 = client2.put("/data/1", "{}")
+let r3 = client2.delete("/data/1")
+```
+
+**HttpClient**: new(), withBaseUrl(url), get(url), post(url, body), put(url, body), patch(url, body), delete(url)
+
+## 23. Sync Primitives (sync::sync)
+
+```liva
+import sync::sync
+
+var m = Mutex.new()
+m.lock()
+m.unlock()
+m.free()
+
+var a = AtomicI64.new(0)
+a.store(42)
+let v = a.load()
+a.add(1)
+a.free()
+
+var ch = Channel.new(10)
+ch.send(42)
+let val = ch.receive()
+ch.free()
+```
+
+**Mutex**: new(), lock(), unlock(), tryLock(), free()
+**AtomicI64**: new(value), load(), store(value), add(delta), sub(delta), compareAndSwap(expected, desired), free()
+**Channel**: new(capacity), send(value), receive(), close(), len(), free()
+**TaskGroup**: new(), awaitAll(), cancelAll(), count(), free()
+
+## 24. Dosya Sistemi (fs::fs)
+
+```liva
+import fs::fs
+
+let info = FileInfo.new("/path/to/file")
+let name = info.name()
+let ext = info.extension()
+let exists = info.exists()
+
+let dir = Dir.new("/path")
+let files = dir.list()
+```
+
+**FileInfo**: new(path), name(), extension(), parent(), exists(), toString()
+**Dir**: new(path), exists(), list(), toString()
+
+## 25. Regex (regex::regex)
+
+```liva
+import regex::regex
+
+let re = Regex.new("[0-9]+")
+let matched = re.isMatch("hello 123")
+let found = re.find("abc 42 def")
+let all = re.findAll("1 ve 2 ve 3")
+let replaced = re.replace("abc123", "NUM")
+```
+
+**Regex**: new(pattern), isMatch(text), find(text), findAll(text), replace(text, replacement), groups(text), toString()
+
+## 26. Ag (net::net)
+
+```liva
+import net::net
+
+let url = Url.parse("https://example.com")
+let req = Request.get("https://api.example.com")
+let req2 = Request.post("https://api.example.com", "data")
+```
+
+**Url**: parse(s), toString()
+**Request**: get(url), post(url, body), put(url, body), delete(url)
+
+---
+
+*Bu API referansi, 26 module sahip Liva standart kutuphanesinin 1.0.0 surumunu kapsar.*

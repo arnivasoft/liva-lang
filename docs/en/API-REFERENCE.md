@@ -22,6 +22,16 @@ Complete reference for all standard library modules. Functions listed as "built-
 14. [Task](#14-task)
 15. [Bench](#15-bench)
 16. [Convert](#16-convert)
+17. [Crypto](#17-crypto)
+18. [Async](#18-async)
+19. [Path](#19-path)
+20. [Testing](#20-testing)
+21. [UI](#21-ui)
+22. [HTTP Client](#22-http-client-httphttp)
+23. [Sync Primitives](#23-sync-primitives-syncsync)
+24. [File System](#24-file-system-fsfs)
+25. [Regex (OOP)](#25-regex-regexregex)
+26. [Networking (OOP)](#26-networking-netnet)
 
 ---
 
@@ -635,4 +645,233 @@ func main() {
 
 ---
 
-*This API reference covers the Liva standard library as of version 0.2.0 with 15 modules. The library is under active development.*
+## 17. Crypto
+
+```liva
+import std::crypto
+```
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `sha256` | `(string) -> string` | SHA-256 hash of input string |
+| `md5` | `(string) -> string` | MD5 hash of input string |
+| `hmacSha256` | `(string, string) -> string` | HMAC-SHA256 with key and message |
+
+### Example
+
+```liva
+import std::crypto
+
+func main() {
+    let hash = sha256("hello world")
+    println(hash)  // b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+
+    let mac = hmacSha256("secret-key", "message")
+    println(mac)
+}
+```
+
+---
+
+## 18. Async
+
+```liva
+import std::async
+```
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `taskSelect` | `([Task]) -> Task` | Wait for first task to complete |
+| `withTimeout` | `(Task, i64) -> Task` | Run task with timeout (ms) |
+| `schedulerInit` | `(i32) -> void` | Initialize thread pool with N workers |
+| `schedulerShutdown` | `() -> void` | Shut down the thread pool |
+| `schedulerWorkerCount` | `() -> i32` | Get number of worker threads |
+| `asyncFileRead` | `(string) -> string` | Async file read |
+| `asyncFileWrite` | `(string, string) -> void` | Async file write |
+
+### For Await
+
+Iterate over async streams:
+
+```liva
+import std::async
+
+async func processItems() {
+    for await item in asyncStream {
+        println(item)
+    }
+}
+```
+
+---
+
+## 19. Path
+
+```liva
+import std::path
+```
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `pathJoin` | `(string, string) -> string` | Join two path segments |
+| `pathExtension` | `(string) -> string` | Get file extension |
+| `pathBasename` | `(string) -> string` | Get filename from path |
+| `pathDirname` | `(string) -> string` | Get directory from path |
+| `pathIsAbsolute` | `(string) -> bool` | Check if path is absolute |
+
+---
+
+## 20. Testing
+
+```liva
+import std::testing
+```
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `assertEqual` | `(any, any) -> void` | Assert two values are equal |
+| `assertNotEqual` | `(any, any) -> void` | Assert two values differ |
+| `assertTrue` | `(bool) -> void` | Assert condition is true |
+| `assertFalse` | `(bool) -> void` | Assert condition is false |
+
+---
+
+## 21. UI
+
+```liva
+import std::ui
+```
+
+The UI module provides a raylib-based widget system with 12 development phases:
+
+- **Canvas**: Window management, drawing primitives (rect, circle, line, text)
+- **Widgets**: Button, Label, TextInput, Checkbox, Slider, ScrollView, ProgressBar, RadioGroup, TabView, Dropdown, Dialog, TextArea, Tooltip, Popover
+- **Layout**: VStack, HStack, Grid, Aligned/Spaced/Padded containers
+- **Theming**: Theme struct with dark/light presets, themed widget factories
+- **Animation**: Easing functions, Tween, ColorTransition, HoverAnimator
+- **Focus**: FocusManager (Tab/Arrow navigation), FocusRing, KeyAction shortcuts
+- **Events**: Callback fields (onClick, onToggle, onValueChange)
+
+### Example
+
+```liva
+import std::ui
+
+func main() {
+    initWindow(800, 600, "My App")
+    let theme = Theme.dark()
+
+    while !windowShouldClose() {
+        beginDrawing()
+        clearBackground(theme.background)
+
+        let btn = Button.themed(theme, 100.0, 50.0, 200.0, 40.0, "Click Me")
+        btn.draw()
+
+        endDrawing()
+    }
+    closeWindow()
+}
+```
+
+---
+
+## 22. HTTP Client (http::http)
+
+```liva
+import http::http
+
+let client = HttpClient.new()
+let resp = client.get("/api/users")
+
+let client2 = HttpClient.withBaseUrl("https://api.example.com")
+let r = client2.post("/data", "{\"key\": 1}")
+let r2 = client2.put("/data/1", "{}")
+let r3 = client2.delete("/data/1")
+```
+
+### Structs
+
+| Struct | Methods | Description |
+|--------|---------|-------------|
+| `HttpClient` | `new`, `withBaseUrl`, `get`, `post`, `put`, `patch`, `delete` | HTTP client for making requests |
+| `HttpResponse` | `body`, `ok` | Response from an HTTP request |
+| `HttpHeaders` | `new`, `set`, `toString` | HTTP header collection |
+
+---
+
+## 23. Sync Primitives (sync::sync)
+
+```liva
+import sync::sync
+
+var m = Mutex.new()
+m.lock()
+m.unlock()
+m.free()
+
+var a = AtomicI64.new(0)
+a.store(42)
+let v = a.load()
+a.add(1)
+a.free()
+
+var ch = Channel.new(10)
+ch.send(42)
+let val = ch.receive()
+ch.free()
+
+var g = TaskGroup.new()
+g.awaitAll()
+g.free()
+```
+
+---
+
+## 24. File System (fs::fs)
+
+```liva
+import fs::fs
+
+let info = FileInfo.new("/path/to/file")
+let name = info.name()
+let ext = info.extension()
+let parent = info.parent()
+let exists = info.exists()
+
+let dir = Dir.new("/path")
+let files = dir.list()
+```
+
+---
+
+## 25. Regex (regex::regex)
+
+```liva
+import regex::regex
+
+let re = Regex.new("[0-9]+")
+let matched = re.isMatch("hello 123")
+let found = re.find("abc 42 def")
+let all = re.findAll("1 and 2 and 3")
+let replaced = re.replace("abc123", "NUM")
+let groups = re.groups("(hello) (world)")
+```
+
+---
+
+## 26. Networking (net::net)
+
+```liva
+import net::net
+
+let url = Url.parse("https://example.com")
+let s = url.toString()
+
+let req = Request.get("https://api.example.com")
+let req2 = Request.post("https://api.example.com", "data")
+```
+
+---
+
+*This API reference covers the Liva standard library as of version 0.3.0 with 26 modules. The library is under active development.*

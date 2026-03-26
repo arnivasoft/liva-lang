@@ -42,7 +42,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build-clang --output-on-failure
 ```
 
-Pull request göndermeden önce tüm 1600+ testin geçmesi gerekir.
+Pull request göndermeden önce tüm 2149 testin geçmesi gerekir.
 
 ## Proje Yapısı
 
@@ -56,6 +56,9 @@ Pull request göndermeden önce tüm 1600+ testin geçmesi gerekir.
 | `examples/` | Örnek Liva programları |
 | `stdlib/runtime/` | C++ runtime kütüphanesi |
 | `cmake/` | CMake modülleri ve toolchain dosyaları |
+| `stdlib/` | Standart kütüphane (.liva modülleri ve C++ runtime) |
+| `editors/` | Editör desteği (VS Code, Neovim, Emacs, JetBrains, Notepad++) |
+| `docs/` | İngilizce ve Türkçe dokümantasyon |
 
 ## Kod Stili
 
@@ -96,6 +99,10 @@ Testler GoogleTest kullanır. Her bileşenin kendi test dosyası vardır:
 | SelfHost | `tests/unit/SelfHostTest.cpp` |
 | JIT | `tests/unit/JITTest.cpp` |
 | DAP | `tests/unit/DAPTest.cpp` |
+| UI Module | `tests/unit/UIModuleTest.cpp` |
+| StdlibModule | `tests/unit/StdlibModuleTest.cpp` |
+| DiagColor | `tests/unit/DiagColorTest.cpp` |
+| IncrementalBenchmark | `tests/unit/IncrementalBenchmarkTest.cpp` |
 
 Yeni test eklemek için:
 
@@ -132,7 +139,7 @@ func main() {
 
 1. `main` dalından bir özellik dalı oluşturun
 2. Değişikliklerinizi net, odaklanmış commit'lerle yapın
-3. Tüm 1600+ testin geçtiğinden emin olun
+3. Tüm 2149 testin geçtiğinden emin olun
 4. Yeni işlevsellik için yeni testler ekleyin
 5. Bir milestone ekliyorsanız `plan.md` dosyasını güncelleyin
 6. Net bir açıklama ile pull request gönderin

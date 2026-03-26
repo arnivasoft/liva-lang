@@ -127,6 +127,27 @@ In VS Code: right-click gutter > "Add Logpoint..."
 
 Variables in `{braces}` are evaluated and interpolated.
 
+### Exception Breakpoints
+
+Break automatically when runtime errors occur:
+
+- **All Exceptions**: Break on any runtime error or panic
+- **Uncaught Exceptions**: Break only on unhandled errors (default: enabled)
+
+In VS Code: open the Breakpoints panel and check "All Exceptions" or "Uncaught Exceptions".
+
+DAP request:
+```json
+{
+    "command": "setExceptionBreakpoints",
+    "arguments": {
+        "filters": ["all"]
+    }
+}
+```
+
+Available filters: `"all"` (every error), `"uncaught"` (unhandled only).
+
 ## Watch Expressions
 
 Add watch expressions to monitor values during debugging:
