@@ -481,7 +481,10 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
         diag_.report(node->getStartLoc(), DiagID::err_cvarargs_not_extern, node->getName());
     }
 
-    // Register lifetime parameters in scope
+    // Apply lifetime elision rules (before registration)
+    elideFunctionLifetimes(node);
+
+    // Register lifetime parameters in scope (includes elided ones)
     for (const auto &lp : node->getLifetimeParams()) {
         Symbol sym;
         sym.name = lp;
@@ -3005,6 +3008,78 @@ void TypeChecker::visitYieldExpr(YieldExpr *node) {
     if (valueType) {
         node->setResolvedType(cloneTypeRepr(valueType));
     }
+}
+
+// ============================================================
+// Lifetime Elision Rules (Rust-style)
+// ============================================================
+
+void TypeChecker::elideFunctionLifetimes(FuncDecl *node) {
+    // Rule 0: If user provided explicit lifetime params, don't elide
+    if (node->hasLifetimeParams()) return;
+
+    // Collect input reference parameters
+    struct RefParam {
+        size_t index;
+        ReferenceTypeRepr *refType;
+        bool isSelf;
+    };
+    std::vector<RefParam> inputRefs;
+
+    for (size_t i = 0; i < node->getParams().size(); ++i) {
+        const auto &param = node->getParams()[i];
+        if (param.type && param.type->getKind() == TypeRepr::Kind::Reference) {
+            auto *refType = const_cast<ReferenceTypeRepr *>(
+                static_cast<const ReferenceTypeRepr *>(param.type.get()));
+            if (!refType->hasLifetime()) {
+                inputRefs.push_back({i, refType, param.isSelf});
+            }
+        }
+    }
+
+    // No reference params → nothing to elide
+    if (inputRefs.empty()) return;
+
+    // Rule 1: Each input ref param gets its own lifetime
+    std::vector<std::string> elidedLifetimes;
+    for (size_t i = 0; i < inputRefs.size(); ++i) {
+        std::string lt = "'_" + std::to_string(i);
+        elidedLifetimes.push_back(lt);
+        inputRefs[i].refType->setLifetime(lt);
+    }
+
+    // Check if return type is a reference without explicit lifetime
+    ReferenceTypeRepr *outputRef = nullptr;
+    if (node->getReturnType() &&
+        node->getReturnType()->getKind() == TypeRepr::Kind::Reference) {
+        auto *retRef = const_cast<ReferenceTypeRepr *>(
+            static_cast<const ReferenceTypeRepr *>(node->getReturnType()));
+        if (!retRef->hasLifetime()) {
+            outputRef = retRef;
+        }
+    }
+
+    if (outputRef) {
+        // Rule 3: If method with &self, output gets self's lifetime
+        bool appliedRule3 = false;
+        if (node->isMethod()) {
+            for (auto &rp : inputRefs) {
+                if (rp.isSelf) {
+                    outputRef->setLifetime(elidedLifetimes[&rp - inputRefs.data()]);
+                    appliedRule3 = true;
+                    break;
+                }
+            }
+        }
+
+        // Rule 2: If exactly one input ref, output gets same lifetime
+        if (!appliedRule3 && inputRefs.size() == 1) {
+            outputRef->setLifetime(elidedLifetimes[0]);
+        }
+    }
+
+    // Register the elided lifetimes on the FuncDecl
+    node->setLifetimeParams(std::move(elidedLifetimes));
 }
 
 void TypeChecker::visitClosureExpr(ClosureExpr *node) {

@@ -76,6 +76,9 @@ public:
     void visitMacroDecl(MacroDecl *node);
     void visitMacroInvokeExpr(MacroInvokeExpr *node);
 
+    /// Apply Rust-style lifetime elision rules to functions without explicit lifetimes
+    void elideFunctionLifetimes(FuncDecl *node);
+
     bool hasErrors() const { return diag_.hasErrors(); }
 
     /// Access the macro expander

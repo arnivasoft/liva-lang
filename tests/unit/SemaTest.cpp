@@ -8988,6 +8988,70 @@ TEST_F(SemaTest, Lifetime_MixedWithType) {
 }
 
 // ============================================================
+// Lifetime Elision Rules
+// ============================================================
+
+TEST_F(SemaTest, Lifetime_Elision_SingleRef) {
+    // Single input ref → output gets same lifetime (Rule 2)
+    auto result = check(R"--(
+        func identity(x: ref i32) -> ref i32 {
+            return x
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Single ref elision should work";
+}
+
+TEST_F(SemaTest, Lifetime_Elision_MultipleRef) {
+    // Multiple input refs, no output ref → Rule 1 only (each gets own lifetime)
+    auto result = check(R"--(
+        func pick(x: ref i32, y: ref i32) {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Multiple ref params without output should work";
+}
+
+TEST_F(SemaTest, Lifetime_Elision_ExplicitWins) {
+    // Explicit lifetimes should take precedence over elision
+    auto result = check(R"--(
+        func explicit_lt<'a>(x: ref 'a i32) {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Explicit lifetime should override elision";
+}
+
+TEST_F(SemaTest, Lifetime_Elision_NoRef) {
+    // No references → no elision needed
+    auto result = check(R"--(
+        func add(x: i32, y: i32) -> i32 {
+            return x + y
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "No refs → no elision, should work";
+}
+
+TEST_F(SemaTest, Lifetime_Elision_RefParamNoReturn) {
+    // Ref param but non-ref return → only Rule 1 applies
+    auto result = check(R"--(
+        func deref(x: ref i32) -> i32 {
+            return 0
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Ref input, non-ref output should work";
+}
+
+TEST_F(SemaTest, Lifetime_Elision_MutRef) {
+    // Mutable reference also gets elided
+    auto result = check(R"--(
+        func mutate(x: ref mut i32) {
+            println(0)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Mutable ref elision should work";
+}
+
+// ============================================================
 // Generators / Yield (B3)
 // ============================================================
 
