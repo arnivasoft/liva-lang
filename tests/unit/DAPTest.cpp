@@ -1355,3 +1355,13 @@ TEST_F(DAPTest, ExceptionFilterOptionCapability) {
     auto resp = parseResponse(server.handleMessage(initRequest()));
     EXPECT_TRUE(resp["body"]["supportsExceptionFilterOptions"].getBool());
 }
+
+TEST_F(DAPTest, SteppingGranularityCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    EXPECT_TRUE(resp["body"]["supportsSteppingGranularity"].getBool());
+}
+
+TEST_F(DAPTest, ValueFormattingCapability) {
+    auto resp = parseResponse(server.handleMessage(initRequest()));
+    EXPECT_TRUE(resp["body"]["supportsValueFormattingOptions"].getBool());
+}

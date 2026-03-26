@@ -774,6 +774,21 @@ TEST_F(LSPTest, HoverOnFunction) {
     }
 }
 
+TEST_F(LSPTest, HoverOnGenericFunction) {
+    initAndOpen("file:///test.liva",
+        "func first<'a, T, const N: i32>(x: ref 'a T) {}");
+    auto resp = parseResponse(
+        server.handleMessage(hoverRequest("file:///test.liva", 0, 5)));
+    if (!resp["result"].isNull()) {
+        std::string val = resp["result"]["contents"]["value"].getString();
+        // Should show lifetime, type, and const params in hover
+        EXPECT_TRUE(val.find("'a") != std::string::npos)
+            << "Hover should show lifetime param, got: " << val;
+        EXPECT_TRUE(val.find("const N") != std::string::npos)
+            << "Hover should show const param, got: " << val;
+    }
+}
+
 TEST_F(LSPTest, HoverOnVariable) {
     initAndOpen("file:///test.liva", "let x: i32 = 42");
     auto resp = parseResponse(

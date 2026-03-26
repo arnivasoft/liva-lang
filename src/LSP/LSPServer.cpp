@@ -1139,7 +1139,8 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "import", "pub", "self", "break", "continue", "nil", "where",
             "async", "await", "const", "try", "type", "true", "false", "in",
             "case", "dyn", "extern", "guard", "comptime", "macro", "class",
-            "init", "deinit", "override", "super", "private", "test"
+            "init", "deinit", "override", "super", "private", "test",
+            "yield"
         };
         for (const char *kw : keywords) {
             auto item = JSONValue::object();
@@ -1339,7 +1340,30 @@ JSONValue LSPServer::handleHover(const JSONValue &id,
         hoverNode = findNodeAtPosition(it->second.tu.get(), line, col);
         if (hoverNode) {
             if (auto *fd = dynamic_cast<const FuncDecl *>(hoverNode)) {
-                hoverText = "func " + fd->getName() + "(";
+                hoverText = "func " + fd->getName();
+                // Show generic params: <'a, T, const N: i32>
+                if (fd->isGeneric() || fd->hasLifetimeParams()) {
+                    hoverText += "<";
+                    bool gFirst = true;
+                    for (const auto &lp : fd->getLifetimeParams()) {
+                        if (!gFirst) hoverText += ", ";
+                        gFirst = false;
+                        hoverText += lp;
+                    }
+                    for (const auto &tp : fd->getTypeParams()) {
+                        if (!gFirst) hoverText += ", ";
+                        gFirst = false;
+                        hoverText += tp;
+                    }
+                    for (const auto &cp : fd->getConstParams()) {
+                        if (!gFirst) hoverText += ", ";
+                        gFirst = false;
+                        hoverText += "const " + cp.name;
+                        if (cp.type) hoverText += ": " + cp.type->toString();
+                    }
+                    hoverText += ">";
+                }
+                hoverText += "(";
                 bool first = true;
                 for (const auto &p : fd->getParams()) {
                     if (p.isSelf) continue;

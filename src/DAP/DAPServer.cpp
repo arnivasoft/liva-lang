@@ -246,6 +246,8 @@ JSONValue DAPServer::handleInitialize(int64_t seq, const JSONValue & /*args*/) {
     }
     body.set("exceptionBreakpointFilters", std::move(filters));
     body.set("supportsExceptionFilterOptions", JSONValue(true));
+    body.set("supportsSteppingGranularity", JSONValue(true));
+    body.set("supportsValueFormattingOptions", JSONValue(true));
 
     // Send initialized event
     sendEvent("initialized");
