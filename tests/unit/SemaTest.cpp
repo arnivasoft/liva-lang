@@ -8988,6 +8988,43 @@ TEST_F(SemaTest, Lifetime_MixedWithType) {
 }
 
 // ============================================================
+// GATs Sema — Conformance and Resolution
+// ============================================================
+
+TEST_F(SemaTest, GATs_ConformanceBasic) {
+    // Basic associated type conformance (non-generic)
+    auto result = check(R"--(
+        protocol Container {
+            type Element
+        }
+        struct IntList { var data: i32 }
+        impl IntList: Container {
+            type Element = i32
+        }
+    )--");
+    EXPECT_TRUE(result.passed) << "Basic associated type conformance should work";
+}
+
+TEST_F(SemaTest, GATs_ProtocolWithLifetimeParam) {
+    // Protocol with GAT lifetime param should parse and sema-check
+    auto result = check(R"--(
+        protocol LendingIterator {
+            type Item<'a>
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Protocol with GAT lifetime should pass sema";
+}
+
+TEST_F(SemaTest, GATs_ProtocolWithTypeParam) {
+    auto result = check(R"--(
+        protocol Functor {
+            type Output<T>
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Protocol with GAT type param should pass sema";
+}
+
+// ============================================================
 // Lifetime Elision Rules
 // ============================================================
 

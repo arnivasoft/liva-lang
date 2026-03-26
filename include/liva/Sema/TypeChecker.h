@@ -145,6 +145,9 @@ private:
     /// Generator function tracking
     bool currentIsGenerator_ = false;
 
+    /// GATs: param counts per associated type ("Proto::Item" → {lifetimeCount, typeCount})
+    std::unordered_map<std::string, std::pair<int, int>> protocolGATParamCounts_;
+
     /// Iterator element types: typeName → element TypeRepr*
     std::unordered_map<std::string, const TypeRepr *> iteratorElementTypes_;
 

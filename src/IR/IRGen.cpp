@@ -1419,6 +1419,23 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
     case TypeRepr::Kind::ConstValue:
         // Const generic values resolve to i64 at IR level
         return builder_->getInt64Ty();
+    case TypeRepr::Kind::AssociatedType: {
+        // Resolve T.Item → concrete type via type substitution + conformance
+        auto *assocType = static_cast<const AssociatedTypeRepr *>(type);
+        // First resolve the base type (e.g., T → i32)
+        auto substIt = currentTypeSubst_.find(assocType->getBaseName());
+        if (substIt != currentTypeSubst_.end()) {
+            // Look up the associated type resolution for the concrete type
+            std::string concreteBase = substIt->second->toString();
+            // Search implAssociatedTypeResolutions from type checker
+            // For now, try direct named type lookup as fallback
+            auto stIt = structTypes_.find(concreteBase);
+            if (stIt != structTypes_.end())
+                return stIt->second;
+        }
+        // Fallback: treat as opaque pointer
+        return builder_->getInt32Ty();
+    }
     default:
         return builder_->getInt32Ty();
     }

@@ -1194,6 +1194,17 @@ void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
     if (!node->getAssociatedTypes().empty()) {
         protocolAssociatedTypes_[node->getName()] = node->getAssociatedTypes();
     }
+
+    // Record GAT param counts for conformance checking
+    for (const auto &atDecl : node->getAssociatedTypeDecls()) {
+        if (!atDecl.lifetimeParams.empty() || !atDecl.typeParams.empty()) {
+            std::string key = node->getName() + "::" + atDecl.name;
+            protocolGATParamCounts_[key] = {
+                static_cast<int>(atDecl.lifetimeParams.size()),
+                static_cast<int>(atDecl.typeParams.size())
+            };
+        }
+    }
 }
 
 void TypeChecker::visitExprStmt(ExprStmt *node) { visit(node->getExpr()); }
