@@ -425,6 +425,30 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     currentIsAsync_ = node->isAsync();
     currentIsGenerator_ = node->isGenerator();
 
+    // Auto-detect generator: if body contains yield, mark as generator
+    if (!currentIsGenerator_ && node->hasBody()) {
+        std::function<bool(const ASTNode *)> hasYield = [&](const ASTNode *n) -> bool {
+            if (!n) return false;
+            if (n->getKind() == ASTNode::NodeKind::YieldExpr) return true;
+            if (auto *bs = dynamic_cast<const BlockStmt *>(n)) {
+                for (auto &s : bs->getStatements())
+                    if (hasYield(s.get())) return true;
+            }
+            if (auto *es = dynamic_cast<const ExprStmt *>(n)) return hasYield(es->getExpr());
+            if (auto *is = dynamic_cast<const IfStmt *>(n)) {
+                if (hasYield(is->getThenBody())) return true;
+                if (is->hasElse() && hasYield(is->getElseBody())) return true;
+            }
+            if (auto *ws = dynamic_cast<const WhileStmt *>(n)) return hasYield(ws->getBody());
+            if (auto *fs = dynamic_cast<const ForStmt *>(n)) return hasYield(fs->getBody());
+            return false;
+        };
+        if (hasYield(node->getBody())) {
+            node->setGenerator(true);
+            currentIsGenerator_ = true;
+        }
+    }
+
     // Save unused-variable tracking state (for nested functions/closures)
     auto prevUsedSymbols = std::move(usedSymbols_);
     auto prevFuncVars = std::move(currentFuncVars_);

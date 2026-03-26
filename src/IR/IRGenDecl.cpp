@@ -232,14 +232,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     // Async functions: return ptr (LivaTask*) instead of {i1, T}
     llvm::Type *asyncInnerRetType = nullptr;
     bool isAsyncMain = false;
-    if (node->isAsync()) {
+    if (node->isAsync() || node->isGenerator()) {
         asyncFuncNames_.insert(node->getName());
         asyncInnerRetType = returnType;
         if (returnType->isVoidTy()) {
             asyncInnerRetType = builder_->getInt1Ty(); // placeholder for Void tasks
         }
-        returnType = ptrTy;  // Phase 2: returns LivaTask*
-        if (node->getName() == "main") {
+        returnType = ptrTy;  // Phase 2: returns LivaTask* (or generator handle)
+        if (node->getName() == "main" && node->isAsync()) {
             isAsyncMain = true;
         }
     }
@@ -345,8 +345,8 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto *oldCoroCleanupBB = currentCoroCleanupBB_;
     auto *oldCoroSuspendBB = currentCoroSuspendBB_;
 
-    currentIsAsync_ = node->isAsync();
-    asyncDeclaredRetType_ = node->isAsync() ? asyncInnerRetType : nullptr;
+    currentIsAsync_ = node->isAsync() || node->isGenerator();
+    asyncDeclaredRetType_ = currentIsAsync_ ? asyncInnerRetType : nullptr;
     currentCoroTask_ = nullptr;
     currentCoroHandle_ = nullptr;
     currentCoroId_ = nullptr;
@@ -392,8 +392,8 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         currentFuncResultInfo_ = &currentFuncResultInfoStorage_;
     }
 
-    // === Phase 2 Coroutine Ramp Setup (for async functions) ===
-    if (node->isAsync()) {
+    // === Phase 2 Coroutine Ramp Setup (for async/generator functions) ===
+    if (node->isAsync() || node->isGenerator()) {
         auto *i8Ty = builder_->getInt8Ty();
         auto *i32Ty = builder_->getInt32Ty();
         auto *i64Ty = builder_->getInt64Ty();
@@ -582,7 +582,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     }
 
     // === Phase 2 Coroutine Final/Cleanup/Suspend blocks ===
-    if (node->isAsync() && currentCoroFinalBB_) {
+    if ((node->isAsync() || node->isGenerator()) && currentCoroFinalBB_) {
         auto *i8Ty = builder_->getInt8Ty();
         auto *tokenTy = llvm::Type::getTokenTy(*context_);
 

@@ -9092,46 +9092,52 @@ TEST_F(SemaTest, Lifetime_Elision_MutRef) {
 // Generators / Yield (B3)
 // ============================================================
 
-TEST_F(SemaTest, Generator_YieldInGenerator) {
+TEST_F(SemaTest, Generator_AutoDetectFromYield) {
+    // Functions containing yield should be auto-detected as generators
     auto result = check(R"--(
-        func gen() {
-            yield 42
-        }
-    )--");
-    // yield outside generator should fail
-    EXPECT_TRUE(result.diag.hasErrors()) << "yield outside generator should error";
-}
-
-TEST_F(SemaTest, Generator_YieldOutsideGeneratorError) {
-    auto result = check(R"--(
-        func notGen() {
+        func fibonacci() {
             yield 1
+            yield 1
+            yield 2
         }
     )--");
-    EXPECT_TRUE(result.diag.hasErrors());
-    bool foundYieldError = false;
-    for (const auto &d : result.diag.getDiagnostics()) {
-        if (d.message.find("yield") != std::string::npos &&
-            d.message.find("generator") != std::string::npos) {
-            foundYieldError = true;
-        }
-    }
-    EXPECT_TRUE(foundYieldError) << "Should report yield-outside-generator error";
+    // Should NOT error — yield auto-marks function as generator
+    EXPECT_FALSE(result.diag.hasErrors()) << "yield should auto-detect generator function";
 }
 
-TEST_F(SemaTest, Generator_YieldKeywordParsed) {
-    // yield is parsed as an expression — sema reports error for non-generator
+TEST_F(SemaTest, Generator_YieldInNestedBlock) {
+    // yield in if/while/for block should still detect generator
     auto result = check(R"--(
-        func gen() {
-            yield 42
+        func countUp() {
+            var i: i32 = 0
+            while i < 10 {
+                yield i
+                i = i + 1
+            }
         }
     )--");
-    // Should have sema error (yield outside generator) but no parse error
-    bool hasYieldError = false;
-    for (const auto &d : result.diag.getDiagnostics()) {
-        if (d.message.find("yield") != std::string::npos) hasYieldError = true;
-    }
-    EXPECT_TRUE(hasYieldError) << "yield keyword should be recognized";
+    EXPECT_FALSE(result.diag.hasErrors()) << "yield in nested block should auto-detect";
+}
+
+TEST_F(SemaTest, Generator_MultipleYields) {
+    auto result = check(R"--(
+        func range() {
+            yield 1
+            yield 2
+            yield 3
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Multiple yields should work";
+}
+
+TEST_F(SemaTest, Generator_NoYieldNoGenerator) {
+    // Regular function without yield should NOT be a generator
+    auto result = check(R"--(
+        func regular() -> i32 {
+            return 42
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "Regular function should not be generator";
 }
 
 // ============================================================
