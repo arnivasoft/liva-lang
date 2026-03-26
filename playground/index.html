@@ -367,68 +367,284 @@ async func main() {
         clearOutput();
         setStatus('Compiling...', 'running');
 
-        // Simulate compilation (in production, this would call WASM compiler)
         setTimeout(() => {
-            appendOutput('--- Liva Compiler v1.0 ---', 'output-info');
-            appendOutput('Compiling ' + code.split('\n').length + ' lines...', 'output-info');
-
-            // Basic syntax check simulation
             const errors = checkSyntax(code);
             if (errors.length > 0) {
-                for (const err of errors) {
-                    appendOutput('error: ' + err, 'output-error');
-                }
+                for (const err of errors) appendOutput('error: ' + err, 'output-error');
                 setStatus('Compilation failed', 'error');
                 return;
             }
 
-            appendOutput('Compilation successful.', 'output-success');
-            appendOutput('', '');
-            appendOutput('--- Program Output ---', 'output-info');
+            try {
+                appendOutput('--- Liva Interpreter v1.0 ---', 'output-info');
+                appendOutput('', '');
+                executeCode(code);
+                appendOutput('', '');
+                appendOutput('--- Execution complete ---', 'output-info');
+                setStatus('Done', 'done');
+            } catch (e) {
+                appendOutput('error: ' + e.message, 'output-error');
+                setStatus('Runtime error', 'error');
+            }
+        }, 50);
+    }
 
-            // Simulate execution
-            simulateExecution(code);
-            setStatus('Done', 'done');
-        }, 200);
+    // ================================================================
+    // Liva JS Interpreter — Real lexer + parser + evaluator
+    // ================================================================
+
+    class LivaInterpreter {
+        constructor(outputFn) { this.output = outputFn; this.globals = {}; this.funcs = {}; }
+
+        run(code) {
+            this.globals = {}; this.funcs = {};
+            // Built-in functions
+            this.funcs['println'] = (args) => { this.output(args.map(a => this.stringify(a)).join(' ')); return null; };
+            this.funcs['print'] = (args) => { this.output(args.map(a => this.stringify(a)).join(' ')); return null; };
+            this.funcs['toString'] = (args) => String(args[0]);
+            this.funcs['abs'] = (args) => Math.abs(args[0]);
+            this.funcs['min'] = (args) => Math.min(args[0], args[1]);
+            this.funcs['max'] = (args) => Math.max(args[0], args[1]);
+            this.funcs['sqrt'] = (args) => Math.sqrt(args[0]);
+            this.funcs['pow'] = (args) => Math.pow(args[0], args[1]);
+            this.funcs['floor'] = (args) => Math.floor(args[0]);
+            this.funcs['ceil'] = (args) => Math.ceil(args[0]);
+            this.funcs['round'] = (args) => Math.round(args[0]);
+            this.funcs['len'] = (args) => Array.isArray(args[0]) ? args[0].length : String(args[0]).length;
+
+            const tokens = this.lex(code);
+            const ast = this.parse(tokens);
+            // Register user functions
+            for (const node of ast) {
+                if (node.type === 'func') this.funcs[node.name] = node;
+            }
+            // Call main
+            if (!this.funcs['main']) throw new Error("missing 'func main()' entry point");
+            const mainFn = this.funcs['main'];
+            if (typeof mainFn === 'function') mainFn([]);
+            else this.execBlock(mainFn.body, {});
+        }
+
+        stringify(v) {
+            if (v === null || v === undefined) return 'nil';
+            if (v === true) return 'true';
+            if (v === false) return 'false';
+            if (Array.isArray(v)) return '[' + v.map(e => this.stringify(e)).join(', ') + ']';
+            return String(v);
+        }
+
+        // === Lexer ===
+        lex(code) {
+            const tokens = []; let i = 0;
+            const kw = new Set(['func','let','var','if','else','while','for','in','return','true','false','nil','match','case','struct','enum','impl','protocol','import','pub','async','await','yield','const','break','continue']);
+            while (i < code.length) {
+                if (code[i] === '/' && code[i+1] === '/') { while (i < code.length && code[i] !== '\n') i++; continue; }
+                if (/\s/.test(code[i])) { i++; continue; }
+                if (code[i] === '"') { let s = ''; i++;
+                    while (i < code.length && code[i] !== '"') {
+                        if (code[i] === '\\' && code[i+1] === '(') { s += '${'; i += 2;
+                            let d = 1; while (i < code.length && d > 0) { if (code[i]==='(') d++; if (code[i]===')') d--; if (d>0) s += code[i]; i++; }
+                            s += '}'; continue; }
+                        if (code[i] === '\\') { i++; const esc = {n:'\n',t:'\t',r:'\r','\\':'\\','"':'"'}; s += esc[code[i]] || code[i]; }
+                        else s += code[i]; i++;
+                    } i++; tokens.push({type:'string', value:s}); continue; }
+                if (/[0-9]/.test(code[i])) { let n = ''; while (i < code.length && /[0-9.]/.test(code[i])) n += code[i++];
+                    tokens.push({type:'number', value: n.includes('.') ? parseFloat(n) : parseInt(n)}); continue; }
+                if (/[a-zA-Z_]/.test(code[i])) { let id = ''; while (i < code.length && /[a-zA-Z0-9_]/.test(code[i])) id += code[i++];
+                    tokens.push({type: kw.has(id) ? id : (id==='true'||id==='false' ? 'bool' : 'id'), value: id==='true'?true:id==='false'?false:id}); continue; }
+                const two = code.substring(i, i+2);
+                if (['==','!=','<=','>=','&&','||','->','=>','..'].includes(two)) { tokens.push({type:two}); i+=2; continue; }
+                tokens.push({type:code[i]}); i++;
+            }
+            tokens.push({type:'eof'}); return tokens;
+        }
+
+        // === Parser ===
+        parse(tokens) { this.tokens = tokens; this.pos = 0; const ast = [];
+            while (this.peek().type !== 'eof') {
+                if (this.peek().type === 'func' || this.peek().type === 'async') ast.push(this.parseFunc());
+                else if (['import','struct','enum','impl','protocol','pub'].includes(this.peek().type)) this.skipDecl();
+                else this.pos++;
+            } return ast; }
+        peek() { return this.tokens[this.pos] || {type:'eof'}; }
+        advance() { return this.tokens[this.pos++]; }
+        expect(t) { const tok = this.advance(); if (tok.type !== t) throw new Error(`expected '${t}', got '${tok.type}'`); return tok; }
+        match(t) { if (this.peek().type === t) { this.advance(); return true; } return false; }
+
+        skipDecl() { let d = 0; do { const t = this.advance();
+            if (t.type === '{') d++; else if (t.type === '}') d--; } while (d > 0 && this.peek().type !== 'eof'); }
+
+        parseFunc() { const isAsync = this.match('async'); this.expect('func');
+            const name = this.advance().value; this.expect('(');
+            const params = []; if (this.peek().type !== ')') { do {
+                const p = this.advance().value; if (this.match(':')) this.skipType();
+                params.push(p); } while (this.match(',')); } this.expect(')');
+            if (this.match('->')) this.skipType();
+            const body = this.parseBlock();
+            return {type:'func', name, params, body, isAsync}; }
+
+        skipType() { while (![')',',','{','}','eof'].includes(this.peek().type)) this.advance(); }
+
+        parseBlock() { this.expect('{'); const stmts = [];
+            while (this.peek().type !== '}' && this.peek().type !== 'eof') stmts.push(this.parseStmt());
+            this.expect('}'); return stmts; }
+
+        parseStmt() {
+            if (this.peek().type === 'let' || this.peek().type === 'var') return this.parseVarDecl();
+            if (this.peek().type === 'return') { this.advance(); const v = this.peek().type === '}' ? null : this.parseExpr(); return {type:'return', value:v}; }
+            if (this.peek().type === 'if') return this.parseIf();
+            if (this.peek().type === 'while') return this.parseWhile();
+            if (this.peek().type === 'for') return this.parseFor();
+            if (this.peek().type === 'break') { this.advance(); return {type:'break'}; }
+            if (this.peek().type === 'continue') { this.advance(); return {type:'continue'}; }
+            if (this.peek().type === '{') return {type:'block', body: this.parseBlock()};
+            const expr = this.parseExpr();
+            if (this.match('=')) { const val = this.parseExpr(); return {type:'assign', target:expr, value:val}; }
+            return {type:'expr', expr}; }
+
+        parseVarDecl() { const mut = this.advance().type === 'var';
+            const name = this.advance().value; let tAnnot = null;
+            if (this.match(':')) { tAnnot = []; while (!['=','}','\n','eof'].includes(this.peek().type) && this.peek().type !== 'id') { tAnnot.push(this.advance()); if (this.peek().type === 'id') break; } }
+            let init = null; if (this.match('=')) init = this.parseExpr();
+            return {type:'var', name, mut, init}; }
+
+        parseIf() { this.expect('if'); const cond = this.parseExpr(); const then = this.parseBlock();
+            let els = null; if (this.match('else')) { els = this.peek().type === 'if' ? [this.parseIf()] : this.parseBlock(); }
+            return {type:'if', cond, then, else:els}; }
+        parseWhile() { this.expect('while'); const cond = this.parseExpr(); const body = this.parseBlock(); return {type:'while', cond, body}; }
+        parseFor() { this.expect('for'); const varName = this.advance().value; this.expect('in');
+            const iter = this.parseExpr(); const body = this.parseBlock(); return {type:'for', var:varName, iter, body}; }
+
+        parseExpr() { return this.parseOr(); }
+        parseOr() { let l = this.parseAnd(); while (this.match('||')) { const r = this.parseAnd(); l = {type:'bin',op:'||',l,r}; } return l; }
+        parseAnd() { let l = this.parseEq(); while (this.match('&&')) { const r = this.parseEq(); l = {type:'bin',op:'&&',l,r}; } return l; }
+        parseEq() { let l = this.parseCmp(); while (this.peek().type === '==' || this.peek().type === '!=') { const op = this.advance().type; l = {type:'bin',op,l,r:this.parseCmp()}; } return l; }
+        parseCmp() { let l = this.parseAdd(); while (['<','<=','>','>='].includes(this.peek().type)) { const op = this.advance().type; l = {type:'bin',op,l,r:this.parseAdd()}; } return l; }
+        parseAdd() { let l = this.parseMul(); while (['+','-'].includes(this.peek().type)) { const op = this.advance().type; l = {type:'bin',op,l,r:this.parseMul()}; } return l; }
+        parseMul() { let l = this.parseUnary(); while (['*','/','%'].includes(this.peek().type)) { const op = this.advance().type; l = {type:'bin',op,l,r:this.parseUnary()}; } return l; }
+        parseUnary() { if (this.match('-')) return {type:'unary',op:'-',expr:this.parseUnary()};
+            if (this.match('!')) return {type:'unary',op:'!',expr:this.parseUnary()};
+            return this.parsePostfix(); }
+        parsePostfix() { let e = this.parsePrimary();
+            while (true) { if (this.match('(')) { const args = []; if (this.peek().type !== ')') { do { args.push(this.parseExpr()); } while (this.match(',')); }
+                this.expect(')'); e = {type:'call', callee:e, args}; }
+            else if (this.match('.')) { const m = this.advance().value; e = {type:'member', obj:e, member:m}; }
+            else if (this.match('[')) { const idx = this.parseExpr(); this.expect(']'); e = {type:'index', obj:e, index:idx}; }
+            else break; } return e; }
+        parsePrimary() {
+            if (this.peek().type === 'number') return {type:'lit', value: this.advance().value};
+            if (this.peek().type === 'string') { const s = this.advance().value; return {type:'str', value:s}; }
+            if (this.peek().type === 'bool') return {type:'lit', value: this.advance().value};
+            if (this.peek().type === 'nil') { this.advance(); return {type:'lit', value:null}; }
+            if (this.peek().type === 'id') { return {type:'id', name: this.advance().value}; }
+            if (this.match('(')) { const e = this.parseExpr(); this.expect(')'); return e; }
+            if (this.match('[')) { const elems = []; if (this.peek().type !== ']') { do { elems.push(this.parseExpr()); } while (this.match(',')); }
+                this.expect(']'); return {type:'array', elems}; }
+            if (this.peek().type === '..') { this.advance(); return {type:'range', start:{type:'lit',value:0}, end:this.parseExpr()}; }
+            throw new Error(`unexpected token: ${this.peek().type} (${this.peek().value || ''})`); }
+
+        // === Evaluator ===
+        execBlock(stmts, env) {
+            for (const stmt of stmts) {
+                const r = this.execStmt(stmt, env);
+                if (r && (r.type === 'return' || r.type === 'break' || r.type === 'continue')) return r;
+            } return null; }
+
+        execStmt(stmt, env) {
+            switch (stmt.type) {
+            case 'var': env[stmt.name] = stmt.init ? this.evalExpr(stmt.init, env) : null; return null;
+            case 'expr': this.evalExpr(stmt.expr, env); return null;
+            case 'return': return {type:'return', value: stmt.value ? this.evalExpr(stmt.value, env) : null};
+            case 'assign': { const val = this.evalExpr(stmt.value, env);
+                if (stmt.target.type === 'id') env[stmt.target.name] = val;
+                else if (stmt.target.type === 'index') { const arr = this.evalExpr(stmt.target.obj, env); arr[this.evalExpr(stmt.target.index, env)] = val; }
+                return null; }
+            case 'if': { const c = this.evalExpr(stmt.cond, env);
+                if (c) return this.execBlock(stmt.then, env);
+                if (stmt.else) return this.execBlock(stmt.else, env); return null; }
+            case 'while': { while (true) { if (!this.evalExpr(stmt.cond, env)) break;
+                const r = this.execBlock(stmt.body, env);
+                if (r?.type === 'break') break; if (r?.type === 'return') return r; } return null; }
+            case 'for': { const iter = this.evalExpr(stmt.iter, env);
+                if (Array.isArray(iter)) { for (const item of iter) { env[stmt.var] = item;
+                    const r = this.execBlock(stmt.body, env);
+                    if (r?.type === 'break') break; if (r?.type === 'return') return r; } }
+                else if (iter && iter._range) { for (let i = iter.start; i < iter.end; i++) { env[stmt.var] = i;
+                    const r = this.execBlock(stmt.body, env);
+                    if (r?.type === 'break') break; if (r?.type === 'return') return r; } }
+                return null; }
+            case 'block': return this.execBlock(stmt.body, env);
+            case 'break': return {type:'break'};
+            case 'continue': return {type:'continue'};
+            default: return null; } }
+
+        evalExpr(expr, env) {
+            if (!expr) return null;
+            switch (expr.type) {
+            case 'lit': return expr.value;
+            case 'str': { let s = expr.value; s = s.replace(/\$\{([^}]+)\}/g, (_, e) => {
+                try { const tokens = this.lex(e); const mini = this.parse_expr_tokens(tokens);
+                    return this.stringify(this.evalExpr(mini, env)); } catch { return e; } }); return s; }
+            case 'id': if (expr.name in env) return env[expr.name];
+                if (expr.name in this.globals) return this.globals[expr.name]; return undefined;
+            case 'array': return expr.elems.map(e => this.evalExpr(e, env));
+            case 'range': return {_range:true, start: this.evalExpr(expr.start, env), end: this.evalExpr(expr.end, env)};
+            case 'bin': { const l = this.evalExpr(expr.l, env), r = this.evalExpr(expr.r, env);
+                switch (expr.op) { case '+': return (typeof l === 'string' || typeof r === 'string') ? String(l)+String(r) : l+r;
+                    case '-': return l-r; case '*': return l*r; case '/': return r!==0?l/r:0; case '%': return l%r;
+                    case '==': return l===r; case '!=': return l!==r; case '<': return l<r; case '<=': return l<=r;
+                    case '>': return l>r; case '>=': return l>=r; case '&&': return l&&r; case '||': return l||r;
+                    case '..': return {_range:true, start:l, end:r}; } return null; }
+            case 'unary': { const v = this.evalExpr(expr.expr, env);
+                if (expr.op === '-') return -v; if (expr.op === '!') return !v; return v; }
+            case 'call': { const callee = expr.callee.type === 'id' ? expr.callee.name :
+                (expr.callee.type === 'member' ? expr.callee.member : null);
+                const args = expr.args.map(a => this.evalExpr(a, env));
+                if (typeof this.funcs[callee] === 'function') return this.funcs[callee](args);
+                if (this.funcs[callee]) { const fn = this.funcs[callee]; const local = {};
+                    for (let i = 0; i < fn.params.length; i++) local[fn.params[i]] = args[i];
+                    const r = this.execBlock(fn.body, local);
+                    return r?.type === 'return' ? r.value : null; }
+                // Array methods
+                if (expr.callee.type === 'member') { const obj = this.evalExpr(expr.callee.obj, env);
+                    if (Array.isArray(obj)) {
+                        if (expr.callee.member === 'length') return obj.length;
+                        if (expr.callee.member === 'push') { obj.push(args[0]); return null; }
+                        if (expr.callee.member === 'pop') return obj.pop();
+                    }
+                    if (typeof obj === 'string') { if (expr.callee.member === 'length') return obj.length; }
+                }
+                throw new Error(`undefined function: ${callee}`); }
+            case 'member': { const obj = this.evalExpr(expr.obj, env);
+                if (Array.isArray(obj) && expr.member === 'length') return obj.length;
+                if (typeof obj === 'string' && expr.member === 'length') return obj.length;
+                return obj?.[expr.member]; }
+            case 'index': { const obj = this.evalExpr(expr.obj, env); const idx = this.evalExpr(expr.index, env);
+                return Array.isArray(obj) ? obj[idx] : String(obj)[idx]; }
+            default: return null; } }
+
+        parse_expr_tokens(tokens) { const saved = [this.tokens, this.pos];
+            this.tokens = tokens; this.pos = 0;
+            const e = this.parseExpr(); [this.tokens, this.pos] = saved; return e; }
     }
 
     function checkSyntax(code) {
         const errors = [];
-        let braces = 0;
-        let parens = 0;
-        let brackets = 0;
+        let braces = 0, parens = 0, brackets = 0;
         for (const ch of code) {
-            if (ch === '{') braces++;
-            else if (ch === '}') braces--;
-            else if (ch === '(') parens++;
-            else if (ch === ')') parens--;
-            else if (ch === '[') brackets++;
-            else if (ch === ']') brackets--;
+            if (ch === '{') braces++; else if (ch === '}') braces--;
+            else if (ch === '(') parens++; else if (ch === ')') parens--;
+            else if (ch === '[') brackets++; else if (ch === ']') brackets--;
         }
         if (braces !== 0) errors.push('unbalanced braces');
         if (parens !== 0) errors.push('unbalanced parentheses');
         if (brackets !== 0) errors.push('unbalanced brackets');
-        if (!code.includes('func main')) errors.push("missing 'func main()' entry point");
         return errors;
     }
 
-    function simulateExecution(code) {
-        // Extract println calls and simulate output
-        const lines = code.split('\n');
-        for (const line of lines) {
-            const trimmed = line.trim();
-            const m = trimmed.match(/println\("([^"\\]*(?:\\.[^"\\]*)*)"\)/);
-            if (m) {
-                let text = m[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t');
-                // Handle basic string interpolation display
-                text = text.replace(/\\\\?\([^)]*\)/g, (match) => {
-                    return match.startsWith('\\\\') ? match : '<expr>';
-                });
-                appendOutput(text, '');
-            }
-        }
-        appendOutput('', '');
-        appendOutput('--- Execution complete ---', 'output-info');
+    function executeCode(code) {
+        const interp = new LivaInterpreter((text) => appendOutput(text, ''));
+        interp.run(code);
     }
 
     function shareCode() {
