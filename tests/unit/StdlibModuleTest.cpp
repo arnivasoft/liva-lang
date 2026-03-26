@@ -503,6 +503,20 @@ TEST_F(StdlibModuleTest, NetRequestStruct) {
     EXPECT_TRUE(r.passed) << "Request struct should type-check";
 }
 
+TEST_F(StdlibModuleTest, NetRequestAllMethods) {
+    auto r = check(
+        "import net::net\n"
+        "func main() {\n"
+        "    let r1 = Request.get(\"https://api.example.com\")\n"
+        "    let r2 = Request.post(\"https://api.example.com\", \"data\")\n"
+        "    let r3 = Request.put(\"https://api.example.com/1\", \"{}\")\n"
+        "    let r4 = Request.patch(\"https://api.example.com/1\", \"{}\")\n"
+        "    let r5 = Request.delete(\"https://api.example.com/1\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Request put/patch/delete should type-check";
+}
+
 // ============================================================
 // Umbrella import includes crypto
 // ============================================================

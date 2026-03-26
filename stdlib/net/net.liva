@@ -31,4 +31,16 @@ impl Request {
     pub func post(url: String, body: String) -> Request {
         return Request { method: "POST", url: url, body: body }
     }
+
+    pub func put(url: String, body: String) -> Request {
+        return Request { method: "PUT", url: url, body: body }
+    }
+
+    pub func patch(url: String, body: String) -> Request {
+        return Request { method: "PATCH", url: url, body: body }
+    }
+
+    pub func delete(url: String) -> Request {
+        return Request { method: "DELETE", url: url, body: "" }
+    }
 }
