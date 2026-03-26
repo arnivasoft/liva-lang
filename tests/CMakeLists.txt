@@ -92,6 +92,12 @@ liva_add_test(incremental_benchmark_test
 )
 target_link_libraries(incremental_benchmark_test PRIVATE liva_driver)
 
+# Property-based tests (random program generation)
+liva_add_test(property_test
+    unit/PropertyTest.cpp
+)
+target_link_libraries(property_test PRIVATE liva_sema liva_parser)
+
 # Integration tests (file-based + inline)
 liva_add_test(integration_test
     unit/IntegrationTest.cpp
