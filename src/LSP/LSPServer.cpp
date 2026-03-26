@@ -3528,18 +3528,33 @@ void LSPServer::collectCallParamHints(const ASTNode *node, uint32_t startLine,
             }
         }
 
-        if (!fd) return;
+        // Builtin function param names (for functions without FuncDecl)
+        static const std::unordered_map<std::string, std::vector<std::string>> builtinParams = {
+            {"pow", {"base", "exp"}}, {"min", {"a", "b"}}, {"max", {"a", "b"}},
+            {"randInt", {"min", "max"}}, {"assertMsg", {"condition", "msg"}},
+            {"assertEq", {"a", "b"}}, {"fileWrite", {"path", "content"}},
+            {"fileAppend", {"path", "content"}}, {"jsonSet", {"json", "key", "value"}},
+            {"jsonGet", {"json", "key"}}, {"format", {"fmt", "args"}},
+        };
 
-        // Get non-self parameters
-        std::vector<const ParamDecl *> params;
-        for (const auto &p : fd->getParams()) {
-            if (!p.isSelf) params.push_back(&p);
+        std::vector<std::string> paramNames;
+        if (fd) {
+            for (const auto &p : fd->getParams()) {
+                if (!p.isSelf) paramNames.push_back(p.name);
+            }
+        } else {
+            auto bIt = builtinParams.find(funcName);
+            if (bIt != builtinParams.end()) {
+                paramNames = bIt->second;
+            } else {
+                return;
+            }
         }
 
         // Emit hints for each argument that has a named parameter
         const auto &args = call->getArgs();
-        for (size_t i = 0; i < args.size() && i < params.size(); ++i) {
-            const auto &paramName = params[i]->name;
+        for (size_t i = 0; i < args.size() && i < paramNames.size(); ++i) {
+            const auto &paramName = paramNames[i];
             if (paramName.empty()) continue;
 
             // Skip if the argument is already a named literal matching the param
@@ -3548,7 +3563,7 @@ void LSPServer::collectCallParamHints(const ASTNode *node, uint32_t startLine,
             }
 
             // Skip single-argument calls (obvious context)
-            if (args.size() == 1 && params.size() == 1) continue;
+            if (args.size() == 1 && paramNames.size() == 1) continue;
 
             uint32_t argLine = args[i]->getRange().start.line;
             uint32_t argCol = args[i]->getRange().start.column;

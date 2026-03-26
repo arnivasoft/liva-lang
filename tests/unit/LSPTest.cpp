@@ -2699,6 +2699,25 @@ TEST_F(LSPTest, InlayHintParamNames_ArgMatchingParamSkipped) {
     }
 }
 
+TEST_F(LSPTest, InlayHintParamNames_BuiltinPow) {
+    // Builtin function pow(base, exp) should show parameter hints
+    initAndOpen("file:///test.liva",
+        "func main() {\n"
+        "    let r = pow(2.0, 3.0)\n"
+        "}");
+    auto resp = parseResponse(
+        server.handleMessage(inlayHintRequest("file:///test.liva", 0, 3)));
+    const auto &hints = resp["result"].getArray();
+    bool foundBase = false, foundExp = false;
+    for (const auto &h : hints) {
+        std::string label = h["label"].getString();
+        if (label == "base: " && h["kind"].getInteger() == 2) foundBase = true;
+        if (label == "exp: " && h["kind"].getInteger() == 2) foundExp = true;
+    }
+    EXPECT_TRUE(foundBase) << "Should show 'base:' hint for pow";
+    EXPECT_TRUE(foundExp) << "Should show 'exp:' hint for pow";
+}
+
 TEST_F(LSPTest, DidChangeUpdatesLineIndex) {
     initAndOpen("file:///test.liva", "func foo() {}");
     // Change to multi-line

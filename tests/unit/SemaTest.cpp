@@ -2373,6 +2373,39 @@ TEST_F(SemaTest, EnumMethodBasic) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, EnumDiscriminantValues) {
+    auto result = check(R"--(
+        enum HttpStatus {
+            case OK = 200
+            case NotFound = 404
+            case Error = 500
+        }
+        func main() {
+            let s = HttpStatus.OK
+            match s {
+                HttpStatus.OK => println(200)
+                HttpStatus.NotFound => println(404)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed) << "Enum with discriminant values should type-check";
+}
+
+TEST_F(SemaTest, EnumDiscriminantMixed) {
+    auto result = check(R"--(
+        enum Signal {
+            case None
+            case Int = 2
+            case Term = 15
+        }
+        func main() {
+            let s = Signal.Int
+        }
+    )--");
+    EXPECT_TRUE(result.passed) << "Mixed discriminant/auto enum should work";
+}
+
 TEST_F(SemaTest, EnumMethodWithParams) {
     auto result = check(R"--(
         enum Direction {

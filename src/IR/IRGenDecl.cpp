@@ -1939,6 +1939,9 @@ llvm::Value *IRGen::visitEnumDecl(EnumDecl *node) {
     bool hasPayload = false;
 
     for (auto &c : node->getCases()) {
+        if (c->hasDiscriminant()) {
+            tag = static_cast<int>(c->getDiscriminant());
+        }
         caseMap[c->getName()] = tag++;
         if (c->hasAssociatedValues())
             hasPayload = true;
