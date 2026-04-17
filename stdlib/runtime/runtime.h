@@ -430,6 +430,25 @@ char *liva_http_response_body(const LivaHttpResponse *resp);
 /// Get header value by name from response (returns malloc'd copy or NULL)
 char *liva_http_response_header(const LivaHttpResponse *resp, const char *name);
 
+// === Handle-based HTTP API (i64 handle exposed to Liva) ===
+
+/// Perform full HTTP request (method, url, body, timeout_ms).
+/// Returns opaque i64 handle (0 on failure); caller must free via liva_http_req_close.
+int64_t liva_http_req(const char *method, const char *url,
+                      const char *body, int64_t timeout_ms);
+
+/// Returns HTTP status code (e.g. 200, 404) or 0 for invalid handle.
+int32_t liva_http_req_status(int64_t handle);
+
+/// Returns response body as fresh malloc'd string (may be empty, never nullptr for valid handle).
+char *liva_http_req_body(int64_t handle);
+
+/// Returns header value or nullptr if not found (case-insensitive name match).
+char *liva_http_req_header(int64_t handle, const char *name);
+
+/// Release the response buffer.
+void liva_http_req_close(int64_t handle);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {

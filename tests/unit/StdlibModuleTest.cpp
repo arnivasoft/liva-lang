@@ -306,12 +306,56 @@ TEST_F(StdlibModuleTest, HttpResponseStruct) {
     auto r = check(
         "import http::http\n"
         "func main() {\n"
-        "    let resp = HttpResponse { body: \"hello\", ok: true }\n"
+        "    let resp = HttpResponse { handle: 0, status: 200, body: \"hello\", ok: true }\n"
         "    let t = resp.text()\n"
         "    let o = resp.isOk()\n"
+        "    let c = resp.statusCode()\n"
+        "    let ok2 = resp.is2xx()\n"
         "}\n",
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "HttpResponse struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, HttpResponseStatusCategories) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    let resp = HttpResponse { handle: 0, status: 404, body: \"\", ok: false }\n"
+        "    let c4 = resp.is4xx()\n"
+        "    let c5 = resp.is5xx()\n"
+        "    let c3 = resp.is3xx()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpResponse status category methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, HttpClientSend) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    var c = HttpClient.new()\n"
+        "    c.withTimeout(5000)\n"
+        "    let resp = c.send(\"GET\", \"http://example.com\", \"\")\n"
+        "    let s = resp.statusCode()\n"
+        "    let h = resp.header(\"Content-Type\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpClient.send + response header should type-check";
+}
+
+TEST_F(StdlibModuleTest, HttpClientFullMethods) {
+    auto r = check(
+        "import http::http\n"
+        "func main() {\n"
+        "    let c = HttpClient.new()\n"
+        "    let r1 = c.getFull(\"http://example.com\")\n"
+        "    let r2 = c.postFull(\"http://example.com\", \"data\")\n"
+        "    let r3 = c.putFull(\"http://example.com/1\", \"data\")\n"
+        "    let r4 = c.patchFull(\"http://example.com/1\", \"{}\")\n"
+        "    let r5 = c.deleteFull(\"http://example.com/1\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpClient full methods should type-check";
 }
 
 TEST_F(StdlibModuleTest, HttpConvenienceFunctions) {

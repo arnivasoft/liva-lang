@@ -3,7 +3,13 @@
 
 import std::net
 
+// =============================================================
+// HttpResponse — rich response with status, body, headers
+// =============================================================
+
 pub struct HttpResponse {
+    var handle: i64
+    var status: i32
     var body: String
     var ok: bool
 }
@@ -13,10 +19,42 @@ impl HttpResponse {
         return self.body
     }
 
+    pub func statusCode(ref self) -> i32 {
+        return self.status
+    }
+
     pub func isOk(ref self) -> bool {
         return self.ok
     }
+
+    pub func is2xx(ref self) -> bool {
+        return self.status >= 200 && self.status < 300
+    }
+
+    pub func is3xx(ref self) -> bool {
+        return self.status >= 300 && self.status < 400
+    }
+
+    pub func is4xx(ref self) -> bool {
+        return self.status >= 400 && self.status < 500
+    }
+
+    pub func is5xx(ref self) -> bool {
+        return self.status >= 500 && self.status < 600
+    }
+
+    pub func header(ref self, name: String) -> String? {
+        return httpHeader(self.handle, name)
+    }
+
+    pub func close(mut self) {
+        httpClose(self.handle)
+    }
 }
+
+// =============================================================
+// HttpHeaders — simple builder (builds header-line strings)
+// =============================================================
 
 pub struct HttpHeaders {
     var data: String
@@ -27,23 +65,38 @@ impl HttpHeaders {
         return HttpHeaders { data: "" }
     }
 
+    pub func set(mut self, name: String, value: String) {
+        self.data = "" + self.data + name + ": " + value + "\r\n"
+    }
+
     pub func toString(ref self) -> String {
         return self.data
     }
 }
 
+// =============================================================
+// HttpClient — request execution with timeout
+// =============================================================
+
 pub struct HttpClient {
     var baseUrl: String
+    var timeoutMs: i64
 }
 
 impl HttpClient {
     pub func new() -> HttpClient {
-        return HttpClient { baseUrl: "" }
+        return HttpClient { baseUrl: "", timeoutMs: 30000 }
     }
 
     pub func withBaseUrl(url: String) -> HttpClient {
-        return HttpClient { baseUrl: url }
+        return HttpClient { baseUrl: url, timeoutMs: 30000 }
     }
+
+    pub func withTimeout(mut self, ms: i64) {
+        self.timeoutMs = ms
+    }
+
+    // === Simple body-only accessors (legacy, returns String?) ===
 
     pub func get(ref self, url: String) -> String? {
         return httpGet(url)
@@ -63,5 +116,39 @@ impl HttpClient {
 
     pub func delete(ref self, url: String) -> String? {
         return httpDelete(url)
+    }
+
+    // === Full request API with status/headers ===
+
+    pub func send(ref self, method: String, url: String, body: String) -> HttpResponse {
+        let h = httpRequest(method, url, body, self.timeoutMs)
+        let status = httpStatus(h)
+        let text = httpBody(h)
+        return HttpResponse {
+            handle: h,
+            status: status,
+            body: text,
+            ok: status >= 200 && status < 300,
+        }
+    }
+
+    pub func getFull(ref self, url: String) -> HttpResponse {
+        return self.send("GET", url, "")
+    }
+
+    pub func postFull(ref self, url: String, body: String) -> HttpResponse {
+        return self.send("POST", url, body)
+    }
+
+    pub func putFull(ref self, url: String, body: String) -> HttpResponse {
+        return self.send("PUT", url, body)
+    }
+
+    pub func patchFull(ref self, url: String, body: String) -> HttpResponse {
+        return self.send("PATCH", url, body)
+    }
+
+    pub func deleteFull(ref self, url: String) -> HttpResponse {
+        return self.send("DELETE", url, "")
     }
 }

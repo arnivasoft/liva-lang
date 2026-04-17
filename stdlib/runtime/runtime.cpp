@@ -2315,6 +2315,37 @@ char *liva_http_response_body(const LivaHttpResponse *resp) {
     return resp ? strdup_safe(resp->body) : nullptr;
 }
 
+// === Handle-based public API (i64 handle — exposed to Liva userland) ===
+
+int64_t liva_http_req(const char *method, const char *url,
+                      const char *body, int64_t timeout_ms) {
+    // Allow nullptr body for GET/DELETE; no extra headers from userland for now.
+    auto *resp = liva_http_request(method, url, body,
+                                   /*headers=*/nullptr, /*header_count=*/0,
+                                   timeout_ms);
+    return (int64_t)(uintptr_t)resp;
+}
+
+int32_t liva_http_req_status(int64_t handle) {
+    auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
+    return liva_http_response_status(resp);
+}
+
+char *liva_http_req_body(int64_t handle) {
+    auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
+    return liva_http_response_body(resp);
+}
+
+char *liva_http_req_header(int64_t handle, const char *name) {
+    auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
+    return liva_http_response_header(resp, name);
+}
+
+void liva_http_req_close(int64_t handle) {
+    auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
+    liva_http_response_free(resp);
+}
+
 char *liva_http_response_header(const LivaHttpResponse *resp, const char *name) {
     if (!resp || !name) return nullptr;
     for (int64_t i = 0; i < resp->header_count; i++) {

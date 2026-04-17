@@ -645,6 +645,27 @@ void IRGen::createRuntimeDecls() {
     // DELETE: same signature as GET (url) -> char*
     module_->getOrInsertFunction("liva_http_delete", httpGetTy);
 
+    // Full HTTP request: (method, url, body, timeout_ms) -> i64 handle
+    auto *httpReqTy = llvm::FunctionType::get(i64Ty,
+        {i8PtrTy, i8PtrTy, i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_http_req", httpReqTy);
+
+    // httpStatus(handle) -> i32
+    auto *httpStatusTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_http_req_status", httpStatusTy);
+
+    // httpBody(handle) -> char*
+    auto *httpBodyTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_http_req_body", httpBodyTy);
+
+    // httpHeader(handle, name) -> char* (nullable)
+    auto *httpHeaderTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_http_req_header", httpHeaderTy);
+
+    // httpClose(handle) -> void
+    auto *httpCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
+    module_->getOrInsertFunction("liva_http_req_close", httpCloseTy);
+
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
     auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);

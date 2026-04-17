@@ -70,7 +70,9 @@ void TypeChecker::registerBuiltins() {
                         "regexCompile", "regexTest", "regexExec",
                         "regexExecGroups", "regexReplaceCompiled", "regexFree",
                         "httpGet", "httpPost",
-                        "httpPut", "httpPatch", "httpDelete"}) {
+                        "httpPut", "httpPatch", "httpDelete",
+                        "httpRequest", "httpStatus", "httpBody",
+                        "httpHeader", "httpClose"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2108,6 +2110,17 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "httpDelete") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
             node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "httpRequest") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "httpStatus") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "httpBody") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "httpHeader") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "httpClose") {
+            // void
         // Stdlib: Directory operations
         } else if (ident->getName() == "dirList") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);

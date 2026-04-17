@@ -2389,6 +2389,66 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(optTy, optAlloca, "http.delete.result");
     }
 
+    // httpRequest(method, url, body, timeout_ms) -> i64 handle
+    if (funcName == "httpRequest" && node->getArgs().size() >= 4) {
+        auto *methodArg = visit(node->getArgs()[0].get());
+        auto *urlArg = visit(node->getArgs()[1].get());
+        auto *bodyArg = visit(node->getArgs()[2].get());
+        auto *timeoutArg = visit(node->getArgs()[3].get());
+        if (!methodArg || !urlArg || !bodyArg || !timeoutArg) return nullptr;
+        if (timeoutArg->getType()->isIntegerTy(32))
+            timeoutArg = builder_->CreateSExt(timeoutArg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_http_req");
+        return builder_->CreateCall(fn, {methodArg, urlArg, bodyArg, timeoutArg},
+                                    "http.req.handle");
+    }
+
+    // httpStatus(handle) -> i32
+    if (funcName == "httpStatus" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_http_req_status");
+        return builder_->CreateCall(fn, {handleArg}, "http.status");
+    }
+
+    // httpBody(handle) -> string
+    if (funcName == "httpBody" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_http_req_body");
+        auto *r = builder_->CreateCall(fn, {handleArg}, "http.body");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // httpHeader(handle, name) -> string?
+    if (funcName == "httpHeader" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *nameArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !nameArg) return nullptr;
+        auto *fn = getOrPanic("liva_http_req_header");
+        auto *result = builder_->CreateCall(fn, {handleArg, nameArg}, "http.header.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "http.header.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "http.header.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "http.header.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "http.header.result");
+    }
+
+    // httpClose(handle) -> void
+    if (funcName == "httpClose" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_http_req_close");
+        builder_->CreateCall(fn, {handleArg});
+        return nullptr;
+    }
+
     // === Directory operations ===
     if (funcName == "dirList" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

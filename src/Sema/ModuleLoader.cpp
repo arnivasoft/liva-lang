@@ -67,7 +67,8 @@ void ModuleLoader::registerBuiltinModules() {
          "regexExecGroups", "regexReplaceCompiled", "regexFree"});
 
     cache_["std::net"] = createBuiltinModule("std::net",
-        {"httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete"});
+        {"httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
+         "httpRequest", "httpStatus", "httpBody", "httpHeader", "httpClose"});
 
     cache_["std::json"] = createBuiltinModule("std::json",
         {"jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
