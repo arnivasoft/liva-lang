@@ -1,0 +1,136 @@
+// io::io — Higher-level I/O helpers on top of File built-in
+// Import with: import io::io
+//
+// Built-in File struct methods (reference):
+//   File.open(path, mode) -> File?         ("r", "w", "a", "r+", etc.)
+//   file.readLine() -> String?             nil at EOF
+//   file.readAll() -> String
+//   file.write(s), file.writeLine(s)
+//   file.close()
+//   file.seek(offset, whence) -> i32
+//   file.tell() -> i64
+//   file.size() -> i64
+//
+// This module adds:
+//   - readLines(path) / writeLines(path, lines) / appendLine(path, line)
+//   - LineReader: iterate file line-by-line using closures
+//   - LineWriter: batch writes flushed on close
+
+import std::io
+
+// =============================================================
+// Top-level convenience helpers
+// =============================================================
+
+// Read whole file as [String] split by newlines. Returns nil if file missing.
+pub func readLines(path: String) -> [String]? {
+    let content = fileRead(path)
+    if let text = content {
+        return strSplit(text, "\n")
+    }
+    return nil
+}
+
+// Write [String] as file with newline separator (overwrites).
+pub func writeLines(path: String, lines: [String]) -> bool {
+    return fileWrite(path, strJoin(lines, "\n"))
+}
+
+// Append a single line (adds trailing newline).
+pub func appendLine(path: String, line: String) -> bool {
+    return fileAppend(path, "" + line + "\n")
+}
+
+// =============================================================
+// LineReader — cursor-style line iteration over an open File
+//
+// Usage:
+//   var lr = LineReader.open("data.txt")
+//   if let reader = lr {
+//       while let line = reader.next() {
+//           println(line)
+//       }
+//       reader.close()
+//   }
+// =============================================================
+
+pub struct LineReader {
+    var file: File
+    var eof: bool
+}
+
+impl LineReader {
+    pub func open(path: String) -> LineReader? {
+        let f = File.open(path, "r")
+        if let file = f {
+            return LineReader { file: file, eof: false }
+        }
+        return nil
+    }
+
+    pub func next(ref mut self) -> String? {
+        if self.eof {
+            return nil
+        }
+        let line = self.file.readLine()
+        if let l = line {
+            return l
+        }
+        self.eof = true
+        return nil
+    }
+
+    pub func isEof(ref self) -> bool {
+        return self.eof
+    }
+
+    pub func close(mut self) {
+        self.file.close()
+    }
+}
+
+// =============================================================
+// LineWriter — batched writer that flushes on close
+//
+// Usage:
+//   var lw = LineWriter.open("out.txt")
+//   if let w = lw {
+//       w.write("line 1")
+//       w.write("line 2")
+//       w.close()  // flushes to disk
+//   }
+// =============================================================
+
+pub struct LineWriter {
+    var file: File
+}
+
+impl LineWriter {
+    pub func open(path: String) -> LineWriter? {
+        let f = File.open(path, "w")
+        if let file = f {
+            return LineWriter { file: file }
+        }
+        return nil
+    }
+
+    pub func openAppend(path: String) -> LineWriter? {
+        let f = File.open(path, "a")
+        if let file = f {
+            return LineWriter { file: file }
+        }
+        return nil
+    }
+
+    pub func write(ref mut self, line: String) {
+        self.file.writeLine(line)
+    }
+
+    pub func writeRaw(ref mut self, s: String) {
+        self.file.write(s)
+    }
+
+    pub func close(mut self) {
+        self.file.close()
+    }
+}

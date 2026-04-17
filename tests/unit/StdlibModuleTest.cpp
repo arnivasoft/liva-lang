@@ -913,6 +913,54 @@ TEST_F(StdlibModuleTest, CollectionsMathHelpers) {
 }
 
 // ============================================================
+// Module: io::io (buffered I/O helpers)
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportIoModule) {
+    auto r = check(
+        "import io::io\n"
+        "func main() {\n"
+        "    let lines = readLines(\"test.txt\")\n"
+        "    let arr: [String] = [\"a\", \"b\"]\n"
+        "    let ok = writeLines(\"out.txt\", arr)\n"
+        "    let app = appendLine(\"log.txt\", \"msg\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import io::io should resolve readLines/writeLines/appendLine";
+}
+
+TEST_F(StdlibModuleTest, IoLineReader) {
+    auto r = check(
+        "import io::io\n"
+        "func main() {\n"
+        "    let opened = LineReader.open(\"data.txt\")\n"
+        "    if let reader = opened {\n"
+        "        let line = reader.next()\n"
+        "        let eof = reader.isEof()\n"
+        "        reader.close()\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "LineReader methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, IoLineWriter) {
+    auto r = check(
+        "import io::io\n"
+        "func main() {\n"
+        "    let opened = LineWriter.open(\"out.txt\")\n"
+        "    if let w = opened {\n"
+        "        w.write(\"line 1\")\n"
+        "        w.writeRaw(\"raw\")\n"
+        "        w.close()\n"
+        "    }\n"
+        "    let a = LineWriter.openAppend(\"log.txt\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "LineWriter methods should type-check";
+}
+
+// ============================================================
 // Module: encoding::encoding
 // ============================================================
 
