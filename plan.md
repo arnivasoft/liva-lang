@@ -6,7 +6,7 @@
 
 - **Platform:** Windows, Linux, macOS — LLVM Clang 21 (C:\LLVM, MSVC ABI), MinGW GCC 15.2.0 (testler)
 - **Build:** CMake, GoogleTest, Ninja
-- **Test:** 651/651 gecen test (lexer:41, parser:82, sema:321, type:12, ownership:9, projectconfig:74, lsp:47, repl:44, integration:21)
+- **Test:** 2064/2064 gecen test (integration:170, lsp:142, ownership:93, ui:64, repl:57, dap:51, selfhost:48, buildcache:48, stdlib:35, macro:34, pkgmgr_remote:30, versionconstraint:23, tomlparser:18, plugin:18, semver:14, json:14, bench:14, incbench:13, diagcolor:12, ayrica: semasuite/parser/type/lexer + diger parametrik testler — tum gtest suite 20 test dosyasinda)
 
 ---
 

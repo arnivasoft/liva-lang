@@ -67,6 +67,8 @@ examples/*.pdb
 examples/*.ilk
 examples/*.o
 examples/*.obj
+examples/*.manifest
+*.manifest
 
 # Google Test build
 _deps/
