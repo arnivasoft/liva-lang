@@ -272,6 +272,15 @@ int32_t liva_rand_int(int32_t min, int32_t max);
 /// Random float in [0.0, 1.0)
 double liva_rand_float();
 
+/// Seed the random generator
+void liva_rand_seed(int64_t seed);
+
+/// Random i64 composed from two 32-bit rand() calls
+int64_t liva_rand_i64();
+
+/// Generate a UUID v4 string (caller frees)
+char *liva_rand_uuid();
+
 // === Process/Env ===
 
 /// Initialize command line arguments (called from main)

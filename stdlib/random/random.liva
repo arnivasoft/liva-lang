@@ -1,0 +1,53 @@
+// random::random — Random number generator wrapper API
+// Import with: import random::random
+//
+// Re-exports std::random builtins (randInt, randFloat, randSeed, randI64, randUuid)
+// plus Random struct and convenience helpers.
+
+import std::random
+
+// === Convenience helpers ===
+
+pub func randBool() -> bool {
+    return randInt(0, 2) == 1
+}
+
+pub func randPercent() -> i32 {
+    return randInt(0, 101)
+}
+
+// === Random struct (stateful facade) ===
+
+pub struct Random {
+    var _dummy: i32
+}
+
+impl Random {
+    pub func new() -> Random {
+        return Random { _dummy: 0 }
+    }
+
+    pub func nextInt(ref self, min: i32, max: i32) -> i32 {
+        return randInt(min, max)
+    }
+
+    pub func nextFloat(ref self) -> f64 {
+        return randFloat()
+    }
+
+    pub func nextBool(ref self) -> bool {
+        return randInt(0, 2) == 1
+    }
+
+    pub func nextLong(ref self) -> i64 {
+        return randI64()
+    }
+
+    pub func percent(ref self) -> i32 {
+        return randInt(0, 101)
+    }
+
+    pub func uuid(ref self) -> String {
+        return randUuid()
+    }
+}

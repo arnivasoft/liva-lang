@@ -1,0 +1,60 @@
+// log::log — Leveled logging wrapper API
+// Import with: import log::log
+
+import std::log
+
+// Level constants (match runtime: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR)
+pub func LEVEL_DEBUG() -> i32 { return 0 }
+pub func LEVEL_INFO()  -> i32 { return 1 }
+pub func LEVEL_WARN()  -> i32 { return 2 }
+pub func LEVEL_ERROR() -> i32 { return 3 }
+
+// === Top-level convenience functions ===
+
+pub func debug(msg: String) {
+    logDebug(msg)
+}
+
+pub func info(msg: String) {
+    logInfo(msg)
+}
+
+pub func warn(msg: String) {
+    logWarn(msg)
+}
+
+pub func error(msg: String) {
+    logError(msg)
+}
+
+pub func setLevel(level: i32) {
+    logSetLevel(level)
+}
+
+// === Logger struct (tag support) ===
+
+pub struct Logger {
+    var tag: String
+}
+
+impl Logger {
+    pub func new(tag: String) -> Logger {
+        return Logger { tag: tag }
+    }
+
+    pub func debug(ref self, msg: String) {
+        logDebug("[" + self.tag + "] " + msg)
+    }
+
+    pub func info(ref self, msg: String) {
+        logInfo("[" + self.tag + "] " + msg)
+    }
+
+    pub func warn(ref self, msg: String) {
+        logWarn("[" + self.tag + "] " + msg)
+    }
+
+    pub func error(ref self, msg: String) {
+        logError("[" + self.tag + "] " + msg)
+    }
+}

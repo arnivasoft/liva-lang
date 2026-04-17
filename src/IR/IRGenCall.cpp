@@ -1622,6 +1622,28 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(fn, {}, "randfloat");
     }
 
+    if (funcName == "randSeed" && !node->getArgs().empty()) {
+        auto *seedArg = visit(node->getArgs()[0].get());
+        if (!seedArg) return nullptr;
+        if (seedArg->getType()->isIntegerTy(32))
+            seedArg = builder_->CreateSExt(seedArg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_rand_seed");
+        builder_->CreateCall(fn, {seedArg});
+        return nullptr;
+    }
+
+    if (funcName == "randI64") {
+        auto *fn = getOrPanic("liva_rand_i64");
+        return builder_->CreateCall(fn, {}, "randi64");
+    }
+
+    if (funcName == "randUuid") {
+        auto *fn = getOrPanic("liva_rand_uuid");
+        auto *result = builder_->CreateCall(fn, {}, "randuuid");
+        trackStringTemp(result);
+        return result;
+    }
+
     // === Stdlib: Process/Env ===
     if (funcName == "env" && !node->getArgs().empty()) {
         auto *nameArg = visit(node->getArgs()[0].get());

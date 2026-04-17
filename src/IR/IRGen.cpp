@@ -540,6 +540,15 @@ void IRGen::createRuntimeDecls() {
     auto *randFloatTy = llvm::FunctionType::get(f64Ty, {}, false);
     module_->getOrInsertFunction("liva_rand_float", randFloatTy);
 
+    auto *randSeedTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
+    module_->getOrInsertFunction("liva_rand_seed", randSeedTy);
+
+    auto *randI64Ty = llvm::FunctionType::get(i64Ty, {}, false);
+    module_->getOrInsertFunction("liva_rand_i64", randI64Ty);
+
+    auto *randUuidTy = llvm::FunctionType::get(i8PtrTy, {}, false);
+    module_->getOrInsertFunction("liva_rand_uuid", randUuidTy);
+
     // === Stdlib: Process/Env ===
     auto *envGetTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_env_get", envGetTy);

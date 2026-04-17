@@ -529,3 +529,179 @@ TEST_F(StdlibModuleTest, UmbrellaIncludesCrypto) {
         "}\n");
     EXPECT_TRUE(r.passed) << "import std (umbrella) should include crypto functions";
 }
+
+// ============================================================
+// Module 11: random::random
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportRandomModule) {
+    auto r = check(
+        "import random::random\n"
+        "func main() {\n"
+        "    let n = randInt(0, 100)\n"
+        "    let f = randFloat()\n"
+        "    let b = randBool()\n"
+        "    let p = randPercent()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import random::random should resolve randInt/randFloat/randBool/randPercent";
+}
+
+TEST_F(StdlibModuleTest, RandomStructMethods) {
+    auto r = check(
+        "import random::random\n"
+        "func main() {\n"
+        "    let r = Random.new()\n"
+        "    let n = r.nextInt(1, 10)\n"
+        "    let f = r.nextFloat()\n"
+        "    let b = r.nextBool()\n"
+        "    let p = r.percent()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Random struct methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, RandomSeedAndUuid) {
+    auto r = check(
+        "import random::random\n"
+        "func main() {\n"
+        "    randSeed(42)\n"
+        "    let big = randI64()\n"
+        "    let id = randUuid()\n"
+        "    let r = Random.new()\n"
+        "    let bigR = r.nextLong()\n"
+        "    let idR = r.uuid()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "randSeed/randI64/randUuid should type-check";
+}
+
+// ============================================================
+// Module 12: os::os
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportOsModule) {
+    auto r = check(
+        "import os::os\n"
+        "func main() {\n"
+        "    let home = getEnv(\"HOME\")\n"
+        "    let a = getArgs()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import os::os should resolve getEnv/getArgs";
+}
+
+TEST_F(StdlibModuleTest, OsProcessMethods) {
+    auto r = check(
+        "import os::os\n"
+        "func main() {\n"
+        "    let p = Process.start(\"echo hi\")\n"
+        "    let code = p.wait()\n"
+        "    let out = p.read()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Process struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, OsRunHelpers) {
+    auto r = check(
+        "import os::os\n"
+        "func main() {\n"
+        "    let code = runCommand(\"ls\")\n"
+        "    let out = runCommandOutput(\"ls\")\n"
+        "    sleep(100)\n"
+        "    let ms = clockMs()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "os::runCommand/runCommandOutput/sleep/clockMs should type-check";
+}
+
+// ============================================================
+// Module 13: log::log
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportLogModule) {
+    auto r = check(
+        "import log::log\n"
+        "func main() {\n"
+        "    debug(\"d\")\n"
+        "    info(\"i\")\n"
+        "    warn(\"w\")\n"
+        "    error(\"e\")\n"
+        "    setLevel(1)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import log::log should resolve debug/info/warn/error";
+}
+
+TEST_F(StdlibModuleTest, LogLoggerStruct) {
+    auto r = check(
+        "import log::log\n"
+        "func main() {\n"
+        "    let l = Logger.new(\"http\")\n"
+        "    l.info(\"hello\")\n"
+        "    l.error(\"oops\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Logger struct should type-check";
+}
+
+// ============================================================
+// Module 14: math::math
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportMathModule) {
+    auto r = check(
+        "import math::math\n"
+        "func main() {\n"
+        "    let a = absF(-3.5)\n"
+        "    let s = sqrtF(16.0)\n"
+        "    let p = powF(2.0, 10.0)\n"
+        "    let pi = PI()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import math::math should resolve basic functions and constants";
+}
+
+TEST_F(StdlibModuleTest, MathClampAndSign) {
+    auto r = check(
+        "import math::math\n"
+        "func main() {\n"
+        "    let c = clampI(15, 0, 10)\n"
+        "    let cf = clampF(1.5, 0.0, 1.0)\n"
+        "    let s = signI(-5)\n"
+        "    let d = degToRad(180.0)\n"
+        "    let r = radToDeg(3.14)\n"
+        "    let ev = isEven(4)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Math clamp/sign/conversions should type-check";
+}
+
+// ============================================================
+// Module 15: convert::convert
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportConvertModule) {
+    auto r = check(
+        "import convert::convert\n"
+        "func main() {\n"
+        "    let n = toInt(\"42\")\n"
+        "    let f = toFloat(\"3.14\")\n"
+        "    let s = i32ToStr(123)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import convert::convert should resolve toInt/toFloat/i32ToStr";
+}
+
+TEST_F(StdlibModuleTest, ConvertWithDefaults) {
+    auto r = check(
+        "import convert::convert\n"
+        "func main() {\n"
+        "    let n = toIntOr(\"abc\", 0)\n"
+        "    let f = toFloatOr(\"xyz\", 1.5)\n"
+        "    let c = codepointToStr(65)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Convert fallback helpers should type-check";
+}

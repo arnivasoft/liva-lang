@@ -1,0 +1,54 @@
+// os::os — Environment, args, process control wrapper API
+// Import with: import os::os
+//
+// Re-exports std::os builtins (env, args, exit, clock, clockMs, sleep,
+// exec, execOutput, processStart/Wait/Kill/Read/Close)
+// plus Process struct and convenience helpers with friendlier names.
+
+import std::os
+
+// === Convenience helpers (avoid shadowing builtins) ===
+
+pub func getEnv(name: String) -> String? {
+    return env(name)
+}
+
+pub func getArgs() -> [String] {
+    return args()
+}
+
+pub func runCommand(command: String) -> i32 {
+    return exec(command)
+}
+
+pub func runCommandOutput(command: String) -> String? {
+    return execOutput(command)
+}
+
+// === Process struct (stateful facade) ===
+
+pub struct Process {
+    var handle: i64
+}
+
+impl Process {
+    pub func start(command: String) -> Process {
+        return Process { handle: processStart(command) }
+    }
+
+    pub func wait(ref self) -> i32 {
+        return processWait(self.handle)
+    }
+
+    pub func kill(ref self) -> bool {
+        return processKill(self.handle)
+    }
+
+    pub func read(ref self) -> String? {
+        return processRead(self.handle)
+    }
+
+    pub func close(mut self) {
+        processClose(self.handle)
+    }
+}

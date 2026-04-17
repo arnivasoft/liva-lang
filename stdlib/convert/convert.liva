@@ -1,0 +1,56 @@
+// convert::convert — Type conversion wrapper API
+// Import with: import convert::convert
+
+import std::convert
+
+// === String → number (Optional) ===
+
+pub func toInt(s: String) -> i32? {
+    return parseInt(s)
+}
+
+pub func toInt64(s: String) -> i64? {
+    return parseInt64(s)
+}
+
+pub func toFloat(s: String) -> f64? {
+    return parseFloat(s)
+}
+
+// === Number → String ===
+
+pub func i32ToStr(x: i32) -> String {
+    return toString(x)
+}
+
+pub func i64ToStr(x: i64) -> String {
+    return toString(x)
+}
+
+pub func f64ToStr(x: f64) -> String {
+    return toString(x)
+}
+
+pub func boolToStr(x: bool) -> String {
+    return toString(x)
+}
+
+// === Character ===
+
+pub func codepointToStr(code: i32) -> String {
+    return charToString(code)
+}
+
+// === With defaults ===
+
+pub func toIntOr(s: String, default: i32) -> i32 {
+    let parsed = parseInt(s)
+    if let v = parsed { return v }
+    return default
+}
+
+pub func toFloatOr(s: String, default: f64) -> f64 {
+    let parsed = parseFloat(s)
+    if let v = parsed { return v }
+    return default
+}

@@ -1298,6 +1298,40 @@ double liva_rand_float() {
     return (double)rand() / (double)RAND_MAX;
 }
 
+void liva_rand_seed(int64_t seed) {
+    std::call_once(rand_once_flag, []() {}); // prevent later auto-seed overriding
+    srand((unsigned)seed);
+}
+
+int64_t liva_rand_i64() {
+    ensure_rand_seeded();
+    // Compose two 32-bit rand() calls into one i64
+    int64_t hi = (int64_t)rand();
+    int64_t lo = (int64_t)rand();
+    return (hi << 32) ^ lo;
+}
+
+char *liva_rand_uuid() {
+    ensure_rand_seeded();
+    // UUID v4: 36 chars + NUL = 37
+    char *buf = (char *)malloc(37);
+    const char *hex = "0123456789abcdef";
+    for (int i = 0; i < 36; ++i) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            buf[i] = '-';
+        } else if (i == 14) {
+            buf[i] = '4'; // version
+        } else if (i == 19) {
+            int r = rand() & 0x3;
+            buf[i] = hex[0x8 | r]; // variant
+        } else {
+            buf[i] = hex[rand() & 0xF];
+        }
+    }
+    buf[36] = '\0';
+    return buf;
+}
+
 // === Process/Env ===
 
 char *liva_env_get(const char *name) {

@@ -1,7 +1,7 @@
 # Liva Programlama Dili — Production Hazırlık Raporu
 
 **Tarih:** 2026-04-17
-**Test Durumu:** 2064/2064 geçiyor (%100)
+**Test Durumu:** 2076/2076 geçiyor (%100)
 **Tamamlanan Milestone:** 90+
 
 ---
@@ -10,12 +10,12 @@
 
 | Metrik | Değer |
 |--------|-------|
-| **Toplam Test** | **2064/2064 geçiyor** (%100) |
+| **Toplam Test** | **2076/2076 geçiyor** (%100) |
 | **Kaynak Kodu** | ~21,000+ satır (src + include) |
-| **Test Kodu** | ~30,000+ satır (19 test dosyası) |
+| **Test Kodu** | ~30,000+ satır (20 test dosyası) |
 | **Runtime Kütüphanesi** | ~1,500+ satır |
 | **Kaynak Dosya** | 35 .cpp + 26+ .h = 61+ dosya |
-| **Stdlib Modülleri** | 15 modül (20 .liva dosyası) |
+| **Stdlib Modülleri** | 20 modül (25 .liva dosyası) |
 | **Örnek Program** | 52 .liva dosyası |
 | **TODO/FIXME** | **0** (temiz kod tabanı) |
 | **Dokümantasyon** | 6 dosya x 2 dil (EN + TR) |

@@ -57,7 +57,7 @@ void ModuleLoader::registerBuiltinModules() {
          "processKill", "processRead", "processClose"});
 
     cache_["std::random"] = createBuiltinModule("std::random",
-        {"randInt", "randFloat"});
+        {"randInt", "randFloat", "randSeed", "randI64", "randUuid"});
 
     cache_["std::regex"] = createBuiltinModule("std::regex",
         {"regexMatch", "regexFind", "regexFindAll", "regexReplace",

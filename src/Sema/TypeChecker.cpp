@@ -62,7 +62,8 @@ void TypeChecker::registerBuiltins() {
     }
 
     // Stdlib: Random, Process/Env, Date/Time, Regex, Networking
-    for (auto &name : {"randInt", "randFloat", "env", "exit", "args",
+    for (auto &name : {"randInt", "randFloat", "randSeed", "randI64", "randUuid",
+                        "env", "exit", "args",
                         "clock", "clockMs", "sleep", "isCancelled",
                         "regexMatch", "regexFind", "regexFindAll", "regexReplace",
                         "regexFindGroups",
@@ -2037,6 +2038,12 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI32Type());
         } else if (ident->getName() == "randFloat") {
             node->setResolvedType(makeF64Type());
+        } else if (ident->getName() == "randSeed") {
+            // void — no resolved type needed
+        } else if (ident->getName() == "randI64") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "randUuid") {
+            node->setResolvedType(makeStringType());
         // Stdlib: Process/Env
         } else if (ident->getName() == "env") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
