@@ -460,6 +460,49 @@ TEST_F(ParserTest, ImplGenericsBeforeWithBounds) {
     ASSERT_FALSE(result.hasErrors);
 }
 
+// Turbofish syntax: Name::<Type>.method() — explicit generic type args.
+TEST_F(ParserTest, TurbofishSingleArg) {
+    auto result = parse(R"--(
+        struct Stack<T> { var items: [T] }
+        impl<T> Stack<T> {
+            func new() -> Stack<T> { return Stack { items: [] } }
+        }
+        func main() {
+            var s = Stack::<i64>.new()
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, TurbofishMultiArgs) {
+    auto result = parse(R"--(
+        struct Pair<A, B> { var first: A
+                            var second: B }
+        impl<A, B> Pair<A, B> {
+            func make(a: A, b: B) -> Pair<A, B> {
+                return Pair { first: a, second: b }
+            }
+        }
+        func main() {
+            let p = Pair::<String, i64>.make("hi", 42)
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+// Ensure Name::< does not steal path-like uses that currently parse
+// with '<' as comparison. Here `x < y` must still parse.
+TEST_F(ParserTest, NoTurbofishWithoutColonColon) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 1
+            let y = 2
+            let b = x < y
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
 TEST_F(ParserTest, OptionalTypeAnnotation) {
     auto result = parse("let x: i32? = nil");
     ASSERT_FALSE(result.hasErrors);

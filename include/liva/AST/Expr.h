@@ -112,12 +112,21 @@ public:
 
     const std::string &getName() const { return name_; }
 
+    // Optional turbofish-style type arguments: Stack::<i64>.new()
+    // Empty when no explicit args are supplied.
+    const std::vector<std::unique_ptr<TypeRepr>> &getTypeArgs() const { return typeArgs_; }
+    bool hasTypeArgs() const { return !typeArgs_.empty(); }
+    void setTypeArgs(std::vector<std::unique_ptr<TypeRepr>> args) {
+        typeArgs_ = std::move(args);
+    }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::IdentifierExpr;
     }
 
 private:
     std::string name_;
+    std::vector<std::unique_ptr<TypeRepr>> typeArgs_;
 };
 
 /// Binary expression: a + b, x == y

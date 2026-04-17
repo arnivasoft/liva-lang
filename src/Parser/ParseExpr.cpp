@@ -273,6 +273,25 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
             return parseMacroInvokeExpr(std::move(name), startLoc);
         }
 
+        // Turbofish: Name::<T, U> ... disambiguated via '::' before '<'.
+        // Gives explicit generic type args for a subsequent .method() call.
+        if (check(TokenKind::coloncolon) && peek().is(TokenKind::less)) {
+            advance(); // consume ::
+            advance(); // consume <
+            std::vector<std::unique_ptr<TypeRepr>> typeArgs;
+            if (!check(TokenKind::greater)) {
+                do {
+                    auto ty = parseType();
+                    if (!ty) return nullptr;
+                    typeArgs.push_back(std::move(ty));
+                } while (match(TokenKind::comma));
+            }
+            expect(TokenKind::greater);
+            auto ident = std::make_unique<IdentifierExpr>(std::move(name), rangeFrom(startLoc));
+            ident->setTypeArgs(std::move(typeArgs));
+            return ident;
+        }
+
         // Check for struct literal: Name { field: value, ... }
         // Convention: struct names start with uppercase letter
         if (check(TokenKind::l_brace) && !name.empty() &&
