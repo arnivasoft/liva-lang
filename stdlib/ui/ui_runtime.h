@@ -69,6 +69,14 @@ int32_t  liva_ui_measure_text_font(int32_t handle, const char* text, int32_t siz
 const char* liva_ui_get_clipboard_text(void);
 void        liva_ui_set_clipboard_text(const char* text);
 
+// === Image/Texture ===
+int32_t  liva_ui_load_image(const char* path);
+void     liva_ui_unload_image(int32_t handle);
+void     liva_ui_draw_image(int32_t handle, int32_t x, int32_t y);
+void     liva_ui_draw_image_scaled(int32_t handle, int32_t x, int32_t y, int32_t w, int32_t h);
+int32_t  liva_ui_get_image_width(int32_t handle);
+int32_t  liva_ui_get_image_height(int32_t handle);
+
 // === Word-Wrap ===
 int32_t  liva_ui_draw_text_wrapped(const char* text, int32_t x, int32_t y,
                                     int32_t fontSize, int32_t maxWidth,

@@ -1,59 +1,40 @@
-// Counter App — demonstrates Widget protocol + layout engine
+// Counter App — Button click events with dynamic label update
+// Build: livac examples/ui_counter.liva -o counter
+
 import std::ui
 import ui::types
-import ui::widgets
-import ui::layout
 
 func main() {
-    initWindow(400, 300, "Liva Counter")
-    setTargetFps(60)
+    appInit()
 
-    var counter: i32 = 0
+    let win = createWindow(400, 250, "Liva Counter")
+    let panel = createPanel(win)
+    setBgColor(panel, 40, 40, 40)
 
-    let white = Color.white()
-    let gray = Color.gray(160)
-    let bg = Color.gray(30)
+    let sizer = createVBoxSizer()
 
-    let plusBtn = Button.styled("+", 1,
-        Color { r: 60, g: 160, b: 60, a: 255 }, white)
-    let minusBtn = Button.styled("-", 2,
-        Color { r: 160, g: 60, b: 60, a: 255 }, white)
+    let title = createLabel(panel, "Counter: 0")
+    setWidgetFont(title, 20, 1)
+    setFgColor(title, 255, 255, 255)
 
-    while !windowShouldClose() {
-        // Input
-        let btnY = 160
-        if plusBtn.isClicked(155, btnY) {
-            counter = counter + 1
-        }
-        if minusBtn.isClicked(210, btnY) {
-            counter = counter - 1
-        }
+    let btnInc = createButton(panel, "+ Artir")
+    onClick(btnInc, |_h: i32| {
+        setText(title, "Counter: arttirildi")
+    })
 
-        // Draw
-        beginDrawing()
-        clearBackground(bg.r, bg.g, bg.b, bg.a)
+    let btnDec = createButton(panel, "- Azalt")
+    onClick(btnDec, |_h: i32| {
+        setText(title, "Counter: azaltildi")
+    })
 
-        // Title
-        let title = Label.new("Liva Counter", 28, white)
-        let countLabel = Label.new("Count: \(counter)", 24, white)
-        let hint = Label.new("Click + / - to change", 14, gray)
+    let hbox = createHBoxSizer()
+    sizerAdd(hbox, btnDec, 0, WX_ALL(), 5)
+    sizerAdd(hbox, btnInc, 0, WX_ALL(), 5)
 
-        // Layout title centered
-        let titleX = (400 - title.getWidth()) / 2
-        title.draw(titleX, 40)
+    sizerAdd(sizer, title, 0, WX_ALL(), 15)
+    sizerAdd(sizer, hbox, 0, WX_ALL(), 5)
 
-        // Counter centered
-        let countX = (400 - countLabel.getWidth()) / 2
-        countLabel.draw(countX, 100)
-
-        // Buttons in a row
-        let items: [dyn Widget] = [plusBtn, minusBtn]
-        layoutHStack(items, 155, btnY, 10)
-
-        // Hint at bottom
-        hint.draw(110, 260)
-
-        endDrawing()
-    }
-    closeWindow()
+    setSizer(panel, sizer)
+    windowShow(win, 1)
+    appRun()
 }

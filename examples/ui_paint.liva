@@ -1,29 +1,30 @@
-// Simple Paint App — demonstrates std::ui + ui::types
+// Simple Paint App — wxWidgets Canvas with custom drawing
 import std::ui
 import ui::types
 
 func main() {
-    initWindow(800, 600, "Liva Paint")
-    setTargetFps(60)
+    appInit()
 
-    let canvas = Canvas { width: 800, height: 600 }
-    let bg = Color.gray(30)
-    let brushColor = Color.red()
+    let win = createWindow(800, 600, "Liva Paint")
+    let panel = createPanel(win)
 
-    while !windowShouldClose() {
-        beginDrawing()
-        canvas.clear(bg)
+    let sizer = createVBoxSizer()
 
-        // Draw brush at mouse position when clicked
-        if isMouseDown(0) {
-            canvas.fillCircle(getMouseX(), getMouseY(), 12, brushColor)
-        }
+    let lbl = createLabel(panel, "Canvas custom drawing demo")
+    setWidgetFont(lbl, 14, 1)
+    sizerAdd(sizer, lbl, 0, WX_ALL(), 5)
 
-        // HUD
-        canvas.text("Click and drag to paint", 10, 10, 20, Color.white())
-        canvas.text("Press ESC to exit", 10, 36, 16, Color.gray(160))
+    let canvas = createCanvas(panel)
+    canvasOnPaint(canvas, |dc: i32| {
+        dcClear(dc, 30, 30, 30)
+        dcDrawText(dc, "wxWidgets Canvas", 20, 20, 255, 255, 255)
+        dcDrawRect(dc, 50, 60, 200, 100, 255, 100, 100)
+        dcDrawCircle(dc, 400, 150, 60, 100, 200, 255)
+        dcDrawLine(dc, 0, 250, 800, 250, 255, 255, 0)
+    })
+    sizerAdd(sizer, canvas, 1, WX_EXPAND(), 5)
 
-        endDrawing()
-    }
-    closeWindow()
+    setSizer(panel, sizer)
+    windowShow(win, 1)
+    appRun()
 }

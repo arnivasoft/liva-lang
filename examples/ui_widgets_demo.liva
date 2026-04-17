@@ -1,0 +1,72 @@
+// UI Widget Demo — RadioGroup, TabView, Dropdown, Dialog, ListBox
+// Build: livac examples/ui_widgets_demo.liva -o widgets_demo
+
+import std::ui
+import ui::types
+
+func main() {
+    appInit()
+
+    let win = createWindow(500, 500, "Widget Vitrini")
+    let panel = createPanel(win)
+
+    let sizer = createVBoxSizer()
+
+    let title = createLabel(panel, "wxWidgets Widget Vitrini")
+    setWidgetFont(title, 16, 1)
+    sizerAdd(sizer, title, 0, WX_ALL(), 10)
+
+    // RadioGroup
+    let rgLbl = createLabel(panel, "Renk Secin:")
+    let rg = createRadioGroup(panel, "Kirmizi;Yesil;Mavi;Sari")
+    onSelect(rg, |_h: i32| {
+        messageBox("Secim", "Renk secildi", 1)
+    })
+    sizerAdd(sizer, rgLbl, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, rg, 0, WX_ALL(), 5)
+
+    // Dropdown
+    let ddLbl = createLabel(panel, "Sehir Secin:")
+    let dd = createDropdown(panel, "Istanbul;Ankara;Izmir;Bursa;Antalya")
+    onSelect(dd, |_h: i32| {
+        messageBox("Sehir", "Sehir secildi", 1)
+    })
+    sizerAdd(sizer, ddLbl, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, dd, 0, WX_EXPAND(), 5)
+
+    // ListBox
+    let lbLbl = createLabel(panel, "Gorev Listesi:")
+    let lb = createListBox(panel)
+    listAddItem(lb, "Proje planla")
+    listAddItem(lb, "Kod yaz")
+    listAddItem(lb, "Test et")
+    listAddItem(lb, "Dagit")
+    onSelect(lb, |_h: i32| {
+        messageBox("Gorev", "Gorev secildi", 1)
+    })
+    sizerAdd(sizer, lbLbl, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, lb, 1, WX_EXPAND(), 5)
+
+    // Dialog buttons
+    let hbox = createHBoxSizer()
+    let infoBtn = createButton(panel, "Bilgi")
+    onClick(infoBtn, |_h: i32| {
+        messageBox("Bilgi", "Bu bir bilgi mesajidir.", 1)
+    })
+    let warnBtn = createButton(panel, "Uyari")
+    onClick(warnBtn, |_h: i32| {
+        messageBox("Uyari", "Bu bir uyari mesajidir!", 2)
+    })
+    let errBtn = createButton(panel, "Hata")
+    onClick(errBtn, |_h: i32| {
+        messageBox("Hata", "Bu bir hata mesajidir!", 3)
+    })
+    sizerAdd(hbox, infoBtn, 0, WX_ALL(), 3)
+    sizerAdd(hbox, warnBtn, 0, WX_ALL(), 3)
+    sizerAdd(hbox, errBtn, 0, WX_ALL(), 3)
+    sizerAdd(sizer, hbox, 0, WX_ALL(), 5)
+
+    setSizer(panel, sizer)
+    windowShow(win, 1)
+    appRun()
+}

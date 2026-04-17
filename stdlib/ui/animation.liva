@@ -1,6 +1,7 @@
 // std::ui animation — easing, tween, lerp, transitions, animators
 // Import with: import ui::animation
 
+import std::math
 import ui::types
 
 // ---- Easing Functions ----
@@ -41,6 +42,77 @@ pub func easeInOutCubic(t: f64) -> f64 {
     return 1.0 + u * u * u / 2.0
 }
 
+// ---- Physics-Based Easing Functions ----
+
+// Spring: damped harmonic oscillation — settles at 1.0 with overshoot
+pub func easeSpring(t: f64) -> f64 {
+    if t <= 0.0 { return 0.0 }
+    if t >= 1.0 { return 1.0 }
+    let decay = pow(2.71828, -6.0 * t)
+    let osc = cos(6.5 * 3.14159265 * t)
+    return 1.0 - decay * osc
+}
+
+// Elastic out: rubber-band snap with oscillation
+pub func easeElasticOut(t: f64) -> f64 {
+    if t <= 0.0 { return 0.0 }
+    if t >= 1.0 { return 1.0 }
+    let p = 0.3
+    let s = p / 4.0
+    return pow(2.0, -10.0 * t) * sin((t - s) * 2.0 * 3.14159265 / p) + 1.0
+}
+
+// Elastic in: slow pull-back then snap
+pub func easeElasticIn(t: f64) -> f64 {
+    return 1.0 - easeElasticOut(1.0 - t)
+}
+
+// Bounce out: ball-drop physics — settles with diminishing bounces
+pub func easeBounceOut(t: f64) -> f64 {
+    if t < 1.0 / 2.75 {
+        return 7.5625 * t * t
+    }
+    if t < 2.0 / 2.75 {
+        let u = t - 1.5 / 2.75
+        return 7.5625 * u * u + 0.75
+    }
+    if t < 2.5 / 2.75 {
+        let u = t - 2.25 / 2.75
+        return 7.5625 * u * u + 0.9375
+    }
+    let u = t - 2.625 / 2.75
+    return 7.5625 * u * u + 0.984375
+}
+
+// Bounce in: reverse bounce
+pub func easeBounceIn(t: f64) -> f64 {
+    return 1.0 - easeBounceOut(1.0 - t)
+}
+
+// Back out: overshoot past target then settle back
+pub func easeBackOut(t: f64) -> f64 {
+    let s = 1.70158
+    let u = t - 1.0
+    return u * u * ((s + 1.0) * u + s) + 1.0
+}
+
+// Back in: pull back before moving forward
+pub func easeBackIn(t: f64) -> f64 {
+    let s = 1.70158
+    return t * t * ((s + 1.0) * t - s)
+}
+
+// Back in-out: pull back, overshoot, settle
+pub func easeBackInOut(t: f64) -> f64 {
+    let s = 1.70158 * 1.525
+    if t < 0.5 {
+        let u = 2.0 * t
+        return (u * u * ((s + 1.0) * u - s)) / 2.0
+    }
+    let u = 2.0 * t - 2.0
+    return (u * u * ((s + 1.0) * u + s) + 2.0) / 2.0
+}
+
 // ---- Utility Functions ----
 
 pub func clampF64(val: f64, minV: f64, maxV: f64) -> f64 {
@@ -62,6 +134,14 @@ pub func applyEasing(t: f64, easeType: i32) -> f64 {
     if easeType == 4 { return easeInCubic(ct) }
     if easeType == 5 { return easeOutCubic(ct) }
     if easeType == 6 { return easeInOutCubic(ct) }
+    if easeType == 7 { return easeSpring(ct) }
+    if easeType == 8 { return easeElasticOut(ct) }
+    if easeType == 9 { return easeElasticIn(ct) }
+    if easeType == 10 { return easeBounceOut(ct) }
+    if easeType == 11 { return easeBounceIn(ct) }
+    if easeType == 12 { return easeBackOut(ct) }
+    if easeType == 13 { return easeBackIn(ct) }
+    if easeType == 14 { return easeBackInOut(ct) }
     return ct
 }
 
@@ -298,4 +378,619 @@ impl FocusAnimator {
             a: lerpI32(normal.a, focused.a, self.progress)
         }
     }
+}
+
+// ============================================================
+// Easing Type Constants
+// ============================================================
+
+pub func EASE_LINEAR() -> i32 { return 0 }
+pub func EASE_IN_QUAD() -> i32 { return 1 }
+pub func EASE_OUT_QUAD() -> i32 { return 2 }
+pub func EASE_IN_OUT_QUAD() -> i32 { return 3 }
+pub func EASE_IN_CUBIC() -> i32 { return 4 }
+pub func EASE_OUT_CUBIC() -> i32 { return 5 }
+pub func EASE_IN_OUT_CUBIC() -> i32 { return 6 }
+pub func EASE_SPRING() -> i32 { return 7 }
+pub func EASE_ELASTIC_OUT() -> i32 { return 8 }
+pub func EASE_ELASTIC_IN() -> i32 { return 9 }
+pub func EASE_BOUNCE_OUT() -> i32 { return 10 }
+pub func EASE_BOUNCE_IN() -> i32 { return 11 }
+pub func EASE_BACK_OUT() -> i32 { return 12 }
+pub func EASE_BACK_IN() -> i32 { return 13 }
+pub func EASE_BACK_IN_OUT() -> i32 { return 14 }
+
+// ============================================================
+// SpringAnimator — real-time damped spring physics simulation
+// ============================================================
+
+pub struct SpringAnimator {
+    var position: f64
+    var velocity: f64
+    var target: f64
+    var stiffness: f64
+    var damping: f64
+    var mass: f64
+    var restThreshold: f64
+    var atRest: bool
+}
+
+impl SpringAnimator {
+    func new(initial: f64, stiffness: f64, damping: f64) -> SpringAnimator {
+        return SpringAnimator {
+            position: initial,
+            velocity: 0.0,
+            target: initial,
+            stiffness: stiffness,
+            damping: damping,
+            mass: 1.0,
+            restThreshold: 0.001,
+            atRest: true
+        }
+    }
+
+    // Preset: gentle spring (slow, low oscillation)
+    func gentle(initial: f64) -> SpringAnimator {
+        return SpringAnimator.new(initial, 120.0, 14.0)
+    }
+
+    // Preset: bouncy spring (fast, visible oscillation)
+    func bouncy(initial: f64) -> SpringAnimator {
+        return SpringAnimator.new(initial, 180.0, 12.0)
+    }
+
+    // Preset: stiff spring (very fast, minimal oscillation)
+    func stiff(initial: f64) -> SpringAnimator {
+        return SpringAnimator.new(initial, 300.0, 20.0)
+    }
+
+    // Preset: wobbly spring (slow, lots of oscillation)
+    func wobbly(initial: f64) -> SpringAnimator {
+        return SpringAnimator.new(initial, 100.0, 8.0)
+    }
+
+    func setTarget(ref mut self, newTarget: f64) {
+        self.target = newTarget
+        self.atRest = false
+    }
+
+    func setMass(ref mut self, m: f64) {
+        self.mass = m
+    }
+
+    func setRestThreshold(ref mut self, thresh: f64) {
+        self.restThreshold = thresh
+    }
+
+    func update(ref mut self, dt: f64) {
+        if self.atRest { return }
+
+        // Hooke's law: F_spring = -k * displacement
+        // Damping:     F_damp   = -d * velocity
+        // Newton:      a = F / m
+        let displacement = self.position - self.target
+        let springForce = 0.0 - self.stiffness * displacement
+        let dampingForce = 0.0 - self.damping * self.velocity
+        let acceleration = (springForce + dampingForce) / self.mass
+
+        self.velocity = self.velocity + acceleration * dt
+        self.position = self.position + self.velocity * dt
+
+        // Check if spring has settled
+        var absDisp = displacement
+        if absDisp < 0.0 {
+            absDisp = 0.0 - absDisp
+        }
+        var absVel = self.velocity
+        if absVel < 0.0 {
+            absVel = 0.0 - absVel
+        }
+        if absDisp < self.restThreshold {
+            if absVel < self.restThreshold {
+                self.position = self.target
+                self.velocity = 0.0
+                self.atRest = true
+            }
+        }
+    }
+
+    func getValue(ref self) -> f64 { return self.position }
+    func getVelocity(ref self) -> f64 { return self.velocity }
+    func getTarget(ref self) -> f64 { return self.target }
+    func isAtRest(ref self) -> bool {
+        if self.atRest { return true }
+        return false
+    }
+    func isAnimating(ref self) -> bool {
+        if self.atRest { return false }
+        return true
+    }
+
+    func getValueI32(ref self) -> i32 {
+        return self.position as i32
+    }
+
+    // Snap to target immediately (no animation)
+    func snap(ref mut self, val: f64) {
+        self.position = val
+        self.target = val
+        self.velocity = 0.0
+        self.atRest = true
+    }
+
+    // Give an impulse (add velocity)
+    func impulse(ref mut self, vel: f64) {
+        self.velocity = self.velocity + vel
+        self.atRest = false
+    }
+
+    func reset(ref mut self) {
+        self.velocity = 0.0
+        self.atRest = true
+        self.position = self.target
+    }
+}
+
+// ============================================================
+// SpringColor — spring-animated color transitions
+// ============================================================
+
+pub struct SpringColor {
+    var r: SpringAnimator
+    var g: SpringAnimator
+    var b: SpringAnimator
+    var a: SpringAnimator
+}
+
+impl SpringColor {
+    func new(initial: Color, stiffness: f64, damping: f64) -> SpringColor {
+        return SpringColor {
+            r: SpringAnimator.new(initial.r as f64, stiffness, damping),
+            g: SpringAnimator.new(initial.g as f64, stiffness, damping),
+            b: SpringAnimator.new(initial.b as f64, stiffness, damping),
+            a: SpringAnimator.new(initial.a as f64, stiffness, damping)
+        }
+    }
+
+    func gentle(initial: Color) -> SpringColor {
+        return SpringColor.new(initial, 120.0, 14.0)
+    }
+
+    func bouncy(initial: Color) -> SpringColor {
+        return SpringColor.new(initial, 180.0, 12.0)
+    }
+
+    func setTarget(ref mut self, target: Color) {
+        self.r.setTarget(target.r as f64)
+        self.g.setTarget(target.g as f64)
+        self.b.setTarget(target.b as f64)
+        self.a.setTarget(target.a as f64)
+    }
+
+    func update(ref mut self, dt: f64) {
+        self.r.update(dt)
+        self.g.update(dt)
+        self.b.update(dt)
+        self.a.update(dt)
+    }
+
+    func getValue(ref self) -> Color {
+        var ri = self.r.getValue() as i32
+        var gi = self.g.getValue() as i32
+        var bi = self.b.getValue() as i32
+        var ai = self.a.getValue() as i32
+        if ri < 0 { ri = 0 }
+        if ri > 255 { ri = 255 }
+        if gi < 0 { gi = 0 }
+        if gi > 255 { gi = 255 }
+        if bi < 0 { bi = 0 }
+        if bi > 255 { bi = 255 }
+        if ai < 0 { ai = 0 }
+        if ai > 255 { ai = 255 }
+        return Color { r: ri, g: gi, b: bi, a: ai }
+    }
+
+    func isAtRest(ref self) -> bool {
+        if !self.r.isAtRest() { return false }
+        if !self.g.isAtRest() { return false }
+        if !self.b.isAtRest() { return false }
+        return self.a.isAtRest()
+    }
+
+    func snap(ref mut self, c: Color) {
+        self.r.snap(c.r as f64)
+        self.g.snap(c.g as f64)
+        self.b.snap(c.b as f64)
+        self.a.snap(c.a as f64)
+    }
+}
+
+// ============================================================
+// WidgetAnimator — entry/exit animation state machine
+// States: 0=HIDDEN, 1=ENTERING, 2=VISIBLE, 3=EXITING
+// Animation types: 0=NONE, 1=FADE, 2=SLIDE_LEFT, 3=SLIDE_RIGHT,
+//                  4=SLIDE_UP, 5=SLIDE_DOWN, 6=SCALE, 7=FADE_SLIDE_UP
+// ============================================================
+
+pub func ANIM_NONE() -> i32 { return 0 }
+pub func ANIM_FADE() -> i32 { return 1 }
+pub func ANIM_SLIDE_LEFT() -> i32 { return 2 }
+pub func ANIM_SLIDE_RIGHT() -> i32 { return 3 }
+pub func ANIM_SLIDE_UP() -> i32 { return 4 }
+pub func ANIM_SLIDE_DOWN() -> i32 { return 5 }
+pub func ANIM_SCALE() -> i32 { return 6 }
+pub func ANIM_FADE_SLIDE_UP() -> i32 { return 7 }
+
+pub func WSTATE_HIDDEN() -> i32 { return 0 }
+pub func WSTATE_ENTERING() -> i32 { return 1 }
+pub func WSTATE_VISIBLE() -> i32 { return 2 }
+pub func WSTATE_EXITING() -> i32 { return 3 }
+
+pub struct WidgetAnimator {
+    var state: i32
+    var animType: i32
+    var progress: f64
+    var duration: f64
+    var elapsed: f64
+    var easeIn: i32
+    var easeOut: i32
+}
+
+impl WidgetAnimator {
+    func new(animType: i32, duration: f64) -> WidgetAnimator {
+        return WidgetAnimator {
+            state: 0,
+            animType: animType,
+            progress: 0.0,
+            duration: duration,
+            elapsed: 0.0,
+            easeIn: 5,
+            easeOut: 5
+        }
+    }
+
+    func fade(duration: f64) -> WidgetAnimator {
+        return WidgetAnimator.new(1, duration)
+    }
+
+    func slideUp(duration: f64) -> WidgetAnimator {
+        return WidgetAnimator.new(4, duration)
+    }
+
+    func slideDown(duration: f64) -> WidgetAnimator {
+        return WidgetAnimator.new(5, duration)
+    }
+
+    func fadeSlideUp(duration: f64) -> WidgetAnimator {
+        return WidgetAnimator.new(7, duration)
+    }
+
+    func enter(ref mut self) {
+        if self.state == 1 { return }
+        self.state = 1
+        self.elapsed = 0.0
+        self.progress = 0.0
+    }
+
+    func exit(ref mut self) {
+        if self.state == 3 { return }
+        self.state = 3
+        self.elapsed = 0.0
+        self.progress = 0.0
+    }
+
+    func show(ref mut self) {
+        self.state = 2
+        self.progress = 1.0
+    }
+
+    func hide(ref mut self) {
+        self.state = 0
+        self.progress = 0.0
+    }
+
+    func update(ref mut self, dt: f64) {
+        if self.state == 0 { return }
+        if self.state == 2 { return }
+
+        self.elapsed = self.elapsed + dt
+        if self.elapsed >= self.duration {
+            self.elapsed = self.duration
+            if self.state == 1 {
+                self.state = 2
+                self.progress = 1.0
+            }
+            if self.state == 3 {
+                self.state = 0
+                self.progress = 0.0
+            }
+        } else {
+            var raw = self.elapsed / self.duration
+            if self.state == 1 {
+                self.progress = applyEasing(raw, self.easeIn)
+            } else {
+                self.progress = 1.0 - applyEasing(raw, self.easeOut)
+            }
+        }
+    }
+
+    func isVisible(ref self) -> bool {
+        if self.state == 0 { return false }
+        return true
+    }
+
+    func isAnimating(ref self) -> bool {
+        if self.state == 1 { return true }
+        if self.state == 3 { return true }
+        return false
+    }
+
+    func getState(ref self) -> i32 { return self.state }
+    func getProgress(ref self) -> f64 { return self.progress }
+
+    func getAlpha(ref self) -> i32 {
+        if self.animType == 1 || self.animType == 7 {
+            return lerpI32(0, 255, self.progress)
+        }
+        return 255
+    }
+
+    func getOffsetX(ref self, screenWidth: i32) -> i32 {
+        if self.animType == 2 {
+            return lerpI32(0 - screenWidth, 0, self.progress)
+        }
+        if self.animType == 3 {
+            return lerpI32(screenWidth, 0, self.progress)
+        }
+        return 0
+    }
+
+    func getOffsetY(ref self, amount: i32) -> i32 {
+        if self.animType == 4 || self.animType == 7 {
+            return lerpI32(amount, 0, self.progress)
+        }
+        if self.animType == 5 {
+            return lerpI32(0 - amount, 0, self.progress)
+        }
+        return 0
+    }
+
+    func getScale(ref self) -> f64 {
+        if self.animType == 6 {
+            return lerpF64(0.0, 1.0, self.progress)
+        }
+        return 1.0
+    }
+
+    func setEasing(ref mut self, eIn: i32, eOut: i32) {
+        self.easeIn = eIn
+        self.easeOut = eOut
+    }
+}
+
+// ============================================================
+// AnimSequence — 4-slot sequential animation chain
+// ============================================================
+
+pub struct AnimSequence {
+    var dur0: f64
+    var dur1: f64
+    var dur2: f64
+    var dur3: f64
+    var ease0: i32
+    var ease1: i32
+    var ease2: i32
+    var ease3: i32
+    var slotCount: i32
+    var currentSlot: i32
+    var elapsed: f64
+    var progress: f64
+    var looping: bool
+    var active: bool
+}
+
+impl AnimSequence {
+    func new() -> AnimSequence {
+        return AnimSequence {
+            dur0: 0.0, dur1: 0.0, dur2: 0.0, dur3: 0.0,
+            ease0: 5, ease1: 5, ease2: 5, ease3: 5,
+            slotCount: 0,
+            currentSlot: 0,
+            elapsed: 0.0,
+            progress: 0.0,
+            looping: false,
+            active: false
+        }
+    }
+
+    func twoStep(d0: f64, d1: f64) -> AnimSequence {
+        return AnimSequence {
+            dur0: d0, dur1: d1, dur2: 0.0, dur3: 0.0,
+            ease0: 5, ease1: 5, ease2: 5, ease3: 5,
+            slotCount: 2,
+            currentSlot: 0,
+            elapsed: 0.0,
+            progress: 0.0,
+            looping: false,
+            active: false
+        }
+    }
+
+    func pulse(duration: f64) -> AnimSequence {
+        let half = duration / 2.0
+        var seq = AnimSequence.twoStep(half, half)
+        seq.looping = true
+        return seq
+    }
+
+    func getDuration(ref self, slot: i32) -> f64 {
+        if slot == 0 { return self.dur0 }
+        if slot == 1 { return self.dur1 }
+        if slot == 2 { return self.dur2 }
+        if slot == 3 { return self.dur3 }
+        return 0.0
+    }
+
+    func getEasing(ref self, slot: i32) -> i32 {
+        if slot == 0 { return self.ease0 }
+        if slot == 1 { return self.ease1 }
+        if slot == 2 { return self.ease2 }
+        if slot == 3 { return self.ease3 }
+        return 0
+    }
+
+    func addSlot(ref mut self, duration: f64, easing: i32) {
+        if self.slotCount >= 4 { return }
+        if self.slotCount == 0 { self.dur0 = duration }
+        if self.slotCount == 0 { self.ease0 = easing }
+        if self.slotCount == 1 { self.dur1 = duration }
+        if self.slotCount == 1 { self.ease1 = easing }
+        if self.slotCount == 2 { self.dur2 = duration }
+        if self.slotCount == 2 { self.ease2 = easing }
+        if self.slotCount == 3 { self.dur3 = duration }
+        if self.slotCount == 3 { self.ease3 = easing }
+        self.slotCount = self.slotCount + 1
+    }
+
+    func start(ref mut self) {
+        self.active = true
+        self.currentSlot = 0
+        self.elapsed = 0.0
+        self.progress = 0.0
+    }
+
+    func stop(ref mut self) {
+        self.active = false
+    }
+
+    func update(ref mut self, dt: f64) {
+        if !self.active { return }
+        if self.slotCount == 0 { return }
+
+        self.elapsed = self.elapsed + dt
+        let dur = self.getDuration(self.currentSlot)
+        if dur <= 0.0 {
+            self.currentSlot = self.currentSlot + 1
+            self.elapsed = 0.0
+            if self.currentSlot >= self.slotCount {
+                if self.looping {
+                    self.currentSlot = 0
+                } else {
+                    self.active = false
+                    self.progress = 1.0
+                }
+            }
+            return
+        }
+
+        if self.elapsed >= dur {
+            self.currentSlot = self.currentSlot + 1
+            self.elapsed = self.elapsed - dur
+            if self.currentSlot >= self.slotCount {
+                if self.looping {
+                    self.currentSlot = 0
+                } else {
+                    self.active = false
+                    self.progress = 1.0
+                    return
+                }
+            }
+        }
+
+        let curDur = self.getDuration(self.currentSlot)
+        if curDur > 0.0 {
+            var raw = self.elapsed / curDur
+            if raw > 1.0 { raw = 1.0 }
+            self.progress = applyEasing(raw, self.getEasing(self.currentSlot))
+        }
+    }
+
+    func isActive(ref self) -> bool { return self.active }
+    func getProgress(ref self) -> f64 { return self.progress }
+    func getCurrentSlot(ref self) -> i32 { return self.currentSlot }
+    func getSlotCount(ref self) -> i32 { return self.slotCount }
+    func setLooping(ref mut self, loop: bool) { self.looping = loop }
+}
+
+// ============================================================
+// StaggerGroup — staggered delayed group animations
+// ============================================================
+
+pub struct StaggerGroup {
+    var count: i32
+    var staggerDelay: f64
+    var itemDuration: f64
+    var elapsed: f64
+    var easeType: i32
+    var active: bool
+}
+
+impl StaggerGroup {
+    func new(count: i32, staggerDelay: f64, itemDuration: f64) -> StaggerGroup {
+        return StaggerGroup {
+            count: count,
+            staggerDelay: staggerDelay,
+            itemDuration: itemDuration,
+            elapsed: 0.0,
+            easeType: 5,
+            active: false
+        }
+    }
+
+    func start(ref mut self) {
+        self.active = true
+        self.elapsed = 0.0
+    }
+
+    func update(ref mut self, dt: f64) {
+        if !self.active { return }
+        self.elapsed = self.elapsed + dt
+        let totalDur = self.staggerDelay * (self.count - 1) as f64 + self.itemDuration
+        if self.elapsed >= totalDur {
+            self.active = false
+        }
+    }
+
+    func getItemProgress(ref self, index: i32) -> f64 {
+        let itemStart = self.staggerDelay * index as f64
+        let localT = self.elapsed - itemStart
+        if localT <= 0.0 { return 0.0 }
+        if localT >= self.itemDuration { return 1.0 }
+        var raw = localT / self.itemDuration
+        return applyEasing(raw, self.easeType)
+    }
+
+    func getItemAlpha(ref self, index: i32) -> i32 {
+        let p = self.getItemProgress(index)
+        return lerpI32(0, 255, p)
+    }
+
+    func getItemOffsetY(ref self, index: i32, amount: i32) -> i32 {
+        let p = self.getItemProgress(index)
+        return lerpI32(amount, 0, p)
+    }
+
+    func isActive(ref self) -> bool { return self.active }
+    func isComplete(ref self) -> bool { return !self.active && self.elapsed > 0.0 }
+    func getCount(ref self) -> i32 { return self.count }
+
+    func setEasing(ref mut self, easeType: i32) {
+        self.easeType = easeType
+    }
+}
+
+// ============================================================
+// Convenience math helpers (pure — no drawing)
+// ============================================================
+
+pub func animLerpF64(from: f64, to: f64, t: f64) -> f64 {
+    return lerpF64(from, to, t)
+}
+
+pub func animLerpI32(from: i32, to: i32, t: f64) -> i32 {
+    return lerpI32(from, to, t)
+}
+
+pub func animLerpColor(from: Color, to: Color, t: f64) -> Color {
+    return lerpColor(from, to, t)
 }

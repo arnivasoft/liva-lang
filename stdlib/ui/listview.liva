@@ -1,0 +1,20 @@
+// ListView — wxListBox wrapper with convenience methods
+// Import with: import ui::listview
+
+import std::ui
+
+pub struct ListView {
+    var handle: i32
+}
+
+impl ListView {
+    pub func new(parent: i32) -> ListView {
+        return ListView { handle: createListBox(parent) }
+    }
+    pub func addItem(ref self, item: string) { listAddItem(self.handle, item) }
+    pub func clear(ref self) { listClear(self.handle) }
+    pub func getSelection(ref self) -> i32 { return listGetSelection(self.handle) }
+    pub func onSelect(ref self, cb: (i32) -> void) { onSelect(self.handle, cb) }
+    pub func setSize(ref self, w: i32, h: i32) { setWidgetSize(self.handle, w, h) }
+    pub func setEnabled(ref self, enabled: i32) { setEnabled(self.handle, enabled) }
+}

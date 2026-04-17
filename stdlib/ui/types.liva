@@ -1,7 +1,5 @@
-// std::ui types — Color, Rect, Vec2, Size
+// std::ui types — Color, Vec2, Size, Rect
 // Import with: import ui::types
-
-import std::ui
 
 pub struct Color {
     var r: i32
@@ -68,32 +66,20 @@ impl Rect {
     }
 }
 
-// Canvas — high-level drawing API wrapping std::ui builtins
-pub struct Canvas {
-    var width: i32
-    var height: i32
-}
+// wxSizer flag constants
+pub func WX_EXPAND() -> i32 { return 8192 }
+pub func WX_ALL() -> i32 { return 240 }
+pub func WX_TOP() -> i32 { return 16 }
+pub func WX_BOTTOM() -> i32 { return 32 }
+pub func WX_LEFT() -> i32 { return 64 }
+pub func WX_RIGHT() -> i32 { return 128 }
+pub func WX_CENTER() -> i32 { return 1 }
+pub func WX_ALIGN_CENTER() -> i32 { return 256 }
 
-impl Canvas {
-    func clear(ref self, c: Color) {
-        clearBackground(c.r, c.g, c.b, c.a)
-    }
-    func fillRect(ref self, r: Rect, c: Color) {
-        drawRect(r.x, r.y, r.w, r.h, c.r, c.g, c.b, c.a)
-    }
-    func strokeLine(ref self, x1: i32, y1: i32, x2: i32, y2: i32, c: Color) {
-        drawLine(x1, y1, x2, y2, c.r, c.g, c.b, c.a)
-    }
-    func fillCircle(ref self, cx: i32, cy: i32, radius: i32, c: Color) {
-        drawCircle(cx, cy, radius, c.r, c.g, c.b, c.a)
-    }
-    func text(ref self, msg: string, x: i32, y: i32, size: i32, c: Color) {
-        drawText(msg, x, y, size, c.r, c.g, c.b, c.a)
-    }
-    func fillRoundedRect(ref self, r: Rect, roundness: f64, c: Color) {
-        drawRectRounded(r.x, r.y, r.w, r.h, roundness, c.r, c.g, c.b, c.a)
-    }
-    func textWidth(ref self, msg: string, size: i32) -> i32 {
-        return measureText(msg, size)
-    }
-}
+// Dialog style constants
+pub func WX_STYLE_INFO() -> i32 { return 1 }
+pub func WX_STYLE_WARNING() -> i32 { return 2 }
+pub func WX_STYLE_ERROR() -> i32 { return 3 }
+pub func WX_STYLE_QUESTION() -> i32 { return 4 }
+pub func WX_FILE_OPEN() -> i32 { return 0 }
+pub func WX_FILE_SAVE() -> i32 { return 1 }

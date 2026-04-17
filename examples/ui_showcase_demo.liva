@@ -1,0 +1,97 @@
+// UI Showcase Demo — ListView, Canvas, Form (struct wrapper syntax)
+// Build: livac examples/ui_showcase_demo.liva -o showcase_demo
+
+import std::ui
+import ui::widgets
+import ui::types
+
+func main() {
+    appInit()
+
+    let win = createWindow(600, 500, "Gelismis Ozellikler")
+    let panel = createPanel(win)
+
+    var tabs = TabView.new(panel)
+
+    // Tab 1: ListView
+    let tab1 = createPanel(tabs.handle)
+    let t1 = createVBoxSizer()
+
+    var searchLbl = Label.new(tab1, "Arama:")
+    var searchInp = TextInput.new(tab1, "")
+    sizerAdd(t1, searchLbl.handle, 0, WX_LEFT(), 5)
+    sizerAdd(t1, searchInp.handle, 0, WX_EXPAND(), 3)
+
+    var lv = ListBox.new(tab1)
+    lv.addItem("Turkiye - Istanbul")
+    lv.addItem("Turkiye - Ankara")
+    lv.addItem("Turkiye - Izmir")
+    lv.addItem("Almanya - Berlin")
+    lv.addItem("Fransa - Paris")
+    lv.addItem("Italya - Roma")
+    lv.addItem("Ispanya - Madrid")
+    lv.addItem("Ingiltere - Londra")
+    lv.onSelect(|_h: i32| {
+        messageBox("Secim", "Sehir secildi", 1)
+    })
+    sizerAdd(t1, lv.handle, 1, WX_EXPAND(), 5)
+
+    setSizer(tab1, t1)
+    tabs.addPage(tab1, "Liste")
+
+    // Tab 2: Form & Status
+    let tab2 = createPanel(tabs.handle)
+    let t2 = createVBoxSizer()
+
+    var userLbl = Label.new(tab2, "Kullanici Adi:")
+    var userInp = TextInput.new(tab2, "")
+    sizerAdd(t2, userLbl.handle, 0, WX_LEFT(), 5)
+    sizerAdd(t2, userInp.handle, 0, WX_EXPAND(), 3)
+
+    var passLbl = Label.new(tab2, "Sifre:")
+    var passInp = TextInput.new(tab2, "")
+    sizerAdd(t2, passLbl.handle, 0, WX_LEFT(), 5)
+    sizerAdd(t2, passInp.handle, 0, WX_EXPAND(), 3)
+
+    var loginBtn = Button.new(tab2, "Giris Yap")
+    loginBtn.onClick(|_h: i32| {
+        messageBox("Giris", "Giris yapiliyor...", 1)
+    })
+    sizerAdd(t2, loginBtn.handle, 0, WX_ALL(), 8)
+
+    var statusLbl = Label.new(tab2, "Giris bekleniyor...")
+    statusLbl.setFgColor(150, 150, 150)
+    sizerAdd(t2, statusLbl.handle, 0, WX_ALL(), 5)
+
+    setSizer(tab2, t2)
+    tabs.addPage(tab2, "Giris")
+
+    // Tab 3: Canvas
+    let tab3 = createPanel(tabs.handle)
+    let t3 = createVBoxSizer()
+
+    var canvas = Canvas.new(tab3)
+    canvas.onPaint(|dc: i32| {
+        dcClear(dc, 20, 20, 30)
+        dcDrawRect(dc, 20, 20, 80, 80, 231, 76, 60)
+        dcDrawRect(dc, 110, 20, 80, 80, 46, 204, 113)
+        dcDrawRect(dc, 200, 20, 80, 80, 52, 152, 219)
+        dcDrawRect(dc, 290, 20, 80, 80, 155, 89, 182)
+        dcDrawText(dc, "Renk Paleti", 20, 120, 200, 200, 200)
+        dcDrawCircle(dc, 60, 200, 40, 241, 196, 15)
+        dcDrawCircle(dc, 160, 200, 30, 26, 188, 156)
+        dcDrawLine(dc, 220, 160, 400, 240, 255, 255, 255)
+    })
+    sizerAdd(t3, canvas.handle, 1, WX_EXPAND(), 0)
+
+    setSizer(tab3, t3)
+    tabs.addPage(tab3, "Canvas")
+
+    // Main layout
+    let mainSizer = createVBoxSizer()
+    sizerAdd(mainSizer, tabs.handle, 1, WX_EXPAND(), 0)
+
+    setSizer(panel, mainSizer)
+    windowShow(win, 1)
+    appRun()
+}

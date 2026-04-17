@@ -1,59 +1,62 @@
-// UI Callback Demo — Event/Callback System (Phase 6)
-// Demonstrates closure-based callbacks on Button, Checkbox, and Slider widgets.
+// UI Callback Demo — Event/Callback system with closures
+// Demonstrates onClick, onChange, onSelect callbacks
 
 import std::ui
 import ui::types
-import ui::theme
-import ui::widgets
 
 func main() {
-    initWindow(600, 400, "Callback Demo")
-    setTargetFps(60)
+    appInit()
 
-    let dark = Theme.dark()
+    let win = createWindow(500, 350, "Callback Demo")
+    let panel = createPanel(win)
 
-    // Button with trailing closure callback
-    var btn = Button.withClick("Click Me", 1, dark) |id: i32| {
-        println("Button clicked, id:")
-        println(id)
-    }
+    let sizer = createVBoxSizer()
 
-    // Checkbox with toggle callback
-    var cb = Checkbox.withToggle("Enable feature", false, dark) |checked: bool| {
-        if checked {
-            println("Feature enabled")
+    let title = createLabel(panel, "Olay/Callback Ornekleri")
+    setWidgetFont(title, 16, 1)
+    sizerAdd(sizer, title, 0, WX_ALL(), 10)
+
+    // Status label — updated by callbacks
+    let status = createLabel(panel, "Durum: Bekleniyor...")
+    setFgColor(status, 100, 200, 100)
+    sizerAdd(sizer, status, 0, WX_ALL(), 5)
+
+    // Button with onClick
+    let btn = createButton(panel, "Tikla!")
+    onClick(btn, |_h: i32| {
+        setText(status, "Durum: Butona tiklandi!")
+    })
+    sizerAdd(sizer, btn, 0, WX_ALL(), 5)
+
+    // Checkbox with onChange
+    let cb = createCheckbox(panel, "Bildirimler")
+    onChange(cb, |_h: i32| {
+        let v = getValue(cb)
+        if v == 1 {
+            setText(status, "Durum: Bildirimler ACIK")
         } else {
-            println("Feature disabled")
+            setText(status, "Durum: Bildirimler KAPALI")
         }
-    }
+    })
+    sizerAdd(sizer, cb, 0, WX_ALL(), 5)
 
-    // Slider with value change callback
-    var sl = Slider.withChange(0, 100, 200, dark) |val: i32| {
-        println(val)
-    }
+    // Slider with onChange
+    let sliderLbl = createLabel(panel, "Deger: 50")
+    let slider = createSlider(panel, 0, 100, 50)
+    onChange(slider, |_h: i32| {
+        setText(status, "Durum: Slider degisti")
+    })
+    sizerAdd(sizer, sliderLbl, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, slider, 0, WX_EXPAND(), 5)
 
-    // Setter-based callback
-    var btn2 = Button.new("Reset", 2)
-    btn2.setOnClick() |id: i32| {
-        println("Reset pressed")
-    }
+    // Dropdown with onSelect
+    let dd = createDropdown(panel, "Secim 1;Secim 2;Secim 3")
+    onSelect(dd, |_h: i32| {
+        setText(status, "Durum: Dropdown secildi")
+    })
+    sizerAdd(sizer, dd, 0, WX_ALL(), 5)
 
-    while !windowShouldClose() {
-        // Update (process input + fire callbacks)
-        btn.update(40, 50)
-        btn2.update(40, 100)
-        cb.update(40, 160)
-        sl.update(40, 220)
-
-        // Draw
-        beginDrawing()
-        clearBackground(30, 30, 30, 255)
-        btn.draw(40, 50)
-        btn2.draw(40, 100)
-        cb.draw(40, 160)
-        sl.draw(40, 220)
-        endDrawing()
-    }
-
-    closeWindow()
+    setSizer(panel, sizer)
+    windowShow(win, 1)
+    appRun()
 }

@@ -1,0 +1,31 @@
+// Drag & Drop — placeholder for wxDnD integration
+// Import with: import ui::dragdrop
+
+import std::ui
+
+// wxWidgets drag & drop requires wxDropTarget/wxDropSource
+// This will be expanded as wxDnD C wrapper functions are added
+// For now, provides basic drag state tracking
+
+pub struct DragState {
+    var active: bool
+    var sourceHandle: i32
+    var startX: i32
+    var startY: i32
+}
+
+impl DragState {
+    pub func new() -> DragState {
+        return DragState { active: false, sourceHandle: 0, startX: 0, startY: 0 }
+    }
+    pub func isActive(ref self) -> bool { return self.active }
+    pub func begin(ref mut self, source: i32, x: i32, y: i32) {
+        self.active = true
+        self.sourceHandle = source
+        self.startX = x
+        self.startY = y
+    }
+    pub func end(ref mut self) {
+        self.active = false
+    }
+}

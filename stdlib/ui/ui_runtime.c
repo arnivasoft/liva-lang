@@ -193,6 +193,54 @@ int32_t liva_ui_measure_text_font(int32_t handle, const char* text, int32_t size
     return (int32_t)MeasureTextEx(fontSlots[handle], text, (float)size, spacing).x;
 }
 
+// === Image/Texture ===
+
+#define MAX_IMAGES 64
+static Texture2D imageSlots[MAX_IMAGES];
+static bool imageUsed[MAX_IMAGES] = {false};
+
+int32_t liva_ui_load_image(const char* path) {
+    for (int i = 1; i < MAX_IMAGES; ++i) {
+        if (!imageUsed[i]) {
+            imageSlots[i] = LoadTexture(path);
+            if (imageSlots[i].id == 0) return -1;
+            SetTextureFilter(imageSlots[i], TEXTURE_FILTER_BILINEAR);
+            imageUsed[i] = true;
+            return i;
+        }
+    }
+    return -1; // no free slot
+}
+
+void liva_ui_unload_image(int32_t handle) {
+    if (handle >= 1 && handle < MAX_IMAGES && imageUsed[handle]) {
+        UnloadTexture(imageSlots[handle]);
+        imageUsed[handle] = false;
+    }
+}
+
+void liva_ui_draw_image(int32_t handle, int32_t x, int32_t y) {
+    if (handle < 1 || handle >= MAX_IMAGES || !imageUsed[handle]) return;
+    DrawTexture(imageSlots[handle], x, y, WHITE);
+}
+
+void liva_ui_draw_image_scaled(int32_t handle, int32_t x, int32_t y, int32_t w, int32_t h) {
+    if (handle < 1 || handle >= MAX_IMAGES || !imageUsed[handle]) return;
+    Rectangle src = {0, 0, (float)imageSlots[handle].width, (float)imageSlots[handle].height};
+    Rectangle dst = {(float)x, (float)y, (float)w, (float)h};
+    DrawTexturePro(imageSlots[handle], src, dst, (Vector2){0, 0}, 0.0f, WHITE);
+}
+
+int32_t liva_ui_get_image_width(int32_t handle) {
+    if (handle < 1 || handle >= MAX_IMAGES || !imageUsed[handle]) return 0;
+    return imageSlots[handle].width;
+}
+
+int32_t liva_ui_get_image_height(int32_t handle) {
+    if (handle < 1 || handle >= MAX_IMAGES || !imageUsed[handle]) return 0;
+    return imageSlots[handle].height;
+}
+
 // === Clipboard ===
 
 const char* liva_ui_get_clipboard_text(void) {

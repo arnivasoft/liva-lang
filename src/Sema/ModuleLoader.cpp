@@ -130,20 +130,40 @@ void ModuleLoader::registerBuiltinModules() {
          "strToUpper", "strToLower",
          "strReverse", "strChars", "strLines"});
 
-    // std::ui — UI library (raylib backend)
+    // std::ui — UI library (wxWidgets backend)
     cache_["std::ui"] = createBuiltinModule("std::ui",
-        {"initWindow", "closeWindow", "windowShouldClose", "setTargetFps",
-         "getScreenWidth", "getScreenHeight",
-         "beginDrawing", "endDrawing", "clearBackground",
-         "drawRect", "drawRectRounded", "drawText", "measureText",
-         "drawLine", "drawCircle", "drawRectLines",
-         "isMousePressed", "isMouseReleased", "isMouseDown",
-         "getMouseX", "getMouseY", "getMouseWheel",
-         "isKeyPressed", "isKeyDown", "getCharPressed", "getKeyPressed",
-         "beginScissor", "endScissor", "getFrameTime",
-         "loadFont", "unloadFont", "drawTextFont", "measureTextFont",
-         "drawTextWrapped", "measureTextWrapped",
-         "getClipboardText", "setClipboardText"});
+        {// App lifecycle
+         "appInit", "appRun", "appQuit",
+         // Window
+         "createWindow", "windowShow", "windowSetTitle",
+         "windowGetWidth", "windowGetHeight", "windowOnClose",
+         // Widget creation
+         "createPanel", "createButton", "createLabel", "createTextInput",
+         "createCheckbox", "createSlider", "createProgressBar",
+         "createRadioGroup", "createDropdown", "createTextArea",
+         "createListBox", "createTabView", "createScrollView",
+         "createImageView", "createDivider",
+         // Widget properties
+         "setText", "getText", "setValue", "getValue",
+         "setEnabled", "setVisible", "setWidgetSize", "setWidgetFont",
+         "setBgColor", "setFgColor", "setTooltip", "destroyWidget",
+         // Layout (sizers)
+         "createVBoxSizer", "createHBoxSizer", "createGridSizer",
+         "createFlexGridSizer", "sizerAdd", "setSizer",
+         // Events
+         "onClick", "onChange", "onSelect", "onKey",
+         // List / Tab operations
+         "listAddItem", "listClear", "listGetSelection",
+         "tabAddPage", "tabGetSelection",
+         // Dialogs
+         "messageBox", "fileDialog", "colorDialog",
+         // Timer
+         "createTimer", "stopTimer",
+         // Clipboard
+         "getClipboardText", "setClipboardText",
+         // Canvas / custom drawing
+         "createCanvas", "canvasOnPaint", "canvasRefresh",
+         "dcClear", "dcDrawRect", "dcDrawText", "dcDrawLine", "dcDrawCircle"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

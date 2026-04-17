@@ -49,7 +49,9 @@ protected:
     }
 };
 
-// ---- Module registration tests ----
+// ============================================================
+// Module registration tests
+// ============================================================
 
 TEST_F(UIModuleTest, ImportStdUI) {
     auto r = check("import std::ui\nfunc main() {}");
@@ -60,8 +62,10 @@ TEST_F(UIModuleTest, ImportStdUIUseFunctions) {
     auto r = check(
         "import std::ui\n"
         "func main() {\n"
-        "    initWindow(800, 600, \"Hello\")\n"
-        "    closeWindow()\n"
+        "    appInit()\n"
+        "    let win = createWindow(800, 600, \"Hello\")\n"
+        "    windowShow(win, 1)\n"
+        "    appRun()\n"
         "}\n"
     );
     EXPECT_TRUE(r.passed) << "UI functions should resolve after import std::ui";
@@ -70,1571 +74,887 @@ TEST_F(UIModuleTest, ImportStdUIUseFunctions) {
 TEST_F(UIModuleTest, UIFunctionsNotAvailableWithoutImport) {
     auto r = check(
         "func main() {\n"
-        "    initWindow(800, 600, \"Hello\")\n"
+        "    appInit()\n"
         "}\n"
     );
-    EXPECT_FALSE(r.passed) << "initWindow should not be available without import";
+    EXPECT_FALSE(r.passed) << "appInit should not be available without import";
 }
 
 TEST_F(UIModuleTest, UmbrellaImportIncludesUI) {
     auto r = check(
         "import std\n"
         "func main() {\n"
-        "    initWindow(800, 600, \"Test\")\n"
-        "    closeWindow()\n"
+        "    appInit()\n"
+        "    let win = createWindow(800, 600, \"Test\")\n"
+        "    appQuit()\n"
         "}\n"
     );
     EXPECT_TRUE(r.passed) << "import std (umbrella) should include UI functions";
 }
 
-TEST_F(UIModuleTest, DrawingFunctions) {
+// ============================================================
+// App lifecycle tests
+// ============================================================
+
+TEST_F(UIModuleTest, AppLifecycle) {
     auto r = check(
         "import std::ui\n"
         "func main() {\n"
-        "    beginDrawing()\n"
-        "    clearBackground(0, 0, 0, 255)\n"
-        "    drawRect(10, 10, 100, 100, 255, 0, 0, 255)\n"
-        "    drawText(\"Hello\", 50, 50, 20, 255, 255, 255, 255)\n"
-        "    drawLine(0, 0, 100, 100, 255, 255, 0, 255)\n"
-        "    drawCircle(200, 200, 30, 0, 255, 0, 255)\n"
-        "    endDrawing()\n"
+        "    appInit()\n"
+        "    appRun()\n"
+        "    appQuit()\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "All drawing functions should resolve";
+    EXPECT_TRUE(r.passed) << "App lifecycle functions should resolve";
 }
 
-TEST_F(UIModuleTest, InputFunctions) {
+// ============================================================
+// Window functions
+// ============================================================
+
+TEST_F(UIModuleTest, WindowFunctions) {
     auto r = check(
         "import std::ui\n"
         "func main() {\n"
-        "    let pressed = isMousePressed(0)\n"
-        "    let released = isMouseReleased(0)\n"
-        "    let down = isMouseDown(0)\n"
-        "    let mx = getMouseX()\n"
-        "    let my = getMouseY()\n"
-        "    let kp = isKeyPressed(32)\n"
-        "    let kd = isKeyDown(32)\n"
-        "    let ch = getCharPressed()\n"
-        "    let key = getKeyPressed()\n"
+        "    let win = createWindow(800, 600, \"Test\")\n"
+        "    windowShow(win, 1)\n"
+        "    windowSetTitle(win, \"New Title\")\n"
+        "    let w = windowGetWidth(win)\n"
+        "    let h = windowGetHeight(win)\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "All input functions should resolve";
+    EXPECT_TRUE(r.passed) << "Window functions should resolve";
 }
 
-TEST_F(UIModuleTest, WindowAndTimeFunctions) {
+// ============================================================
+// Widget creation tests
+// ============================================================
+
+TEST_F(UIModuleTest, CreateBasicWidgets) {
     auto r = check(
         "import std::ui\n"
         "func main() {\n"
-        "    let w = getScreenWidth()\n"
-        "    let h = getScreenHeight()\n"
-        "    let shouldClose = windowShouldClose()\n"
-        "    setTargetFps(60)\n"
-        "    let mt = measureText(\"test\", 20)\n"
+        "    let win = createWindow(400, 300, \"Test\")\n"
+        "    let panel = createPanel(win)\n"
+        "    let btn = createButton(panel, \"Click\")\n"
+        "    let lbl = createLabel(panel, \"Hello\")\n"
+        "    let inp = createTextInput(panel, \"\")\n"
+        "    let cb = createCheckbox(panel, \"Check\")\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Window and utility functions should resolve";
+    EXPECT_TRUE(r.passed) << "Basic widget creation functions should resolve";
 }
 
-TEST_F(UIModuleTest, ScissorFunctions) {
+TEST_F(UIModuleTest, CreateSliderProgressBar) {
     auto r = check(
         "import std::ui\n"
         "func main() {\n"
-        "    beginScissor(10, 10, 200, 200)\n"
-        "    endScissor()\n"
+        "    let panel = createPanel(0)\n"
+        "    let sl = createSlider(panel, 0, 100, 50)\n"
+        "    let pb = createProgressBar(panel, 100)\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Scissor functions should resolve";
+    EXPECT_TRUE(r.passed) << "Slider and progress bar creation should resolve";
 }
 
-TEST_F(UIModuleTest, GetFrameTime) {
+TEST_F(UIModuleTest, CreateSelectionWidgets) {
     auto r = check(
         "import std::ui\n"
         "func main() {\n"
-        "    let dt = getFrameTime()\n"
+        "    let panel = createPanel(0)\n"
+        "    let rg = createRadioGroup(panel, \"A;B;C\")\n"
+        "    let dd = createDropdown(panel, \"X;Y;Z\")\n"
+        "    let lb = createListBox(panel)\n"
+        "    let tv = createTabView(panel)\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "getFrameTime should resolve";
+    EXPECT_TRUE(r.passed) << "Selection widget creation should resolve";
 }
 
-// ---- File-based module tests (ui::types) ----
+TEST_F(UIModuleTest, CreateTextWidgets) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let panel = createPanel(0)\n"
+        "    let ta = createTextArea(panel, \"multi\\nline\")\n"
+        "    let sv = createScrollView(panel)\n"
+        "    let div = createDivider(panel)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Text and misc widget creation should resolve";
+}
+
+TEST_F(UIModuleTest, CreateImageView) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let panel = createPanel(0)\n"
+        "    let img = createImageView(panel, \"test.png\")\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ImageView creation should resolve";
+}
+
+// ============================================================
+// Widget property tests
+// ============================================================
+
+TEST_F(UIModuleTest, WidgetProperties) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let btn = createButton(0, \"Test\")\n"
+        "    setText(btn, \"New Text\")\n"
+        "    let t = getText(btn)\n"
+        "    setValue(btn, 1)\n"
+        "    let v = getValue(btn)\n"
+        "    setEnabled(btn, 1)\n"
+        "    setVisible(btn, 1)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Widget property functions should resolve";
+}
+
+TEST_F(UIModuleTest, WidgetSizeAndFont) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let btn = createButton(0, \"Test\")\n"
+        "    setWidgetSize(btn, 200, 50)\n"
+        "    setWidgetFont(btn, 14, 1)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Widget size and font functions should resolve";
+}
+
+TEST_F(UIModuleTest, WidgetColors) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let btn = createButton(0, \"Test\")\n"
+        "    setBgColor(btn, 255, 0, 0)\n"
+        "    setFgColor(btn, 255, 255, 255)\n"
+        "    setTooltip(btn, \"Tooltip text\")\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Widget color and tooltip functions should resolve";
+}
+
+TEST_F(UIModuleTest, DestroyWidget) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let btn = createButton(0, \"Temp\")\n"
+        "    destroyWidget(btn)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "destroyWidget should resolve";
+}
+
+// ============================================================
+// Layout (sizer) tests
+// ============================================================
+
+TEST_F(UIModuleTest, SizerCreation) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let vbox = createVBoxSizer()\n"
+        "    let hbox = createHBoxSizer()\n"
+        "    let grid = createGridSizer(2, 3, 5, 5)\n"
+        "    let flex = createFlexGridSizer(2, 3, 5, 5)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Sizer creation functions should resolve";
+}
+
+TEST_F(UIModuleTest, SizerAddAndSet) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let panel = createPanel(0)\n"
+        "    let vbox = createVBoxSizer()\n"
+        "    let btn = createButton(panel, \"OK\")\n"
+        "    sizerAdd(vbox, btn, 0, 0, 5)\n"
+        "    setSizer(panel, vbox)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "sizerAdd and setSizer should resolve";
+}
+
+// ============================================================
+// Event callback tests
+// ============================================================
+
+TEST_F(UIModuleTest, EventCallbacks) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let btn = createButton(0, \"Click\")\n"
+        "    onClick(btn, |h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "onClick with closure should resolve";
+}
+
+TEST_F(UIModuleTest, OnChangCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let inp = createTextInput(0, \"\")\n"
+        "    onChange(inp, |h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "onChange with closure should resolve";
+}
+
+TEST_F(UIModuleTest, OnSelectCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let dd = createDropdown(0, \"A;B;C\")\n"
+        "    onSelect(dd, |h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "onSelect with closure should resolve";
+}
+
+TEST_F(UIModuleTest, OnKeyCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let panel = createPanel(0)\n"
+        "    onKey(panel, |h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "onKey with closure should resolve";
+}
+
+TEST_F(UIModuleTest, WindowOnCloseCallback) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let win = createWindow(400, 300, \"Test\")\n"
+        "    windowOnClose(win, |h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "windowOnClose with closure should resolve";
+}
+
+// ============================================================
+// List and Tab operations
+// ============================================================
+
+TEST_F(UIModuleTest, ListOperations) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let lb = createListBox(0)\n"
+        "    listAddItem(lb, \"Item 1\")\n"
+        "    listAddItem(lb, \"Item 2\")\n"
+        "    let sel = listGetSelection(lb)\n"
+        "    listClear(lb)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "List operations should resolve";
+}
+
+TEST_F(UIModuleTest, TabOperations) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let tv = createTabView(0)\n"
+        "    let page = createPanel(tv)\n"
+        "    tabAddPage(tv, page, \"Tab 1\")\n"
+        "    let sel = tabGetSelection(tv)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Tab operations should resolve";
+}
+
+// ============================================================
+// Dialog tests
+// ============================================================
+
+TEST_F(UIModuleTest, MessageBox) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    messageBox(\"Title\", \"Message\", 1)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "messageBox should resolve";
+}
+
+TEST_F(UIModuleTest, FileDialog) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let path = fileDialog(0, \"Open\", \"*.*\", 0)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "fileDialog should resolve";
+}
+
+TEST_F(UIModuleTest, ColorDialog) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let color = colorDialog(0)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "colorDialog should resolve";
+}
+
+// ============================================================
+// Timer tests
+// ============================================================
+
+TEST_F(UIModuleTest, TimerCreateStop) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let tmr = createTimer(100, |h: i32| { })\n"
+        "    stopTimer(tmr)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Timer functions should resolve";
+}
+
+// ============================================================
+// Clipboard tests
+// ============================================================
+
+TEST_F(UIModuleTest, Clipboard) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    setClipboardText(\"Hello\")\n"
+        "    let text = getClipboardText()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Clipboard functions should resolve";
+}
+
+// ============================================================
+// Canvas / custom drawing tests
+// ============================================================
+
+TEST_F(UIModuleTest, CanvasCreate) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    let canvas = createCanvas(0)\n"
+        "    canvasOnPaint(canvas, |dc: i32| { })\n"
+        "    canvasRefresh(canvas)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Canvas functions should resolve";
+}
+
+TEST_F(UIModuleTest, DcDrawFunctions) {
+    auto r = check(
+        "import std::ui\n"
+        "func main() {\n"
+        "    dcClear(0, 255, 255, 255)\n"
+        "    dcDrawRect(0, 10, 10, 100, 50, 255, 0, 0)\n"
+        "    dcDrawText(0, \"Hello\", 20, 20, 0, 0, 0)\n"
+        "    dcDrawLine(0, 0, 0, 100, 100, 0, 255, 0)\n"
+        "    dcDrawCircle(0, 50, 50, 25, 0, 0, 255)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "DC drawing functions should resolve";
+}
+
+// ============================================================
+// Import UI sub-modules
+// ============================================================
 
 TEST_F(UIModuleTest, ImportUITypes) {
-    // stdlib/ should contain ui/types.liva
     auto r = check(
         "import ui::types\n"
         "func main() {\n"
-        "    let c = Color.red()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::types should resolve Color struct";
+        "    let c = Color.rgb(255, 0, 0)\n"
+        "    let r = Rect.new(10, 20, 100, 200)\n"
+        "    let v = Vec2.new(5, 10)\n"
+        "    let s = Size.new(800, 600)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::types should be importable and usable";
 }
-
-TEST_F(UIModuleTest, UITypesRect) {
-    auto r = check(
-        "import ui::types\n"
-        "func main() {\n"
-        "    let r = Rect.new(10, 20, 100, 50)\n"
-        "    let inside = r.contains(15, 25)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Rect.new and contains should work";
-}
-
-TEST_F(UIModuleTest, UITypesCanvas) {
-    auto r = check(
-        "import ui::types\n"
-        "func main() {\n"
-        "    let canvas = Canvas { width: 800, height: 600 }\n"
-        "    let c = Color.white()\n"
-        "    canvas.text(\"hello\", 10, 10, 20, c)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Canvas.text should work with Color param";
-}
-
-// ---- Phase 3: Widget protocol + layout tests ----
 
 TEST_F(UIModuleTest, ImportUIWidgets) {
     auto r = check(
-        "import ui::types\n"
+        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    let lbl = Label.new(\"Hi\", 20, Color.white())\n"
-        "    let w = lbl.getWidth()\n"
-        "    let h = lbl.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::widgets should resolve Label";
-}
-
-TEST_F(UIModuleTest, WidgetButton) {
-    auto r = check(
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let btn = Button.new(\"+\", 1)\n"
-        "    let w = btn.getWidth()\n"
-        "    let h = btn.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Button.new and size methods should work";
-}
-
-TEST_F(UIModuleTest, WidgetSpacer) {
-    auto r = check(
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let sp = Spacer.new(10, 20)\n"
-        "    let vs = Spacer.vertical(30)\n"
-        "    let hs = Spacer.horizontal(40)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Spacer constructors should work";
-}
-
-TEST_F(UIModuleTest, WidgetPanel) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let p = Panel.new(Color.gray(40), 8, 200, 100)\n"
-        "    let w = p.getWidth()\n"
-        "    let h = p.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Panel with size computation should work";
-}
-
-TEST_F(UIModuleTest, WidgetDivider) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let hd = Divider.horizontalLine(200, Color.gray(80))\n"
-        "    let vd = Divider.verticalLine(100, Color.gray(80))\n"
-        "    let w = hd.getWidth()\n"
-        "    let h = vd.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Divider horizontal/vertical should work";
-}
-
-TEST_F(UIModuleTest, WidgetProtocolConformance) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func renderWidget(w: dyn Widget, x: i32, y: i32) {\n"
-        "    w.draw(x, y)\n"
+        "    appInit()\n"
+        "    let win = Window.new(800, 600, \"Test\")\n"
+        "    let panel = Panel.new(win.handle)\n"
+        "    let btn = Button.new(panel.handle, \"Click\")\n"
+        "    let lbl = Label.new(panel.handle, \"Hello\")\n"
         "}\n"
-        "func main() {\n"
-        "    let lbl = Label.new(\"Hello\", 20, Color.white())\n"
-        "    renderWidget(lbl, 10, 10)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Label should conform to Widget protocol via dyn dispatch";
-}
-
-TEST_F(UIModuleTest, DynWidgetArray) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let lbl = Label.new(\"Title\", 24, Color.white())\n"
-        "    let sp = Spacer.vertical(10)\n"
-        "    let btn = Button.new(\"Click\", 1)\n"
-        "    let items: [dyn Widget] = [lbl, sp, btn]\n"
-        "    for item in items {\n"
-        "        item.draw(0, 0)\n"
-        "    }\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "[dyn Widget] array with mixed widget types should work";
-}
-
-TEST_F(UIModuleTest, HitTestFunction) {
-    auto r = check(
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let inside = hitTest(50, 50, 0, 0, 100, 100)\n"
-        "    let outside = hitTest(200, 200, 0, 0, 100, 100)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "hitTest utility function should resolve";
-}
-
-
-TEST_F(UIModuleTest, ImportUILayoutMinimal) {
-    // Test if layout module loads
-    auto r = check(
-        "import ui::layout\n"
-        "func main() {\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::layout should load without errors";
+    );
+    EXPECT_TRUE(r.passed) << "ui::widgets structs should be usable";
 }
 
 TEST_F(UIModuleTest, ImportUILayout) {
     auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let lbl = Label.new(\"Hi\", 20, Color.white())\n"
-        "    let btn = Button.new(\"OK\", 1)\n"
-        "    let row: [dyn Widget] = [lbl, btn]\n"
-        "    layoutHStack(row, 10, 10, 8)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::layout should make layoutHStack available";
-}
-
-TEST_F(UIModuleTest, LayoutVStack) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"Line 1\", 20, Color.white())\n"
-        "    let sp = Spacer.vertical(8)\n"
-        "    let b = Label.new(\"Line 2\", 16, Color.gray(200))\n"
-        "    let col: [dyn Widget] = [a, sp, b]\n"
-        "    layoutVStack(col, 10, 10, 4)\n"
-        "    let c = Label.new(\"X\", 20, Color.white())\n"
-        "    let col2: [dyn Widget] = [c]\n"
-        "    let h = vstackHeight(col2, 4)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutVStack and vstackHeight should work";
-}
-
-TEST_F(UIModuleTest, LayoutCentered) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let title = Label.new(\"Centered\", 28, Color.white())\n"
-        "    let items: [dyn Widget] = [title]\n"
-        "    layoutVStackCentered(items, 100, 10)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutVStackCentered should work";
-}
-
-TEST_F(UIModuleTest, ButtonStyled) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let btn = Button.styled(\"Go\", 1,\n"
-        "        Color { r: 60, g: 160, b: 60, a: 255 },\n"
-        "        Color.white())\n"
-        "    let w = btn.getWidth()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Button.styled factory should work";
-}
-
-// ---- Phase 4: Interactive widgets ----
-
-TEST_F(UIModuleTest, NewBuiltinGetMouseWheel) {
-    auto r = check(
         "import std::ui\n"
-        "func main() {\n"
-        "    let w = getMouseWheel()\n"
-        "}\n");
-    EXPECT_TRUE(r.passed) << "getMouseWheel should resolve";
-}
-
-TEST_F(UIModuleTest, NewBuiltinDrawRectLines) {
-    auto r = check(
-        "import std::ui\n"
-        "func main() {\n"
-        "    drawRectLines(10, 20, 100, 50, 255, 255, 255, 255)\n"
-        "}\n");
-    EXPECT_TRUE(r.passed) << "drawRectLines should resolve";
-}
-
-TEST_F(UIModuleTest, CharToStringBuiltin) {
-    auto r = check(
-        "import std::convert\n"
-        "func main() {\n"
-        "    let s = charToString(65)\n"
-        "}\n");
-    EXPECT_TRUE(r.passed) << "charToString should resolve";
-}
-
-TEST_F(UIModuleTest, WidgetTextInput) {
-    auto r = check(
+        "import ui::layout\n"
         "import ui::types\n"
-        "import ui::widgets\n"
         "func main() {\n"
-        "    var ti = TextInput.new(\"Enter name...\", 200)\n"
-        "    let w = ti.getWidth()\n"
-        "    let h = ti.getHeight()\n"
-        "    let txt = ti.getText()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextInput construction and methods should work";
-}
-
-TEST_F(UIModuleTest, WidgetTextInputUpdate) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var ti = TextInput.new(\"Type here\", 250)\n"
-        "    ti.update(10, 10)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextInput.update should type-check";
-}
-
-TEST_F(UIModuleTest, WidgetCheckbox) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var cb = Checkbox.new(\"Enable\", false)\n"
-        "    cb.update(10, 10)\n"
-        "    let checked = cb.isChecked()\n"
-        "    let w = cb.getWidth()\n"
-        "    let h = cb.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Checkbox construction and methods should work";
-}
-
-TEST_F(UIModuleTest, WidgetSlider) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var sl = Slider.new(0, 100, 200)\n"
-        "    sl.update(10, 10)\n"
-        "    let v = sl.getValue()\n"
-        "    let w = sl.getWidth()\n"
-        "    let h = sl.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Slider construction and methods should work";
-}
-
-TEST_F(UIModuleTest, WidgetScrollView) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var sv = ScrollView.new(300, 400, 800)\n"
-        "    sv.update(10, 10)\n"
-        "    sv.beginDraw(10, 10)\n"
-        "    sv.endDraw()\n"
-        "    let sy = sv.getScrollY()\n"
-        "    let w = sv.getWidth()\n"
-        "    let h = sv.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "ScrollView construction and methods should work";
-}
-
-TEST_F(UIModuleTest, WidgetProgressBar) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var pb = ProgressBar.new(200, 20)\n"
-        "    pb.setValue(50)\n"
-        "    let w = pb.getWidth()\n"
-        "    let h = pb.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "ProgressBar construction and methods should work";
-}
-
-TEST_F(UIModuleTest, InteractiveWidgetProtocolConformance) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func renderWidget(w: dyn Widget, x: i32, y: i32) {\n"
-        "    w.draw(x, y)\n"
+        "    let vstack = VStack.new()\n"
+        "    let hstack = HStack.new()\n"
+        "    let grid = Grid.new(2, 2, 5, 5)\n"
         "}\n"
-        "func main() {\n"
-        "    let ti = TextInput.new(\"Name\", 200)\n"
-        "    let cb = Checkbox.new(\"On\", true)\n"
-        "    let sl = Slider.new(0, 100, 200)\n"
-        "    let pb = ProgressBar.new(200, 20)\n"
-        "    renderWidget(ti, 10, 10)\n"
-        "    renderWidget(cb, 10, 50)\n"
-        "    renderWidget(sl, 10, 90)\n"
-        "    renderWidget(pb, 10, 130)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Interactive widgets should conform to Widget protocol";
+    );
+    EXPECT_TRUE(r.passed) << "ui::layout structs should be usable";
 }
-
-TEST_F(UIModuleTest, DynWidgetArrayWithInteractive) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let lbl = Label.new(\"Form\", 24, Color.white())\n"
-        "    let ti = TextInput.new(\"Enter...\", 200)\n"
-        "    let cb = Checkbox.new(\"Accept\", false)\n"
-        "    let sl = Slider.new(0, 100, 200)\n"
-        "    let pb = ProgressBar.new(200, 10)\n"
-        "    let items: [dyn Widget] = [lbl, ti, cb, sl, pb]\n"
-        "    for item in items {\n"
-        "        item.draw(0, 0)\n"
-        "    }\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "[dyn Widget] array with interactive widgets should work";
-}
-
-// ---- Phase 5: Theme + Styling tests ----
 
 TEST_F(UIModuleTest, ImportUITheme) {
     auto r = check(
-        "import ui::theme\n"
-        "func main() {\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::theme should load without errors";
-}
-
-TEST_F(UIModuleTest, ThemeDarkFactory) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    let bg = t.background\n"
-        "    let fs = t.fontSize\n"
-        "    let sp = t.spacing\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Theme.dark() should create theme with accessible fields";
-}
-
-TEST_F(UIModuleTest, ThemeLightFactory) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "func main() {\n"
-        "    let t = Theme.light()\n"
-        "    let prim = t.primary\n"
-        "    let txt = t.text\n"
-        "    let pad = t.padding\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Theme.light() should create theme with accessible fields";
-}
-
-TEST_F(UIModuleTest, ThemeCustomStruct) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "func main() {\n"
-        "    let t = Theme {\n"
-        "        background: Color.black(),\n"
-        "        surface: Color.gray(40),\n"
-        "        surfaceAlt: Color.gray(30),\n"
-        "        primary: Color.blue(),\n"
-        "        primaryHover: Color.blue(),\n"
-        "        onPrimary: Color.white(),\n"
-        "        text: Color.white(),\n"
-        "        textSecondary: Color.gray(120),\n"
-        "        success: Color.green(),\n"
-        "        error: Color.red(),\n"
-        "        border: Color.gray(100),\n"
-        "        borderFocused: Color.blue(),\n"
-        "        divider: Color.gray(80),\n"
-        "        fontSize: 18,\n"
-        "        padding: 6,\n"
-        "        spacing: 10,\n"
-        "        scrollSpeed: 25\n"
-        "    }\n"
-        "    let bg = t.background\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Custom Theme struct literal should work";
-}
-
-TEST_F(UIModuleTest, ButtonThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    let btn = Button.themed(\"OK\", 1, t)\n"
-        "    let w = btn.getWidth()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Button.themed() factory should work";
-}
-
-TEST_F(UIModuleTest, TextInputThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.light()\n"
-        "    var ti = TextInput.themed(\"Name\", 200, t)\n"
-        "    let w = ti.getWidth()\n"
-        "    let txt = ti.getText()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextInput.themed() factory should work";
-}
-
-TEST_F(UIModuleTest, CheckboxThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    var cb = Checkbox.themed(\"Enable\", false, t)\n"
-        "    let checked = cb.isChecked()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Checkbox.themed() factory should work";
-}
-
-TEST_F(UIModuleTest, SliderThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    var sl = Slider.themed(0, 100, 200, t)\n"
-        "    let v = sl.getValue()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Slider.themed() factory should work";
-}
-
-TEST_F(UIModuleTest, ScrollViewThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    var sv = ScrollView.themed(300, 400, 800, t)\n"
-        "    let sy = sv.getScrollY()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "ScrollView.themed() factory should work";
-}
-
-TEST_F(UIModuleTest, ProgressBarThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.light()\n"
-        "    var pb = ProgressBar.themed(200, 20, t)\n"
-        "    pb.setValue(75)\n"
-        "    let w = pb.getWidth()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "ProgressBar.themed() factory should work";
-}
-
-TEST_F(UIModuleTest, PanelThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    let p = Panel.themed(t, 12, 200, 100)\n"
-        "    let w = p.getWidth()\n"
-        "    let h = p.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Panel.themed() factory should work";
-}
-
-TEST_F(UIModuleTest, BackwardCompatNoTheme) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let btn = Button.new(\"Go\", 1)\n"
-        "    var ti = TextInput.new(\"Enter\", 200)\n"
-        "    var cb = Checkbox.new(\"On\", true)\n"
-        "    var sl = Slider.new(0, 50, 150)\n"
-        "    var sv = ScrollView.new(300, 200, 600)\n"
-        "    var pb = ProgressBar.new(180, 16)\n"
-        "    let p = Panel.new(Color.gray(40), 8, 200, 100)\n"
-        "    let d = Divider.horizontalLine(200, Color.gray(80))\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Old API (new()) should still work without theme import";
-}
-
-// ---- Callback tests ----
-
-TEST_F(UIModuleTest, ButtonWithCallback) {
-    auto r = check(
         "import std::ui\n"
-        "import ui::types\n"
         "import ui::theme\n"
-        "import ui::widgets\n"
+        "import ui::types\n"
         "func main() {\n"
         "    let dark = Theme.dark()\n"
-        "    let btn = Button.withClick(\"OK\", 1, dark) |id: i32| {\n"
-        "        println(id)\n"
-        "    }\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Button.withClick with trailing closure should pass sema";
+        "    let light = Theme.light()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::theme should be importable and usable";
 }
-
-TEST_F(UIModuleTest, CheckboxWithCallback) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let dark = Theme.dark()\n"
-        "    let cb = Checkbox.withToggle(\"Enable\", false, dark) |checked: bool| {\n"
-        "        println(checked)\n"
-        "    }\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Checkbox.withToggle with trailing closure should pass sema";
-}
-
-TEST_F(UIModuleTest, SliderWithCallback) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let dark = Theme.dark()\n"
-        "    let sl = Slider.withChange(0, 100, 200, dark) |val: i32| {\n"
-        "        println(val)\n"
-        "    }\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Slider.withChange with trailing closure should pass sema";
-}
-
-TEST_F(UIModuleTest, BackwardCompatNoCallback) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let btn = Button.new(\"Go\", 1)\n"
-        "    var cb = Checkbox.new(\"On\", true)\n"
-        "    var sl = Slider.new(0, 50, 150)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Old API (new()) with closure fields should still work";
-}
-
-// ---- Phase 7: RadioGroup, TabView, Dropdown, Dialog ----
-
-TEST_F(UIModuleTest, RadioGroupOf3) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var rg = RadioGroup.of3(\"Red\", \"Green\", \"Blue\")\n"
-        "    let sel = rg.getSelected()\n"
-        "    let opt = rg.getOption(0)\n"
-        "    let w = rg.getWidth()\n"
-        "    let h = rg.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "RadioGroup.of3 construction and methods should work";
-}
-
-TEST_F(UIModuleTest, RadioGroupThemed) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    var rg = RadioGroup.themed3(\"Small\", \"Medium\", \"Large\", t)\n"
-        "    rg.update(10, 10)\n"
-        "    let sel = rg.getSelected()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "RadioGroup.themed3 with theme should work";
-}
-
-TEST_F(UIModuleTest, DropdownOf3) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var dd = Dropdown.of3(\"Apple\", \"Banana\", \"Cherry\", 200)\n"
-        "    let sel = dd.getSelected()\n"
-        "    let open = dd.isOpen()\n"
-        "    let opt = dd.getOption(1)\n"
-        "    let w = dd.getWidth()\n"
-        "    let h = dd.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Dropdown.of3 construction and methods should work";
-}
-
-TEST_F(UIModuleTest, DropdownThemed) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    var dd = Dropdown.themed3(\"One\", \"Two\", \"Three\", 180, t)\n"
-        "    dd.update(10, 10)\n"
-        "    let sel = dd.getSelected()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Dropdown.themed3 with theme should work";
-}
-
-TEST_F(UIModuleTest, TabViewOf3) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var tv = TabView.of3(\"Home\", \"Settings\", \"About\")\n"
-        "    let sel = tv.getSelected()\n"
-        "    let tw = tv.getTabWidth(0)\n"
-        "    let w = tv.getWidth()\n"
-        "    let h = tv.getHeight()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TabView.of3 construction and methods should work";
-}
-
-TEST_F(UIModuleTest, TabViewThemed) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    var tv = TabView.themed3(\"Tab1\", \"Tab2\", \"Tab3\", t)\n"
-        "    tv.update(10, 10)\n"
-        "    let sel = tv.getSelected()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TabView.themed3 with theme should work";
-}
-
-TEST_F(UIModuleTest, DialogAlert) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var dlg = Dialog.alert(\"Info\", \"Operation completed.\", \"OK\")\n"
-        "    let vis = dlg.isVisible()\n"
-        "    dlg.show()\n"
-        "    let w = dlg.getWidth()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Dialog.alert construction and methods should work";
-}
-
-TEST_F(UIModuleTest, DialogConfirmThemed) {
-    auto r = check(
-        "import std::ui\n"
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    var dlg = Dialog.confirmThemed(\"Delete?\", \"This cannot be undone.\", \"Delete\", \"Cancel\", t)\n"
-        "    dlg.setOnConfirm(|_id: i32| { })\n"
-        "    dlg.setOnCancel(|_id: i32| { })\n"
-        "    dlg.show()\n"
-        "    dlg.update()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Dialog.confirmThemed with callbacks should work";
-}
-
-// ---- Phase 8: Advanced Layout System ----
-
-TEST_F(UIModuleTest, GridLayout) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"A\", 20, Color.white())\n"
-        "    let b = Label.new(\"B\", 20, Color.white())\n"
-        "    let c = Label.new(\"C\", 20, Color.white())\n"
-        "    let d = Label.new(\"D\", 20, Color.white())\n"
-        "    let items: [dyn Widget] = [a, b, c, d]\n"
-        "    layoutGrid(items, 10, 10, 2, 100, 40, 8, 8)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutGrid with 4 labels in 2x2 should work";
-}
-
-TEST_F(UIModuleTest, GridAlignedLayout) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"A\", 16, Color.white())\n"
-        "    let b = Label.new(\"BB\", 20, Color.white())\n"
-        "    let c = Label.new(\"CCC\", 14, Color.white())\n"
-        "    let d = Label.new(\"D\", 18, Color.white())\n"
-        "    let items: [dyn Widget] = [a, b, c, d]\n"
-        "    layoutGridAligned(items, 10, 10, 2, 120, 50, 8, 8, 1, 1)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutGridAligned with center alignment should work";
-}
-
-TEST_F(UIModuleTest, GridSizeHelpers) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"X\", 20, Color.white())\n"
-        "    let b = Label.new(\"Y\", 20, Color.white())\n"
-        "    let c = Label.new(\"Z\", 20, Color.white())\n"
-        "    let items: [dyn Widget] = [a, b, c]\n"
-        "    let rows = gridRows(items, 2)\n"
-        "    let gw = gridWidth(2, 100, 8)\n"
-        "    let gh = gridHeight(rows, 40, 8)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "gridRows/gridWidth/gridHeight should work";
-}
-
-TEST_F(UIModuleTest, VStackAligned) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"Short\", 20, Color.white())\n"
-        "    let b = Label.new(\"Longer text\", 20, Color.white())\n"
-        "    let items: [dyn Widget] = [a, b]\n"
-        "    layoutVStackAligned(items, 10, 10, 8, 300, 2)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutVStackAligned with right alignment should work";
-}
-
-TEST_F(UIModuleTest, HStackAligned) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"Top\", 16, Color.white())\n"
-        "    let b = Button.new(\"OK\", 1)\n"
-        "    let items: [dyn Widget] = [a, b]\n"
-        "    layoutHStackAligned(items, 10, 10, 8, 60, 1)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutHStackAligned with center alignment should work";
-}
-
-TEST_F(UIModuleTest, AlignedStacksThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    let a = Label.new(\"A\", 20, Color.white())\n"
-        "    let b = Label.new(\"B\", 20, Color.white())\n"
-        "    let items: [dyn Widget] = [a, b]\n"
-        "    layoutVStackAlignedThemed(items, 10, 10, 300, 1, t)\n"
-        "    let c = Label.new(\"C\", 20, Color.white())\n"
-        "    let d = Label.new(\"D\", 20, Color.white())\n"
-        "    let items2: [dyn Widget] = [c, d]\n"
-        "    layoutHStackAlignedThemed(items2, 10, 100, 60, 1, t)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Themed aligned stack variants should work";
-}
-
-TEST_F(UIModuleTest, HStackSpaced) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Button.new(\"A\", 1)\n"
-        "    let b = Button.new(\"B\", 2)\n"
-        "    let c = Button.new(\"C\", 3)\n"
-        "    let items: [dyn Widget] = [a, b, c]\n"
-        "    layoutHStackSpaced(items, 10, 10, 500)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutHStackSpaced (space-between) should work";
-}
-
-TEST_F(UIModuleTest, VStackSpaced) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"Top\", 20, Color.white())\n"
-        "    let b = Label.new(\"Mid\", 20, Color.white())\n"
-        "    let c = Label.new(\"Bot\", 20, Color.white())\n"
-        "    let items: [dyn Widget] = [a, b, c]\n"
-        "    layoutVStackSpaced(items, 10, 10, 400)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutVStackSpaced (space-between) should work";
-}
-
-TEST_F(UIModuleTest, CenteredLayouts) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Button.new(\"OK\", 1)\n"
-        "    let b = Button.new(\"Cancel\", 2)\n"
-        "    let items: [dyn Widget] = [a, b]\n"
-        "    layoutHStackCentered(items, 0, 10, 800, 8)\n"
-        "    let c = Label.new(\"Title\", 24, Color.white())\n"
-        "    let d = Button.new(\"Go\", 3)\n"
-        "    let items2: [dyn Widget] = [c, d]\n"
-        "    layoutVStackCenteredInRect(items2, 0, 0, 800, 600, 10)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "layoutHStackCentered and layoutVStackCenteredInRect should work";
-}
-
-TEST_F(UIModuleTest, PaddedContainers) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "import ui::layout\n"
-        "func main() {\n"
-        "    let a = Label.new(\"Line 1\", 20, Color.white())\n"
-        "    let b = Label.new(\"Line 2\", 20, Color.white())\n"
-        "    let items: [dyn Widget] = [a, b]\n"
-        "    layoutVStackPadded(items, 10, 10, 8, 16, 12)\n"
-        "    let c = Label.new(\"Line 3\", 20, Color.white())\n"
-        "    let d = Label.new(\"Line 4\", 20, Color.white())\n"
-        "    let items2: [dyn Widget] = [c, d]\n"
-        "    layoutHStackPadded(items2, 10, 200, 8, 16, 12)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Padded VStack/HStack should work";
-}
-
-// ---- Phase 9: Font & TextArea tests ----
-
-TEST_F(UIModuleTest, FontLoadBuiltin) {
-    auto r = check(
-        "import std::ui\n"
-        "func main() {\n"
-        "    let handle = loadFont(\"test.ttf\", 20)\n"
-        "    unloadFont(handle)\n"
-        "}\n");
-    EXPECT_TRUE(r.passed) << "loadFont/unloadFont should pass sema";
-}
-
-TEST_F(UIModuleTest, FontDrawBuiltin) {
-    auto r = check(
-        "import std::ui\n"
-        "func main() {\n"
-        "    drawTextFont(1, \"Hi\", 10, 10, 20, 255, 255, 255, 255)\n"
-        "}\n");
-    EXPECT_TRUE(r.passed) << "drawTextFont should pass sema";
-}
-
-TEST_F(UIModuleTest, FontMeasureBuiltin) {
-    auto r = check(
-        "import std::ui\n"
-        "func main() {\n"
-        "    let w = measureTextFont(1, \"Hello\", 20)\n"
-        "}\n");
-    EXPECT_TRUE(r.passed) << "measureTextFont should pass sema";
-}
-
-TEST_F(UIModuleTest, TextWrappedBuiltin) {
-    auto r = check(
-        "import std::ui\n"
-        "func main() {\n"
-        "    let h = drawTextWrapped(\"Hello world\", 10, 10, 20, 200, 255, 255, 255, 255)\n"
-        "    let h2 = measureTextWrapped(\"Hello world\", 20, 200)\n"
-        "}\n");
-    EXPECT_TRUE(r.passed) << "drawTextWrapped/measureTextWrapped should pass sema";
-}
-
-TEST_F(UIModuleTest, TextAreaNew) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var ta = TextArea.new(\"Enter text...\", 400, 200)\n"
-        "    let text = ta.getText()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextArea.new and getText should work";
-}
-
-TEST_F(UIModuleTest, TextAreaThemed) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let theme = Theme.dark()\n"
-        "    var ta = TextArea.themed(\"Notes\", 400, 300, theme)\n"
-        "    let text = ta.getText()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextArea.themed should work";
-}
-
-TEST_F(UIModuleTest, TextAreaUpdate) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var ta = TextArea.new(\"Type here\", 300, 150)\n"
-        "    ta.update(10, 10)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextArea.update should pass sema";
-}
-
-TEST_F(UIModuleTest, TextAreaGetLineCount) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var ta = TextArea.new(\"Editor\", 400, 200)\n"
-        "    let lines = ta.getLineCount()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextArea.getLineCount should pass sema";
-}
-
-TEST_F(UIModuleTest, TextAreaWidgetConformance) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    var ta = TextArea.new(\"Code\", 400, 300)\n"
-        "    let w = ta.getWidth()\n"
-        "    let h = ta.getHeight()\n"
-        "    ta.draw(0, 0)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextArea Widget conformance should work";
-}
-
-TEST_F(UIModuleTest, TextAreaInWidgetArray) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::widgets\n"
-        "func main() {\n"
-        "    let lbl = Label.new(\"Title\", 24, Color.white())\n"
-        "    let ta = TextArea.new(\"Notes\", 400, 200)\n"
-        "    let items: [dyn Widget] = [lbl, ta]\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "TextArea in [dyn Widget] array should work";
-}
-
-// ---- Phase 10: Animation & Transitions ----
 
 TEST_F(UIModuleTest, ImportAnimation) {
     auto r = check(
         "import ui::animation\n"
         "func main() {\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::animation should load without errors";
+        "    let v = easeLinear(0.5)\n"
+        "    let t = Tween.new(0.0, 1.0, 1.0, 0)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::animation should be importable";
 }
 
 TEST_F(UIModuleTest, EasingFunctions) {
     auto r = check(
         "import ui::animation\n"
         "func main() {\n"
-        "    let a = easeLinear(0.5)\n"
-        "    let b = easeInQuad(0.5)\n"
-        "    let c = easeOutQuad(0.5)\n"
-        "    let d = easeInOutQuad(0.5)\n"
-        "    let e = easeInCubic(0.5)\n"
-        "    let f = easeOutCubic(0.5)\n"
-        "    let g = easeInOutCubic(0.5)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "All 7 easing functions should resolve";
+        "    let a = easeInQuad(0.5)\n"
+        "    let b = easeOutQuad(0.5)\n"
+        "    let c = easeInOutQuad(0.5)\n"
+        "    let d = easeInCubic(0.5)\n"
+        "    let e = easeOutCubic(0.5)\n"
+        "    let f = easeInOutCubic(0.5)\n"
+        "    let g = easeSpring(0.5)\n"
+        "    let h = easeElasticOut(0.5)\n"
+        "    let i = easeBounceOut(0.5)\n"
+        "    let j = easeBackOut(0.5)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "All easing functions should resolve";
 }
 
-TEST_F(UIModuleTest, ClampAndApplyEasing) {
+TEST_F(UIModuleTest, SpringAnimator) {
     auto r = check(
         "import ui::animation\n"
         "func main() {\n"
-        "    let clamped = clampF64(1.5, 0.0, 1.0)\n"
-        "    let eased = applyEasing(0.5, 2)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "clampF64 and applyEasing should resolve";
+        "    var spring = SpringAnimator.new(0.0, 200.0, 15.0)\n"
+        "    spring.setTarget(100.0)\n"
+        "    spring.update(0.016)\n"
+        "    let v = spring.getValue()\n"
+        "    let rest = spring.isAtRest()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "SpringAnimator should resolve";
 }
 
-TEST_F(UIModuleTest, LerpFunctions) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::animation\n"
-        "func main() {\n"
-        "    let f = lerpF64(0.0, 100.0, 0.5)\n"
-        "    let i = lerpI32(0, 255, 0.5)\n"
-        "    let c = lerpColor(Color.black(), Color.white(), 0.5)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "lerpF64, lerpI32, lerpColor should resolve";
-}
-
-TEST_F(UIModuleTest, TweenNew) {
+TEST_F(UIModuleTest, WidgetAnimator) {
     auto r = check(
         "import ui::animation\n"
         "func main() {\n"
-        "    let tw = Tween.new(0.0, 100.0, 1.0, 0)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Tween.new construction should work";
+        "    var wa = WidgetAnimator.new(1, 0.3)\n"
+        "    wa.enter()\n"
+        "    wa.update(0.016)\n"
+        "    let visible = wa.isVisible()\n"
+        "    let alpha = wa.getAlpha()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "WidgetAnimator should resolve";
 }
-
-TEST_F(UIModuleTest, TweenLifecycle) {
-    auto r = check(
-        "import ui::animation\n"
-        "func main() {\n"
-        "    var tw = Tween.new(0.0, 100.0, 1.0, 2)\n"
-        "    tw.start()\n"
-        "    tw.update(0.5)\n"
-        "    let p = tw.progress()\n"
-        "    let v = tw.getValue()\n"
-        "    let done = tw.isComplete()\n"
-        "    tw.reset()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Tween start/update/progress/getValue/isComplete/reset should work";
-}
-
-TEST_F(UIModuleTest, ColorTransitionNew) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::animation\n"
-        "func main() {\n"
-        "    let ct = ColorTransition.new(Color.black(), Color.white(), 0.5, 1)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "ColorTransition.new construction should work";
-}
-
-TEST_F(UIModuleTest, ColorTransitionLifecycle) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::animation\n"
-        "func main() {\n"
-        "    var ct = ColorTransition.new(Color.red(), Color.blue(), 1.0, 0)\n"
-        "    ct.start()\n"
-        "    ct.update(0.3)\n"
-        "    let p = ct.progress()\n"
-        "    let c = ct.getValue()\n"
-        "    let done = ct.isComplete()\n"
-        "    ct.reset()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "ColorTransition start/update/getValue/isComplete/reset should work";
-}
-
-TEST_F(UIModuleTest, HoverAnimatorNew) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::animation\n"
-        "func main() {\n"
-        "    var ha = HoverAnimator.new(5.0)\n"
-        "    ha.update(true, 0.016)\n"
-        "    let p = ha.getProgress()\n"
-        "    let c = ha.getColor(Color.gray(40), Color.gray(60))\n"
-        "    let v = ha.getValue(0.0, 1.0)\n"
-        "    let vi = ha.getValueI32(10, 20)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HoverAnimator construction and methods should work";
-}
-
-TEST_F(UIModuleTest, FocusAnimatorNew) {
-    auto r = check(
-        "import ui::types\n"
-        "import ui::animation\n"
-        "func main() {\n"
-        "    var fa = FocusAnimator.new(5.0)\n"
-        "    fa.update(true, 0.016)\n"
-        "    let p = fa.getProgress()\n"
-        "    let c = fa.getColor(Color.gray(60), Color.blue())\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "FocusAnimator construction and methods should work";
-}
-
-// ---- Phase 11: Focus & Keyboard Navigation ----
 
 TEST_F(UIModuleTest, ImportFocus) {
     auto r = check(
         "import ui::focus\n"
         "func main() {\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::focus should load without errors";
-}
-
-TEST_F(UIModuleTest, KeyConstants) {
-    auto r = check(
-        "import ui::focus\n"
-        "func main() {\n"
-        "    let tab = KEY_TAB()\n"
-        "    let enter = KEY_ENTER()\n"
+        "    let k = KEY_TAB()\n"
+        "    let e = KEY_ENTER()\n"
         "    let esc = KEY_ESCAPE()\n"
-        "    let space = KEY_SPACE()\n"
-        "    let up = KEY_UP()\n"
-        "    let down = KEY_DOWN()\n"
-        "    let shift = KEY_SHIFT()\n"
-        "    let ctrl = KEY_CTRL()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Key constant functions should resolve";
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::focus key constants should be available";
 }
 
-TEST_F(UIModuleTest, ShortcutHelpers) {
+TEST_F(UIModuleTest, ImportComposite) {
     auto r = check(
-        "import ui::focus\n"
-        "func main() {\n"
-        "    let a = isShortcut(32)\n"
-        "    let b = isShortcutShift(65)\n"
-        "    let c = isShortcutCtrl(83)\n"
-        "    let d = isShortcutCtrlShift(90)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Shortcut helper functions should resolve";
-}
-
-TEST_F(UIModuleTest, FocusManagerNew) {
-    auto r = check(
-        "import ui::focus\n"
-        "func main() {\n"
-        "    let fm = FocusManager.new(5)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "FocusManager.new construction should work";
-}
-
-TEST_F(UIModuleTest, FocusManagerNavigation) {
-    auto r = check(
-        "import ui::focus\n"
-        "func main() {\n"
-        "    var fm = FocusManager.new(4)\n"
-        "    fm.next()\n"
-        "    fm.prev()\n"
-        "    fm.setFocus(2)\n"
-        "    let idx = fm.getFocus()\n"
-        "    let f = fm.isFocused(2)\n"
-        "    let a = fm.isActive()\n"
-        "    fm.clearFocus()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "FocusManager navigation methods should work";
-}
-
-TEST_F(UIModuleTest, FocusManagerUpdate) {
-    auto r = check(
-        "import ui::focus\n"
-        "func main() {\n"
-        "    var fm = FocusManager.new(3)\n"
-        "    fm.update()\n"
-        "    fm.updateArrows()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "FocusManager.update and updateArrows should work";
-}
-
-TEST_F(UIModuleTest, FocusRingNew) {
-    auto r = check(
+        "import std::ui\n"
+        "import ui::composite\n"
         "import ui::types\n"
-        "import ui::theme\n"
-        "import ui::focus\n"
         "func main() {\n"
-        "    let ring = FocusRing.new(Color.blue(), 3)\n"
-        "    let t = Theme.dark()\n"
-        "    let ring2 = FocusRing.themed(t)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "FocusRing.new and FocusRing.themed should work";
+        "    let bar = ButtonBar.new()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::composite should be importable";
 }
 
-TEST_F(UIModuleTest, FocusRingDraw) {
+TEST_F(UIModuleTest, ImportListView) {
     auto r = check(
-        "import ui::types\n"
-        "import ui::focus\n"
+        "import std::ui\n"
+        "import ui::listview\n"
         "func main() {\n"
-        "    var ring = FocusRing.new(Color.blue(), 2)\n"
-        "    ring.draw(10, 10, 100, 30)\n"
-        "    ring.drawIf(true, 10, 50, 100, 30)\n"
-        "    ring.drawIf(false, 10, 90, 100, 30)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "FocusRing.draw and drawIf should work";
+        "    let lv = ListView.new(0)\n"
+        "    lv.addItem(\"Test\")\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::listview should be importable";
 }
 
-TEST_F(UIModuleTest, KeyActionNew) {
+TEST_F(UIModuleTest, ImportRouter) {
     auto r = check(
-        "import ui::focus\n"
+        "import std::ui\n"
+        "import ui::router\n"
         "func main() {\n"
-        "    let ka = KeyAction.new(32, 1)\n"
-        "    let ks = KeyAction.withShift(65, 2)\n"
-        "    let kc = KeyAction.withCtrl(83, 3)\n"
-        "    let kcs = KeyAction.withCtrlShift(90, 4)\n"
-        "    let t = ka.isTriggered()\n"
-        "    let id = ka.getActionId()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "KeyAction construction and methods should work";
+        "    let router = Router.new(0)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::router should be importable";
 }
-
-TEST_F(UIModuleTest, AccessibleInfoNew) {
-    auto r = check(
-        "import ui::focus\n"
-        "func main() {\n"
-        "    var info = AccessibleInfo.new(\"Submit\", ROLE_BUTTON())\n"
-        "    let lbl = info.getLabel()\n"
-        "    let role = info.getRole()\n"
-        "    let en = info.isEnabled()\n"
-        "    info.setEnabled(false)\n"
-        "    let di = AccessibleInfo.disabled(\"Old\", ROLE_INPUT())\n"
-        "    let rb = ROLE_BUTTON()\n"
-        "    let ri = ROLE_INPUT()\n"
-        "    let rc = ROLE_CHECKBOX()\n"
-        "    let rs = ROLE_SLIDER()\n"
-        "    let rl = ROLE_LABEL()\n"
-        "    let rp = ROLE_PANEL()\n"
-        "    let rli = ROLE_LIST()\n"
-        "    let rt = ROLE_TABVIEW()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "AccessibleInfo and ROLE_* constants should work";
-}
-
-// ---- Faz 12: Tooltip & Popover ----
 
 TEST_F(UIModuleTest, ImportTooltip) {
     auto r = check(
+        "import std::ui\n"
         "import ui::tooltip\n"
         "func main() {\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import ui::tooltip should work";
+        "    applyTooltip(0, \"Test\")\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::tooltip should be importable";
 }
 
-TEST_F(UIModuleTest, PositionConstants) {
+TEST_F(UIModuleTest, ImportDragDrop) {
     auto r = check(
-        "import ui::tooltip\n"
+        "import std::ui\n"
+        "import ui::dragdrop\n"
         "func main() {\n"
-        "    let a = POS_ABOVE()\n"
-        "    let b = POS_BELOW()\n"
-        "    let l = POS_LEFT()\n"
-        "    let r = POS_RIGHT()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "POS_ABOVE/BELOW/LEFT/RIGHT constants should work";
-}
-
-TEST_F(UIModuleTest, CalcPopupPosition) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "func main() {\n"
-        "    let x = calcPopupX(100, 80, 60, POS_BELOW())\n"
-        "    let y = calcPopupY(100, 30, 20, POS_BELOW())\n"
-        "    let x2 = calcPopupX(100, 80, 60, POS_LEFT())\n"
-        "    let y2 = calcPopupY(100, 30, 20, POS_ABOVE())\n"
-        "    let x3 = calcPopupX(100, 80, 60, POS_RIGHT())\n"
-        "    let y3 = calcPopupY(100, 30, 20, POS_RIGHT())\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "calcPopupX/Y with all positions should work";
-}
-
-TEST_F(UIModuleTest, TooltipNew) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "func main() {\n"
-        "    let tip = Tooltip.new(\"Hello\", 0.5)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Tooltip.new construction should work";
-}
-
-TEST_F(UIModuleTest, TooltipThemed) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "import ui::theme\n"
-        "func main() {\n"
-        "    let t = Theme.dark()\n"
-        "    let tip = Tooltip.themed(\"Info\", 0.3, t)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Tooltip.themed with Theme should work";
-}
-
-TEST_F(UIModuleTest, TooltipMethods) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "func main() {\n"
-        "    var tip = Tooltip.new(\"Tip\", 0.5)\n"
-        "    tip.update(10, 20, 100, 30, 0.016)\n"
-        "    tip.draw()\n"
-        "    let v = tip.isVisible()\n"
-        "    tip.show()\n"
-        "    tip.hide()\n"
-        "    tip.setPosition(POS_ABOVE())\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Tooltip update/draw/show/hide/setPosition should work";
-}
-
-TEST_F(UIModuleTest, PopoverNew) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "func main() {\n"
-        "    let pop = Popover.new(\"Title\", \"Content text here\", 300)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Popover.new construction should work";
-}
-
-TEST_F(UIModuleTest, PopoverThemed) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "import ui::theme\n"
-        "func main() {\n"
-        "    let t = Theme.light()\n"
-        "    let pop = Popover.themed(\"Help\", \"Details\", 250, t)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Popover.themed with Theme should work";
-}
-
-TEST_F(UIModuleTest, PopoverShowHide) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "func main() {\n"
-        "    var pop = Popover.new(\"T\", \"C\", 200)\n"
-        "    pop.show(50, 60, 80, 30)\n"
-        "    let v = pop.isVisible()\n"
-        "    pop.hide()\n"
-        "    pop.toggle(50, 60, 80, 30)\n"
-        "    pop.setPosition(POS_LEFT())\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Popover show/hide/toggle/setPosition should work";
-}
-
-TEST_F(UIModuleTest, PopoverUpdateDraw) {
-    auto r = check(
-        "import ui::tooltip\n"
-        "func main() {\n"
-        "    var pop = Popover.new(\"Title\", \"Body content\", 280)\n"
-        "    pop.show(100, 100, 80, 30)\n"
-        "    pop.update()\n"
-        "    pop.draw()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Popover update and draw should work";
+        "    var ds = DragState.new()\n"
+        "    let active = ds.isActive()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ui::dragdrop should be importable";
 }
 
 TEST_F(UIModuleTest, AllUIModulesImport) {
     auto r = check(
         "import std::ui\n"
         "import ui::types\n"
-        "import ui::theme\n"
         "import ui::widgets\n"
         "import ui::layout\n"
+        "import ui::theme\n"
         "import ui::animation\n"
         "import ui::focus\n"
+        "import ui::composite\n"
+        "import ui::listview\n"
+        "import ui::router\n"
         "import ui::tooltip\n"
+        "import ui::dragdrop\n"
         "func main() {\n"
+        "    let c = Color.rgb(255, 0, 0)\n"
         "    let dark = Theme.dark()\n"
-        "    var tabs = TabView.themed4(\"A\", \"B\", \"C\", \"D\", dark)\n"
-        "    var tween = Tween.new(0.0, 1.0, 2.0, 0)\n"
-        "    var fm = FocusManager.new(3)\n"
-        "    var tip = Tooltip.themed(\"Info\", 0.5, dark)\n"
-        "    var pop = Popover.themed(\"T\", \"C\", 200, dark)\n"
-        "    let la = Label.new(\"Hi\", 16, Color.white())\n"
-        "    let items: [dyn Widget] = [la]\n"
-        "    layoutVStack(items, 0, 0, 8)\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "All UI modules should import and work together";
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "All UI modules should import without conflict";
+}
+
+// ============================================================
+// Widget struct method tests
+// ============================================================
+
+TEST_F(UIModuleTest, WindowStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var win = Window.new(800, 600, \"App\")\n"
+        "    win.show()\n"
+        "    win.setTitle(\"Updated\")\n"
+        "    let w = win.getWidth()\n"
+        "    let h = win.getHeight()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Window struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, ButtonStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var btn = Button.new(0, \"Click\")\n"
+        "    btn.setText(\"Updated\")\n"
+        "    btn.setEnabled(1)\n"
+        "    btn.setTooltip(\"Help\")\n"
+        "    btn.onClick(|h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Button struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, TextInputStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var inp = TextInput.new(0, \"initial\")\n"
+        "    let text = inp.getText()\n"
+        "    inp.setText(\"new\")\n"
+        "    inp.onChange(|h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "TextInput struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, CheckboxStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var cb = Checkbox.new(0, \"Check\")\n"
+        "    let v = cb.getValue()\n"
+        "    cb.setValue(1)\n"
+        "    cb.onChange(|h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Checkbox struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, SliderStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var sl = Slider.new(0, 0, 100, 50)\n"
+        "    let v = sl.getValue()\n"
+        "    sl.setValue(75)\n"
+        "    sl.onChange(|h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Slider struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, SizerStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var sizer = Sizer.vbox()\n"
+        "    let btn = createButton(0, \"OK\")\n"
+        "    sizer.add(btn, 0, 0, 5)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Sizer struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, CanvasStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var canvas = Canvas.new(0)\n"
+        "    canvas.onPaint(|dc: i32| { })\n"
+        "    canvas.refresh()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Canvas struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, ListBoxStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var lb = ListBox.new(0)\n"
+        "    lb.addItem(\"Item 1\")\n"
+        "    lb.addItem(\"Item 2\")\n"
+        "    lb.clear()\n"
+        "    let sel = lb.getSelection()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ListBox struct methods should resolve";
+}
+
+TEST_F(UIModuleTest, TabViewStruct) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "    var tv = TabView.new(0)\n"
+        "    let page = createPanel(tv.handle)\n"
+        "    tv.addPage(page, \"Tab 1\")\n"
+        "    let sel = tv.getSelection()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "TabView struct methods should resolve";
+}
+
+// ============================================================
+// Layout struct tests
+// ============================================================
+
+TEST_F(UIModuleTest, VStackLayout) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::layout\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    var vs = VStack.new()\n"
+        "    let btn = createButton(0, \"OK\")\n"
+        "    vs.add(btn, 0, 5)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "VStack layout should resolve";
+}
+
+TEST_F(UIModuleTest, HStackLayout) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::layout\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    var hs = HStack.new()\n"
+        "    let btn = createButton(0, \"OK\")\n"
+        "    hs.add(btn, 0, 5)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "HStack layout should resolve";
+}
+
+TEST_F(UIModuleTest, GridLayout) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::layout\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    var g = Grid.new(2, 2, 5, 5)\n"
+        "    let btn = createButton(0, \"OK\")\n"
+        "    g.add(btn, 0, 5)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Grid layout should resolve";
+}
+
+// ============================================================
+// Theme tests
+// ============================================================
+
+TEST_F(UIModuleTest, ThemeDark) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::theme\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    var theme = Theme.dark()\n"
+        "    let panel = createPanel(0)\n"
+        "    theme.applyToPanel(panel)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Theme.dark() and applyToPanel should resolve";
+}
+
+TEST_F(UIModuleTest, ThemeLight) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::theme\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    var theme = Theme.light()\n"
+        "    let btn = createButton(0, \"Test\")\n"
+        "    theme.applyToWidget(btn)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Theme.light() and applyToWidget should resolve";
+}
+
+// ============================================================
+// Composite widget tests
+// ============================================================
+
+TEST_F(UIModuleTest, FormFieldComposite) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::composite\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    let ff = FormField.new(0, \"Name:\", \"Enter name\")\n"
+        "    let text = ff.getText()\n"
+        "    ff.setText(\"John\")\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "FormField composite should resolve";
+}
+
+TEST_F(UIModuleTest, ButtonBarComposite) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::composite\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    var bar = ButtonBar.new()\n"
+        "    let btn = bar.addButton(0, \"OK\", |h: i32| { })\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "ButtonBar composite should resolve";
+}
+
+TEST_F(UIModuleTest, StatusTextComposite) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::composite\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    var st = StatusText.new(0, \"Ready\")\n"
+        "    st.setText(\"Loading...\")\n"
+        "    st.setColor(0, 255, 0)\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "StatusText composite should resolve";
+}
+
+// ============================================================
+// Full application pattern test
+// ============================================================
+
+TEST_F(UIModuleTest, FullAppPattern) {
+    auto r = check(
+        "import std::ui\n"
+        "import ui::widgets\n"
+        "import ui::layout\n"
+        "import ui::types\n"
+        "func main() {\n"
+        "    appInit()\n"
+        "    var win = Window.new(400, 300, \"My App\")\n"
+        "    let panel = Panel.new(win.handle)\n"
+        "    var sizer = Sizer.vbox()\n"
+        "    let lbl = Label.new(panel.handle, \"Hello wxWidgets!\")\n"
+        "    var btn = Button.new(panel.handle, \"Click Me\")\n"
+        "    btn.onClick(|h: i32| {\n"
+        "        println(\"Clicked!\")\n"
+        "    })\n"
+        "    sizer.add(lbl.handle, 0, WX_ALL(), 5)\n"
+        "    sizer.add(btn.handle, 0, WX_ALL(), 5)\n"
+        "    panel.setSizer(sizer)\n"
+        "    win.show()\n"
+        "    appRun()\n"
+        "}\n"
+    );
+    EXPECT_TRUE(r.passed) << "Full wxWidgets app pattern should resolve";
 }

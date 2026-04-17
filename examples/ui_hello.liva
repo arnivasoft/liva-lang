@@ -1,18 +1,21 @@
+// Basic Hello World — wxWidgets window with label
 import std::ui
+import ui::types
 
 func main() {
-    initWindow(800, 600, "Liva UI Demo")
-    setTargetFps(60)
+    appInit()
 
-    while !windowShouldClose() {
-        beginDrawing()
-        clearBackground(30, 30, 30, 255)
-        drawText("Hello from Liva!", 280, 280, 24, 255, 255, 255, 255)
+    let win = createWindow(800, 600, "Liva UI Demo")
+    let panel = createPanel(win)
+    setBgColor(panel, 30, 30, 30)
 
-        if isMouseDown(0) {
-            drawCircle(getMouseX(), getMouseY(), 20, 255, 100, 100, 255)
-        }
-        endDrawing()
-    }
-    closeWindow()
+    let sizer = createVBoxSizer()
+    let lbl = createLabel(panel, "Hello from Liva!")
+    setWidgetFont(lbl, 24, 0)
+    setFgColor(lbl, 255, 255, 255)
+    sizerAdd(sizer, lbl, 0, WX_ALL(), 20)
+
+    setSizer(panel, sizer)
+    windowShow(win, 1)
+    appRun()
 }

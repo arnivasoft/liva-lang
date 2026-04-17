@@ -8,7 +8,7 @@ project(liva-lang
 
 # Fuzzing option (requires Clang with libFuzzer)
 option(LIVA_ENABLE_FUZZING "Build libFuzzer fuzz targets" OFF)
-option(LIVA_HAS_RAYLIB "Enable UI library (requires raylib)" OFF)
+option(LIVA_HAS_WXWIDGETS "Enable UI library (requires wxWidgets)" OFF)
 set(LIVA_SANITIZER "none" CACHE STRING "Sanitizer to enable (none/address/undefined/address,undefined)")
 
 # Include CMake modules
@@ -145,31 +145,65 @@ if(LIVA_HAS_LLVM)
     )
 endif()
 
-# === UI Runtime Library (optional, requires raylib) ===
-if(LIVA_HAS_RAYLIB AND LIVA_HAS_LLVM)
-    include(FetchContent)
-    find_package(raylib QUIET)
-    if(NOT raylib_FOUND)
-        FetchContent_Declare(raylib
-            GIT_REPOSITORY https://github.com/raysan5/raylib.git
-            GIT_TAG 5.5
-        )
-        FetchContent_MakeAvailable(raylib)
+# === UI Runtime Library (optional, requires wxWidgets) ===
+if(LIVA_HAS_WXWIDGETS AND LIVA_HAS_LLVM)
+    # Try config-mode first (vcpkg), then fall back to module-mode
+    find_package(wxWidgets CONFIG QUIET)
+    if(wxWidgets_FOUND)
+        # vcpkg / config-mode: uses imported targets wx::wxcore, wx::wxbase
+        add_library(liva_ui STATIC stdlib/ui/wx_runtime.cpp)
+        target_include_directories(liva_ui PRIVATE stdlib/ui)
+        target_link_libraries(liva_ui PUBLIC wx::wxcore wx::wxbase)
+        target_compile_definitions(liva_ui PUBLIC LIVA_HAS_WXWIDGETS=1)
+    else()
+        # Module-mode: traditional FindwxWidgets.cmake
+        find_package(wxWidgets REQUIRED COMPONENTS core base)
+        include(${wxWidgets_USE_FILE})
+        add_library(liva_ui STATIC stdlib/ui/wx_runtime.cpp)
+        target_include_directories(liva_ui PRIVATE stdlib/ui ${wxWidgets_INCLUDE_DIRS})
+        target_link_libraries(liva_ui PUBLIC ${wxWidgets_LIBRARIES})
+        target_compile_definitions(liva_ui PUBLIC LIVA_HAS_WXWIDGETS=1)
     endif()
 
-    # Enable C for the ui_runtime.c file
-    enable_language(C)
-    add_library(liva_ui STATIC stdlib/ui/ui_runtime.c)
-    target_include_directories(liva_ui PRIVATE stdlib/ui)
-    target_link_libraries(liva_ui PUBLIC raylib)
-    target_compile_definitions(liva_ui PUBLIC LIVA_HAS_RAYLIB=1)
-
-    # Copy UI runtime lib + raylib next to livac
+    # Copy UI runtime lib next to livac
     add_custom_command(TARGET liva_ui POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/lib"
         COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:liva_ui>" "${CMAKE_BINARY_DIR}/lib/"
-        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:raylib>" "${CMAKE_BINARY_DIR}/lib/"
     )
+
+    # Generate wx_libs.cfg — list of wxWidgets lib paths for livac linker
+    # Collect all wx*.lib and dependency libs from the vcpkg install dir
+    if(wxWidgets_FOUND)
+        get_target_property(_wx_core_loc wx::wxcore IMPORTED_LOCATION_RELEASE)
+        get_target_property(_wx_base_loc wx::wxbase IMPORTED_LOCATION_RELEASE)
+        if(NOT _wx_core_loc)
+            get_target_property(_wx_core_loc wx::wxcore IMPORTED_LOCATION)
+        endif()
+        if(NOT _wx_base_loc)
+            get_target_property(_wx_base_loc wx::wxbase IMPORTED_LOCATION)
+        endif()
+        # Get the lib directory from wxcore path
+        get_filename_component(_wx_lib_dir "${_wx_core_loc}" DIRECTORY)
+        file(GLOB _wx_all_libs "${_wx_lib_dir}/wx*.lib")
+        # Also gather dependency libs (png, jpeg, tiff, zlib, expat, pcre2, etc.)
+        file(GLOB _wx_dep_libs
+            "${_wx_lib_dir}/libpng*.lib"
+            "${_wx_lib_dir}/jpeg*.lib"
+            "${_wx_lib_dir}/tiff*.lib"
+            "${_wx_lib_dir}/zlib*.lib"
+            "${_wx_lib_dir}/libexpat*.lib"
+            "${_wx_lib_dir}/pcre2*.lib"
+            "${_wx_lib_dir}/lzma*.lib"
+            "${_wx_lib_dir}/libwebp*.lib"
+            "${_wx_lib_dir}/libsharpyuv*.lib"
+            "${_wx_lib_dir}/nanosvg*.lib"
+        )
+        list(APPEND _wx_all_libs ${_wx_dep_libs})
+        list(REMOVE_DUPLICATES _wx_all_libs)
+        string(REPLACE ";" "\n" _wx_libs_content "${_wx_all_libs}")
+        file(WRITE "${CMAKE_BINARY_DIR}/lib/wx_libs.cfg" "${_wx_libs_content}\n")
+        message(STATUS "Generated wx_libs.cfg with ${_wx_all_libs}")
+    endif()
 endif()
 
 # liva_lsp
@@ -237,7 +271,7 @@ if(LIVA_HAS_LLVM)
     if(WIN32)
         target_link_libraries(livac PRIVATE winhttp)
     endif()
-    if(LIVA_HAS_RAYLIB)
+    if(LIVA_HAS_WXWIDGETS)
         target_link_libraries(livac PRIVATE liva_ui)
     endif()
 endif()

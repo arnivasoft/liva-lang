@@ -1,305 +1,76 @@
-// Layout Engine — VStack / HStack for [dyn Widget] arrays
+// Layout helpers — convenience functions for wxSizer-based layouts
 // Import with: import ui::layout
 
 import std::ui
 import ui::types
-import ui::widgets
-import ui::theme
 
-// ---- Vertical Stack ----
+// VStack — vertical layout using wxBoxSizer(VERTICAL)
+pub struct VStack {
+    var handle: i32
+}
 
-// Draw widgets stacked vertically at (x, y) with given spacing
-pub func layoutVStack(items: [dyn Widget], x: i32, y: i32, spacing: i32) {
-    var cy = y
-    for item in items {
-        item.draw(x, cy)
-        cy = cy + item.getHeight() + spacing
+impl VStack {
+    pub func new() -> VStack {
+        return VStack { handle: createVBoxSizer() }
+    }
+    pub func add(ref self, widget: i32, proportion: i32, border: i32) {
+        sizerAdd(self.handle, widget, proportion, WX_EXPAND(), border)
+    }
+    pub func addCentered(ref self, widget: i32, border: i32) {
+        sizerAdd(self.handle, widget, 0, WX_ALIGN_CENTER(), border)
+    }
+    pub func addWithFlags(ref self, widget: i32, proportion: i32, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget, proportion, flags, border)
     }
 }
 
-// Compute total height of a vertical stack
-pub func vstackHeight(items: [dyn Widget], spacing: i32) -> i32 {
-    var total = 0
-    var count = 0
-    for item in items {
-        total = total + item.getHeight()
-        count = count + 1
-    }
-    if count > 1 {
-        total = total + spacing * (count - 1)
-    }
-    return total
+// HStack — horizontal layout using wxBoxSizer(HORIZONTAL)
+pub struct HStack {
+    var handle: i32
 }
 
-// ---- Horizontal Stack ----
-
-// Draw widgets laid out horizontally at (x, y) with given spacing
-pub func layoutHStack(items: [dyn Widget], x: i32, y: i32, spacing: i32) {
-    var cx = x
-    for item in items {
-        item.draw(cx, y)
-        cx = cx + item.getWidth() + spacing
+impl HStack {
+    pub func new() -> HStack {
+        return HStack { handle: createHBoxSizer() }
+    }
+    pub func add(ref self, widget: i32, proportion: i32, border: i32) {
+        sizerAdd(self.handle, widget, proportion, WX_EXPAND(), border)
+    }
+    pub func addCentered(ref self, widget: i32, border: i32) {
+        sizerAdd(self.handle, widget, 0, WX_ALIGN_CENTER(), border)
+    }
+    pub func addWithFlags(ref self, widget: i32, proportion: i32, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget, proportion, flags, border)
     }
 }
 
-// Compute total width of a horizontal stack
-pub func hstackWidth(items: [dyn Widget], spacing: i32) -> i32 {
-    var total = 0
-    var count = 0
-    for item in items {
-        total = total + item.getWidth()
-        count = count + 1
-    }
-    if count > 1 {
-        total = total + spacing * (count - 1)
-    }
-    return total
+// Grid — grid layout using wxGridSizer
+pub struct Grid {
+    var handle: i32
 }
 
-// ---- Centered Layout ----
-
-// Draw a vertical stack centered horizontally on screen
-pub func layoutVStackCentered(items: [dyn Widget], y: i32, spacing: i32) {
-    var cy = y
-    for item in items {
-        let screenW = getScreenWidth()
-        let ix = (screenW - item.getWidth()) / 2
-        item.draw(ix, cy)
-        cy = cy + item.getHeight() + spacing
+impl Grid {
+    pub func new(rows: i32, cols: i32, hgap: i32, vgap: i32) -> Grid {
+        return Grid { handle: createGridSizer(rows, cols, hgap, vgap) }
+    }
+    pub func add(ref self, widget: i32, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget, 0, flags, border)
     }
 }
 
-// ---- Themed Convenience Functions ----
-
-pub func layoutVStackThemed(items: [dyn Widget], x: i32, y: i32, theme: Theme) {
-    layoutVStack(items, x, y, theme.spacing)
+// FlexGrid — flexible grid layout using wxFlexGridSizer
+pub struct FlexGrid {
+    var handle: i32
 }
 
-pub func layoutHStackThemed(items: [dyn Widget], x: i32, y: i32, theme: Theme) {
-    layoutHStack(items, x, y, theme.spacing)
-}
-
-pub func layoutVStackCenteredThemed(items: [dyn Widget], y: i32, theme: Theme) {
-    layoutVStackCentered(items, y, theme.spacing)
-}
-
-// ---- Grid Layout ----
-
-// Compute number of rows needed for grid layout (ceiling division)
-pub func gridRows(items: [dyn Widget], cols: i32) -> i32 {
-    var count = 0
-    for item in items {
-        count = count + 1
+impl FlexGrid {
+    pub func new(rows: i32, cols: i32, hgap: i32, vgap: i32) -> FlexGrid {
+        return FlexGrid { handle: createFlexGridSizer(rows, cols, hgap, vgap) }
     }
-    return (count + cols - 1) / cols
-}
-
-// Compute total grid width
-pub func gridWidth(cols: i32, cellW: i32, hGap: i32) -> i32 {
-    return cols * cellW + (cols - 1) * hGap
-}
-
-// Compute total grid height
-pub func gridHeight(rows: i32, cellH: i32, vGap: i32) -> i32 {
-    return rows * cellH + (rows - 1) * vGap
-}
-
-// Draw widgets in a grid layout
-pub func layoutGrid(items: [dyn Widget], x: i32, y: i32, cols: i32,
-                     cellW: i32, cellH: i32, hGap: i32, vGap: i32) {
-    var col = 0
-    var row = 0
-    for item in items {
-        let cx = x + col * (cellW + hGap)
-        let cy = y + row * (cellH + vGap)
-        item.draw(cx, cy)
-        col = col + 1
-        if col >= cols {
-            col = 0
-            row = row + 1
-        }
+    pub func add(ref self, widget: i32, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget, 0, flags, border)
     }
-}
-
-// Draw widgets in an aligned grid layout
-// hAlign/vAlign: 0=start, 1=center, 2=end
-pub func layoutGridAligned(items: [dyn Widget], x: i32, y: i32, cols: i32,
-                            cellW: i32, cellH: i32, hGap: i32, vGap: i32,
-                            hAlign: i32, vAlign: i32) {
-    var col = 0
-    var row = 0
-    for item in items {
-        let cx = x + col * (cellW + hGap)
-        let cy = y + row * (cellH + vGap)
-        var ox = 0
-        var oy = 0
-        if hAlign == 1 {
-            ox = (cellW - item.getWidth()) / 2
-        }
-        if hAlign == 2 {
-            ox = cellW - item.getWidth()
-        }
-        if vAlign == 1 {
-            oy = (cellH - item.getHeight()) / 2
-        }
-        if vAlign == 2 {
-            oy = cellH - item.getHeight()
-        }
-        item.draw(cx + ox, cy + oy)
-        col = col + 1
-        if col >= cols {
-            col = 0
-            row = row + 1
-        }
+    pub func addExpand(ref self, widget: i32, border: i32) {
+        sizerAdd(self.handle, widget, 1, WX_EXPAND(), border)
     }
-}
-
-// ---- Aligned Stacks ----
-
-// Vertical stack with horizontal alignment
-// align: 0=left, 1=center, 2=right
-pub func layoutVStackAligned(items: [dyn Widget], x: i32, y: i32,
-                              spacing: i32, containerW: i32, align: i32) {
-    var cy = y
-    for item in items {
-        var ix = x
-        if align == 1 {
-            ix = x + (containerW - item.getWidth()) / 2
-        }
-        if align == 2 {
-            ix = x + containerW - item.getWidth()
-        }
-        item.draw(ix, cy)
-        cy = cy + item.getHeight() + spacing
-    }
-}
-
-// Horizontal stack with vertical alignment
-// align: 0=top, 1=center, 2=bottom
-pub func layoutHStackAligned(items: [dyn Widget], x: i32, y: i32,
-                              spacing: i32, containerH: i32, align: i32) {
-    var cx = x
-    for item in items {
-        var iy = y
-        if align == 1 {
-            iy = y + (containerH - item.getHeight()) / 2
-        }
-        if align == 2 {
-            iy = y + containerH - item.getHeight()
-        }
-        item.draw(cx, iy)
-        cx = cx + item.getWidth() + spacing
-    }
-}
-
-// Themed aligned stacks
-pub func layoutVStackAlignedThemed(items: [dyn Widget], x: i32, y: i32,
-                                    containerW: i32, align: i32, theme: Theme) {
-    layoutVStackAligned(items, x, y, theme.spacing, containerW, align)
-}
-
-pub func layoutHStackAlignedThemed(items: [dyn Widget], x: i32, y: i32,
-                                    containerH: i32, align: i32, theme: Theme) {
-    layoutHStackAligned(items, x, y, theme.spacing, containerH, align)
-}
-
-// ---- Flex/Spaced Distribution ----
-
-// Horizontal space-between layout
-pub func layoutHStackSpaced(items: [dyn Widget], x: i32, y: i32, totalW: i32) {
-    var count = 0
-    var sumW = 0
-    for item in items {
-        sumW = sumW + item.getWidth()
-        count = count + 1
-    }
-    if count <= 1 {
-        for item in items {
-            item.draw(x, y)
-        }
-        return
-    }
-    let gap = (totalW - sumW) / (count - 1)
-    var cx = x
-    for item in items {
-        item.draw(cx, y)
-        cx = cx + item.getWidth() + gap
-    }
-}
-
-// Vertical space-between layout
-pub func layoutVStackSpaced(items: [dyn Widget], x: i32, y: i32, totalH: i32) {
-    var count = 0
-    var sumH = 0
-    for item in items {
-        sumH = sumH + item.getHeight()
-        count = count + 1
-    }
-    if count <= 1 {
-        for item in items {
-            item.draw(x, y)
-        }
-        return
-    }
-    let gap = (totalH - sumH) / (count - 1)
-    var cy = y
-    for item in items {
-        item.draw(x, cy)
-        cy = cy + item.getHeight() + gap
-    }
-}
-
-// Horizontal centered group within totalW
-pub func layoutHStackCentered(items: [dyn Widget], x: i32, y: i32,
-                               totalW: i32, spacing: i32) {
-    // Inline hstackWidth to avoid moving items
-    var groupW = 0
-    var wCount = 0
-    for item in items {
-        groupW = groupW + item.getWidth()
-        wCount = wCount + 1
-    }
-    if wCount > 1 {
-        groupW = groupW + spacing * (wCount - 1)
-    }
-    let offset = (totalW - groupW) / 2
-    var cx = x + offset
-    for item in items {
-        item.draw(cx, y)
-        cx = cx + item.getWidth() + spacing
-    }
-}
-
-// Fully centered in a rectangle (horizontal + vertical)
-pub func layoutVStackCenteredInRect(items: [dyn Widget], x: i32, y: i32,
-                                     totalW: i32, totalH: i32, spacing: i32) {
-    // Inline vstackHeight to avoid moving items
-    var groupH = 0
-    var hCount = 0
-    for item in items {
-        groupH = groupH + item.getHeight()
-        hCount = hCount + 1
-    }
-    if hCount > 1 {
-        groupH = groupH + spacing * (hCount - 1)
-    }
-    let offsetY = (totalH - groupH) / 2
-    var cy = y + offsetY
-    for item in items {
-        let offsetX = (totalW - item.getWidth()) / 2
-        item.draw(x + offsetX, cy)
-        cy = cy + item.getHeight() + spacing
-    }
-}
-
-// ---- Padded Containers ----
-
-pub func layoutVStackPadded(items: [dyn Widget], x: i32, y: i32,
-                             spacing: i32, padX: i32, padY: i32) {
-    layoutVStack(items, x + padX, y + padY, spacing)
-}
-
-pub func layoutHStackPadded(items: [dyn Widget], x: i32, y: i32,
-                             spacing: i32, padX: i32, padY: i32) {
-    layoutHStack(items, x + padX, y + padY, spacing)
 }
