@@ -467,7 +467,97 @@ llvm::Value *IRGen::visitCastExpr(CastExpr *node) {
         return builder_->CreateFPTrunc(val, targetType, "fptrunc");
     }
 
+    // Optional cast (as?) for class types — vtable-based runtime check
+    if (node->isOptional() && val->getType()->isPointerTy()) {
+        auto *targetTypeRepr = node->getTargetType();
+        if (targetTypeRepr->getKind() == TypeRepr::Kind::Named) {
+            auto *named = static_cast<const NamedTypeRepr *>(targetTypeRepr);
+            const std::string &targetName = named->getName();
+            auto ctIt = classTypes_.find(targetName);
+            if (ctIt != classTypes_.end() && classVtables_.count(targetName)) {
+                // Collect target + descendants' vtables (is-a check)
+                std::vector<llvm::GlobalVariable *> matchingVtables;
+                for (auto &[cn, vtGlobal] : classVtables_) {
+                    std::string cur = cn;
+                    while (!cur.empty()) {
+                        if (cur == targetName) {
+                            matchingVtables.push_back(vtGlobal);
+                            break;
+                        }
+                        auto pit = classParent_.find(cur);
+                        if (pit != classParent_.end()) cur = pit->second;
+                        else break;
+                    }
+                }
+
+                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                auto *vtableGEP = builder_->CreateStructGEP(
+                    ctIt->second, val, 0, "cast.vtable.gep");
+                auto *objVtable = builder_->CreateLoad(ptrTy, vtableGEP, "cast.vtable");
+
+                llvm::Value *isMatch = builder_->getFalse();
+                for (auto *vt : matchingVtables) {
+                    auto *cmp = builder_->CreateICmpEQ(objVtable, vt, "cast.cmp");
+                    isMatch = builder_->CreateOr(isMatch, cmp, "cast.or");
+                }
+                return builder_->CreateSelect(
+                    isMatch, val,
+                    llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
+                    "as.optional");
+            }
+        }
+    }
+
     return val;
+}
+
+llvm::Value *IRGen::visitIsExpr(IsExpr *node) {
+    auto *val = visit(const_cast<Expr *>(node->getExpr()));
+    if (!val || !val->getType()->isPointerTy())
+        return builder_->getFalse();
+
+    auto *targetTypeRepr = node->getTargetType();
+    if (targetTypeRepr->getKind() != TypeRepr::Kind::Named)
+        return builder_->getFalse();
+
+    auto *named = static_cast<const NamedTypeRepr *>(targetTypeRepr);
+    const std::string &targetName = named->getName();
+
+    auto vtIt = classVtables_.find(targetName);
+    auto ctIt = classTypes_.find(targetName);
+    if (vtIt == classVtables_.end() || ctIt == classTypes_.end())
+        return builder_->getFalse();
+
+    // Collect all vtables for target and its descendants
+    // obj is Animal → true for Animal, Dog (: Animal), Cat (: Animal), etc.
+    std::vector<llvm::GlobalVariable *> matchingVtables;
+    for (auto &[cn, vtGlobal] : classVtables_) {
+        // Is cn == target or does cn's parent chain contain target?
+        std::string cur = cn;
+        while (!cur.empty()) {
+            if (cur == targetName) {
+                matchingVtables.push_back(vtGlobal);
+                break;
+            }
+            auto pit = classParent_.find(cur);
+            if (pit != classParent_.end()) cur = pit->second;
+            else break;
+        }
+    }
+
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+    // Load obj's vtable ptr (index 0 in any class struct — layout invariant)
+    auto *vtableGEP = builder_->CreateStructGEP(
+        ctIt->second, val, 0, "is.vtable.gep");
+    auto *objVtable = builder_->CreateLoad(ptrTy, vtableGEP, "is.vtable");
+
+    // OR all comparisons: objVtable == vt1 || objVtable == vt2 || ...
+    llvm::Value *result = builder_->getFalse();
+    for (auto *vt : matchingVtables) {
+        auto *cmp = builder_->CreateICmpEQ(objVtable, vt, "is.cmp");
+        result = builder_->CreateOr(result, cmp, "is.or");
+    }
+    return result;
 }
 
 // --- Free variable collection for closure capture ---
@@ -939,6 +1029,31 @@ llvm::Value *IRGen::visitTupleLiteralExpr(TupleLiteralExpr *node) {
 }
 
 llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
+    // Class subscript: obj[i] → ClassName_subscript(obj, i)
+    if (node->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *baseIdent = static_cast<const IdentifierExpr *>(node->getBase());
+        auto cvIt = varClassTypes_.find(baseIdent->getName());
+        if (cvIt != varClassTypes_.end()) {
+            std::string subName = cvIt->second + "_subscript";
+            auto *subFn = module_->getFunction(subName);
+            if (subFn) {
+                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                auto nvIt = namedValues_.find(baseIdent->getName());
+                if (nvIt != namedValues_.end()) {
+                    auto *selfVal = nvIt->second;
+                    llvm::Value *selfLoaded = selfVal;
+                    if (selfVal->getAllocatedType()->isPointerTy()) {
+                        selfLoaded = builder_->CreateLoad(ptrTy, selfVal, "sub.self");
+                    }
+                    auto *idxVal = visit(const_cast<Expr *>(node->getIndex()));
+                    if (idxVal) {
+                        return builder_->CreateCall(subFn, {selfLoaded, idxVal}, "sub.call");
+                    }
+                }
+            }
+        }
+    }
+
     // DynArray index on struct member field: self.grades[i]
     if (node->getBase()->getKind() == ASTNode::NodeKind::MemberExpr) {
         auto *memberBase = static_cast<MemberExpr *>(const_cast<Expr *>(node->getBase()));

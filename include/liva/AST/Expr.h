@@ -363,19 +363,41 @@ private:
     std::vector<std::unique_ptr<Expr>> elements_;
 };
 
-/// Cast expression: expr as Type
+/// Cast expression: expr as Type, expr as? Type (optional cast)
 class CastExpr : public Expr {
 public:
     CastExpr(std::unique_ptr<Expr> expr, std::unique_ptr<TypeRepr> targetType,
-             SourceRange range)
+             SourceRange range, bool isOptional = false)
         : Expr(NodeKind::CastExpr, range), expr_(std::move(expr)),
+          targetType_(std::move(targetType)), isOptional_(isOptional) {}
+
+    const Expr *getExpr() const { return expr_.get(); }
+    const TypeRepr *getTargetType() const { return targetType_.get(); }
+    bool isOptional() const { return isOptional_; }
+
+    static bool classof(const ASTNode *node) {
+        return node->getKind() == NodeKind::CastExpr;
+    }
+
+private:
+    std::unique_ptr<Expr> expr_;
+    std::unique_ptr<TypeRepr> targetType_;
+    bool isOptional_ = false;
+};
+
+/// Type check expression: expr is Type → bool
+class IsExpr : public Expr {
+public:
+    IsExpr(std::unique_ptr<Expr> expr, std::unique_ptr<TypeRepr> targetType,
+           SourceRange range)
+        : Expr(NodeKind::IsExpr, range), expr_(std::move(expr)),
           targetType_(std::move(targetType)) {}
 
     const Expr *getExpr() const { return expr_.get(); }
     const TypeRepr *getTargetType() const { return targetType_.get(); }
 
     static bool classof(const ASTNode *node) {
-        return node->getKind() == NodeKind::CastExpr;
+        return node->getKind() == NodeKind::IsExpr;
     }
 
 private:

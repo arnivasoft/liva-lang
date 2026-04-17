@@ -36,7 +36,14 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
     case TokenKind::kw_macro:
         return parseMacroDecl(isPublic);
     case TokenKind::kw_class:
-        return parseClassDecl(isPublic);
+        return parseClassDecl(isPublic, false);
+    case TokenKind::kw_final:
+        if (peek().is(TokenKind::kw_class)) {
+            advance(); // consume 'final'
+            return parseClassDecl(isPublic, true);
+        }
+        diag_.report(current_.getLocation(), DiagID::err_expected_declaration);
+        return nullptr;
     case TokenKind::kw_test:
         if (isPublic) {
             diag_.report(current_.getLocation(), DiagID::err_expected_declaration);
@@ -54,6 +61,23 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
         // Detect foreign language keywords used as identifiers
         if (current_.getKind() == TokenKind::identifier) {
             auto text = current_.getText();
+            // Contextual class-level modifiers: 'open class', 'public class', etc.
+            if ((text == "open" || text == "public" || text == "internal" ||
+                 text == "fileprivate") && peek().is(TokenKind::kw_class)) {
+                AccessModifier acc = AccessModifier::Public;
+                if (text == "open") acc = AccessModifier::Open;
+                else if (text == "public") acc = AccessModifier::Public;
+                else if (text == "internal") acc = AccessModifier::Internal;
+                else if (text == "fileprivate") acc = AccessModifier::FilePrivate;
+                advance(); // consume modifier
+                auto cls = parseClassDecl(acc == AccessModifier::Open || acc == AccessModifier::Public, false);
+                if (cls) cls->setAccess(acc);
+                return cls;
+            }
+            // Contextual keyword: 'extension TypeName { ... }'
+            if (text == "extension" && peek().is(TokenKind::identifier)) {
+                return parseImplDecl();
+            }
             if (text == "fn" || text == "def" || text == "function") {
                 diag_.reportRange(current_.getLocation(),
                                   static_cast<uint32_t>(text.size()),
@@ -465,7 +489,12 @@ std::unique_ptr<EnumDecl> Parser::parseEnumDecl(bool isPublic) {
 
 std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
     auto startLoc = current_.getLocation();
-    expect(TokenKind::kw_impl);
+    // Accept either 'impl' or contextual 'extension' — both introduce an impl-like block
+    if (check(TokenKind::identifier) && current_.getText() == "extension") {
+        advance();
+    } else {
+        expect(TokenKind::kw_impl);
+    }
 
     auto typeName = expect(TokenKind::identifier);
 
@@ -776,7 +805,7 @@ std::unique_ptr<MacroDecl> Parser::parseMacroDecl(bool isPublic) {
     return decl;
 }
 
-std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
+std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic, bool isFinal) {
     auto startLoc = current_.getLocation();
     expect(TokenKind::kw_class);
 
@@ -831,11 +860,45 @@ std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
 
         ClassMember member;
 
-        // Parse access modifier: private
+        // Parse access modifier: private, pub/public, open, internal, fileprivate
         if (match(TokenKind::kw_private)) {
             member.access = AccessModifier::Private;
         } else if (match(TokenKind::kw_pub)) {
             member.access = AccessModifier::Public;
+        } else if (check(TokenKind::identifier)) {
+            auto txt = current_.getText();
+            if (txt == "public") {
+                member.access = AccessModifier::Public;
+                advance();
+            } else if (txt == "open") {
+                member.access = AccessModifier::Open;
+                advance();
+            } else if (txt == "internal") {
+                member.access = AccessModifier::Internal;
+                advance();
+            } else if (txt == "fileprivate") {
+                member.access = AccessModifier::FilePrivate;
+                advance();
+            }
+        }
+
+        // Parse static keyword
+        if (match(TokenKind::kw_static)) {
+            member.isStatic = true;
+        }
+
+        // Parse final keyword
+        if (match(TokenKind::kw_final)) {
+            member.isFinal = true;
+        }
+
+        // Parse contextual 'convenience' (for init) and 'lazy' (for var)
+        if (check(TokenKind::identifier) && current_.getText() == "convenience") {
+            member.isConvenienceInit = true;
+            advance();
+        } else if (check(TokenKind::identifier) && current_.getText() == "lazy") {
+            member.isLazy = true;
+            advance();
         }
 
         // Parse override keyword
@@ -862,12 +925,59 @@ std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
             member.field = std::make_unique<FieldDecl>(
                 std::string(fieldName.getText()), std::move(fieldType),
                 fieldMutable, rangeFrom(fieldName.getLocation()));
+
+            // Lazy var initializer: lazy var x: T = expr
+            if (member.isLazy && match(TokenKind::equal)) {
+                auto initExpr = parseExpression();
+                if (initExpr) {
+                    member.field->setLazyInit(std::move(initExpr));
+                }
+            }
+
+            // Computed property or property observer:
+            //   var name: Type { get { } set { } }
+            //   var name: Type { willSet { } didSet { } }
+            if (check(TokenKind::l_brace)) {
+                advance(); // consume '{'
+                while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+                    if (check(TokenKind::identifier) && current_.getText() == "get") {
+                        advance();
+                        if (check(TokenKind::l_brace)) {
+                            member.field->setGetter(parseBlock());
+                        }
+                    } else if (check(TokenKind::identifier) && current_.getText() == "set") {
+                        advance();
+                        if (check(TokenKind::l_brace)) {
+                            member.field->setSetter(parseBlock());
+                        }
+                    } else if (check(TokenKind::identifier) && current_.getText() == "willSet") {
+                        advance();
+                        if (check(TokenKind::l_brace)) {
+                            member.field->setWillSet(parseBlock());
+                        }
+                    } else if (check(TokenKind::identifier) && current_.getText() == "didSet") {
+                        advance();
+                        if (check(TokenKind::l_brace)) {
+                            member.field->setDidSet(parseBlock());
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                expect(TokenKind::r_brace); // closing '}'
+            }
+
             members.push_back(std::move(member));
         }
         // init(params...) { body }  — self is implicit
         else if (check(TokenKind::kw_init)) {
             auto initStart = current_.getLocation();
             advance(); // consume 'init'
+
+            // Failable init: init?(...)
+            if (match(TokenKind::question)) {
+                member.isFailableInit = true;
+            }
 
             expect(TokenKind::l_paren);
             std::vector<ParamDecl> params;
@@ -914,6 +1024,117 @@ std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
                 false, rangeFrom(deinitStart));
             members.push_back(std::move(member));
         }
+        // subscript(params...) -> Type { body }  — getter only
+        // subscript<T>(params...) -> Type { get { } set { } }  — generic subscript
+        else if (check(TokenKind::identifier) && current_.getText() == "subscript") {
+            auto subStart = current_.getLocation();
+            advance(); // consume 'subscript'
+
+            // Optional generic type params: subscript<T, U>
+            std::vector<std::string> subTypeParams;
+            if (match(TokenKind::less)) {
+                if (!check(TokenKind::greater)) {
+                    do {
+                        auto paramTok = expect(TokenKind::identifier);
+                        subTypeParams.push_back(std::string(paramTok.getText()));
+                    } while (match(TokenKind::comma));
+                }
+                expect(TokenKind::greater);
+            }
+
+            expect(TokenKind::l_paren);
+            std::vector<ParamDecl> params;
+            if (!check(TokenKind::r_paren)) {
+                do {
+                    params.push_back(parseParamDecl());
+                } while (match(TokenKind::comma));
+            }
+            expect(TokenKind::r_paren);
+
+            // Return type
+            std::unique_ptr<TypeRepr> retType = makeVoidType();
+            if (match(TokenKind::arrow)) {
+                retType = parseType();
+            }
+
+            std::unique_ptr<BlockStmt> getterBody;
+            std::unique_ptr<BlockStmt> setterBody;
+
+            if (check(TokenKind::l_brace)) {
+                // Peek inside: if first token is 'get' or 'set', parse as get/set blocks
+                advance(); // consume '{'
+                bool hasGetSet = check(TokenKind::identifier) &&
+                                 (current_.getText() == "get" || current_.getText() == "set");
+                if (hasGetSet) {
+                    while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+                        if (check(TokenKind::identifier) && current_.getText() == "get") {
+                            advance();
+                            if (check(TokenKind::l_brace)) getterBody = parseBlock();
+                        } else if (check(TokenKind::identifier) && current_.getText() == "set") {
+                            advance();
+                            if (check(TokenKind::l_brace)) setterBody = parseBlock();
+                        } else {
+                            break;
+                        }
+                    }
+                    expect(TokenKind::r_brace);
+                } else {
+                    // Direct body = getter; re-parse as a block
+                    std::vector<std::unique_ptr<ASTNode>> stmts;
+                    while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+                        auto stmt = parseStatement();
+                        if (stmt) stmts.push_back(std::move(stmt));
+                        else break;
+                    }
+                    auto bodyEnd = current_.getLocation();
+                    expect(TokenKind::r_brace);
+                    getterBody = std::make_unique<BlockStmt>(
+                        std::move(stmts), rangeFrom(subStart));
+                }
+            }
+
+            // Copy params for setter (can't move twice)
+            auto cloneParams = [&]() {
+                std::vector<ParamDecl> out;
+                for (auto &p : params) {
+                    ParamDecl np;
+                    np.name = p.name;
+                    np.type = cloneTypeRepr(p.type.get());
+                    np.isSelf = p.isSelf;
+                    np.isMutRef = p.isMutRef;
+                    np.isVariadic = p.isVariadic;
+                    out.push_back(std::move(np));
+                }
+                return out;
+            };
+
+            // Getter method
+            member.method = std::make_unique<FuncDecl>(
+                "subscript", cloneParams(), cloneTypeRepr(retType.get()), std::move(getterBody),
+                member.access == AccessModifier::Public, rangeFrom(subStart));
+            if (!subTypeParams.empty()) {
+                member.method->setTypeParams(subTypeParams);
+            }
+            members.push_back(std::move(member));
+
+            // Setter method (if present): subscript_set(params..., newValue: retType) → void
+            if (setterBody) {
+                ClassMember setMember;
+                setMember.access = AccessModifier::Public;
+                auto setParams = cloneParams();
+                ParamDecl newValParam;
+                newValParam.name = "newValue";
+                newValParam.type = std::move(retType);
+                setParams.push_back(std::move(newValParam));
+                setMember.method = std::make_unique<FuncDecl>(
+                    "subscript_set", std::move(setParams), makeVoidType(), std::move(setterBody),
+                    true, rangeFrom(subStart));
+                if (!subTypeParams.empty()) {
+                    setMember.method->setTypeParams(subTypeParams);
+                }
+                members.push_back(std::move(setMember));
+            }
+        }
         // func method(params...) — self is implicit
         else if (check(TokenKind::kw_func) || check(TokenKind::kw_async)) {
             bool isAsync = false;
@@ -937,7 +1158,7 @@ std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic) {
 
     auto classDecl = std::make_unique<ClassDecl>(
         std::move(name), std::move(parentClass), std::move(protocols),
-        std::move(members), isPublic, rangeFrom(startLoc));
+        std::move(members), isPublic, rangeFrom(startLoc), isFinal);
     if (!typeParams.empty()) {
         classDecl->setTypeParams(std::move(typeParams));
     }

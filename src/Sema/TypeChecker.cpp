@@ -374,9 +374,10 @@ void TypeChecker::check(TranslationUnit &tu) {
             if (classDecl->hasParentClass()) {
                 classParent_[classDecl->getName()] = classDecl->getParentClass();
             }
-            // Track private members
+            // Track private/fileprivate members (both hidden outside declaring class)
             for (auto &m : classDecl->getMembers()) {
-                if (m.access == AccessModifier::Private) {
+                if (m.access == AccessModifier::Private ||
+                    m.access == AccessModifier::FilePrivate) {
                     if (m.field)
                         classPrivateMembers_[classDecl->getName()].insert(m.field->getName());
                     if (m.method)
@@ -911,6 +912,18 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
                              parentName);
             }
         } else {
+            // Check if parent is final
+            if (it->second->isFinal()) {
+                diag_.report(node->getStartLoc(), DiagID::err_class_final_inherit,
+                             parentName);
+            }
+            // Check if parent is open (only open classes can be subclassed)
+            // Internal/FilePrivate classes allowed same-module (permissive MVP)
+            auto parentAcc = it->second->getAccess();
+            if (parentAcc == AccessModifier::Public && !it->second->isFinal()) {
+                diag_.report(node->getStartLoc(), DiagID::err_class_non_open_inherit,
+                             parentName);
+            }
             // Check for circular inheritance
             std::set<std::string> visited;
             std::string cur = node->getName();
@@ -992,6 +1005,12 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
     for (auto &m : node->getMembers()) {
         if (!m.method) continue;
 
+        // Validate static + override conflict
+        if (m.isStatic && m.isOverride) {
+            diag_.report(m.method->getStartLoc(), DiagID::err_class_static_override,
+                         m.method->getName());
+        }
+
         // Validate override
         if (m.isOverride) {
             if (!node->hasParentClass()) {
@@ -999,8 +1018,9 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
                              DiagID::err_class_override_no_parent_method,
                              m.method->getName());
             } else {
-                // Check parent has the method
+                // Check parent has the method and signature matches
                 bool foundInParent = false;
+                const FuncDecl *parentMethod = nullptr;
                 std::string cur = node->getParentClass();
                 while (!cur.empty() && !foundInParent) {
                     auto pit = classDecls_.find(cur);
@@ -1008,6 +1028,7 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
                         for (auto *pm : pit->second->getMethods()) {
                             if (pm->getName() == m.method->getName()) {
                                 foundInParent = true;
+                                parentMethod = pm;
                                 break;
                             }
                         }
@@ -1021,6 +1042,61 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
                     diag_.report(m.method->getStartLoc(),
                                  DiagID::err_class_override_no_parent_method,
                                  m.method->getName());
+                } else if (parentMethod) {
+                    // Check if parent method is final
+                    bool isFinalMethod = false;
+                    std::string pc = node->getParentClass();
+                    while (!pc.empty() && !isFinalMethod) {
+                        auto pcIt = classDecls_.find(pc);
+                        if (pcIt != classDecls_.end()) {
+                            for (auto &pm : pcIt->second->getMembers()) {
+                                if (pm.method && pm.method->getName() == m.method->getName() && pm.isFinal) {
+                                    isFinalMethod = true;
+                                    break;
+                                }
+                            }
+                            auto ppIt = classParent_.find(pc);
+                            pc = (ppIt != classParent_.end()) ? ppIt->second : "";
+                        } else break;
+                    }
+                    if (isFinalMethod) {
+                        diag_.report(m.method->getStartLoc(),
+                                     DiagID::err_class_final_override,
+                                     m.method->getName());
+                    }
+                    // Check parameter count matches
+                    bool sigMismatch =
+                        m.method->getParams().size() != parentMethod->getParams().size();
+
+                    // Check return type matches
+                    if (!sigMismatch) {
+                        auto *childRet = m.method->getReturnType();
+                        auto *parentRet = parentMethod->getReturnType();
+                        if (childRet && parentRet &&
+                            !typesCompatible(parentRet, childRet)) {
+                            sigMismatch = true;
+                        }
+                    }
+
+                    // Check each parameter type matches
+                    if (!sigMismatch) {
+                        auto &cparams = m.method->getParams();
+                        auto &pparams = parentMethod->getParams();
+                        for (size_t pi = 0; pi < cparams.size(); ++pi) {
+                            if (cparams[pi].type && pparams[pi].type &&
+                                !typesCompatible(pparams[pi].type.get(),
+                                                 cparams[pi].type.get())) {
+                                sigMismatch = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (sigMismatch) {
+                        diag_.report(m.method->getStartLoc(),
+                                     DiagID::err_class_override_signature,
+                                     m.method->getName());
+                    }
                 }
             }
         }
@@ -1033,9 +1109,13 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
             }
         }
 
-        // Type-check method body — self is implicit in class methods
+        // Type-check method body — self is implicit in non-static class methods
         if (m.method->getBody()) {
             scopes_.pushScope();
+            if (m.isStatic) {
+                // Static methods don't have self — shadow it so uses get caught
+                // (self is declared in outer class scope; don't re-declare here)
+            }
             for (auto &param : m.method->getParams()) {
                 Symbol paramSym;
                 paramSym.name = param.name;
@@ -1049,6 +1129,59 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
             visitBlockStmt(const_cast<BlockStmt *>(m.method->getBody()));
             currentReturnType_ = prevRetType;
             scopes_.popScope();
+        }
+    }
+
+    // Convenience init: skip init-all-fields check (delegates to designated init)
+    bool hasConvenienceInit = false;
+    for (auto &m : node->getMembers()) {
+        if (m.method && m.method->getName() == "init" && m.isConvenienceInit) {
+            hasConvenienceInit = true;
+            break;
+        }
+    }
+
+    // Validate init initializes all own fields (skip if convenience init — delegated)
+    auto *initDecl = (hasConvenienceInit ? nullptr : node->getInit());
+    if (initDecl && initDecl->getBody()) {
+        auto ownFields = node->getFields();
+        if (!ownFields.empty()) {
+            // Collect field names assigned in init body via self.field = ...
+            std::set<std::string> initializedFields;
+            for (auto &stmt : initDecl->getBody()->getStatements()) {
+                if (stmt->getKind() == ASTNode::NodeKind::ExprStmt) {
+                    auto *exprStmt = static_cast<const ExprStmt *>(stmt.get());
+                    auto *expr = exprStmt->getExpr();
+                    if (expr && expr->getKind() == ASTNode::NodeKind::AssignExpr) {
+                        auto *assign = static_cast<const AssignExpr *>(expr);
+                        auto *target = assign->getTarget();
+                        if (target && target->getKind() == ASTNode::NodeKind::MemberExpr) {
+                            auto *member = static_cast<const MemberExpr *>(target);
+                            if (member->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                                auto *ident = static_cast<const IdentifierExpr *>(member->getObject());
+                                if (ident->getName() == "self") {
+                                    initializedFields.insert(member->getMember());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Collect lazy field names (skip them in init-all-fields check)
+            std::set<std::string> lazyFields;
+            for (auto &m : node->getMembers()) {
+                if (m.isLazy && m.field) lazyFields.insert(m.field->getName());
+            }
+            // Check all own stored fields are initialized (skip computed & lazy properties)
+            for (auto *field : ownFields) {
+                if (field->isComputed()) continue;
+                if (lazyFields.count(field->getName())) continue;
+                if (!initializedFields.count(field->getName())) {
+                    diag_.report(initDecl->getStartLoc(), DiagID::err_class_init_not_all_fields,
+                                 node->getName());
+                    break;
+                }
+            }
         }
     }
 
@@ -1794,23 +1927,46 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *identChk = static_cast<IdentifierExpr *>(node->getCallee());
         auto *symChk = scopes_.lookup(identChk->getName());
-        // Class constructor call: ClassName(args) → delegate to init
+        // Class constructor call: ClassName(args) → overload resolution on arg count
         if (symChk && symChk->kind == Symbol::Kind::ClassType && symChk->classDecl) {
-            auto *initDecl = symChk->classDecl->getInit();
-            if (initDecl) {
-                const auto &params = initDecl->getParams();
-                size_t actualArgs = node->getArgs().size();
-                size_t requiredParams = 0;
-                for (const auto &p : params) {
-                    if (p.isSelf) continue;
-                    if (!p.hasDefault()) requiredParams++;
+            auto inits = symChk->classDecl->getInits();
+            size_t actualArgs = node->getArgs().size();
+            const FuncDecl *matchedInit = nullptr;
+            if (!inits.empty()) {
+                // Find init matching actual arg count (respecting defaults)
+                for (auto *it : inits) {
+                    size_t minReq = 0, maxP = 0;
+                    for (auto &p : it->getParams()) {
+                        if (p.isSelf) continue;
+                        maxP++;
+                        if (!p.hasDefault()) minReq++;
+                    }
+                    if (actualArgs >= minReq && actualArgs <= maxP) {
+                        matchedInit = it;
+                        break;
+                    }
                 }
-                if (actualArgs < requiredParams) {
+                if (!matchedInit) {
+                    // Report with first init's signature
+                    auto *first = inits.front();
+                    size_t minReq = 0;
+                    for (auto &p : first->getParams()) {
+                        if (p.isSelf) continue;
+                        if (!p.hasDefault()) minReq++;
+                    }
                     diag_.report(node->getStartLoc(), DiagID::err_wrong_arg_count,
                                  identChk->getName(),
-                                 std::to_string(requiredParams),
+                                 std::to_string(minReq),
                                  std::to_string(actualArgs));
                 }
+            }
+            // Set result type: NamedTypeRepr(className), wrapped in Optional if failable
+            auto classType = std::make_unique<NamedTypeRepr>(symChk->classDecl->getName());
+            if (symChk->classDecl->hasFailableInit()) {
+                auto optType = std::make_unique<OptionalTypeRepr>(std::move(classType));
+                node->setResolvedType(std::move(optType));
+            } else {
+                node->setResolvedType(std::move(classType));
             }
         }
         if (symChk && symChk->funcDecl) {
@@ -2525,13 +2681,28 @@ void TypeChecker::visitMemberExpr(MemberExpr *node) {
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
         auto *sym = scopes_.lookup(ident->getName());
-        if (sym && sym->kind == Symbol::Kind::Parameter && ident->getName() != "self") {
-            // Check if this variable is a class instance with private member
-            // (Simplified: check all known classes for private member)
-            for (auto &[className, privMembers] : classPrivateMembers_) {
-                if (privMembers.count(node->getMember()) && className != currentClassName_) {
+        if (sym && ident->getName() != "self") {
+            // Determine the class type of the variable
+            std::string varClassName;
+            if (sym->type && sym->type->getKind() == TypeRepr::Kind::Named) {
+                auto *named = static_cast<const NamedTypeRepr *>(sym->type);
+                if (classDecls_.count(named->getName()))
+                    varClassName = named->getName();
+            }
+            // If no explicit type, check all classes (backward compat)
+            if (varClassName.empty()) {
+                for (auto &[cn, privMembers] : classPrivateMembers_) {
+                    if (privMembers.count(node->getMember()) && cn != currentClassName_) {
+                        diag_.report(node->getStartLoc(), DiagID::err_class_private_access,
+                                     node->getMember(), cn);
+                        break;
+                    }
+                }
+            } else if (varClassName != currentClassName_) {
+                auto pit = classPrivateMembers_.find(varClassName);
+                if (pit != classPrivateMembers_.end() && pit->second.count(node->getMember())) {
                     diag_.report(node->getStartLoc(), DiagID::err_class_private_access,
-                                 node->getMember(), className);
+                                 node->getMember(), varClassName);
                 }
             }
         }
@@ -2673,7 +2844,78 @@ void TypeChecker::visitTupleLiteralExpr(TupleLiteralExpr *node) {
 
 void TypeChecker::visitCastExpr(CastExpr *node) {
     visit(const_cast<Expr *>(node->getExpr()));
-    node->setResolvedType(makePrimitiveType(node->getTargetType()->getKind()));
+    if (node->isOptional()) {
+        // Check class hierarchy for as? cast
+        auto *exprType = node->getExpr()->getResolvedType();
+        auto *targetType = node->getTargetType();
+        if (exprType && targetType &&
+            exprType->getKind() == TypeRepr::Kind::Named &&
+            targetType->getKind() == TypeRepr::Kind::Named) {
+            auto *exprNamed = static_cast<const NamedTypeRepr *>(exprType);
+            auto *targetNamed = static_cast<const NamedTypeRepr *>(targetType);
+            auto eIt = classDecls_.find(exprNamed->getName());
+            auto tIt = classDecls_.find(targetNamed->getName());
+            if (eIt != classDecls_.end() && tIt != classDecls_.end()) {
+                auto walkParents = [this](std::string cur, const std::string &target) {
+                    while (!cur.empty()) {
+                        if (cur == target) return true;
+                        auto pit = classParent_.find(cur);
+                        if (pit != classParent_.end()) cur = pit->second;
+                        else break;
+                    }
+                    return false;
+                };
+                bool rel = walkParents(exprNamed->getName(), targetNamed->getName()) ||
+                           walkParents(targetNamed->getName(), exprNamed->getName()) ||
+                           exprNamed->getName() == targetNamed->getName();
+                if (!rel) {
+                    diag_.report(node->getStartLoc(), DiagID::warn_as_unrelated_type,
+                                 targetNamed->getName(), exprNamed->getName());
+                }
+            }
+        }
+        // as? → result is Optional<TargetType>
+        auto optType = std::make_unique<OptionalTypeRepr>(
+            cloneTypeRepr(node->getTargetType()));
+        node->setResolvedType(std::move(optType));
+    } else {
+        node->setResolvedType(makePrimitiveType(node->getTargetType()->getKind()));
+    }
+}
+
+void TypeChecker::visitIsExpr(IsExpr *node) {
+    visit(const_cast<Expr *>(node->getExpr()));
+    // Check that expr type and target type share a class hierarchy
+    auto *exprType = node->getExpr()->getResolvedType();
+    auto *targetType = node->getTargetType();
+    if (exprType && targetType &&
+        exprType->getKind() == TypeRepr::Kind::Named &&
+        targetType->getKind() == TypeRepr::Kind::Named) {
+        auto *exprNamed = static_cast<const NamedTypeRepr *>(exprType);
+        auto *targetNamed = static_cast<const NamedTypeRepr *>(targetType);
+        auto eIt = classDecls_.find(exprNamed->getName());
+        auto tIt = classDecls_.find(targetNamed->getName());
+        if (eIt != classDecls_.end() && tIt != classDecls_.end()) {
+            // Both classes: they must be in the same hierarchy (one is ancestor of other)
+            auto walkParents = [this](std::string cur, const std::string &target) {
+                while (!cur.empty()) {
+                    if (cur == target) return true;
+                    auto pit = classParent_.find(cur);
+                    if (pit != classParent_.end()) cur = pit->second;
+                    else break;
+                }
+                return false;
+            };
+            bool targetIsAncestor = walkParents(exprNamed->getName(), targetNamed->getName());
+            bool exprIsAncestor = walkParents(targetNamed->getName(), exprNamed->getName());
+            if (!targetIsAncestor && !exprIsAncestor &&
+                exprNamed->getName() != targetNamed->getName()) {
+                diag_.report(node->getStartLoc(), DiagID::warn_is_unrelated_type,
+                             targetNamed->getName(), exprNamed->getName());
+            }
+        }
+    }
+    node->setResolvedType(makeBoolType());
 }
 
 void TypeChecker::visitRefExpr(RefExpr *node) {
@@ -2717,11 +2959,26 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
         return true;
     if (exp->getKind() != act->getKind())
         return false;
-    // Deep compare for Named types (struct/enum names must match)
+    // Deep compare for Named types (struct/enum names must match; classes allow subtype)
     if (exp->getKind() == TypeRepr::Kind::Named) {
         auto *expNamed = static_cast<const NamedTypeRepr *>(exp);
         auto *actNamed = static_cast<const NamedTypeRepr *>(act);
-        if (expNamed->getName() != actNamed->getName()) return false;
+        if (expNamed->getName() != actNamed->getName()) {
+            // Class subtype: expected is a class, actual is the same class or a descendant
+            auto expIt = classDecls_.find(expNamed->getName());
+            auto actIt = classDecls_.find(actNamed->getName());
+            if (expIt != classDecls_.end() && actIt != classDecls_.end()) {
+                // Walk actual's parent chain looking for expected
+                std::string cur = actNamed->getName();
+                while (!cur.empty()) {
+                    if (cur == expNamed->getName()) return true;
+                    auto pit = classParent_.find(cur);
+                    if (pit != classParent_.end()) cur = pit->second;
+                    else break;
+                }
+            }
+            return false;
+        }
     }
     // Deep compare for tuples
     if (exp->getKind() == TypeRepr::Kind::Tuple) {

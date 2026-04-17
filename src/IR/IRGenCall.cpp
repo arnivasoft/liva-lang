@@ -1082,6 +1082,25 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     structTypeName = enIt->second;
             }
 
+            // Static class method call: ClassName.method(args) — no self, direct call
+            if (classNames_.count(objName) && !objAlloca) {
+                std::string mangledName = objName + "_" + methodName;
+                auto *callee = module_->getFunction(mangledName);
+                if (callee && callee->arg_size() == node->getArgs().size()) {
+                    std::vector<llvm::Value *> args;
+                    for (auto &arg : node->getArgs()) {
+                        auto *val = visit(arg.get());
+                        if (!val) return nullptr;
+                        args.push_back(val);
+                    }
+                    if (callee->getReturnType()->isVoidTy()) {
+                        builder_->CreateCall(callee, args);
+                        return nullptr;
+                    }
+                    return builder_->CreateCall(callee, args, "static.call");
+                }
+            }
+
             // Class instance method call (virtual dispatch)
             auto clsIt = varClassTypes_.find(objName);
             if (clsIt != varClassTypes_.end()) {
@@ -1171,6 +1190,28 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 }
             }
 
+            // self.init(args) → convenience init delegation: ClassName_init_fields(self, args)
+            if (objName == "self" && methodName == "init" && !currentClassContext_.empty()) {
+                std::string initFields = currentClassContext_ + "_init_fields";
+                auto *fn = module_->getFunction(initFields);
+                if (fn) {
+                    auto selfIt = namedValues_.find("self");
+                    if (selfIt != namedValues_.end()) {
+                        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                        auto *selfVal = builder_->CreateLoad(ptrTy, selfIt->second, "self.ptr");
+                        std::vector<llvm::Value *> args;
+                        args.push_back(selfVal);
+                        for (auto &arg : node->getArgs()) {
+                            auto *val = visit(arg.get());
+                            if (!val) return nullptr;
+                            args.push_back(val);
+                        }
+                        builder_->CreateCall(fn, args);
+                        return nullptr;
+                    }
+                }
+            }
+
             // super.method(args) → direct call to parent method
             if (objName == "super" && !currentClassContext_.empty()) {
                 auto pit = classParent_.find(currentClassContext_);
@@ -1223,6 +1264,80 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     }
                 }
                 return nullptr;
+            }
+        }
+
+        // Nested struct method call: obj.field.method() (MemberExpr chain)
+        if (!objAlloca && structTypeName.empty() &&
+            memberExpr->getObject()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            // Walk the MemberExpr chain to find root variable and field path
+            std::vector<std::string> fieldChain;
+            ASTNode *current = memberExpr->getObject();
+            while (current->getKind() == ASTNode::NodeKind::MemberExpr) {
+                auto *memExpr = static_cast<MemberExpr *>(current);
+                fieldChain.push_back(memExpr->getMember());
+                current = memExpr->getObject();
+            }
+
+            if (current->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *rootIdent = static_cast<IdentifierExpr *>(current);
+                std::string rootName = rootIdent->getName();
+
+                auto rootValIt = namedValues_.find(rootName);
+                auto rootStIt = varStructTypes_.find(rootName);
+
+                if (rootValIt != namedValues_.end() && rootStIt != varStructTypes_.end()) {
+                    llvm::AllocaInst *rootAlloca = rootValIt->second;
+                    std::string curStructType = rootStIt->second;
+
+                    // fieldChain is in reverse order, reverse it
+                    std::reverse(fieldChain.begin(), fieldChain.end());
+
+                    llvm::Value *currentPtr = rootAlloca;
+                    if (rootAlloca->getAllocatedType()->isPointerTy()) {
+                        currentPtr = builder_->CreateLoad(
+                            rootAlloca->getAllocatedType(), rootAlloca, rootName + ".ptr");
+                    }
+
+                    bool resolved = true;
+                    for (const auto &fld : fieldChain) {
+                        auto stIt = structTypes_.find(curStructType);
+                        if (stIt == structTypes_.end()) { resolved = false; break; }
+
+                        int fieldIdx = getStructFieldIndex(curStructType, fld);
+                        if (fieldIdx < 0) { resolved = false; break; }
+
+                        // GEP to the field
+                        currentPtr = builder_->CreateStructGEP(
+                            stIt->second, currentPtr, fieldIdx, fld + ".gep");
+
+                        // Determine the struct type of this field
+                        auto ftrIt = structFieldTypeReprs_.find(curStructType);
+                        if (ftrIt != structFieldTypeReprs_.end() &&
+                            static_cast<size_t>(fieldIdx) < ftrIt->second.size()) {
+                            auto *fieldTR = ftrIt->second[fieldIdx];
+                            if (fieldTR && fieldTR->getKind() == TypeRepr::Kind::Named) {
+                                curStructType = static_cast<const NamedTypeRepr *>(fieldTR)->getName();
+                            } else {
+                                resolved = false;
+                                break;
+                            }
+                        } else {
+                            resolved = false;
+                            break;
+                        }
+                    }
+
+                    if (resolved && !curStructType.empty()) {
+                        structTypeName = curStructType;
+                        objName = fieldChain.back();
+                        // Create temp alloca storing pointer to nested field
+                        auto *func = builder_->GetInsertBlock()->getParent();
+                        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                        objAlloca = createEntryBlockAlloca(func, "nested.self", ptrTy);
+                        builder_->CreateStore(currentPtr, objAlloca);
+                    }
+                }
             }
         }
 
@@ -1357,10 +1472,20 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         funcName = ident->getName();
     }
 
-    // Class constructor call: ClassName(args) → call ClassName_init(args)
+    // Class constructor call: ClassName(args) → overload resolution on arg count
     if (classNames_.count(funcName)) {
-        std::string initName = funcName + "_init";
-        auto *initFn = module_->getFunction(initName);
+        size_t argCount = node->getArgs().size();
+        // Try ClassName_init (designated/first) if its arity matches
+        llvm::Function *initFn = nullptr;
+        auto *firstInit = module_->getFunction(funcName + "_init");
+        if (firstInit && firstInit->arg_size() == argCount) {
+            initFn = firstInit;
+        } else {
+            // Try ClassName_init<argCount> (convenience/overload)
+            auto *overloaded = module_->getFunction(funcName + "_init" + std::to_string(argCount));
+            if (overloaded) initFn = overloaded;
+            else initFn = firstInit; // fallback
+        }
         if (initFn) {
             std::vector<llvm::Value *> args;
             for (auto &arg : node->getArgs()) {
@@ -1369,8 +1494,6 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 args.push_back(val);
             }
             auto *obj = builder_->CreateCall(initFn, args, "class_obj");
-            // Track as class instance
-            // (varClassTypes_ is set by the caller in visitVarDecl)
             return obj;
         }
         return nullptr;
@@ -3298,296 +3421,413 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return arrStruct;
     }
 
-    // === Stdlib: UI (raylib wrapper) ===
+    // === Stdlib: UI (wxWidgets wrapper) ===
 
-    // initWindow(w, h, title) -> void
-    if (funcName == "initWindow" && node->getArgs().size() >= 3) {
+    // Helper lambda: emit a callback call decomposing Liva closure into func+env
+    auto emitCallbackCall = [&](const std::string &cFuncName, int32_t handleArgIdx,
+                                 int32_t closureArgIdx) -> llvm::Value * {
+        auto *handle = visit(node->getArgs()[handleArgIdx].get());
+        auto *closureVal = visit(node->getArgs()[closureArgIdx].get());
+        if (!handle || !closureVal) return nullptr;
+        auto *closureObjTy = getClosureObjTy();
+        auto *alloca = createEntryBlockAlloca(
+            builder_->GetInsertBlock()->getParent(), "cb.tmp", closureObjTy);
+        builder_->CreateStore(closureVal, alloca);
+        auto *funcPtr = builder_->CreateLoad(
+            llvm::PointerType::getUnqual(*context_),
+            builder_->CreateStructGEP(closureObjTy, alloca, 0));
+        auto *envPtr = builder_->CreateLoad(
+            llvm::PointerType::getUnqual(*context_),
+            builder_->CreateStructGEP(closureObjTy, alloca, 1));
+        builder_->CreateCall(getOrPanic(cFuncName.c_str()), {handle, funcPtr, envPtr});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    };
+
+    // appInit() -> void
+    if (funcName == "appInit" && node->getArgs().empty()) {
+        builder_->CreateCall(getOrPanic("liva_ui_app_init"), {});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // appRun() -> void
+    if (funcName == "appRun" && node->getArgs().empty()) {
+        builder_->CreateCall(getOrPanic("liva_ui_app_run"), {});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // appQuit() -> void
+    if (funcName == "appQuit" && node->getArgs().empty()) {
+        builder_->CreateCall(getOrPanic("liva_ui_app_quit"), {});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // createWindow(w, h, title) -> i32
+    if (funcName == "createWindow" && node->getArgs().size() >= 3) {
         auto *w = visit(node->getArgs()[0].get());
         auto *h = visit(node->getArgs()[1].get());
         auto *title = visit(node->getArgs()[2].get());
         if (!w || !h || !title) return nullptr;
-        builder_->CreateCall(getOrPanic("liva_ui_init_window"), {w, h, title});
+        return builder_->CreateCall(getOrPanic("liva_ui_create_window"), {w, h, title}, "ui.win");
+    }
+
+    // windowShow(handle, show) -> void
+    if (funcName == "windowShow" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *show = visit(node->getArgs()[1].get());
+        if (!handle || !show) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_window_show"), {handle, show});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // closeWindow() -> void
-    if (funcName == "closeWindow" && node->getArgs().empty()) {
-        builder_->CreateCall(getOrPanic("liva_ui_close_window"), {});
+    // windowSetTitle(handle, title) -> void
+    if (funcName == "windowSetTitle" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *title = visit(node->getArgs()[1].get());
+        if (!handle || !title) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_window_set_title"), {handle, title});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // windowShouldClose() -> bool
-    if (funcName == "windowShouldClose" && node->getArgs().empty()) {
-        auto *r = builder_->CreateCall(getOrPanic("liva_ui_window_should_close"), {}, "ui.wsc");
-        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.wsc.bool");
-    }
-
-    // setTargetFps(fps) -> void
-    if (funcName == "setTargetFps" && !node->getArgs().empty()) {
-        auto *fps = visit(node->getArgs()[0].get());
-        if (!fps) return nullptr;
-        builder_->CreateCall(getOrPanic("liva_ui_set_target_fps"), {fps});
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
-    }
-
-    // getScreenWidth() -> i32
-    if (funcName == "getScreenWidth" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_screen_width"), {}, "ui.sw");
-    }
-
-    // getScreenHeight() -> i32
-    if (funcName == "getScreenHeight" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_screen_height"), {}, "ui.sh");
-    }
-
-    // beginDrawing() -> void
-    if (funcName == "beginDrawing" && node->getArgs().empty()) {
-        builder_->CreateCall(getOrPanic("liva_ui_begin_drawing"), {});
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
-    }
-
-    // endDrawing() -> void
-    if (funcName == "endDrawing" && node->getArgs().empty()) {
-        builder_->CreateCall(getOrPanic("liva_ui_end_drawing"), {});
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
-    }
-
-    // clearBackground(r, g, b, a) -> void
-    if (funcName == "clearBackground" && node->getArgs().size() >= 4) {
-        auto *r = visit(node->getArgs()[0].get());
-        auto *g = visit(node->getArgs()[1].get());
-        auto *b = visit(node->getArgs()[2].get());
-        auto *a = visit(node->getArgs()[3].get());
-        if (!r || !g || !b || !a) return nullptr;
-        builder_->CreateCall(getOrPanic("liva_ui_clear_background"), {r, g, b, a});
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
-    }
-
-    // drawRect(x, y, w, h, r, g, b, a) -> void
-    if (funcName == "drawRect" && node->getArgs().size() >= 8) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 8; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
-        }
-        builder_->CreateCall(getOrPanic("liva_ui_draw_rect"), args);
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
-    }
-
-    // drawRectRounded(x, y, w, h, roundness, r, g, b, a) -> void
-    if (funcName == "drawRectRounded" && node->getArgs().size() >= 9) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 9; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
-        }
-        // arg[4] is roundness — fptrunc f64 -> f32 if needed
-        if (args[4]->getType()->isDoubleTy())
-            args[4] = builder_->CreateFPTrunc(args[4], builder_->getFloatTy());
-        builder_->CreateCall(getOrPanic("liva_ui_draw_rect_rounded"), args);
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
-    }
-
-    // drawText(text, x, y, size, r, g, b, a) -> void
-    if (funcName == "drawText" && node->getArgs().size() >= 8) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 8; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
-        }
-        builder_->CreateCall(getOrPanic("liva_ui_draw_text"), args);
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
-    }
-
-    // measureText(text, size) -> i32
-    if (funcName == "measureText" && node->getArgs().size() >= 2) {
-        auto *text = visit(node->getArgs()[0].get());
-        auto *size = visit(node->getArgs()[1].get());
-        if (!text || !size) return nullptr;
-        return builder_->CreateCall(getOrPanic("liva_ui_measure_text"), {text, size}, "ui.mt");
-    }
-
-    // loadFont(path, size) -> i32
-    if (funcName == "loadFont" && node->getArgs().size() >= 2) {
-        auto *path = visit(node->getArgs()[0].get());
-        auto *size = visit(node->getArgs()[1].get());
-        if (!path || !size) return nullptr;
-        return builder_->CreateCall(getOrPanic("liva_ui_load_font"), {path, size}, "ui.lf");
-    }
-
-    // unloadFont(handle) -> void
-    if (funcName == "unloadFont" && node->getArgs().size() >= 1) {
+    // windowGetWidth(handle) -> i32
+    if (funcName == "windowGetWidth" && node->getArgs().size() >= 1) {
         auto *handle = visit(node->getArgs()[0].get());
         if (!handle) return nullptr;
-        builder_->CreateCall(getOrPanic("liva_ui_unload_font"), {handle});
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+        return builder_->CreateCall(getOrPanic("liva_ui_window_get_width"), {handle}, "ui.ww");
     }
 
-    // drawTextFont(handle, text, x, y, size, r, g, b, a) -> void
-    if (funcName == "drawTextFont" && node->getArgs().size() >= 9) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 9; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
+    // windowGetHeight(handle) -> i32
+    if (funcName == "windowGetHeight" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_window_get_height"), {handle}, "ui.wh");
+    }
+
+    // windowOnClose(handle, callback) -> void
+    if (funcName == "windowOnClose" && node->getArgs().size() >= 2) {
+        return emitCallbackCall("liva_ui_window_on_close", 0, 1);
+    }
+
+    // Widget creation: create*(parent) -> i32
+    // Single-arg parent versions
+    for (const auto &[livaName, cName] : std::initializer_list<std::pair<const char *, const char *>>{
+             {"createPanel", "liva_ui_create_panel"},
+             {"createListBox", "liva_ui_create_listbox"},
+             {"createTabView", "liva_ui_create_tabview"},
+             {"createScrollView", "liva_ui_create_scrollview"},
+             {"createDivider", "liva_ui_create_divider"},
+             {"createCanvas", "liva_ui_create_canvas"}}) {
+        if (funcName == livaName && node->getArgs().size() >= 1) {
+            auto *parent = visit(node->getArgs()[0].get());
+            if (!parent) return nullptr;
+            return builder_->CreateCall(getOrPanic(cName), {parent}, "ui.w");
         }
-        builder_->CreateCall(getOrPanic("liva_ui_draw_text_font"), args);
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // measureTextFont(handle, text, size) -> i32
-    if (funcName == "measureTextFont" && node->getArgs().size() >= 3) {
+    // Widget creation: create*(parent, text) -> i32
+    for (const auto &[livaName, cName] : std::initializer_list<std::pair<const char *, const char *>>{
+             {"createButton", "liva_ui_create_button"},
+             {"createLabel", "liva_ui_create_label"},
+             {"createTextInput", "liva_ui_create_textinput"},
+             {"createCheckbox", "liva_ui_create_checkbox"},
+             {"createTextArea", "liva_ui_create_textarea"},
+             {"createRadioGroup", "liva_ui_create_radiogroup"},
+             {"createDropdown", "liva_ui_create_dropdown"},
+             {"createImageView", "liva_ui_create_imageview"}}) {
+        if (funcName == livaName && node->getArgs().size() >= 2) {
+            auto *parent = visit(node->getArgs()[0].get());
+            auto *text = visit(node->getArgs()[1].get());
+            if (!parent || !text) return nullptr;
+            return builder_->CreateCall(getOrPanic(cName), {parent, text}, "ui.w");
+        }
+    }
+
+    // createSlider(parent, min, max, val) -> i32
+    if (funcName == "createSlider" && node->getArgs().size() >= 4) {
+        auto *parent = visit(node->getArgs()[0].get());
+        auto *minV = visit(node->getArgs()[1].get());
+        auto *maxV = visit(node->getArgs()[2].get());
+        auto *val = visit(node->getArgs()[3].get());
+        if (!parent || !minV || !maxV || !val) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_slider"),
+                                    {parent, minV, maxV, val}, "ui.sl");
+    }
+
+    // createProgressBar(parent, range) -> i32
+    if (funcName == "createProgressBar" && node->getArgs().size() >= 2) {
+        auto *parent = visit(node->getArgs()[0].get());
+        auto *range = visit(node->getArgs()[1].get());
+        if (!parent || !range) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_progressbar"),
+                                    {parent, range}, "ui.pb");
+    }
+
+    // setText(handle, text) -> void
+    if (funcName == "setText" && node->getArgs().size() >= 2) {
         auto *handle = visit(node->getArgs()[0].get());
         auto *text = visit(node->getArgs()[1].get());
-        auto *size = visit(node->getArgs()[2].get());
-        if (!handle || !text || !size) return nullptr;
-        return builder_->CreateCall(getOrPanic("liva_ui_measure_text_font"), {handle, text, size}, "ui.mtf");
-    }
-
-    // drawTextWrapped(text, x, y, fontSize, maxWidth, r, g, b, a) -> i32
-    if (funcName == "drawTextWrapped" && node->getArgs().size() >= 9) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 9; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
-        }
-        return builder_->CreateCall(getOrPanic("liva_ui_draw_text_wrapped"), args, "ui.dtw");
-    }
-
-    // measureTextWrapped(text, fontSize, maxWidth) -> i32
-    if (funcName == "measureTextWrapped" && node->getArgs().size() >= 3) {
-        auto *text = visit(node->getArgs()[0].get());
-        auto *fontSize = visit(node->getArgs()[1].get());
-        auto *maxWidth = visit(node->getArgs()[2].get());
-        if (!text || !fontSize || !maxWidth) return nullptr;
-        return builder_->CreateCall(getOrPanic("liva_ui_measure_text_wrapped"), {text, fontSize, maxWidth}, "ui.mtw");
-    }
-
-    // drawLine(x1, y1, x2, y2, r, g, b, a) -> void
-    if (funcName == "drawLine" && node->getArgs().size() >= 8) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 8; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
-        }
-        builder_->CreateCall(getOrPanic("liva_ui_draw_line"), args);
+        if (!handle || !text) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_text"), {handle, text});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // drawCircle(cx, cy, radius, r, g, b, a) -> void
-    if (funcName == "drawCircle" && node->getArgs().size() >= 7) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 7; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
-        }
-        builder_->CreateCall(getOrPanic("liva_ui_draw_circle"), args);
+    // getText(handle) -> string
+    if (funcName == "getText" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_get_text"), {handle}, "ui.gt");
+    }
+
+    // setValue(handle, val) -> void
+    if (funcName == "setValue" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *val = visit(node->getArgs()[1].get());
+        if (!handle || !val) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_value"), {handle, val});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // drawRectLines(x, y, w, h, r, g, b, a) -> void
-    if (funcName == "drawRectLines" && node->getArgs().size() >= 8) {
-        std::vector<llvm::Value *> args;
-        for (int i = 0; i < 8; ++i) {
-            auto *v = visit(node->getArgs()[i].get());
-            if (!v) return nullptr;
-            args.push_back(v);
-        }
-        builder_->CreateCall(getOrPanic("liva_ui_draw_rect_lines"), args);
+    // getValue(handle) -> i32
+    if (funcName == "getValue" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_get_value"), {handle}, "ui.gv");
+    }
+
+    // setEnabled(handle, enabled) -> void
+    if (funcName == "setEnabled" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *flag = visit(node->getArgs()[1].get());
+        if (!handle || !flag) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_enabled"), {handle, flag});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // isMousePressed(button) -> bool
-    if (funcName == "isMousePressed" && !node->getArgs().empty()) {
-        auto *btn = visit(node->getArgs()[0].get());
-        if (!btn) return nullptr;
-        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_mouse_pressed"), {btn}, "ui.mp");
-        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.mp.bool");
-    }
-
-    // isMouseReleased(button) -> bool
-    if (funcName == "isMouseReleased" && !node->getArgs().empty()) {
-        auto *btn = visit(node->getArgs()[0].get());
-        if (!btn) return nullptr;
-        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_mouse_released"), {btn}, "ui.mr");
-        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.mr.bool");
-    }
-
-    // isMouseDown(button) -> bool
-    if (funcName == "isMouseDown" && !node->getArgs().empty()) {
-        auto *btn = visit(node->getArgs()[0].get());
-        if (!btn) return nullptr;
-        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_mouse_down"), {btn}, "ui.md");
-        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.md.bool");
-    }
-
-    // getMouseX() -> i32
-    if (funcName == "getMouseX" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_mouse_x"), {}, "ui.mx");
-    }
-
-    // getMouseY() -> i32
-    if (funcName == "getMouseY" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_mouse_y"), {}, "ui.my");
-    }
-
-    // getMouseWheel() -> i32
-    if (funcName == "getMouseWheel" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_mouse_wheel"), {}, "ui.mw");
-    }
-
-    // isKeyPressed(key) -> bool
-    if (funcName == "isKeyPressed" && !node->getArgs().empty()) {
-        auto *key = visit(node->getArgs()[0].get());
-        if (!key) return nullptr;
-        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_key_pressed"), {key}, "ui.kp");
-        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.kp.bool");
-    }
-
-    // isKeyDown(key) -> bool
-    if (funcName == "isKeyDown" && !node->getArgs().empty()) {
-        auto *key = visit(node->getArgs()[0].get());
-        if (!key) return nullptr;
-        auto *r = builder_->CreateCall(getOrPanic("liva_ui_is_key_down"), {key}, "ui.kd");
-        return builder_->CreateICmpNE(r, builder_->getInt8(0), "ui.kd.bool");
-    }
-
-    // getCharPressed() -> i32
-    if (funcName == "getCharPressed" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_char_pressed"), {}, "ui.cp");
-    }
-
-    // getKeyPressed() -> i32
-    if (funcName == "getKeyPressed" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_key_pressed"), {}, "ui.kpr");
-    }
-
-    // beginScissor(x, y, w, h) -> void
-    if (funcName == "beginScissor" && node->getArgs().size() >= 4) {
-        auto *x = visit(node->getArgs()[0].get());
-        auto *y = visit(node->getArgs()[1].get());
-        auto *w = visit(node->getArgs()[2].get());
-        auto *h = visit(node->getArgs()[3].get());
-        if (!x || !y || !w || !h) return nullptr;
-        builder_->CreateCall(getOrPanic("liva_ui_begin_scissor"), {x, y, w, h});
+    // setVisible(handle, visible) -> void
+    if (funcName == "setVisible" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *flag = visit(node->getArgs()[1].get());
+        if (!handle || !flag) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_visible"), {handle, flag});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // endScissor() -> void
-    if (funcName == "endScissor" && node->getArgs().empty()) {
-        builder_->CreateCall(getOrPanic("liva_ui_end_scissor"), {});
+    // setWidgetSize(handle, w, h) -> void
+    if (funcName == "setWidgetSize" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *w = visit(node->getArgs()[1].get());
+        auto *h = visit(node->getArgs()[2].get());
+        if (!handle || !w || !h) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_size"), {handle, w, h});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
-    // getFrameTime() -> f32
-    if (funcName == "getFrameTime" && node->getArgs().empty()) {
-        return builder_->CreateCall(getOrPanic("liva_ui_get_frame_time"), {}, "ui.ft");
+    // setWidgetFont(handle, size, bold) -> void
+    if (funcName == "setWidgetFont" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *size = visit(node->getArgs()[1].get());
+        auto *bold = visit(node->getArgs()[2].get());
+        if (!handle || !size || !bold) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_font"), {handle, size, bold});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // setBgColor(handle, r, g, b) -> void
+    if (funcName == "setBgColor" && node->getArgs().size() >= 4) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *r = visit(node->getArgs()[1].get());
+        auto *g = visit(node->getArgs()[2].get());
+        auto *b = visit(node->getArgs()[3].get());
+        if (!handle || !r || !g || !b) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_bg_color"), {handle, r, g, b});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // setFgColor(handle, r, g, b) -> void
+    if (funcName == "setFgColor" && node->getArgs().size() >= 4) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *r = visit(node->getArgs()[1].get());
+        auto *g = visit(node->getArgs()[2].get());
+        auto *b = visit(node->getArgs()[3].get());
+        if (!handle || !r || !g || !b) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_fg_color"), {handle, r, g, b});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // setTooltip(handle, text) -> void
+    if (funcName == "setTooltip" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *text = visit(node->getArgs()[1].get());
+        if (!handle || !text) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_tooltip"), {handle, text});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // destroyWidget(handle) -> void
+    if (funcName == "destroyWidget" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_destroy_widget"), {handle});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // Layout: createVBoxSizer() -> i32
+    if (funcName == "createVBoxSizer" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_create_vbox_sizer"), {}, "ui.vbox");
+    }
+
+    // createHBoxSizer() -> i32
+    if (funcName == "createHBoxSizer" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_create_hbox_sizer"), {}, "ui.hbox");
+    }
+
+    // createGridSizer(rows, cols, hgap, vgap) -> i32
+    if (funcName == "createGridSizer" && node->getArgs().size() >= 4) {
+        auto *rows = visit(node->getArgs()[0].get());
+        auto *cols = visit(node->getArgs()[1].get());
+        auto *hgap = visit(node->getArgs()[2].get());
+        auto *vgap = visit(node->getArgs()[3].get());
+        if (!rows || !cols || !hgap || !vgap) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_grid_sizer"),
+                                    {rows, cols, hgap, vgap}, "ui.grid");
+    }
+
+    // createFlexGridSizer(rows, cols, hgap, vgap) -> i32
+    if (funcName == "createFlexGridSizer" && node->getArgs().size() >= 4) {
+        auto *rows = visit(node->getArgs()[0].get());
+        auto *cols = visit(node->getArgs()[1].get());
+        auto *hgap = visit(node->getArgs()[2].get());
+        auto *vgap = visit(node->getArgs()[3].get());
+        if (!rows || !cols || !hgap || !vgap) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_flex_grid_sizer"),
+                                    {rows, cols, hgap, vgap}, "ui.fgrid");
+    }
+
+    // sizerAdd(sizer, widget, proportion, flags, border) -> void
+    if (funcName == "sizerAdd" && node->getArgs().size() >= 5) {
+        auto *sizer = visit(node->getArgs()[0].get());
+        auto *widget = visit(node->getArgs()[1].get());
+        auto *prop = visit(node->getArgs()[2].get());
+        auto *flags = visit(node->getArgs()[3].get());
+        auto *border = visit(node->getArgs()[4].get());
+        if (!sizer || !widget || !prop || !flags || !border) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_sizer_add"),
+                             {sizer, widget, prop, flags, border});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // setSizer(parent, sizer) -> void
+    if (funcName == "setSizer" && node->getArgs().size() >= 2) {
+        auto *parent = visit(node->getArgs()[0].get());
+        auto *sizer = visit(node->getArgs()[1].get());
+        if (!parent || !sizer) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_sizer"), {parent, sizer});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // Event callbacks: onClick/onChange/onSelect/onKey(handle, closure) -> void
+    if (funcName == "onClick" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_on_click", 0, 1);
+    if (funcName == "onChange" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_on_change", 0, 1);
+    if (funcName == "onSelect" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_on_select", 0, 1);
+    if (funcName == "onKey" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_on_key", 0, 1);
+
+    // listAddItem(handle, item) -> void
+    if (funcName == "listAddItem" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *item = visit(node->getArgs()[1].get());
+        if (!handle || !item) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_list_add_item"), {handle, item});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // listClear(handle) -> void
+    if (funcName == "listClear" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_list_clear"), {handle});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // listGetSelection(handle) -> i32
+    if (funcName == "listGetSelection" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_list_get_selection"), {handle}, "ui.lsel");
+    }
+
+    // tabAddPage(tab, page, title) -> void
+    if (funcName == "tabAddPage" && node->getArgs().size() >= 3) {
+        auto *tab = visit(node->getArgs()[0].get());
+        auto *page = visit(node->getArgs()[1].get());
+        auto *title = visit(node->getArgs()[2].get());
+        if (!tab || !page || !title) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_tab_add_page"), {tab, page, title});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // tabGetSelection(handle) -> i32
+    if (funcName == "tabGetSelection" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_tab_get_selection"), {handle}, "ui.tsel");
+    }
+
+    // messageBox(title, message, style) -> void
+    if (funcName == "messageBox" && node->getArgs().size() >= 3) {
+        auto *title = visit(node->getArgs()[0].get());
+        auto *msg = visit(node->getArgs()[1].get());
+        auto *style = visit(node->getArgs()[2].get());
+        if (!title || !msg || !style) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_message_box"), {title, msg, style});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // fileDialog(parent, title, wildcard, style) -> string
+    if (funcName == "fileDialog" && node->getArgs().size() >= 4) {
+        auto *parent = visit(node->getArgs()[0].get());
+        auto *title = visit(node->getArgs()[1].get());
+        auto *wildcard = visit(node->getArgs()[2].get());
+        auto *style = visit(node->getArgs()[3].get());
+        if (!parent || !title || !wildcard || !style) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_file_dialog"),
+                                    {parent, title, wildcard, style}, "ui.fdlg");
+    }
+
+    // colorDialog(parent) -> i32
+    if (funcName == "colorDialog" && node->getArgs().size() >= 1) {
+        auto *parent = visit(node->getArgs()[0].get());
+        if (!parent) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_color_dialog"), {parent}, "ui.cdlg");
+    }
+
+    // createTimer(intervalMs, callback) -> i32
+    if (funcName == "createTimer" && node->getArgs().size() >= 2) {
+        auto *interval = visit(node->getArgs()[0].get());
+        auto *closureVal = visit(node->getArgs()[1].get());
+        if (!interval || !closureVal) return nullptr;
+        auto *closureObjTy = getClosureObjTy();
+        auto *alloca = createEntryBlockAlloca(
+            builder_->GetInsertBlock()->getParent(), "tmr.cb", closureObjTy);
+        builder_->CreateStore(closureVal, alloca);
+        auto *funcPtr = builder_->CreateLoad(
+            llvm::PointerType::getUnqual(*context_),
+            builder_->CreateStructGEP(closureObjTy, alloca, 0));
+        auto *envPtr = builder_->CreateLoad(
+            llvm::PointerType::getUnqual(*context_),
+            builder_->CreateStructGEP(closureObjTy, alloca, 1));
+        return builder_->CreateCall(getOrPanic("liva_ui_create_timer"),
+                                    {interval, funcPtr, envPtr}, "ui.tmr");
+    }
+
+    // stopTimer(handle) -> void
+    if (funcName == "stopTimer" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_stop_timer"), {handle});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
     // getClipboardText() -> string
@@ -3600,6 +3840,77 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *text = visit(node->getArgs()[0].get());
         if (!text) return nullptr;
         builder_->CreateCall(getOrPanic("liva_ui_set_clipboard_text"), {text});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // Canvas: canvasOnPaint(handle, callback) -> void
+    if (funcName == "canvasOnPaint" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_canvas_on_paint", 0, 1);
+
+    // canvasRefresh(handle) -> void
+    if (funcName == "canvasRefresh" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_canvas_refresh"), {handle});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // dcClear(dc, r, g, b) -> void
+    if (funcName == "dcClear" && node->getArgs().size() >= 4) {
+        auto *dc = visit(node->getArgs()[0].get());
+        auto *r = visit(node->getArgs()[1].get());
+        auto *g = visit(node->getArgs()[2].get());
+        auto *b = visit(node->getArgs()[3].get());
+        if (!dc || !r || !g || !b) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_dc_clear"), {dc, r, g, b});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // dcDrawRect(dc, x, y, w, h, r, g, b) -> void
+    if (funcName == "dcDrawRect" && node->getArgs().size() >= 8) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 8; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_dc_draw_rect"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // dcDrawText(dc, text, x, y, r, g, b) -> void
+    if (funcName == "dcDrawText" && node->getArgs().size() >= 7) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 7; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_dc_draw_text"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // dcDrawLine(dc, x1, y1, x2, y2, r, g, b) -> void
+    if (funcName == "dcDrawLine" && node->getArgs().size() >= 8) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 8; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_dc_draw_line"), args);
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
+    // dcDrawCircle(dc, cx, cy, radius, r, g, b) -> void
+    if (funcName == "dcDrawCircle" && node->getArgs().size() >= 7) {
+        std::vector<llvm::Value *> args;
+        for (int i = 0; i < 7; ++i) {
+            auto *v = visit(node->getArgs()[i].get());
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        builder_->CreateCall(getOrPanic("liva_ui_dc_draw_circle"), args);
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
@@ -3920,6 +4231,37 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                 structTypeName = stIt->second;
         }
 
+        // Static field assignment: ClassName.field = val → global store
+        if (!objName.empty() && !objAlloca && classNames_.count(objName)) {
+            std::string key = objName + "." + memberExpr->getMember();
+            auto sfIt = classStaticFields_.find(key);
+            if (sfIt != classStaticFields_.end()) {
+                builder_->CreateStore(val, sfIt->second);
+                return val;
+            }
+        }
+
+        // Computed property setter: obj.computedField = val → call setter
+        if (objAlloca && !objName.empty()) {
+            auto clsIt2 = varClassTypes_.find(objName);
+            if (clsIt2 != varClassTypes_.end()) {
+                auto cpIt = classComputedFields_.find(clsIt2->second);
+                if (cpIt != classComputedFields_.end() && cpIt->second.count(memberExpr->getMember())) {
+                    std::string setterName = clsIt2->second + "_set_" + memberExpr->getMember();
+                    auto *setter = module_->getFunction(setterName);
+                    if (setter) {
+                        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                        llvm::Value *selfVal = objAlloca;
+                        if (objAlloca->getAllocatedType()->isPointerTy()) {
+                            selfVal = builder_->CreateLoad(ptrTy, objAlloca, objName + ".ptr");
+                        }
+                        builder_->CreateCall(setter, {selfVal, val});
+                        return val;
+                    }
+                }
+            }
+        }
+
         // Class field assignment: obj.field = val (or self.field = val)
         if (objAlloca && !objName.empty()) {
             auto clsIt = varClassTypes_.find(objName);
@@ -3958,7 +4300,45 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                                     builder_->CreateCall(freeFn, {oldStr});
                                 }
                             }
+                            // Property observers: call willSet before, didSet after
+                            bool hasObs = false;
+                            auto obsIt = classObserverFields_.find(clsTypeName);
+                            if (obsIt != classObserverFields_.end() &&
+                                obsIt->second.count(memberExpr->getMember())) {
+                                hasObs = true;
+                            }
+                            llvm::Value *oldValue = nullptr;
+                            auto *ptrTy2 = llvm::PointerType::getUnqual(*context_);
+                            llvm::Value *selfForObs = nullptr;
+                            if (hasObs) {
+                                // Load self ptr for observer calls
+                                selfForObs = objAlloca;
+                                if (objAlloca->getAllocatedType()->isPointerTy()) {
+                                    selfForObs = builder_->CreateLoad(
+                                        ptrTy2, objAlloca, objName + ".obs.self");
+                                }
+                                // Load old value for didSet
+                                auto *didSetFn = module_->getFunction(
+                                    clsTypeName + "_didSet_" + memberExpr->getMember());
+                                if (didSetFn) {
+                                    oldValue = builder_->CreateLoad(
+                                        val->getType(), gep, "obs.oldValue");
+                                }
+                                // Call willSet(self, newValue)
+                                auto *willSetFn = module_->getFunction(
+                                    clsTypeName + "_willSet_" + memberExpr->getMember());
+                                if (willSetFn) {
+                                    builder_->CreateCall(willSetFn, {selfForObs, val});
+                                }
+                            }
                             builder_->CreateStore(val, gep);
+                            if (hasObs) {
+                                auto *didSetFn = module_->getFunction(
+                                    clsTypeName + "_didSet_" + memberExpr->getMember());
+                                if (didSetFn && oldValue) {
+                                    builder_->CreateCall(didSetFn, {selfForObs, oldValue});
+                                }
+                            }
                             // Transfer ownership: string temp is now owned by the class field
                             if (val->getType()->isPointerTy())
                                 transferStringOwnership(val, compositeKey);
@@ -4013,6 +4393,29 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
         auto *indexExpr = static_cast<IndexExpr *>(node->getTarget());
         if (indexExpr->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<const IdentifierExpr *>(indexExpr->getBase());
+
+            // Class subscript setter: obj[i] = val → ClassName_subscript_set(self, i, val)
+            auto cvIt = varClassTypes_.find(ident->getName());
+            if (cvIt != varClassTypes_.end()) {
+                std::string setName = cvIt->second + "_subscript_set";
+                auto *setFn = module_->getFunction(setName);
+                if (setFn) {
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                    auto nvIt = namedValues_.find(ident->getName());
+                    if (nvIt != namedValues_.end()) {
+                        auto *selfAlloca = nvIt->second;
+                        llvm::Value *selfLoaded = selfAlloca;
+                        if (selfAlloca->getAllocatedType()->isPointerTy()) {
+                            selfLoaded = builder_->CreateLoad(ptrTy, selfAlloca, "sub.set.self");
+                        }
+                        auto *idxVal = visit(const_cast<Expr *>(indexExpr->getIndex()));
+                        if (idxVal) {
+                            builder_->CreateCall(setFn, {selfLoaded, idxVal, val});
+                            return val;
+                        }
+                    }
+                }
+            }
 
             // Dynamic array index assign: arr[i] = val
             auto daIt = varDynArrayTypes_.find(ident->getName());
@@ -4350,6 +4753,56 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
         auto stIt = varStructTypes_.find(objName);
         if (stIt != varStructTypes_.end())
             structTypeName = stIt->second;
+    }
+
+    // Static field read: ClassName.field → global variable load
+    if (!objName.empty() && !objAlloca && classNames_.count(objName)) {
+        std::string key = objName + "." + node->getMember();
+        auto sfIt = classStaticFields_.find(key);
+        if (sfIt != classStaticFields_.end()) {
+            auto *gv = sfIt->second;
+            return builder_->CreateLoad(gv->getValueType(), gv, node->getMember() + ".static");
+        }
+    }
+
+    // Lazy field access: obj.lazyField → call ClassName_lazy_<field>(self)
+    if (objAlloca && !objName.empty()) {
+        auto clsIt3 = varClassTypes_.find(objName);
+        if (clsIt3 != varClassTypes_.end()) {
+            auto lazyIt = classLazyFields_.find(clsIt3->second);
+            if (lazyIt != classLazyFields_.end() && lazyIt->second.count(node->getMember())) {
+                std::string accName = clsIt3->second + "_lazy_" + node->getMember();
+                auto *accFn = module_->getFunction(accName);
+                if (accFn) {
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                    llvm::Value *selfVal = objAlloca;
+                    if (objAlloca->getAllocatedType()->isPointerTy()) {
+                        selfVal = builder_->CreateLoad(ptrTy, objAlloca, objName + ".ptr");
+                    }
+                    return builder_->CreateCall(accFn, {selfVal}, node->getMember() + ".lazy");
+                }
+            }
+        }
+    }
+
+    // Computed property getter: obj.computedField → call getter function
+    if (objAlloca && !objName.empty()) {
+        auto clsIt2 = varClassTypes_.find(objName);
+        if (clsIt2 != varClassTypes_.end()) {
+            auto cpIt = classComputedFields_.find(clsIt2->second);
+            if (cpIt != classComputedFields_.end() && cpIt->second.count(node->getMember())) {
+                std::string getterName = clsIt2->second + "_get_" + node->getMember();
+                auto *getter = module_->getFunction(getterName);
+                if (getter) {
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                    llvm::Value *selfVal = objAlloca;
+                    if (objAlloca->getAllocatedType()->isPointerTy()) {
+                        selfVal = builder_->CreateLoad(ptrTy, objAlloca, objName + ".ptr");
+                    }
+                    return builder_->CreateCall(getter, {selfVal}, node->getMember() + ".get");
+                }
+            }
+        }
     }
 
     // Class field access: obj.field where obj is a class instance

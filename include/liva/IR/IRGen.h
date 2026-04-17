@@ -104,6 +104,7 @@ public:
     llvm::Value *visitAssignExpr(AssignExpr *node);
     llvm::Value *visitGroupExpr(GroupExpr *node);
     llvm::Value *visitCastExpr(CastExpr *node);
+    llvm::Value *visitIsExpr(IsExpr *node);
     llvm::Value *visitMemberExpr(MemberExpr *node);
     llvm::Value *visitStructLiteralExpr(StructLiteralExpr *node);
     llvm::Value *visitImplDecl(ImplDecl *node);
@@ -448,6 +449,9 @@ private:
     /// Optional return type support — non-null when the current function returns T?
     llvm::Type *currentFuncOptionalInner_ = nullptr;
 
+    /// True when currently generating a class init (so 'return nil' yields null ptr)
+    bool currentIsClassInit_ = false;
+
     /// Result type support
     struct ResultInfo { llvm::Type *okType; llvm::Type *errType; };
     std::unordered_map<std::string, ResultInfo> varResultTypes_;
@@ -516,6 +520,14 @@ private:
     std::unordered_map<std::string, llvm::GlobalVariable *> classVtables_;
     std::unordered_map<std::string, std::unordered_map<std::string, int>> classMethodIndices_;
     std::string currentClassContext_;
+    /// Computed properties: className → set of computed field names
+    std::unordered_map<std::string, std::set<std::string>> classComputedFields_;
+    /// Static fields: "ClassName.fieldName" → global variable
+    std::unordered_map<std::string, llvm::GlobalVariable *> classStaticFields_;
+    /// Fields with property observers: className → set of field names
+    std::unordered_map<std::string, std::set<std::string>> classObserverFields_;
+    /// Lazy fields with initializers: className → set of field names (have companion __lazy_init_ bool)
+    std::unordered_map<std::string, std::set<std::string>> classLazyFields_;
 
     /// Get or create a vtable for type conforming to protocol
     llvm::GlobalVariable *getOrCreateVtable(const std::string &protocolName,

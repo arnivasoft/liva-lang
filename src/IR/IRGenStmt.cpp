@@ -221,6 +221,13 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
             return builder_->CreateRet(optVal);
         }
 
+        // Class init 'return nil' → return nullptr (failable init)
+        if (isReturnNil && currentIsClassInit_) {
+            emitScopeCleanup();
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            return builder_->CreateRet(llvm::ConstantPointerNull::get(ptrTy));
+        }
+
         auto *val = visit(node->getValue());
 
         // Protect return value from cleanup

@@ -128,6 +128,8 @@ public:
                 static_cast<TupleLiteralExpr *>(node));
         case ASTNode::NodeKind::CastExpr:
             return static_cast<Derived *>(this)->visitCastExpr(static_cast<CastExpr *>(node));
+        case ASTNode::NodeKind::IsExpr:
+            return static_cast<Derived *>(this)->visitIsExpr(static_cast<IsExpr *>(node));
         case ASTNode::NodeKind::RefExpr:
             return static_cast<Derived *>(this)->visitRefExpr(static_cast<RefExpr *>(node));
         case ASTNode::NodeKind::GroupExpr:
@@ -207,6 +209,7 @@ public:
     RetTy visitArrayLiteralExpr(ArrayLiteralExpr *) { return RetTy(); }
     RetTy visitTupleLiteralExpr(TupleLiteralExpr *) { return RetTy(); }
     RetTy visitCastExpr(CastExpr *) { return RetTy(); }
+    RetTy visitIsExpr(IsExpr *) { return RetTy(); }
     RetTy visitRefExpr(RefExpr *) { return RetTy(); }
     RetTy visitGroupExpr(GroupExpr *) { return RetTy(); }
     RetTy visitRangeExpr(RangeExpr *) { return RetTy(); }

@@ -62,6 +62,7 @@ public:
     void visitArrayLiteralExpr(ArrayLiteralExpr *node);
     void visitTupleLiteralExpr(TupleLiteralExpr *node);
     void visitCastExpr(CastExpr *node);
+    void visitIsExpr(IsExpr *node);
     void visitRefExpr(RefExpr *node);
     void visitGroupExpr(GroupExpr *node);
     void visitMatchExpr(MatchExpr *node);

@@ -25,13 +25,27 @@ std::unique_ptr<Expr> Parser::parsePrecedenceExpr(int minPrec) {
     if (!left)
         return nullptr;
 
-    // Handle 'as' cast operator
+    // Handle 'as' / 'as?' cast operator
     if (check(TokenKind::kw_as)) {
         auto startLoc = left->getStartLoc();
         advance(); // consume 'as'
+        bool isOptional = false;
+        if (check(TokenKind::question)) {
+            advance(); // consume '?'
+            isOptional = true;
+        }
         auto targetType = parseType();
         left = std::make_unique<CastExpr>(std::move(left), std::move(targetType),
-                                          rangeFrom(startLoc));
+                                          rangeFrom(startLoc), isOptional);
+    }
+
+    // Handle 'is' type check operator
+    if (check(TokenKind::kw_is)) {
+        auto startLoc = left->getStartLoc();
+        advance(); // consume 'is'
+        auto targetType = parseType();
+        left = std::make_unique<IsExpr>(std::move(left), std::move(targetType),
+                                        rangeFrom(startLoc));
     }
 
     while (true) {

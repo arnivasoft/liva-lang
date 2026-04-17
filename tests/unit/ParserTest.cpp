@@ -1660,6 +1660,82 @@ TEST_F(ParserTest, ClassDecl_LetField) {
     EXPECT_TRUE(fields[1]->isMutable());
 }
 
+TEST_F(ParserTest, ClassDecl_StaticMethod) {
+    auto result = parse(R"--(
+        class Math {
+            static func add(a: i32, b: i32) -> i32 {
+                return a + b
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_TRUE(cls->isStaticMember("add"));
+    auto methods = cls->getMethods();
+    ASSERT_EQ(methods.size(), 1u);
+    EXPECT_EQ(methods[0]->getName(), "add");
+}
+
+TEST_F(ParserTest, ClassDecl_StaticField) {
+    auto result = parse(R"--(
+        class Config {
+            static var count: i32
+            var name: string
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_TRUE(cls->isStaticMember("count"));
+    EXPECT_FALSE(cls->isStaticMember("name"));
+}
+
+TEST_F(ParserTest, ClassDecl_ComputedProperty) {
+    auto result = parse(R"--(
+        class Circle {
+            var radius: f64
+            var area: f64 {
+                get {
+                    return self.radius * self.radius * 3.14
+                }
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    auto fields = cls->getFields();
+    ASSERT_EQ(fields.size(), 2u);
+    EXPECT_FALSE(fields[0]->isComputed());
+    EXPECT_TRUE(fields[1]->isComputed());
+    EXPECT_NE(fields[1]->getGetter(), nullptr);
+}
+
+TEST_F(ParserTest, ClassDecl_ComputedPropertyGetSet) {
+    auto result = parse(R"--(
+        class Temp {
+            var celsius: f64
+            var fahrenheit: f64 {
+                get {
+                    return self.celsius * 1.8 + 32.0
+                }
+                set {
+                    self.celsius = (newValue - 32.0) / 1.8
+                }
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    auto fields = cls->getFields();
+    ASSERT_EQ(fields.size(), 2u);
+    EXPECT_TRUE(fields[1]->isComputed());
+    EXPECT_NE(fields[1]->getGetter(), nullptr);
+    EXPECT_NE(fields[1]->getSetter(), nullptr);
+}
+
 // ===== Y3: Where Clause Associated Type Constraint Parser Tests =====
 
 TEST_F(ParserTest, WhereClause_AssocTypeEqual) {
@@ -2493,4 +2569,90 @@ TEST_F(ParserTest, EnumDiscriminantWithAssociatedValues) {
     EXPECT_TRUE(e->getCases()[0]->hasAssociatedValues());
     EXPECT_TRUE(e->getCases()[0]->hasDiscriminant());
     EXPECT_EQ(e->getCases()[0]->getDiscriminant(), 0);
+}
+
+TEST_F(ParserTest, ClassDecl_GenericSubscript) {
+    auto result = parse(R"--(
+        class Container {
+            var data: i32
+            subscript<T>(i: T) -> i32 {
+                return self.data
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    auto methods = cls->getMethods();
+    ASSERT_EQ(methods.size(), 1u);
+    EXPECT_EQ(methods[0]->getName(), "subscript");
+    EXPECT_EQ(methods[0]->getTypeParams().size(), 1u);
+    EXPECT_EQ(methods[0]->getTypeParams()[0], "T");
+}
+
+TEST_F(ParserTest, ClassDecl_FailableInit) {
+    auto result = parse(R"--(
+        class User {
+            var name: string
+            init?(name: string) {
+                self.name = name
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_TRUE(cls->hasFailableInit());
+}
+
+TEST_F(ParserTest, ClassDecl_ConvenienceInit) {
+    auto result = parse(R"--(
+        class Point {
+            var x: i32
+            var y: i32
+            convenience init() {
+                self.x = 0
+                self.y = 0
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    EXPECT_TRUE(cls->hasConvenienceInit());
+}
+
+TEST_F(ParserTest, ClassDecl_LazyVar) {
+    auto result = parse(R"--(
+        class Cache {
+            lazy var data: i32
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *cls = dynamic_cast<ClassDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(cls, nullptr);
+    // lazy flag checked via members
+    bool found = false;
+    for (auto &m : cls->getMembers()) {
+        if (m.isLazy) { found = true; break; }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(ParserTest, IsExpr_Parse) {
+    auto result = parse(R"--(
+        func test(x: i32) -> bool {
+            return x is i32
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, AsOptional_Parse) {
+    auto result = parse(R"--(
+        func test(x: i32) {
+            var y = x as? f64
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
 }

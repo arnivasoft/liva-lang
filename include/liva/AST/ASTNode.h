@@ -54,6 +54,7 @@ public:
         ArrayLiteralExpr,
         TupleLiteralExpr,
         CastExpr,
+        IsExpr,         // expr is Type → bool
         RefExpr,
         GroupExpr,
         RangeExpr,

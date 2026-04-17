@@ -8,6 +8,10 @@
 // - Access control (private fields)
 // - super keyword for parent access
 // - Implicit self in methods (no need to declare self parameter)
+// - Static methods (static func)
+// - Computed properties (var x: T { get { } set { } })
+// - Final classes/methods (final class, final func)
+// - Type checking (expr is Type, expr as? Type)
 
 // --- Base class: Animal ---
 class Animal {
@@ -161,6 +165,136 @@ class Connection {
     }
 }
 
+// --- Static methods ---
+class MathUtils {
+    static func add(a: i32, b: i32) -> i32 {
+        return a + b
+    }
+
+    static func max(a: i32, b: i32) -> i32 {
+        if a > b { return a }
+        return b
+    }
+}
+
+// --- Computed properties ---
+class Circle {
+    var radius: f64
+
+    init(r: f64) {
+        self.radius = r
+    }
+
+    var area: f64 {
+        get {
+            return self.radius * self.radius * 3.14159
+        }
+    }
+
+    var diameter: f64 {
+        get {
+            return self.radius * 2.0
+        }
+        set {
+            self.radius = newValue / 2.0
+        }
+    }
+}
+
+// --- Final class (cannot be inherited) ---
+final class Singleton {
+    var value: i32
+
+    init(v: i32) {
+        self.value = v
+    }
+}
+
+// --- Final method (cannot be overridden) ---
+class Logger {
+    final func prefix() -> string {
+        return "[LOG]"
+    }
+
+    func log(msg: string) {
+        println(self.prefix())
+    }
+}
+
+// --- Type checking with is/as? ---
+class Shape {
+    func name() -> string { return "Shape" }
+}
+
+class Rect : Shape {
+    var width: i32
+    var height: i32
+
+    init(w: i32, h: i32) {
+        self.width = w
+        self.height = h
+    }
+
+    override func name() -> string { return "Rectangle" }
+}
+
+// --- Failable init (init?) ---
+class Validated {
+    var name: string
+    init?(name: string) {
+        self.name = name
+    }
+}
+
+// --- Convenience init + multi-init overload ---
+class Origin {
+    var x: i32
+    var y: i32
+    init(x: i32, y: i32) {
+        self.x = x
+        self.y = y
+    }
+    convenience init() {
+        self.x = 0
+        self.y = 0
+    }
+}
+
+// --- Lazy var with initializer (first-access caching) ---
+class LazyCache {
+    var base: i32
+    lazy var doubled: i32 = self.base * 2
+    init(b: i32) {
+        self.base = b
+    }
+}
+
+// --- Property observers (willSet/didSet) ---
+class Tracked {
+    var count: i32 {
+        willSet {
+            println(newValue)
+        }
+        didSet {
+            println(oldValue)
+        }
+    }
+    init() {
+        self.count = 0
+    }
+}
+
+// --- Subscript (index operator overload) ---
+class Scores {
+    var data: i32
+    init() {
+        self.data = 100
+    }
+    subscript(i: i32) -> i32 {
+        return self.data + i
+    }
+}
+
 func main() {
     // Basic class instantiation
     let dog = Dog("Rex", 5, "Labrador")
@@ -177,7 +311,7 @@ func main() {
     println(account.getBalance())
     account.deposit(500)
     println(account.getBalance())
-    let ok = account.withdraw(200)
+    let _ok = account.withdraw(200)
     println(account.getBalance())
 
     // Deep inheritance
@@ -193,4 +327,43 @@ func main() {
     let conn = Connection(42)
     println(conn.isActive())
     println(conn.id)
+
+    // Static method calls — no instance needed
+    println(MathUtils.add(3, 4))
+    println(MathUtils.max(10, 7))
+
+    // Computed properties — access like fields, but call getter/setter
+    let circle = Circle(5.0)
+    println(circle.area)        // getter called
+    println(circle.diameter)    // getter called
+    circle.diameter = 20.0      // setter called (updates radius)
+    println(circle.radius)
+
+    // Final class and final method
+    let s = Singleton(42)
+    println(s.value)
+    let logger = Logger()
+    logger.log("hello")
+
+    // Multi-init overload: Origin(x,y) and Origin() both valid
+    let o1 = Origin(5, 10)
+    let o2 = Origin()
+    println(o1.x)
+    println(o2.x)
+
+    // Lazy var: first access computes, subsequent cached
+    let lc = LazyCache(21)
+    println(lc.doubled)  // computes 42
+    println(lc.doubled)  // cached 42
+
+    // Type checking with 'is' and safe downcast with 'as?'
+    let shape: Shape = Rect(10, 20)
+    if shape is Rect {
+        println("shape is a Rect")
+    }
+    // Safe downcast: returns Rect? (nil if not a Rect)
+    let maybeRect = shape as? Rect
+    if maybeRect != nil {
+        println("downcast succeeded")
+    }
 }

@@ -970,153 +970,192 @@ void IRGen::createRuntimeDecls() {
         {i8PtrTy, i64Ty, i64Ty, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_array_count", arrCountTy);
 
-    // === Stdlib: UI (raylib wrapper) ===
+    // === Stdlib: UI (wxWidgets wrapper) ===
 
-    // liva_ui_init_window(i32, i32, ptr) -> void
-    auto *uiInitWinTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_ui_init_window", uiInitWinTy);
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
-    // liva_ui_close_window() -> void
+    // () -> void
     auto *uiNoArgVoidTy = llvm::FunctionType::get(voidTy, {}, false);
-    module_->getOrInsertFunction("liva_ui_close_window", uiNoArgVoidTy);
+    module_->getOrInsertFunction("liva_ui_app_init", uiNoArgVoidTy);
+    module_->getOrInsertFunction("liva_ui_app_run", uiNoArgVoidTy);
+    module_->getOrInsertFunction("liva_ui_app_quit", uiNoArgVoidTy);
 
-    // liva_ui_window_should_close() -> i8
-    auto *uiNoArgI8Ty = llvm::FunctionType::get(i8Ty, {}, false);
-    module_->getOrInsertFunction("liva_ui_window_should_close", uiNoArgI8Ty);
-
-    // liva_ui_set_target_fps(i32) -> void
-    auto *uiSetFpsTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_set_target_fps", uiSetFpsTy);
-
-    // liva_ui_get_screen_width() -> i32, liva_ui_get_screen_height() -> i32
+    // () -> i32
     auto *uiNoArgI32Ty = llvm::FunctionType::get(i32Ty, {}, false);
-    module_->getOrInsertFunction("liva_ui_get_screen_width", uiNoArgI32Ty);
-    module_->getOrInsertFunction("liva_ui_get_screen_height", uiNoArgI32Ty);
 
-    // liva_ui_begin_drawing() -> void, liva_ui_end_drawing() -> void
-    module_->getOrInsertFunction("liva_ui_begin_drawing", uiNoArgVoidTy);
-    module_->getOrInsertFunction("liva_ui_end_drawing", uiNoArgVoidTy);
+    // create_window(i32 w, i32 h, ptr title) -> i32
+    auto *uiCreateWinTy = llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_create_window", uiCreateWinTy);
 
-    // liva_ui_clear_background(r, g, b, a) -> void
-    auto *uiColor4Ty = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_clear_background", uiColor4Ty);
+    // window_show(i32 handle, i32 show) -> void
+    auto *uiHandleI32VoidTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_window_show", uiHandleI32VoidTy);
 
-    // liva_ui_draw_rect(x, y, w, h, r, g, b, a) -> void
-    auto *uiRect8Ty = llvm::FunctionType::get(voidTy,
-        {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_rect", uiRect8Ty);
+    // window_set_title(i32 handle, ptr title) -> void
+    auto *uiHandleStrTy = llvm::FunctionType::get(voidTy, {i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_window_set_title", uiHandleStrTy);
 
-    // liva_ui_draw_rect_rounded(x, y, w, h, roundness, r, g, b, a) -> void
-    auto *f32Ty = builder_->getFloatTy();
-    auto *uiRectRound9Ty = llvm::FunctionType::get(voidTy,
-        {i32Ty, i32Ty, i32Ty, i32Ty, f32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_rect_rounded", uiRectRound9Ty);
+    // window_get_width/height(i32 handle) -> i32
+    auto *uiHandleRetI32Ty = llvm::FunctionType::get(i32Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_window_get_width", uiHandleRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_window_get_height", uiHandleRetI32Ty);
 
-    // liva_ui_draw_text(ptr, x, y, size, r, g, b, a) -> void
-    auto *uiDrawTextTy = llvm::FunctionType::get(voidTy,
-        {i8PtrTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_text", uiDrawTextTy);
+    // Callback type: (i32 handle, ptr func, ptr env) -> void
+    auto *uiCallbackTy = llvm::FunctionType::get(voidTy, {i32Ty, ptrTy, ptrTy}, false);
+    module_->getOrInsertFunction("liva_ui_window_on_close", uiCallbackTy);
+    module_->getOrInsertFunction("liva_ui_on_click", uiCallbackTy);
+    module_->getOrInsertFunction("liva_ui_on_change", uiCallbackTy);
+    module_->getOrInsertFunction("liva_ui_on_select", uiCallbackTy);
+    module_->getOrInsertFunction("liva_ui_on_key", uiCallbackTy);
+    module_->getOrInsertFunction("liva_ui_canvas_on_paint", uiCallbackTy);
 
-    // liva_ui_measure_text(ptr, size) -> i32
-    auto *uiMeasureTextTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_measure_text", uiMeasureTextTy);
+    // create_widget(i32 parent) -> i32
+    auto *uiCreateParentTy = llvm::FunctionType::get(i32Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_create_panel", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_create_listbox", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_create_tabview", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_create_scrollview", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_create_divider", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_create_canvas", uiCreateParentTy);
 
-    // liva_ui_draw_line(x1, y1, x2, y2, r, g, b, a) -> void
-    module_->getOrInsertFunction("liva_ui_draw_line", uiRect8Ty);
+    // create_widget(i32 parent, ptr text) -> i32
+    auto *uiCreateParentStrTy = llvm::FunctionType::get(i32Ty, {i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_create_button", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_create_label", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_create_textinput", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_create_checkbox", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_create_textarea", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_create_radiogroup", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_create_dropdown", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_create_imageview", uiCreateParentStrTy);
 
-    // liva_ui_draw_circle(cx, cy, radius, r, g, b, a) -> void
-    auto *uiCircle7Ty = llvm::FunctionType::get(voidTy,
-        {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_circle", uiCircle7Ty);
+    // create_slider(i32 parent, i32 min, i32 max, i32 val) -> i32
+    auto *uiCreateSliderTy = llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_create_slider", uiCreateSliderTy);
 
-    // liva_ui_draw_rect_lines(x, y, w, h, r, g, b, a) -> void
-    module_->getOrInsertFunction("liva_ui_draw_rect_lines", uiRect8Ty);
+    // create_progressbar(i32 parent, i32 range) -> i32
+    auto *uiCreateProgTy = llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_create_progressbar", uiCreateProgTy);
 
-    // liva_ui_is_mouse_pressed(button) -> i8
-    auto *uiMouseBtnTy = llvm::FunctionType::get(i8Ty, {i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_is_mouse_pressed", uiMouseBtnTy);
-    module_->getOrInsertFunction("liva_ui_is_mouse_released", uiMouseBtnTy);
-    module_->getOrInsertFunction("liva_ui_is_mouse_down", uiMouseBtnTy);
+    // set_text(i32 handle, ptr text) -> void
+    module_->getOrInsertFunction("liva_ui_set_text", uiHandleStrTy);
+    module_->getOrInsertFunction("liva_ui_set_tooltip", uiHandleStrTy);
 
-    // liva_ui_get_mouse_x() -> i32, liva_ui_get_mouse_y() -> i32
-    module_->getOrInsertFunction("liva_ui_get_mouse_x", uiNoArgI32Ty);
-    module_->getOrInsertFunction("liva_ui_get_mouse_y", uiNoArgI32Ty);
+    // get_text(i32 handle) -> ptr
+    auto *uiGetTextTy = llvm::FunctionType::get(i8PtrTy, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_get_text", uiGetTextTy);
 
-    // liva_ui_get_mouse_wheel() -> i32
-    module_->getOrInsertFunction("liva_ui_get_mouse_wheel", uiNoArgI32Ty);
+    // set_value(i32 handle, i32 val) -> void
+    auto *uiSetValTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_set_value", uiSetValTy);
 
-    // liva_ui_is_key_pressed(key) -> i8, liva_ui_is_key_down(key) -> i8
-    auto *uiKeyTy = llvm::FunctionType::get(i8Ty, {i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_is_key_pressed", uiKeyTy);
-    module_->getOrInsertFunction("liva_ui_is_key_down", uiKeyTy);
+    // get_value(i32 handle) -> i32
+    module_->getOrInsertFunction("liva_ui_get_value", uiHandleRetI32Ty);
 
-    // liva_ui_get_char_pressed() -> i32, liva_ui_get_key_pressed() -> i32
-    module_->getOrInsertFunction("liva_ui_get_char_pressed", uiNoArgI32Ty);
-    module_->getOrInsertFunction("liva_ui_get_key_pressed", uiNoArgI32Ty);
+    // set_enabled/visible(i32 handle, i32 flag) -> void
+    module_->getOrInsertFunction("liva_ui_set_enabled", uiHandleI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_set_visible", uiHandleI32VoidTy);
 
-    // liva_ui_begin_scissor(x, y, w, h) -> void
-    auto *uiScissorTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_begin_scissor", uiScissorTy);
-    module_->getOrInsertFunction("liva_ui_end_scissor", uiNoArgVoidTy);
+    // set_size(i32 handle, i32 w, i32 h) -> void
+    auto *uiSetSizeTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_set_size", uiSetSizeTy);
 
-    // liva_ui_get_frame_time() -> f32
-    auto *uiFrameTimeTy = llvm::FunctionType::get(f32Ty, {}, false);
-    module_->getOrInsertFunction("liva_ui_get_frame_time", uiFrameTimeTy);
+    // set_font(i32 handle, i32 size, i32 bold) -> void
+    auto *uiSetFontTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_set_font", uiSetFontTy);
 
-    // liva_ui_load_font(path, size) -> i32
-    auto *uiLoadFontTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_load_font", uiLoadFontTy);
+    // set_bg_color / set_fg_color(i32 handle, i32 r, i32 g, i32 b) -> void
+    auto *uiColorTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_set_bg_color", uiColorTy);
+    module_->getOrInsertFunction("liva_ui_set_fg_color", uiColorTy);
 
-    // liva_ui_unload_font(handle) -> void
-    auto *uiUnloadFontTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_unload_font", uiUnloadFontTy);
+    // destroy_widget(i32 handle) -> void
+    auto *uiHandleVoidTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_destroy_widget", uiHandleVoidTy);
 
-    // liva_ui_draw_text_font(handle, text, x, y, size, r, g, b, a) -> void
-    auto *uiDrawTextFontTy = llvm::FunctionType::get(voidTy,
-        {i32Ty, i8PtrTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_text_font", uiDrawTextFontTy);
+    // Sizer creation: () -> i32
+    module_->getOrInsertFunction("liva_ui_create_vbox_sizer", uiNoArgI32Ty);
+    module_->getOrInsertFunction("liva_ui_create_hbox_sizer", uiNoArgI32Ty);
 
-    // liva_ui_measure_text_font(handle, text, size) -> i32
-    auto *uiMeasureTextFontTy = llvm::FunctionType::get(i32Ty, {i32Ty, i8PtrTy, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_measure_text_font", uiMeasureTextFontTy);
+    // create_grid_sizer / create_flex_grid_sizer(rows, cols, hgap, vgap) -> i32
+    auto *uiGridSizerTy = llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_create_grid_sizer", uiGridSizerTy);
+    module_->getOrInsertFunction("liva_ui_create_flex_grid_sizer", uiGridSizerTy);
 
-    // liva_ui_draw_text_wrapped(text, x, y, fontSize, maxWidth, r, g, b, a) -> i32
-    auto *uiDrawTextWrapTy = llvm::FunctionType::get(i32Ty,
-        {i8PtrTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_text_wrapped", uiDrawTextWrapTy);
+    // sizer_add(i32 sizer, i32 widget, i32 proportion, i32 flags, i32 border) -> void
+    auto *uiSizerAddTy = llvm::FunctionType::get(voidTy,
+        {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_sizer_add", uiSizerAddTy);
 
-    // liva_ui_measure_text_wrapped(text, fontSize, maxWidth) -> i32
-    auto *uiMeasureTextWrapTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_measure_text_wrapped", uiMeasureTextWrapTy);
+    // set_sizer(i32 parent, i32 sizer) -> void
+    auto *uiSetSizerTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_set_sizer", uiSetSizerTy);
 
-    // liva_ui_get_clipboard_text() -> ptr
+    // list_add_item(i32 handle, ptr item) -> void
+    module_->getOrInsertFunction("liva_ui_list_add_item", uiHandleStrTy);
+
+    // list_clear(i32 handle) -> void
+    module_->getOrInsertFunction("liva_ui_list_clear", uiHandleVoidTy);
+
+    // list_get_selection(i32 handle) -> i32
+    module_->getOrInsertFunction("liva_ui_list_get_selection", uiHandleRetI32Ty);
+
+    // tab_add_page(i32 tab, i32 page, ptr title) -> void
+    auto *uiTabAddTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_tab_add_page", uiTabAddTy);
+
+    // tab_get_selection(i32 handle) -> i32
+    module_->getOrInsertFunction("liva_ui_tab_get_selection", uiHandleRetI32Ty);
+
+    // message_box(ptr title, ptr message, i32 style) -> void
+    auto *uiMsgBoxTy = llvm::FunctionType::get(voidTy, {i8PtrTy, i8PtrTy, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_message_box", uiMsgBoxTy);
+
+    // file_dialog(i32 parent, ptr title, ptr wildcard, i32 style) -> ptr
+    auto *uiFileDlgTy = llvm::FunctionType::get(i8PtrTy, {i32Ty, i8PtrTy, i8PtrTy, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_file_dialog", uiFileDlgTy);
+
+    // color_dialog(i32 parent) -> i32
+    module_->getOrInsertFunction("liva_ui_color_dialog", uiCreateParentTy);
+
+    // create_timer(i32 intervalMs, ptr func, ptr env) -> i32
+    auto *uiCreateTimerTy = llvm::FunctionType::get(i32Ty, {i32Ty, ptrTy, ptrTy}, false);
+    module_->getOrInsertFunction("liva_ui_create_timer", uiCreateTimerTy);
+
+    // stop_timer(i32 handle) -> void
+    module_->getOrInsertFunction("liva_ui_stop_timer", uiHandleVoidTy);
+
+    // get_clipboard_text() -> ptr
     auto *uiGetClipTy = llvm::FunctionType::get(i8PtrTy, {}, false);
     module_->getOrInsertFunction("liva_ui_get_clipboard_text", uiGetClipTy);
 
-    // liva_ui_set_clipboard_text(ptr) -> void
+    // set_clipboard_text(ptr) -> void
     auto *uiSetClipTy = llvm::FunctionType::get(voidTy, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_ui_set_clipboard_text", uiSetClipTy);
 
-    // liva_ui_load_image(path) -> i32
-    auto *uiLoadImgTy = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_ui_load_image", uiLoadImgTy);
+    // canvas_refresh(i32 handle) -> void
+    module_->getOrInsertFunction("liva_ui_canvas_refresh", uiHandleVoidTy);
 
-    // liva_ui_unload_image(handle) -> void
-    auto *uiUnloadImgTy = llvm::FunctionType::get(voidTy, {i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_unload_image", uiUnloadImgTy);
+    // dc_clear(i32 dc, i32 r, i32 g, i32 b) -> void
+    module_->getOrInsertFunction("liva_ui_dc_clear", uiColorTy);
 
-    // liva_ui_draw_image(handle, x, y) -> void
-    auto *uiDrawImgTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_image", uiDrawImgTy);
+    // dc_draw_rect(i32 dc, i32 x, i32 y, i32 w, i32 h, i32 r, i32 g, i32 b) -> void
+    auto *uiDcRect8Ty = llvm::FunctionType::get(voidTy,
+        {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_dc_draw_rect", uiDcRect8Ty);
 
-    // liva_ui_draw_image_scaled(handle, x, y, w, h) -> void
-    auto *uiDrawImgScTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_draw_image_scaled", uiDrawImgScTy);
+    // dc_draw_text(i32 dc, ptr text, i32 x, i32 y, i32 r, i32 g, i32 b) -> void
+    auto *uiDcTextTy = llvm::FunctionType::get(voidTy,
+        {i32Ty, i8PtrTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_dc_draw_text", uiDcTextTy);
 
-    // liva_ui_get_image_width/height(handle) -> i32
-    auto *uiImgDimTy = llvm::FunctionType::get(i32Ty, {i32Ty}, false);
-    module_->getOrInsertFunction("liva_ui_get_image_width", uiImgDimTy);
-    module_->getOrInsertFunction("liva_ui_get_image_height", uiImgDimTy);
+    // dc_draw_line(i32 dc, i32 x1, i32 y1, i32 x2, i32 y2, i32 r, i32 g, i32 b) -> void
+    module_->getOrInsertFunction("liva_ui_dc_draw_line", uiDcRect8Ty);
+
+    // dc_draw_circle(i32 dc, i32 cx, i32 cy, i32 radius, i32 r, i32 g, i32 b) -> void
+    auto *uiDcCircleTy = llvm::FunctionType::get(voidTy,
+        {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_dc_draw_circle", uiDcCircleTy);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();

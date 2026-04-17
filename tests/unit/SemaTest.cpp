@@ -9171,3 +9171,500 @@ TEST_F(SemaTest, ConstGeneric_DefaultValue) {
     )--");
     EXPECT_FALSE(result.diag.hasErrors()) << "const param with default should work";
 }
+
+// ── Class enforcement tests ────────────────────────────────────────
+
+TEST_F(SemaTest, ClassDecl_PrivateAccess_ExternalForbidden) {
+    auto result = check(R"--(
+        class Account {
+            private var balance: i32
+            init(b: i32) {
+                self.balance = b
+            }
+        }
+        func main() {
+            var a: Account = Account(42)
+            var x: i32 = a.balance
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "accessing private field from outside should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_PrivateAccess_SelfAllowed) {
+    auto result = check(R"--(
+        class Account {
+            private var balance: i32
+            init(b: i32) {
+                self.balance = b
+            }
+            func getBalance() -> i32 {
+                return self.balance
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "accessing private field via self should work";
+}
+
+TEST_F(SemaTest, ClassDecl_PrivateMethod_ExternalForbidden) {
+    auto result = check(R"--(
+        class Engine {
+            private func internalOp() {}
+        }
+        func main() {
+            var e: Engine = Engine()
+            e.internalOp()
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "calling private method from outside should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_OverrideSignatureMismatch) {
+    auto result = check(R"--(
+        class Animal {
+            func speak(loud: bool) {}
+        }
+        class Dog : Animal {
+            override func speak() {}
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "override with different param count should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_OverrideSignatureMatch) {
+    auto result = check(R"--(
+        class Animal {
+            func speak(loud: bool) {}
+        }
+        class Dog : Animal {
+            override func speak(loud: bool) {}
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "override with matching signature should pass";
+}
+
+TEST_F(SemaTest, ClassDecl_InitMustInitializeAllFields) {
+    auto result = check(R"--(
+        class Point {
+            var x: i32
+            var y: i32
+            init() {
+                self.x = 0
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "init not initializing all fields should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_InitAllFieldsOk) {
+    auto result = check(R"--(
+        class Point {
+            var x: i32
+            var y: i32
+            init() {
+                self.x = 0
+                self.y = 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "init initializing all fields should pass";
+}
+
+// ── Static method tests ────────────────────────────────────────
+
+TEST_F(SemaTest, ClassDecl_StaticMethod_Parse) {
+    auto result = check(R"--(
+        class Counter {
+            var count: i32
+            static func zero() -> i32 {
+                return 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "static method should parse and type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_StaticOverride_Forbidden) {
+    auto result = check(R"--(
+        class Base {
+            func run() {}
+        }
+        class Child : Base {
+            static override func run() {}
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "static override should be forbidden";
+}
+
+TEST_F(SemaTest, ClassDecl_IsExpr_TypeCheck) {
+    auto result = check(R"--(
+        class Animal {}
+        class Dog : Animal {}
+        func test(a: Animal) -> bool {
+            return a is Dog
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "is type check should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_AsOptional_TypeCheck) {
+    auto result = check(R"--(
+        class Animal {}
+        class Dog : Animal {}
+        func test(a: Animal) {
+            var d: Dog? = a as? Dog
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "as? optional cast should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_ComputedProperty_Parse) {
+    auto result = check(R"--(
+        class Circle {
+            var radius: f64
+            var area: f64 {
+                get {
+                    return self.radius * self.radius * 3.14
+                }
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "computed property should type-check";
+}
+
+// ── Final keyword tests ────────────────────────────────────────
+
+TEST_F(SemaTest, ClassDecl_FinalClass_InheritForbidden) {
+    auto result = check(R"--(
+        final class Singleton {
+            var value: i32
+        }
+        class Child : Singleton {
+            var extra: i32
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "inheriting from final class should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_FinalMethod_OverrideForbidden) {
+    auto result = check(R"--(
+        class Base {
+            final func id() -> i32 {
+                return 1
+            }
+        }
+        class Child : Base {
+            override func id() -> i32 {
+                return 2
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "overriding final method should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_FinalClass_Valid) {
+    auto result = check(R"--(
+        final class Config {
+            var name: string
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "final class without inheritance should be fine";
+}
+
+TEST_F(SemaTest, ClassDecl_OverrideReturnTypeMismatch) {
+    auto result = check(R"--(
+        class Base {
+            func getValue() -> i32 {
+                return 1
+            }
+        }
+        class Child : Base {
+            override func getValue() -> string {
+                return "x"
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "override with different return type should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_AccessLevels_Parse) {
+    auto result = check(R"--(
+        open class Base {
+            public var x: i32
+            internal var y: i32
+            fileprivate var z: i32
+            init() {
+                self.x = 0
+                self.y = 0
+                self.z = 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "access levels should parse and type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_FilePrivate_ExternalForbidden) {
+    auto result = check(R"--(
+        class Account {
+            fileprivate var balance: i32
+            init() {
+                self.balance = 0
+            }
+        }
+        func main() {
+            var a: Account = Account()
+            var x: i32 = a.balance
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "fileprivate should prevent external access";
+}
+
+TEST_F(SemaTest, ClassDecl_SubscriptGetSet) {
+    auto result = check(R"--(
+        class Box {
+            var val: i32
+            init() { self.val = 0 }
+            subscript(i: i32) -> i32 {
+                get {
+                    return self.val + i
+                }
+                set {
+                    self.val = newValue
+                }
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "subscript with get/set should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_Subscript_Parse) {
+    auto result = check(R"--(
+        class IntBox {
+            var value: i32
+            init() {
+                self.value = 0
+            }
+            subscript(i: i32) -> i32 {
+                return self.value + i
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "subscript should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_IsExpr_UnrelatedWarning) {
+    auto result = check(R"--(
+        class Dog {}
+        class Fish {}
+        func test(d: Dog) -> bool {
+            return d is Fish
+        }
+    )--");
+    // warning, not error — should still pass but emit warning
+    EXPECT_FALSE(result.diag.hasErrors()) << "unrelated 'is' should warn, not error";
+}
+
+TEST_F(SemaTest, ClassDecl_PublicClass_CannotInherit) {
+    auto result = check(R"--(
+        public class Base {}
+        class Child : Base {}
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "inheriting from 'public' (non-open) class should fail";
+}
+
+TEST_F(SemaTest, ClassDecl_OpenClass_CanInherit) {
+    auto result = check(R"--(
+        open class Base {}
+        class Child : Base {}
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "inheriting from 'open' class should work";
+}
+
+TEST_F(SemaTest, ClassDecl_LazyVar_WithInit) {
+    auto result = check(R"--(
+        class Cache {
+            var count: i32
+            lazy var doubled: i32 = self.count * 2
+            init(c: i32) {
+                self.count = c
+            }
+        }
+        func main() {
+            let c = Cache(10)
+            println(c.doubled)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "lazy var with initializer should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_MultiInit_Overload) {
+    auto result = check(R"--(
+        class Point {
+            var x: i32
+            var y: i32
+            init(x: i32, y: i32) {
+                self.x = x
+                self.y = y
+            }
+            convenience init() {
+                self.x = 0
+                self.y = 0
+            }
+        }
+        func main() {
+            let a = Point(5, 10)
+            let b = Point()
+            println(a.x)
+            println(b.x)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "designated + convenience init overload should work";
+}
+
+TEST_F(SemaTest, ClassDecl_FailableInit_ReturnNil) {
+    auto result = check(R"--(
+        class User {
+            var name: string
+            init?(n: string) {
+                if n == "" {
+                    return nil
+                }
+                self.name = n
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "failable init with return nil should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_FailableInit_Parse) {
+    auto result = check(R"--(
+        class User {
+            var name: string
+            init?(name: string) {
+                self.name = name
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "failable init should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_ConvenienceInit_Parse) {
+    auto result = check(R"--(
+        class Point {
+            var x: i32
+            var y: i32
+            convenience init() {
+                self.x = 0
+                self.y = 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "convenience init should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_LazyVar_Parse) {
+    auto result = check(R"--(
+        class Cache {
+            lazy var data: i32
+            init() {
+                self.data = 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "lazy var should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_PropertyObserver_WillSet) {
+    auto result = check(R"--(
+        class Counter {
+            var count: i32 {
+                willSet {
+                    println(newValue)
+                }
+            }
+            init() {
+                self.count = 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "willSet property observer should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_PropertyObserver_DidSet) {
+    auto result = check(R"--(
+        class Counter {
+            var count: i32 {
+                didSet {
+                    println(oldValue)
+                }
+            }
+            init() {
+                self.count = 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "didSet property observer should type-check";
+}
+
+TEST_F(SemaTest, ClassDecl_PropertyObserver_Both) {
+    auto result = check(R"--(
+        class Tracked {
+            var value: i32 {
+                willSet {
+                    println(newValue)
+                }
+                didSet {
+                    println(oldValue)
+                }
+            }
+            init() {
+                self.value = 0
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "both willSet and didSet should type-check";
+}
+
+TEST_F(SemaTest, Extension_StructMethod) {
+    auto result = check(R"--(
+        struct Point {
+            var x: i32
+            var y: i32
+        }
+        extension Point {
+            func sum(self) -> i32 {
+                return self.x + self.y
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "extension on struct should work";
+}
+
+TEST_F(SemaTest, Extension_MultipleMethods) {
+    auto result = check(R"--(
+        struct Rect {
+            var w: i32
+            var h: i32
+        }
+        extension Rect {
+            func area(self) -> i32 {
+                return self.w * self.h
+            }
+            func perimeter(self) -> i32 {
+                return 2 * (self.w + self.h)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "extension with multiple methods should work";
+}
+
+TEST_F(SemaTest, ClassDecl_OverrideParamTypeMismatch) {
+    auto result = check(R"--(
+        class Base {
+            func take(x: i32) {}
+        }
+        class Child : Base {
+            override func take(x: string) {}
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors()) << "override with different param type should fail";
+}

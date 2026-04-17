@@ -118,6 +118,13 @@ DIAG(err_class_init_not_all_fields,  error,   "init must initialize all fields o
 DIAG(err_class_deinit_params,        error,   "deinit must only have 'self' parameter")
 DIAG(err_class_private_access,       error,   "cannot access private member '%0' of class '%1'")
 DIAG(err_class_duplicate_field,      error,   "class '%0' already has a field named '%1'")
+DIAG(err_class_static_self,          error,   "cannot use 'self' in static method '%0'")
+DIAG(err_class_static_override,      error,   "static method '%0' cannot be marked 'override'")
+DIAG(err_class_final_inherit,        error,   "cannot inherit from final class '%0'")
+DIAG(err_class_final_override,       error,   "cannot override final method '%0'")
+DIAG(err_class_non_open_inherit,     error,   "cannot inherit from class '%0'; only 'open' classes can be subclassed")
+DIAG(warn_is_unrelated_type,         warning, "'is' check will always fail: '%0' is not related to '%1'")
+DIAG(warn_as_unrelated_type,         warning, "'as?' cast will always yield nil: '%0' is not related to '%1'")
 
 // === Sema - FFI / Extern ===
 DIAG(err_extern_with_body,           error,   "extern function '%0' must not have a body")

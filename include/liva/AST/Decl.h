@@ -194,6 +194,28 @@ public:
     const TypeRepr *getType() const { return type_.get(); }
     bool isMutable() const { return isMutable_; }
 
+    /// Computed property support
+    bool isComputed() const { return getter_ != nullptr; }
+    const BlockStmt *getGetter() const { return getter_.get(); }
+    const BlockStmt *getSetter() const { return setter_.get(); }
+    bool hasSetter() const { return setter_ != nullptr; }
+    void setGetter(std::unique_ptr<BlockStmt> body) { getter_ = std::move(body); }
+    void setSetter(std::unique_ptr<BlockStmt> body) { setter_ = std::move(body); }
+
+    /// Property observer support (stored property only)
+    bool hasWillSet() const { return willSet_ != nullptr; }
+    bool hasDidSet() const { return didSet_ != nullptr; }
+    bool hasObservers() const { return hasWillSet() || hasDidSet(); }
+    const BlockStmt *getWillSet() const { return willSet_.get(); }
+    const BlockStmt *getDidSet() const { return didSet_.get(); }
+    void setWillSet(std::unique_ptr<BlockStmt> body) { willSet_ = std::move(body); }
+    void setDidSet(std::unique_ptr<BlockStmt> body) { didSet_ = std::move(body); }
+
+    /// Lazy var initializer expression: lazy var x: T = expr
+    const Expr *getLazyInit() const { return lazyInit_.get(); }
+    bool hasLazyInit() const { return lazyInit_ != nullptr; }
+    void setLazyInit(std::unique_ptr<Expr> e) { lazyInit_ = std::move(e); }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::FieldDecl;
     }
@@ -202,6 +224,11 @@ private:
     std::string name_;
     std::unique_ptr<TypeRepr> type_;
     bool isMutable_;
+    std::unique_ptr<BlockStmt> getter_;
+    std::unique_ptr<BlockStmt> setter_;
+    std::unique_ptr<BlockStmt> willSet_;
+    std::unique_ptr<BlockStmt> didSet_;
+    std::unique_ptr<Expr> lazyInit_;
 };
 
 /// Struct declaration
@@ -459,12 +486,17 @@ private:
 };
 
 /// Access modifier for class members
-enum class AccessModifier { Public, Private };
+enum class AccessModifier { Open, Public, Internal, FilePrivate, Private };
 
 /// A member of a class (field or method with access/override info)
 struct ClassMember {
     AccessModifier access = AccessModifier::Public;
     bool isOverride = false;
+    bool isStatic = false;
+    bool isFinal = false;
+    bool isFailableInit = false;
+    bool isConvenienceInit = false;
+    bool isLazy = false;
     std::unique_ptr<FieldDecl> field;    // non-null if this is a field
     std::unique_ptr<FuncDecl> method;    // non-null if this is a method
 
@@ -478,13 +510,16 @@ public:
     ClassDecl(std::string name, std::string parentClass,
               std::vector<std::string> protocols,
               std::vector<ClassMember> members,
-              bool isPublic, SourceRange range)
+              bool isPublic, SourceRange range, bool isFinal = false)
         : Decl(NodeKind::ClassDecl, range), name_(std::move(name)),
           parentClass_(std::move(parentClass)),
           protocols_(std::move(protocols)),
-          members_(std::move(members)), isPublic_(isPublic) {}
+          members_(std::move(members)), isPublic_(isPublic), isFinal_(isFinal) {}
 
     const std::string &getName() const { return name_; }
+    bool isFinal() const { return isFinal_; }
+    void setAccess(AccessModifier a) { classAccess_ = a; }
+    AccessModifier getAccess() const { return classAccess_; }
     const std::string &getParentClass() const { return parentClass_; }
     bool hasParentClass() const { return !parentClass_.empty(); }
     const std::vector<std::string> &getProtocols() const { return protocols_; }
@@ -524,13 +559,30 @@ public:
         return result;
     }
 
-    /// Convenience: get init method (may be null)
+    /// Convenience: get first init method (may be null)
     const FuncDecl *getInit() const {
         for (auto &m : members_) {
             if (m.method && m.method->getName() == "init")
                 return m.method.get();
         }
         return nullptr;
+    }
+
+    /// Get all init methods (designated + convenience)
+    std::vector<const FuncDecl *> getInits() const {
+        std::vector<const FuncDecl *> result;
+        for (auto &m : members_) {
+            if (m.method && m.method->getName() == "init") result.push_back(m.method.get());
+        }
+        return result;
+    }
+
+    /// Check if a given init (by pointer) is convenience
+    bool isConvenienceInitMethod(const FuncDecl *method) const {
+        for (auto &m : members_) {
+            if (m.method.get() == method) return m.isConvenienceInit;
+        }
+        return false;
     }
 
     /// Convenience: get deinit method (may be null)
@@ -561,13 +613,51 @@ public:
         return false;
     }
 
+    /// Check if a member is static
+    bool isStaticMember(const std::string &memberName) const {
+        for (auto &m : members_) {
+            if (m.isStatic) {
+                if (m.field && m.field->getName() == memberName) return true;
+                if (m.method && m.method->getName() == memberName) return true;
+            }
+        }
+        return false;
+    }
+
+    /// Get static methods
+    std::vector<const FuncDecl *> getStaticMethods() const {
+        std::vector<const FuncDecl *> result;
+        for (auto &m : members_) {
+            if (m.isStatic && m.method) result.push_back(m.method.get());
+        }
+        return result;
+    }
+
+    /// Check if init is failable
+    bool hasFailableInit() const {
+        for (auto &m : members_) {
+            if (m.method && m.method->getName() == "init" && m.isFailableInit) return true;
+        }
+        return false;
+    }
+
+    /// Check if init is convenience
+    bool hasConvenienceInit() const {
+        for (auto &m : members_) {
+            if (m.method && m.method->getName() == "init" && m.isConvenienceInit) return true;
+        }
+        return false;
+    }
+
     /// Check if a member is private
     bool isPrivate(const std::string &memberName) const {
         for (auto &m : members_) {
             if (m.field && m.field->getName() == memberName)
-                return m.access == AccessModifier::Private;
+                return m.access == AccessModifier::Private ||
+                       m.access == AccessModifier::FilePrivate;
             if (m.method && m.method->getName() == memberName)
-                return m.access == AccessModifier::Private;
+                return m.access == AccessModifier::Private ||
+                       m.access == AccessModifier::FilePrivate;
         }
         return false;
     }
@@ -582,6 +672,8 @@ private:
     std::vector<std::string> protocols_;
     std::vector<ClassMember> members_;
     bool isPublic_;
+    bool isFinal_ = false;
+    AccessModifier classAccess_ = AccessModifier::Open;
     std::vector<std::string> typeParams_;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds_;
 };
