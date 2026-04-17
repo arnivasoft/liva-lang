@@ -58,12 +58,19 @@ module.exports = grammar({
     ),
 
     class_declaration: $ => seq(
-      optional('pub'),
+      optional(choice('pub', 'open', 'public', 'internal', 'fileprivate')),
+      optional('final'),
       'class',
       field('name', $.identifier),
       optional($.generic_params),
       optional(seq(':', commaSep1($.identifier))),
       '{', repeat($._class_member), '}',
+    ),
+
+    extension_declaration: $ => seq(
+      'extension',
+      field('type', $.identifier),
+      '{', repeat($.function_declaration), '}',
     ),
 
     impl_declaration: $ => seq(
@@ -132,16 +139,32 @@ module.exports = grammar({
       $.function_declaration,
       $.init_declaration,
       $.deinit_declaration,
+      $.subscript_declaration,
     ),
 
+    _member_modifiers: $ => repeat1(choice(
+      'private', 'public', 'pub', 'internal', 'fileprivate',
+      'static', 'final', 'override', 'convenience', 'lazy',
+    )),
+
     init_declaration: $ => seq(
-      optional('override'),
+      optional($._member_modifiers),
       'init',
+      optional('?'),
       $.parameter_list,
       $.block,
     ),
 
     deinit_declaration: $ => seq('deinit', $.block),
+
+    subscript_declaration: $ => seq(
+      optional($._member_modifiers),
+      'subscript',
+      optional($.generic_params),
+      $.parameter_list,
+      optional(seq('->', $._type)),
+      $.block,
+    ),
 
     // === Protocol members ===
 

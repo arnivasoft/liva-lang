@@ -34,19 +34,22 @@ syn match livaInteger "\<[0-9][0-9_]*\>"
 syn keyword livaControlFlow if else while for in match case return break continue guard try test
 
 " Declarations
-syn keyword livaDeclaration func let var const struct enum impl protocol import pub type class extern macro
+syn keyword livaDeclaration func let var const struct enum impl protocol import pub type class extern macro extension subscript
 
 " Storage modifiers
-syn keyword livaStorageMod override private dyn comptime
+syn keyword livaStorageMod override private public open internal fileprivate static final dyn comptime convenience lazy
 
 " Keyword operators
-syn keyword livaKeywordOp as ref mut where
+syn keyword livaKeywordOp as is ref mut where
+
+" Property accessors
+syn keyword livaAccessor get set willSet didSet
 
 " Async
-syn keyword livaAsync async await
+syn keyword livaAsync async await yield
 
 " Special identifiers
-syn keyword livaSpecial self super
+syn keyword livaSpecial self super newValue oldValue
 syn keyword livaSpecialFunc init deinit
 
 " Constants
@@ -104,6 +107,7 @@ hi def link livaDeclaration Keyword
 hi def link livaStorageMod StorageClass
 hi def link livaKeywordOp Operator
 hi def link livaAsync Keyword
+hi def link livaAccessor Keyword
 hi def link livaSpecial Identifier
 hi def link livaSpecialFunc Function
 

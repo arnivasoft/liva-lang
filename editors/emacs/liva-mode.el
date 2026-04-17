@@ -51,11 +51,15 @@
   (let* ((keywords-control '("if" "else" "while" "for" "in" "match" "case"
                              "return" "break" "continue" "guard" "try" "test"))
          (keywords-decl '("func" "let" "var" "const" "struct" "enum" "impl"
-                          "protocol" "import" "pub" "type" "class" "extern" "macro"))
-         (keywords-modifier '("override" "private" "dyn" "comptime"))
-         (keywords-op '("as" "ref" "mut" "where"))
-         (keywords-async '("async" "await"))
-         (keywords-special '("self" "super"))
+                          "protocol" "import" "pub" "type" "class" "extern" "macro"
+                          "extension" "subscript"))
+         (keywords-modifier '("override" "private" "public" "open" "internal"
+                              "fileprivate" "static" "final" "dyn" "comptime"
+                              "convenience" "lazy"))
+         (keywords-op '("as" "is" "ref" "mut" "where"))
+         (keywords-async '("async" "await" "yield"))
+         (keywords-accessor '("get" "set" "willSet" "didSet"))
+         (keywords-special '("self" "super" "newValue" "oldValue"))
          (keywords-special-func '("init" "deinit"))
          (constants '("true" "false" "nil"))
          (types '("i8" "i16" "i32" "i64" "u8" "u16" "u32" "u64"
@@ -70,6 +74,7 @@
          (keywords-modifier-re (regexp-opt keywords-modifier 'words))
          (keywords-op-re (regexp-opt keywords-op 'words))
          (keywords-async-re (regexp-opt keywords-async 'words))
+         (keywords-accessor-re (regexp-opt keywords-accessor 'words))
          (keywords-special-re (regexp-opt keywords-special 'words))
          (keywords-special-func-re (regexp-opt keywords-special-func 'words))
          (constants-re (regexp-opt constants 'words))
@@ -94,6 +99,7 @@
       (,keywords-modifier-re . font-lock-keyword-face)
       (,keywords-op-re . font-lock-keyword-face)
       (,keywords-async-re . font-lock-keyword-face)
+      (,keywords-accessor-re . font-lock-keyword-face)
       ;; Special identifiers
       (,keywords-special-re . font-lock-builtin-face)
       (,keywords-special-func-re . font-lock-function-name-face)

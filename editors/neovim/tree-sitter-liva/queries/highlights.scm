@@ -2,16 +2,17 @@
 
 ; === Keywords ===
 
-["func" "struct" "enum" "impl" "protocol" "import" "class" "macro" "extern" "type" "test"] @keyword
+["func" "struct" "enum" "impl" "protocol" "import" "class" "macro" "extern" "type" "test" "extension" "subscript"] @keyword
 ["let" "var" "const"] @keyword.storage
-["pub" "override" "private" "dyn" "comptime"] @keyword.modifier
+["pub" "override" "private" "public" "open" "internal" "fileprivate" "static" "final" "dyn" "comptime" "convenience" "lazy"] @keyword.modifier
 ["if" "else" "while" "for" "in" "match" "case" "return" "break" "continue" "guard"] @keyword.control
-["async" "await"] @keyword.coroutine
+["async" "await" "yield"] @keyword.coroutine
 ["try"] @keyword.exception
-["as"] @keyword.operator
+["as" "is"] @keyword.operator
 ["where"] @keyword.type
+["get" "set" "willSet" "didSet"] @keyword.function
 ["init" "deinit"] @keyword.function
-["self"] @variable.builtin
+["self" "newValue" "oldValue"] @variable.builtin
 ["super"] @variable.builtin
 ["nil"] @constant.builtin
 ["true" "false"] @boolean

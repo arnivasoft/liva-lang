@@ -126,23 +126,27 @@
                 },
                 {
                     "name": "keyword.declaration.liva",
-                    "match": "\\b(func|let|var|const|struct|enum|impl|protocol|import|pub|type|class|extern|macro)\\b"
+                    "match": "\\b(func|let|var|const|struct|enum|impl|protocol|import|pub|type|class|extern|macro|extension|subscript)\\b"
                 },
                 {
                     "name": "storage.modifier.liva",
-                    "match": "\\b(override|private|dyn|comptime)\\b"
+                    "match": "\\b(override|private|public|open|internal|fileprivate|static|final|dyn|comptime|convenience|lazy)\\b"
                 },
                 {
                     "name": "keyword.operator.liva",
-                    "match": "\\b(as|ref|mut|where)\\b"
+                    "match": "\\b(as|is|ref|mut|where)\\b"
                 },
                 {
                     "name": "keyword.other.async.liva",
-                    "match": "\\b(async|await)\\b"
+                    "match": "\\b(async|await|yield)\\b"
+                },
+                {
+                    "name": "keyword.other.accessor.liva",
+                    "match": "\\b(get|set|willSet|didSet)\\b"
                 },
                 {
                     "name": "variable.language.self.liva",
-                    "match": "\\b(self|super)\\b"
+                    "match": "\\b(self|super|newValue|oldValue)\\b"
                 },
                 {
                     "name": "entity.name.function.special.liva",

@@ -38,6 +38,157 @@
         ],
         "description": "Class declaration with init"
     },
+    "Final Class": {
+        "prefix": "finalclass",
+        "body": [
+            "final class ${1:Name} {",
+            "    init() {",
+            "        $0",
+            "    }",
+            "}"
+        ],
+        "description": "Final class (non-inheritable)"
+    },
+    "Open Class": {
+        "prefix": "openclass",
+        "body": [
+            "open class ${1:Name} {",
+            "    init() {",
+            "        $0",
+            "    }",
+            "}"
+        ],
+        "description": "Open (subclassable) class"
+    },
+    "Static Method": {
+        "prefix": "staticfunc",
+        "body": [
+            "static func ${1:name}(${2:params})${3: -> ${4:Type}} {",
+            "    $0",
+            "}"
+        ],
+        "description": "Static method"
+    },
+    "Computed Property": {
+        "prefix": "computed",
+        "body": [
+            "var ${1:name}: ${2:Type} {",
+            "    get {",
+            "        return $0",
+            "    }",
+            "    set {",
+            "        ",
+            "    }",
+            "}"
+        ],
+        "description": "Computed property with get/set"
+    },
+    "Computed Property (get only)": {
+        "prefix": "computedget",
+        "body": [
+            "var ${1:name}: ${2:Type} {",
+            "    get {",
+            "        return $0",
+            "    }",
+            "}"
+        ],
+        "description": "Read-only computed property"
+    },
+    "Property Observer": {
+        "prefix": "observer",
+        "body": [
+            "var ${1:name}: ${2:Type} {",
+            "    willSet {",
+            "        $0",
+            "    }",
+            "    didSet {",
+            "        ",
+            "    }",
+            "}"
+        ],
+        "description": "Stored property with willSet/didSet observers"
+    },
+    "Failable Init": {
+        "prefix": "initq",
+        "body": [
+            "init?(${1:params}) {",
+            "    if ${2:condition} {",
+            "        return nil",
+            "    }",
+            "    $0",
+            "}"
+        ],
+        "description": "Failable initializer (init?)"
+    },
+    "Convenience Init": {
+        "prefix": "coninit",
+        "body": [
+            "convenience init(${1:params}) {",
+            "    $0",
+            "}"
+        ],
+        "description": "Convenience initializer"
+    },
+    "Lazy Var": {
+        "prefix": "lazyvar",
+        "body": [
+            "lazy var ${1:name}: ${2:Type} = ${3:expression}"
+        ],
+        "description": "Lazy property with initializer"
+    },
+    "Subscript": {
+        "prefix": "subscript",
+        "body": [
+            "subscript(${1:i}: ${2:i32}) -> ${3:Type} {",
+            "    get {",
+            "        return $0",
+            "    }",
+            "    set {",
+            "        ",
+            "    }",
+            "}"
+        ],
+        "description": "Subscript with get/set"
+    },
+    "Generic Subscript": {
+        "prefix": "gsubscript",
+        "body": [
+            "subscript<${1:T}>(${2:i}: ${1:T}) -> ${3:Type} {",
+            "    $0",
+            "}"
+        ],
+        "description": "Generic subscript"
+    },
+    "Extension": {
+        "prefix": "extension",
+        "body": [
+            "extension ${1:TypeName} {",
+            "    func ${2:method}(self)${3: -> ${4:Type}} {",
+            "        $0",
+            "    }",
+            "}"
+        ],
+        "description": "Extension block"
+    },
+    "Is Type Check": {
+        "prefix": "iftype",
+        "body": [
+            "if ${1:expr} is ${2:Type} {",
+            "    $0",
+            "}"
+        ],
+        "description": "Runtime type check with 'is'"
+    },
+    "As? Safe Cast": {
+        "prefix": "ifletas",
+        "body": [
+            "let ${1:name} = ${2:expr} as? ${3:Type}",
+            "if ${1:name} != nil {",
+            "    $0",
+            "}"
+        ],
+        "description": "Safe downcast with 'as?'"
+    },
     "Enum": {
         "prefix": "enum",
         "body": [
