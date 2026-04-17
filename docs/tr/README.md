@@ -296,25 +296,53 @@ async func fetchData(url: string) -> string {
 
 ### Standart Kütüphane Modülleri
 
+Yerleşik `std::*` modülleri (düşük seviye builtin'ler):
+
 ```liva
-import std::math      // abs, sqrt, pow, sin, cos, ...
-import std::io        // readLine, readFile, writeFile
-import std::convert   // parseInt, parseFloat, toString
-import std::os        // env, args, exit, exec
-import std::random    // randInt, randFloat
-import std::regex     // Regex, match, replace
-import std::net       // httpGet, httpPost
-import std::json      // jsonParse, jsonStringify
-import std::time      // now, sleep, clock
-import std::channel   // Channel, send, recv
-import std::task      // TaskGroup, spawn, awaitAll
-import std::crypto    // sha256, md5, hmacSha256
-import std::async     // async runtime yardımcıları
-import std::path      // yol manipülasyonu
-import std::testing   // test yardımcıları
-import std::collections // List, Map, Set yardımcıları
-import std::strings   // string manipülasyonu
-import std::ui        // raylib tabanlı UI framework
+import std::math      // abs, sqrt, pow, sin, cos, floor, ceil, round, ...
+import std::io        // print, println, readLine, File, fileRead/Write, yol yardımcıları
+import std::convert   // parseInt, parseInt64, parseFloat, toString, charToString
+import std::os        // env, args, exit, exec, processStart/Wait/Kill/Read
+import std::random    // randInt, randFloat, randSeed, randI64, randUuid
+import std::regex     // regexMatch, regexFind/FindAll, regexSplit, derlenmiş regex
+import std::net       // httpGet/Post/Put/Patch/Delete, httpRequest (+status/başlık)
+import std::json      // jsonGet/Set/Parse + jsonStringifyPretty
+import std::datetime  // dateNow, dateParse, dateAdd, dateDiff, dateFormat
+import std::compress  // base64/hex/urlEncode+Decode, crc32
+import std::crypto    // sha256, md5, hmacSha256, base64, hex
+import std::sync      // mutex, atomic, channel, taskGroup temelleri
+import std::async     // schedulerInit, taskSelect, withTimeout, async I/O
+import std::collections // Map, Set, forEach, enumerate, zip, sorted, ...
+import std::strings   // str* yardımcıları + UTF-8 (strCharCount, strCodepointAt, charIsAlpha, ...)
+import std::test      // assert, assertEq, testRunClosure
+import std::log       // logDebug/Info/Warn/Error, logSetLevel
+import std::ui        // wxWidgets tabanlı UI (widget, layout, tema, canvas)
+```
+
+Ergonomik sarmalayıcı modüller (builtin'lerin üzerine struct API'leri):
+
+```liva
+import random::random         // Random struct + randBool/randPercent
+import os::os                 // Process struct + getEnv/getArgs/runCommand
+import log::log               // Tag destekli Logger struct
+import math::math             // PI/TAU/E sabitleri, clamp/sign/degToRad
+import convert::convert       // toInt/toFloat + toIntOr/toFloatOr
+import encoding::encoding     // Base64/Hex/Url struct'ları + toBase64/toHex/toUrl
+import errors::errors         // withContext/unwrapOr + ErrorChain
+import collections::collections // Stack<T>, Queue<T>, Deque, HashSet + math/slice helper'lar
+import strings::strings       // toCodepoints, countAlpha/Digit, isAlnum, isBlank
+import io::io                 // LineReader, LineWriter, readLines, writeLines
+import time::time             // Duration, Instant, Timer, DateTime (+ add/sub/diff gün/saat)
+import fs::fs                 // FileInfo (size, modifiedTime, isDir), Dir işlemleri
+import path::path             // Path manipülasyonu
+import http::http             // HttpClient (timeout, send), HttpResponse (status/header)
+import net::net               // Url, Request
+import json::json             // JsonObject builder + stringifyPretty
+import crypto::crypto         // Hash/Hmac struct'ları
+import sync::sync             // Mutex, AtomicI64, Channel, TaskGroup
+import async::async           // withTaskGroup, withTimeout, raceIndex
+import regex::regex           // Regex struct (isMatch, find, findAll, split, groups)
+import testing::testing       // TestSuite, TestGroup, Expect/ExpectStr/ExpectFloat
 ```
 
 ## Proje Manifest'i

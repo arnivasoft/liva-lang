@@ -304,29 +304,53 @@ async func fetchData(url: string) -> string {
 
 ### Standard Library Modules
 
+Built-in `std::*` modules (low-level builtins):
+
 ```liva
-import std::math      // abs, sqrt, pow, sin, cos, ...
-import std::io        // readLine, readFile, writeFile
-import std::convert   // parseInt, parseFloat, toString
-import std::os        // env, args, exit, exec
-import std::random    // randInt, randFloat
-import std::regex     // Regex, match, replace
-import std::net       // httpGet, httpPost
-import std::json      // jsonParse, jsonStringify
-import std::time      // now, sleep, clock
-import std::channel   // Channel, send, recv
-import std::task      // TaskGroup, spawn, awaitAll
-import std::crypto    // sha256, md5, hmacSha256
-import std::async     // async runtime helpers
-import std::path      // path manipulation utilities
-import std::testing   // test utilities
-import std::collections // List, Map, Set helpers
-import std::strings   // string manipulation
-import std::ui        // raylib-based UI framework (widgets, layout, theming)
-import std::http      // HttpClient, HttpResponse, HttpHeaders
-import std::sync      // Mutex, AtomicI64, Channel, TaskGroup
-import std::fs        // FileInfo, Dir
-import std::net2      // Url, Request
+import std::math      // abs, sqrt, pow, sin, cos, floor, ceil, round, ...
+import std::io        // print, println, readLine, File, fileRead/Write, path helpers
+import std::convert   // parseInt, parseInt64, parseFloat, toString, charToString
+import std::os        // env, args, exit, exec, processStart/Wait/Kill/Read
+import std::random    // randInt, randFloat, randSeed, randI64, randUuid
+import std::regex     // regexMatch, regexFind/FindAll, regexSplit, compiled regex
+import std::net       // httpGet/Post/Put/Patch/Delete, httpRequest (+status/headers)
+import std::json      // jsonGet/Set/Parse + jsonStringifyPretty
+import std::datetime  // dateNow, dateParse, dateAdd, dateDiff, dateFormat
+import std::compress  // base64/hex/urlEncode+Decode, crc32
+import std::crypto    // sha256, md5, hmacSha256, base64, hex
+import std::sync      // mutex, atomic, channel, taskGroup primitives
+import std::async     // schedulerInit, taskSelect, withTimeout, async I/O
+import std::collections // Map, Set, forEach, enumerate, zip, sorted, ...
+import std::strings   // str* helpers + UTF-8 (strCharCount, strCodepointAt, charIsAlpha, ...)
+import std::test      // assert, assertEq, testRunClosure
+import std::log       // logDebug/Info/Warn/Error, logSetLevel
+import std::ui        // wxWidgets-based UI (widgets, layout, theming, canvas)
+```
+
+Higher-level wrapper modules (ergonomic structs on top of builtins):
+
+```liva
+import random::random         // Random struct + randBool/randPercent
+import os::os                 // Process struct + getEnv/getArgs/runCommand
+import log::log               // Logger struct with tag support
+import math::math             // PI/TAU/E constants, clamp/sign/degToRad
+import convert::convert       // toInt/toFloat + toIntOr/toFloatOr
+import encoding::encoding     // Base64/Hex/Url structs + toBase64/toHex/toUrl
+import errors::errors         // withContext/unwrapOr + ErrorChain
+import collections::collections // Stack<T>, Queue<T>, Deque, HashSet + math/slice helpers
+import strings::strings       // toCodepoints, countAlpha/Digit, isAlnum, isBlank
+import io::io                 // LineReader, LineWriter, readLines, writeLines
+import time::time             // Duration, Instant, Timer, DateTime (+ add/sub/diff days/hours)
+import fs::fs                 // FileInfo (size, modifiedTime, isDir), Dir ops
+import path::path             // Path manipulation
+import http::http             // HttpClient (timeout, send), HttpResponse (status/headers)
+import net::net               // Url, Request
+import json::json             // JsonObject builder + stringifyPretty
+import crypto::crypto         // Hash/Hmac structs
+import sync::sync             // Mutex, AtomicI64, Channel, TaskGroup
+import async::async           // withTaskGroup, withTimeout, raceIndex
+import regex::regex           // Regex struct (isMatch, find, findAll, split, groups)
+import testing::testing       // TestSuite, TestGroup, Expect/ExpectStr/ExpectFloat
 ```
 
 ## Project Manifest
