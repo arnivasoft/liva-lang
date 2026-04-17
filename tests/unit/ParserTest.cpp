@@ -431,6 +431,35 @@ TEST_F(ParserTest, GenericImplBlock) {
     EXPECT_EQ(impl->getMethods()[0]->getName(), "get");
 }
 
+// Rust-style impl<T> — generics appear between 'impl' and the type name
+TEST_F(ParserTest, ImplGenericsBeforeTypeName) {
+    auto result = parse(R"--(
+        struct Box<T> { let data: T }
+        impl<T> Box<T> {
+            func get(self) -> T { return self.data }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    ASSERT_GE(result.tu->getDeclarations().size(), 2);
+    auto *impl = dynamic_cast<ImplDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(impl, nullptr);
+    EXPECT_TRUE(impl->isGeneric());
+    ASSERT_EQ(impl->getTypeParams().size(), 1);
+    EXPECT_EQ(impl->getTypeParams()[0], "T");
+    EXPECT_EQ(impl->getTypeName(), "Box");
+}
+
+TEST_F(ParserTest, ImplGenericsBeforeWithBounds) {
+    auto result = parse(R"--(
+        protocol Printable { func print(self) }
+        struct Box<T> { let data: T }
+        impl<T: Printable> Box<T> {
+            func show(self) { }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
 TEST_F(ParserTest, OptionalTypeAnnotation) {
     auto result = parse("let x: i32? = nil");
     ASSERT_FALSE(result.hasErrors);
@@ -458,6 +487,17 @@ TEST_F(ParserTest, ClosureExprBasic) {
     auto result = parse(R"--(
         func test() {
             let f = |x: i32| -> i32 { return x }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+}
+
+TEST_F(ParserTest, ClosureExprFuncKeyword) {
+    auto result = parse(R"--(
+        func test() {
+            let f = func() {}
+            let g = func(x: i32) -> i32 { return x * 2 }
+            let h = func(a: i32, b: i32) -> i32 { return a + b }
         }
     )--");
     ASSERT_FALSE(result.hasErrors);

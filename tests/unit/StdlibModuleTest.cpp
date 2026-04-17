@@ -992,7 +992,7 @@ TEST_F(StdlibModuleTest, TestingTestGroup) {
         "}\n"
         "func main() {\n"
         "    var g = TestGroup.new(\"math\")\n"
-        "    g.runCase(\"addition\", addTest)\n"
+        "    g.test(\"addition\", addTest)\n"
         "    let p = g.passed()\n"
         "}\n",
         true, "stdlib");

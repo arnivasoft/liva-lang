@@ -69,7 +69,7 @@ impl TestGroup {
         return TestGroup { name: name, suite: TestSuite.new(name) }
     }
 
-    pub func runCase(mut self, label: String, fn: () -> void) {
+    pub func test(mut self, label: String, fn: () -> void) {
         self.suite.run(label, fn)
     }
 

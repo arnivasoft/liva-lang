@@ -496,9 +496,8 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
         expect(TokenKind::kw_impl);
     }
 
-    auto typeName = expect(TokenKind::identifier);
-
-    // Parse optional generic type parameters: <T, U> or <T: Protocol> or <T: A + B>
+    // Parse optional impl-level generics: impl<T> or impl<T: Proto> or impl<T, U>
+    // These appear between 'impl' and the type name, matching Rust's syntax.
     std::vector<std::string> typeParams;
     std::unordered_map<std::string, std::vector<std::string>> typeParamBounds;
     if (match(TokenKind::less)) {
@@ -512,6 +511,32 @@ std::unique_ptr<ImplDecl> Parser::parseImplDecl() {
                         auto boundTok = expect(TokenKind::identifier);
                         typeParamBounds[paramName].push_back(std::string(boundTok.getText()));
                     } while (match(TokenKind::plus));
+                }
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::greater);
+    }
+
+    auto typeName = expect(TokenKind::identifier);
+
+    // Parse optional generic type arguments on the type name: <T, U>.
+    // For generic-impl forms (`impl<T> Stack<T>`) these are the substitutions;
+    // they're parsed and accepted but the Sema already has typeParams from above.
+    if (match(TokenKind::less)) {
+        if (!check(TokenKind::greater)) {
+            do {
+                auto argTok = expect(TokenKind::identifier);
+                std::string argName(argTok.getText());
+                // If we haven't already recorded any generic params (non-generic-impl
+                // form like `impl Stack<T>`), treat the type args as params.
+                if (typeParams.empty()) {
+                    typeParams.push_back(argName);
+                    if (match(TokenKind::colon)) {
+                        do {
+                            auto boundTok = expect(TokenKind::identifier);
+                            typeParamBounds[argName].push_back(std::string(boundTok.getText()));
+                        } while (match(TokenKind::plus));
+                    }
                 }
             } while (match(TokenKind::comma));
         }

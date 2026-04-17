@@ -321,6 +321,9 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
     case TokenKind::pipe_pipe:
         return parseClosureExpr();
 
+    case TokenKind::kw_func:
+        return parseClosureExpr();
+
     case TokenKind::kw_comptime:
         return parseComptimeExpr();
 
@@ -429,8 +432,10 @@ std::unique_ptr<Expr> Parser::parseMemberExpr(std::unique_ptr<Expr> object,
             std::string(idx.getText()), rangeFrom(startLoc), isOptionalChain);
     }
 
-    // Allow 'init' and 'deinit' keywords as member names (for super.init())
-    if (check(TokenKind::kw_init) || check(TokenKind::kw_deinit)) {
+    // Allow select keywords as member names (contextual usage):
+    // init/deinit (super.init), test (struct method named test)
+    if (check(TokenKind::kw_init) || check(TokenKind::kw_deinit) ||
+        check(TokenKind::kw_test)) {
         auto member = current_;
         advance();
         return std::make_unique<MemberExpr>(std::move(object),
@@ -567,7 +572,25 @@ std::unique_ptr<Expr> Parser::parseClosureExpr() {
 
     std::vector<ClosureExpr::Param> params;
 
-    if (check(TokenKind::pipe_pipe)) {
+    if (check(TokenKind::kw_func)) {
+        // func(params) -> RetType { body }   or   func(params) { body }
+        advance(); // consume 'func'
+        expect(TokenKind::l_paren);
+        if (!check(TokenKind::r_paren)) {
+            do {
+                auto name = expect(TokenKind::identifier).getText();
+                std::unique_ptr<TypeRepr> type;
+                if (match(TokenKind::colon)) {
+                    type = parseType();
+                }
+                ClosureExpr::Param p;
+                p.name = std::string(name);
+                p.type = std::move(type);
+                params.push_back(std::move(p));
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::r_paren);
+    } else if (check(TokenKind::pipe_pipe)) {
         advance(); // consume ||
     } else {
         expect(TokenKind::pipe);
