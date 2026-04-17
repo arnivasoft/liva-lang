@@ -90,11 +90,13 @@ void ModuleLoader::registerBuiltinModules() {
          "dateHour", "dateMinute", "dateSecond"});
 
     cache_["std::compress"] = createBuiltinModule("std::compress",
-        {"base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32"});
+        {"base64Encode", "base64Decode", "hexEncode", "hexDecode",
+         "urlEncode", "urlDecode", "crc32"});
 
     cache_["std::crypto"] = createBuiltinModule("std::crypto",
         {"sha256", "md5", "hmacSha256",
-         "base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32"});
+         "base64Encode", "base64Decode", "hexEncode", "hexDecode",
+         "urlEncode", "urlDecode", "crc32"});
 
     cache_["std::sync"] = createBuiltinModule("std::sync",
         {"mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",

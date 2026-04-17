@@ -3558,6 +3558,62 @@ char *liva_hex_decode(const char *data) {
     return out;
 }
 
+// === URL encoding (percent-encoding, RFC 3986) ===
+
+char *liva_url_encode(const char *data) {
+    if (!data) {
+        char *out = (char *)malloc(1);
+        if (out) out[0] = '\0';
+        return out;
+    }
+    size_t len = strlen(data);
+    // worst case: every byte → %XX (3x)
+    char *out = (char *)malloc(len * 3 + 1);
+    if (!out) return nullptr;
+    static const char hex[] = "0123456789ABCDEF";
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)data[i];
+        // Unreserved chars per RFC 3986: ALPHA / DIGIT / "-" / "." / "_" / "~"
+        bool unreserved = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                         (c >= '0' && c <= '9') ||
+                         c == '-' || c == '_' || c == '.' || c == '~';
+        if (unreserved) {
+            out[j++] = (char)c;
+        } else {
+            out[j++] = '%';
+            out[j++] = hex[c >> 4];
+            out[j++] = hex[c & 0xF];
+        }
+    }
+    out[j] = '\0';
+    return out;
+}
+
+char *liva_url_decode(const char *data) {
+    if (!data) return nullptr;
+    size_t len = strlen(data);
+    char *out = (char *)malloc(len + 1);
+    if (!out) return nullptr;
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        char c = data[i];
+        if (c == '+') {
+            out[j++] = ' ';
+        } else if (c == '%' && i + 2 < len) {
+            int hi = hex_char_val(data[i + 1]);
+            int lo = hex_char_val(data[i + 2]);
+            if (hi < 0 || lo < 0) { free(out); return nullptr; }
+            out[j++] = (char)((hi << 4) | lo);
+            i += 2;
+        } else {
+            out[j++] = c;
+        }
+    }
+    out[j] = '\0';
+    return out;
+}
+
 int64_t liva_crc32(const char *data) {
     if (!data) return 0;
     // Standard CRC-32 with reflected polynomial 0xEDB88320

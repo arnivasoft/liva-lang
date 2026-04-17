@@ -1,0 +1,119 @@
+// encoding::encoding — Unified encoding API (base64, hex, URL)
+// Import with: import encoding::encoding
+//
+// Provides consistent naming and struct-based access for binary/text
+// encoding utilities. Delegates to std::compress builtins.
+
+import std::compress
+
+// =============================================================
+// Top-level convenience helpers
+// (base64Encode/base64Decode/hexEncode/hexDecode/urlEncode/urlDecode/crc32
+// are also available via the `import std::compress` line above.)
+// =============================================================
+
+pub func toBase64(data: String) -> String {
+    return base64Encode(data)
+}
+
+pub func fromBase64(data: String) -> String? {
+    return base64Decode(data)
+}
+
+pub func toHex(data: String) -> String {
+    return hexEncode(data)
+}
+
+pub func fromHex(data: String) -> String? {
+    return hexDecode(data)
+}
+
+pub func toUrl(data: String) -> String {
+    return urlEncode(data)
+}
+
+pub func fromUrl(data: String) -> String? {
+    return urlDecode(data)
+}
+
+pub func checksum(data: String) -> i64 {
+    return crc32(data)
+}
+
+// =============================================================
+// Base64 struct
+// =============================================================
+
+pub struct Base64 {
+    var value: String
+}
+
+impl Base64 {
+    pub func encode(data: String) -> Base64 {
+        return Base64 { value: base64Encode(data) }
+    }
+
+    pub func fromEncoded(encoded: String) -> Base64 {
+        return Base64 { value: encoded }
+    }
+
+    pub func decode(ref self) -> String? {
+        return base64Decode(self.value)
+    }
+
+    pub func toString(ref self) -> String {
+        return self.value
+    }
+}
+
+// =============================================================
+// Hex struct
+// =============================================================
+
+pub struct Hex {
+    var value: String
+}
+
+impl Hex {
+    pub func encode(data: String) -> Hex {
+        return Hex { value: hexEncode(data) }
+    }
+
+    pub func fromEncoded(encoded: String) -> Hex {
+        return Hex { value: encoded }
+    }
+
+    pub func decode(ref self) -> String? {
+        return hexDecode(self.value)
+    }
+
+    pub func toString(ref self) -> String {
+        return self.value
+    }
+}
+
+// =============================================================
+// Url struct (percent-encoding helper)
+// =============================================================
+
+pub struct Url {
+    var value: String
+}
+
+impl Url {
+    pub func encode(data: String) -> Url {
+        return Url { value: urlEncode(data) }
+    }
+
+    pub func fromEncoded(encoded: String) -> Url {
+        return Url { value: encoded }
+    }
+
+    pub func decode(ref self) -> String? {
+        return urlDecode(self.value)
+    }
+
+    pub func toString(ref self) -> String {
+        return self.value
+    }
+}

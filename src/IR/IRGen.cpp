@@ -854,6 +854,9 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_base64_decode", strNoArgTy);
     module_->getOrInsertFunction("liva_hex_encode", strNoArgTy);
     module_->getOrInsertFunction("liva_hex_decode", strNoArgTy);
+    // urlEncode/urlDecode: (ptr) -> ptr
+    module_->getOrInsertFunction("liva_url_encode", strNoArgTy);
+    module_->getOrInsertFunction("liva_url_decode", strNoArgTy);
     // crc32: (ptr) -> i64
     module_->getOrInsertFunction("liva_crc32", lenTy); // (ptr) -> i64
 

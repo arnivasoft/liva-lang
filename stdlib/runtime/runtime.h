@@ -601,6 +601,13 @@ char *liva_hex_encode(const char *data);
 /// Hex decode (hex string to bytes), returns malloc'd string or NULL
 char *liva_hex_decode(const char *data);
 
+/// URL percent-encode (RFC 3986 unreserved set), returns malloc'd string
+char *liva_url_encode(const char *data);
+
+/// URL percent-decode (handles %XX and '+' as space), returns malloc'd string
+/// or NULL on invalid input
+char *liva_url_decode(const char *data);
+
 /// CRC-32 checksum
 int64_t liva_crc32(const char *data);
 

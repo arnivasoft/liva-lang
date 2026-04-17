@@ -3078,6 +3078,31 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(getOrPanic("liva_crc32"), {dataArg}, "crc32");
     }
 
+    if (funcName == "urlEncode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_url_encode"), {dataArg}, "url.enc");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "urlDecode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *fn = getOrPanic("liva_url_decode");
+        auto *result = builder_->CreateCall(fn, {dataArg}, "url.dec.raw");
+        trackStringTemp(result);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "url.dec.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "url.dec.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "url.dec.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "url.dec.result");
+    }
+
     // Crypto builtins: sha256, md5, hmacSha256
     if (funcName == "sha256" && !node->getArgs().empty()) {
         auto *dataArg = visit(node->getArgs()[0].get());

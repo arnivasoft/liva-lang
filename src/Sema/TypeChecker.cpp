@@ -144,7 +144,7 @@ void TypeChecker::registerBuiltins() {
 
     // Stdlib: Encoding/Compression
     for (auto &name : {"base64Encode", "base64Decode", "hexEncode",
-                        "hexDecode", "crc32"}) {
+                        "hexDecode", "urlEncode", "urlDecode", "crc32"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2189,9 +2189,11 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "dateAdd" || ident->getName() == "dateDiff") {
             node->setResolvedType(makeF64Type());
         // Stdlib: Encoding/Compression
-        } else if (ident->getName() == "base64Encode" || ident->getName() == "hexEncode") {
+        } else if (ident->getName() == "base64Encode" || ident->getName() == "hexEncode" ||
+                   ident->getName() == "urlEncode") {
             node->setResolvedType(makeStringType());
-        } else if (ident->getName() == "base64Decode" || ident->getName() == "hexDecode") {
+        } else if (ident->getName() == "base64Decode" || ident->getName() == "hexDecode" ||
+                   ident->getName() == "urlDecode") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
             node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "crc32") {

@@ -912,6 +912,79 @@ TEST_F(StdlibModuleTest, CollectionsMathHelpers) {
     EXPECT_TRUE(r.passed) << "sum/product/min/max/avg helpers should type-check";
 }
 
+// ============================================================
+// Module: encoding::encoding
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportEncodingModule) {
+    auto r = check(
+        "import encoding::encoding\n"
+        "func main() {\n"
+        "    let b = toBase64(\"hello\")\n"
+        "    let d = fromBase64(b)\n"
+        "    let h = toHex(\"hi\")\n"
+        "    let cs = checksum(\"data\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import encoding::encoding should resolve";
+}
+
+TEST_F(StdlibModuleTest, EncodingUrlHelpers) {
+    auto r = check(
+        "import encoding::encoding\n"
+        "func main() {\n"
+        "    let e = toUrl(\"hello world!\")\n"
+        "    let d = fromUrl(e)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "URL encode/decode helpers should type-check";
+}
+
+TEST_F(StdlibModuleTest, EncodingBase64Struct) {
+    auto r = check(
+        "import encoding::encoding\n"
+        "func main() {\n"
+        "    let enc = Base64.encode(\"secret\")\n"
+        "    let s = enc.toString()\n"
+        "    let back = enc.decode()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Base64 struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, EncodingHexStruct) {
+    auto r = check(
+        "import encoding::encoding\n"
+        "func main() {\n"
+        "    let enc = Hex.encode(\"data\")\n"
+        "    let s = enc.toString()\n"
+        "    let back = enc.decode()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Hex struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, EncodingUrlStruct) {
+    auto r = check(
+        "import encoding::encoding\n"
+        "func main() {\n"
+        "    let enc = Url.encode(\"hello world\")\n"
+        "    let s = enc.toString()\n"
+        "    let back = enc.decode()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Url struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, UrlEncodeBuiltin) {
+    auto r = check(
+        "func main() {\n"
+        "    let e = urlEncode(\"a b+c\")\n"
+        "    let d = urlDecode(\"a%20b%2Bc\")\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "urlEncode/urlDecode builtins should be globally available";
+}
+
 TEST_F(StdlibModuleTest, CollectionsSliceHelpers) {
     auto r = check(
         "import collections::collections\n"
