@@ -2796,47 +2796,73 @@ void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
         visit(field.value.get());
     }
 
-    // Check trait bounds for generic structs
+    // Infer type bindings from field values (for generic structs)
+    std::unordered_map<std::string, const TypeRepr *> typeBindings;
     if (sym->structDecl && sym->structDecl->isGeneric()) {
-        const auto &bounds = sym->structDecl->getTypeParamBounds();
-        if (!bounds.empty()) {
-            // Infer type bindings from field values
-            std::unordered_map<std::string, const TypeRepr *> typeBindings;
-            const auto &typeParams = sym->structDecl->getTypeParams();
-            const auto &fields = sym->structDecl->getFields();
-            for (size_t i = 0; i < fields.size() && i < node->getFields().size(); ++i) {
-                const TypeRepr *fieldType = fields[i]->getType();
-                if (fieldType && fieldType->getKind() == TypeRepr::Kind::Named) {
-                    auto *named = static_cast<const NamedTypeRepr *>(fieldType);
-                    for (const auto &tp : typeParams) {
-                        if (named->getName() == tp) {
-                            const TypeRepr *argType = node->getFields()[i].value->getResolvedType();
-                            if (argType) typeBindings[tp] = argType;
-                            break;
-                        }
+        const auto &typeParams = sym->structDecl->getTypeParams();
+        const auto &fields = sym->structDecl->getFields();
+        // Map field name -> declared type for unordered struct literal lookup
+        std::unordered_map<std::string, const TypeRepr *> declaredFieldTypes;
+        for (auto &fd : fields) {
+            declaredFieldTypes[fd->getName()] = fd->getType();
+        }
+        for (auto &litField : node->getFields()) {
+            auto it = declaredFieldTypes.find(litField.name);
+            if (it == declaredFieldTypes.end()) continue;
+            const TypeRepr *fieldType = it->second;
+            if (!fieldType || fieldType->getKind() != TypeRepr::Kind::Named) continue;
+            auto *named = static_cast<const NamedTypeRepr *>(fieldType);
+            for (const auto &tp : typeParams) {
+                if (named->getName() == tp) {
+                    const TypeRepr *argType = litField.value->getResolvedType();
+                    if (argType && typeBindings.find(tp) == typeBindings.end()) {
+                        typeBindings[tp] = argType;
                     }
+                    break;
                 }
             }
-            // Check conformance for each bound
-            for (auto &[pName, boundProtos] : bounds) {
-                auto bindIt = typeBindings.find(pName);
-                if (bindIt == typeBindings.end()) continue;
-                std::string concreteName = typeToString(bindIt->second);
-                for (auto &boundProto : boundProtos) {
-                    auto confIt = protocolConformances_.find(boundProto);
-                    bool conforms = false;
-                    if (confIt != protocolConformances_.end()) {
-                        for (const auto &t : confIt->second)
-                            if (t == concreteName) { conforms = true; break; }
-                    }
-                    if (!conforms)
-                        diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
+        }
+
+        // Check trait bounds
+        const auto &bounds = sym->structDecl->getTypeParamBounds();
+        for (auto &[pName, boundProtos] : bounds) {
+            auto bindIt = typeBindings.find(pName);
+            if (bindIt == typeBindings.end()) continue;
+            std::string concreteName = typeToString(bindIt->second);
+            for (auto &boundProto : boundProtos) {
+                auto confIt = protocolConformances_.find(boundProto);
+                bool conforms = false;
+                if (confIt != protocolConformances_.end()) {
+                    for (const auto &t : confIt->second)
+                        if (t == concreteName) { conforms = true; break; }
                 }
+                if (!conforms)
+                    diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
             }
         }
     }
 
-    node->setResolvedType(makeNamedType(node->getTypeName()));
+    // Build resolved type: GenericTypeRepr if struct is generic.
+    // - Infer args from field types when possible.
+    // - For unbound params (e.g. when a field is an empty array), fall back to
+    //   the type param name itself so the literal in a generic method body
+    //   types as Stack<T> rather than bare Stack.
+    if (sym->structDecl && sym->structDecl->isGeneric()) {
+        const auto &typeParams = sym->structDecl->getTypeParams();
+        std::vector<std::unique_ptr<TypeRepr>> args;
+        for (const auto &tp : typeParams) {
+            auto it = typeBindings.find(tp);
+            if (it != typeBindings.end() && it->second) {
+                args.push_back(cloneTypeRepr(it->second));
+            } else {
+                args.push_back(makeNamedType(tp));
+            }
+        }
+        node->setResolvedType(std::make_unique<GenericTypeRepr>(
+            node->getTypeName(), std::move(args)));
+    } else {
+        node->setResolvedType(makeNamedType(node->getTypeName()));
+    }
 }
 
 void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {

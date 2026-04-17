@@ -3,23 +3,85 @@
 // Built-in types: Map<K, V>, Set<T>, [T] (DynArray)
 //
 // This module adds:
-//   - StackI64 / StackStr  — LIFO stacks
-//   - QueueI64 / QueueStr  — FIFO queues (O(n) dequeue)
-//   - DequeI64 / DequeStr  — double-ended queues (O(n) pushFront)
-//   - HashSetI64 / HashSetStr — convenience wrappers over built-in Set
+//   - Stack<T> / Queue<T>       — generic LIFO / FIFO (preferred)
+//   - StackI64 / StackStr / ... — concrete specialisations (still available)
+//   - DequeI64                  — double-ended queue (O(n) pushFront)
+//   - HashSetI64 / HashSetStr   — convenience wrappers over built-in Set
 //   - Math helpers: sumI64, productI64, minOfI64, maxOfI64, avgI64
 //   - Array helpers: takeI64, skipI64, firstI64, lastI64
 //
 // Usage:
 //   import collections::collections
-//   var s = StackI64.new()
+//   var s: Stack<i64> = Stack.new()
 //   s.push(42)
-//   let top = s.peek()
 
 import std::collections
 
 // =============================================================
-// Stack (LIFO)
+// Stack<T> — generic LIFO
+// =============================================================
+
+pub struct Stack<T> {
+    var items: [T]
+}
+
+impl<T> Stack<T> {
+    pub func new() -> Stack<T> {
+        return Stack { items: [] }
+    }
+
+    pub func push(ref mut self, x: T) {
+        self.items.push(x)
+    }
+
+    pub func pop(ref mut self) -> T? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items.pop()
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.items.length
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.items.length == 0
+    }
+
+    pub func clear(ref mut self) {
+        self.items = []
+    }
+}
+
+// =============================================================
+// Queue<T> — generic FIFO (O(n) dequeue)
+// =============================================================
+
+pub struct Queue<T> {
+    var items: [T]
+}
+
+impl<T> Queue<T> {
+    pub func new() -> Queue<T> {
+        return Queue { items: [] }
+    }
+
+    pub func enqueue(ref mut self, x: T) {
+        self.items.push(x)
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.items.length
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.items.length == 0
+    }
+}
+
+// =============================================================
+// Stack (concrete — kept for back-compat / explicit typing)
 // =============================================================
 
 pub struct StackI64 {

@@ -812,6 +812,36 @@ TEST_F(StdlibModuleTest, JsonStringifyPretty) {
 // Collections extensions: Stack / Queue / Deque / HashSet
 // ============================================================
 
+TEST_F(StdlibModuleTest, CollectionsGenericStack) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var s: Stack<i64> = Stack.new()\n"
+        "    s.push(42)\n"
+        "    let p = s.pop()\n"
+        "    let sz = s.size()\n"
+        "    let e = s.isEmpty()\n"
+        "    var sStr: Stack<String> = Stack.new()\n"
+        "    sStr.push(\"hello\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Generic Stack<T> should type-check via inference";
+}
+
+TEST_F(StdlibModuleTest, CollectionsGenericQueue) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var q: Queue<i64> = Queue.new()\n"
+        "    q.enqueue(1)\n"
+        "    q.enqueue(2)\n"
+        "    let sz = q.size()\n"
+        "    let e = q.isEmpty()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Generic Queue<T> should type-check via inference";
+}
+
 TEST_F(StdlibModuleTest, CollectionsStack) {
     auto r = check(
         "import collections::collections\n"

@@ -618,6 +618,47 @@ TEST_F(SemaTest, GenericStructPair) {
     EXPECT_TRUE(result.passed);
 }
 
+// Inference: assignment target provides T binding when RHS factory returns Stack<T>
+TEST_F(SemaTest, GenericImplNewFromAssignmentTarget) {
+    auto result = check(R"(
+        struct Stack<T> {
+            var items: [T]
+        }
+        impl<T> Stack<T> {
+            pub func new() -> Stack<T> {
+                return Stack { items: [] }
+            }
+            pub func push(ref mut self, x: T) {
+                self.items.push(x)
+            }
+        }
+        func main() {
+            var s: Stack<i64> = Stack.new()
+            s.push(42)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// Inference: multi-param struct via factory args
+TEST_F(SemaTest, GenericMultiParamFactory) {
+    auto result = check(R"(
+        struct Pair<A, B> {
+            var first: A
+            var second: B
+        }
+        impl<A, B> Pair<A, B> {
+            pub func make(a: A, b: B) -> Pair<A, B> {
+                return Pair { first: a, second: b }
+            }
+        }
+        func main() {
+            let p = Pair.make(42, "hi")
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
 // === Dynamic Array Tests ===
 
 TEST_F(SemaTest, DynArrayEmpty) {
