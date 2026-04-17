@@ -71,4 +71,8 @@ impl JsonObject {
     pub func stringify(ref self) -> String {
         return self.data
     }
+
+    pub func stringifyPretty(ref self, indent: i32) -> String {
+        return jsonStringifyPretty(self.data, indent)
+    }
 }

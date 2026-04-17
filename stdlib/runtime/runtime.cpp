@@ -851,6 +851,31 @@ int8_t liva_file_is_file(const char *path) {
 #endif
 }
 
+int8_t liva_path_is_dir(const char *path) {
+    if (!path) return 0;
+#ifdef _WIN32
+    DWORD attr = GetFileAttributesA(path);
+    return (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) ? 1 : 0;
+#else
+    struct stat st;
+    return (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) ? 1 : 0;
+#endif
+}
+
+int64_t liva_path_size(const char *path) {
+    if (!path) return -1;
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+    return (int64_t)st.st_size;
+}
+
+int64_t liva_path_modified_time(const char *path) {
+    if (!path) return -1;
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+    return (int64_t)st.st_mtime;
+}
+
 // fileRead(path) -> Optional<string> (null on error)
 char *liva_file_read(const char *path) {
     if (!path) return nullptr;
@@ -1681,6 +1706,32 @@ char **liva_regex_find_all(const char *str, const char *pattern, int64_t *count)
         for (size_t i = 0; i < matches.size(); i++) {
             result[i] = (char *)malloc(matches[i].size() + 1);
             memcpy(result[i], matches[i].c_str(), matches[i].size() + 1);
+        }
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+char **liva_regex_split(const char *str, const char *pattern, int64_t *count) {
+    *count = 0;
+    if (!str || !pattern) return nullptr;
+    try {
+        std::regex re(pattern);
+        std::string s(str);
+        std::vector<std::string> parts;
+        std::sregex_token_iterator it(s.begin(), s.end(), re, -1);
+        std::sregex_token_iterator end;
+        while (it != end) {
+            parts.push_back(it->str());
+            ++it;
+        }
+        *count = (int64_t)parts.size();
+        if (parts.empty()) return nullptr;
+        char **result = (char **)malloc(parts.size() * sizeof(char *));
+        for (size_t i = 0; i < parts.size(); i++) {
+            result[i] = (char *)malloc(parts[i].size() + 1);
+            memcpy(result[i], parts[i].c_str(), parts[i].size() + 1);
         }
         return result;
     } catch (...) {
@@ -3114,6 +3165,72 @@ int32_t liva_json_count(const char *json) {
         p = json_skip_ws(p);
     }
     return count;
+}
+
+// Pretty-print JSON with given indent width (returns new string, caller frees)
+char *liva_json_stringify_pretty(const char *json, int32_t indent) {
+    if (!json) {
+        char *out = (char *)malloc(3);
+        memcpy(out, "{}", 3);
+        return out;
+    }
+    if (indent < 0) indent = 2;
+    if (indent > 16) indent = 16;
+    std::string result;
+    int depth = 0;
+    bool in_string = false;
+    bool escape = false;
+    auto write_indent = [&](int d) {
+        for (int i = 0; i < d * indent; ++i) result.push_back(' ');
+    };
+    for (const char *p = json; *p; ++p) {
+        char c = *p;
+        if (in_string) {
+            result.push_back(c);
+            if (escape) { escape = false; }
+            else if (c == '\\') escape = true;
+            else if (c == '"') in_string = false;
+            continue;
+        }
+        if (c == '"') {
+            in_string = true;
+            result.push_back(c);
+            continue;
+        }
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') continue;
+        if (c == '{' || c == '[') {
+            // lookahead: if next non-space is closing bracket, emit compact
+            const char *q = p + 1;
+            while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r') ++q;
+            if ((*q == '}' && c == '{') || (*q == ']' && c == '[')) {
+                result.push_back(c);
+                result.push_back(*q);
+                p = q;
+                continue;
+            }
+            result.push_back(c);
+            result.push_back('\n');
+            ++depth;
+            write_indent(depth);
+        } else if (c == '}' || c == ']') {
+            result.push_back('\n');
+            --depth;
+            write_indent(depth);
+            result.push_back(c);
+        } else if (c == ',') {
+            result.push_back(c);
+            result.push_back('\n');
+            write_indent(depth);
+        } else if (c == ':') {
+            result.push_back(c);
+            result.push_back(' ');
+        } else {
+            result.push_back(c);
+        }
+    }
+    char *out = (char *)malloc(result.size() + 1);
+    memcpy(out, result.c_str(), result.size() + 1);
+    return out;
 }
 
 // === Logging ===

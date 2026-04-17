@@ -137,11 +137,88 @@ impl DateTime {
         return DateTime { timestamp: dateAdd(self.timestamp, secs) }
     }
 
+    pub func addSeconds(ref self, n: i64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, n as f64) }
+    }
+
+    pub func addMinutes(ref self, n: i64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * 60) as f64) }
+    }
+
+    pub func addHours(ref self, n: i64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * 3600) as f64) }
+    }
+
+    pub func addDays(ref self, n: i64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * 86400) as f64) }
+    }
+
+    pub func addWeeks(ref self, n: i64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * 604800) as f64) }
+    }
+
+    pub func subSeconds(ref self, n: i64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, (0 - n) as f64) }
+    }
+
+    pub func subDays(ref self, n: i64) -> DateTime {
+        return DateTime { timestamp: dateAdd(self.timestamp, (0 - n * 86400) as f64) }
+    }
+
     pub func diff(ref self, other: DateTime) -> f64 {
         return dateDiff(self.timestamp, other.timestamp)
+    }
+
+    pub func diffDays(ref self, other: DateTime) -> i64 {
+        let secs = dateDiff(self.timestamp, other.timestamp)
+        return (secs / 86400.0) as i64
+    }
+
+    pub func diffHours(ref self, other: DateTime) -> i64 {
+        let secs = dateDiff(self.timestamp, other.timestamp)
+        return (secs / 3600.0) as i64
+    }
+
+    pub func diffMinutes(ref self, other: DateTime) -> i64 {
+        let secs = dateDiff(self.timestamp, other.timestamp)
+        return (secs / 60.0) as i64
+    }
+
+    pub func toUnix(ref self) -> i64 {
+        return self.timestamp as i64
     }
 
     pub func toString(ref self) -> String {
         return dateFormat(self.timestamp, "%Y-%m-%d %H:%M:%S")
     }
+
+    pub func toDate(ref self) -> String {
+        return dateFormat(self.timestamp, "%Y-%m-%d")
+    }
+
+    pub func toTime(ref self) -> String {
+        return dateFormat(self.timestamp, "%H:%M:%S")
+    }
+
+    pub func isBefore(ref self, other: DateTime) -> bool {
+        return self.timestamp < other.timestamp
+    }
+
+    pub func isAfter(ref self, other: DateTime) -> bool {
+        return self.timestamp > other.timestamp
+    }
+
+    pub func equals(ref self, other: DateTime) -> bool {
+        return self.timestamp == other.timestamp
+    }
+}
+
+// === Top-level helpers ===
+
+pub func fromUnix(ts: i64) -> DateTime {
+    return DateTime { timestamp: ts as f64 }
+}
+
+pub func today() -> DateTime {
+    return DateTime.now()
 }

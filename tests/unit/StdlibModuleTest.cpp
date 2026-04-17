@@ -705,3 +705,105 @@ TEST_F(StdlibModuleTest, ConvertWithDefaults) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Convert fallback helpers should type-check";
 }
+
+// ============================================================
+// DateTime arithmetic helpers
+// ============================================================
+
+TEST_F(StdlibModuleTest, DateTimeArithmetic) {
+    auto r = check(
+        "import time::time\n"
+        "func main() {\n"
+        "    let dt = DateTime.now()\n"
+        "    let t1 = dt.addSeconds(30)\n"
+        "    let t2 = dt.addMinutes(15)\n"
+        "    let t3 = dt.addHours(2)\n"
+        "    let t4 = dt.addDays(7)\n"
+        "    let t5 = dt.addWeeks(1)\n"
+        "    let t6 = dt.subDays(3)\n"
+        "    let u = dt.toUnix()\n"
+        "    let d = dt.diffDays(t4)\n"
+        "    let h = dt.diffHours(t3)\n"
+        "    let m = dt.diffMinutes(t2)\n"
+        "    let after = dt.isAfter(t1)\n"
+        "    let before = dt.isBefore(t1)\n"
+        "    let eq = dt.equals(t1)\n"
+        "    let dateStr = dt.toDate()\n"
+        "    let timeStr = dt.toTime()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "DateTime arithmetic helpers should type-check";
+}
+
+TEST_F(StdlibModuleTest, DateTimeFromUnix) {
+    auto r = check(
+        "import time::time\n"
+        "func main() {\n"
+        "    let dt = fromUnix(1700000000)\n"
+        "    let t = today()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "fromUnix/today helpers should type-check";
+}
+
+// ============================================================
+// File metadata
+// ============================================================
+
+TEST_F(StdlibModuleTest, FsFileInfoMetadata) {
+    auto r = check(
+        "import fs::fs\n"
+        "func main() {\n"
+        "    let info = FileInfo.new(\"/tmp/test\")\n"
+        "    let sz = info.size()\n"
+        "    let mt = info.modifiedTime()\n"
+        "    let f = info.isFile()\n"
+        "    let d = info.isDir()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "FileInfo metadata methods should type-check";
+}
+
+TEST_F(StdlibModuleTest, FsDirOperations) {
+    auto r = check(
+        "import fs::fs\n"
+        "func main() {\n"
+        "    let d = Dir.new(\"/tmp/foo\")\n"
+        "    let e = d.exists()\n"
+        "    let c = d.create()\n"
+        "    let r = d.remove()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Dir create/remove/exists should type-check";
+}
+
+// ============================================================
+// Regex split
+// ============================================================
+
+TEST_F(StdlibModuleTest, RegexSplit) {
+    auto r = check(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\",\\\\s*\")\n"
+        "    let parts = re.split(\"a, b, c\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Regex split should type-check";
+}
+
+// ============================================================
+// JSON pretty printing
+// ============================================================
+
+TEST_F(StdlibModuleTest, JsonStringifyPretty) {
+    auto r = check(
+        "import json::json\n"
+        "func main() {\n"
+        "    var obj = JsonObject.create()\n"
+        "    obj.setInt(\"age\", 25)\n"
+        "    let pretty = obj.stringifyPretty(2)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "JsonObject stringifyPretty should type-check";
+}

@@ -32,6 +32,10 @@ impl Regex {
         return regexFindGroups(self.pattern, text)
     }
 
+    pub func split(ref self, text: String) -> [String] {
+        return regexSplit(text, self.pattern)
+    }
+
     pub func toString(ref self) -> String {
         return self.pattern
     }

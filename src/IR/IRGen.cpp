@@ -597,6 +597,9 @@ void IRGen::createRuntimeDecls() {
     auto *regexFindAllTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_regex_find_all", regexFindAllTy);
 
+    // regexSplit(str, pattern, &count) -> char**
+    module_->getOrInsertFunction("liva_regex_split", regexFindAllTy);
+
     auto *regexReplaceTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_regex_replace", regexReplaceTy);
 
@@ -680,6 +683,16 @@ void IRGen::createRuntimeDecls() {
 
     // liva_file_is_file(path) -> i8
     module_->getOrInsertFunction("liva_file_is_file", dirBoolTy);
+
+    // liva_path_is_dir(path) -> i8
+    module_->getOrInsertFunction("liva_path_is_dir", dirBoolTy);
+
+    // liva_path_size(path) -> i64
+    auto *pathI64Ty = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_path_size", pathI64Ty);
+
+    // liva_path_modified_time(path) -> i64
+    module_->getOrInsertFunction("liva_path_modified_time", pathI64Ty);
 
     // liva_file_read(path) -> char* (nullable)
     module_->getOrInsertFunction("liva_file_read", strNoArgTy);
@@ -766,6 +779,10 @@ void IRGen::createRuntimeDecls() {
     // liva_json_count(json) -> i32
     auto *jsonCountTy = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_json_count", jsonCountTy);
+
+    // liva_json_stringify_pretty(json, indent) -> char*
+    auto *jsonPrettyTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i32Ty}, false);
+    module_->getOrInsertFunction("liva_json_stringify_pretty", jsonPrettyTy);
 
     // === Logging ===
     auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);

@@ -44,7 +44,8 @@ void ModuleLoader::registerBuiltinModules() {
         {"print", "println", "readLine", "format",
          "dirList", "dirCreate", "dirRemove", "dirExists",
          "pathJoin", "pathDirname", "pathBasename", "pathExtension",
-         "pathExists", "isFile",
+         "pathExists", "isFile", "isDir",
+         "fileSize", "fileModifiedTime",
          "fileRead", "fileWrite", "fileAppend",
          "fileRemove", "fileCopy", "pathAbsolute"}, {"File"});
 
@@ -61,7 +62,7 @@ void ModuleLoader::registerBuiltinModules() {
 
     cache_["std::regex"] = createBuiltinModule("std::regex",
         {"regexMatch", "regexFind", "regexFindAll", "regexReplace",
-         "regexFindGroups",
+         "regexFindGroups", "regexSplit",
          "regexCompile", "regexTest", "regexExec",
          "regexExecGroups", "regexReplaceCompiled", "regexFree"});
 
@@ -73,7 +74,8 @@ void ModuleLoader::registerBuiltinModules() {
          "jsonIsValid", "jsonKeys",
          "jsonCreate", "jsonSet", "jsonSetInt",
          "jsonSetFloat", "jsonSetBool", "jsonRemove",
-         "jsonGetArray", "jsonGetObject", "jsonCount"});
+         "jsonGetArray", "jsonGetObject", "jsonCount",
+         "jsonStringifyPretty"});
 
     cache_["std::log"] = createBuiltinModule("std::log",
         {"logDebug", "logInfo", "logWarn", "logError", "logSetLevel"});

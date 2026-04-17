@@ -28,6 +28,22 @@ impl FileInfo {
         return pathExists(self.path)
     }
 
+    pub func isFile(ref self) -> bool {
+        return isFile(self.path)
+    }
+
+    pub func isDir(ref self) -> bool {
+        return isDir(self.path)
+    }
+
+    pub func size(ref self) -> i64 {
+        return fileSize(self.path)
+    }
+
+    pub func modifiedTime(ref self) -> i64 {
+        return fileModifiedTime(self.path)
+    }
+
     pub func toString(ref self) -> String {
         return self.path
     }
@@ -44,6 +60,18 @@ impl Dir {
 
     pub func list(ref self) -> [String] {
         return dirList(self.path)
+    }
+
+    pub func exists(ref self) -> bool {
+        return pathExists(self.path)
+    }
+
+    pub func create(ref self) -> bool {
+        return dirCreate(self.path)
+    }
+
+    pub func remove(ref self) -> bool {
+        return dirRemove(self.path)
     }
 
     pub func toString(ref self) -> String {

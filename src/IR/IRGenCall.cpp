@@ -1838,6 +1838,26 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(structTy, arrAlloca, "regex.findall.result");
     }
 
+    if (funcName == "regexSplit" && node->getArgs().size() >= 2) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        auto *patArg = visit(node->getArgs()[1].get());
+        if (!strArg || !patArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "regex.split.count", builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_regex_split");
+        auto *resultPtr = builder_->CreateCall(fn, {strArg, patArg, countAlloca}, "regex.split.data");
+        auto *count = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "regex.split.len");
+        auto *structTy = getDynArrayStructTy();
+        auto *arrAlloca = createEntryBlockAlloca(curFunc, "regex.split.arr", structTy);
+        auto *dataPtr = builder_->CreateStructGEP(structTy, arrAlloca, 0);
+        builder_->CreateStore(resultPtr, dataPtr);
+        auto *lenPtr = builder_->CreateStructGEP(structTy, arrAlloca, 1);
+        builder_->CreateStore(count, lenPtr);
+        auto *capPtr = builder_->CreateStructGEP(structTy, arrAlloca, 2);
+        builder_->CreateStore(count, capPtr);
+        return builder_->CreateLoad(structTy, arrAlloca, "regex.split.result");
+    }
+
     if (funcName == "regexReplace" && node->getArgs().size() >= 3) {
         auto *strArg = visit(node->getArgs()[0].get());
         auto *patArg = visit(node->getArgs()[1].get());
@@ -2479,6 +2499,28 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateTrunc(r, builder_->getInt1Ty(), "is.file.bool");
     }
 
+    if (funcName == "isDir" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_is_dir");
+        auto *r = builder_->CreateCall(fn, {pathArg}, "is.dir");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "is.dir.bool");
+    }
+
+    if (funcName == "fileSize" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_size");
+        return builder_->CreateCall(fn, {pathArg}, "file.size");
+    }
+
+    if (funcName == "fileModifiedTime" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_path_modified_time");
+        return builder_->CreateCall(fn, {pathArg}, "file.mtime");
+    }
+
     if (funcName == "fileRead" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());
         if (!pathArg) return nullptr;
@@ -2801,6 +2843,18 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!jsonArg) return nullptr;
         auto *fn = getOrPanic("liva_json_count");
         return builder_->CreateCall(fn, {jsonArg}, "json.count");
+    }
+
+    if (funcName == "jsonStringifyPretty" && node->getArgs().size() >= 2) {
+        auto *jsonArg = visit(node->getArgs()[0].get());
+        auto *indentArg = visit(node->getArgs()[1].get());
+        if (!jsonArg || !indentArg) return nullptr;
+        if (indentArg->getType()->isIntegerTy(64))
+            indentArg = builder_->CreateTrunc(indentArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_json_stringify_pretty");
+        auto *result = builder_->CreateCall(fn, {jsonArg, indentArg}, "json.pretty");
+        trackStringTemp(result);
+        return result;
     }
 
     // === Logging ===

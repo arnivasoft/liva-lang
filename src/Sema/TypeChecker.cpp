@@ -66,7 +66,7 @@ void TypeChecker::registerBuiltins() {
                         "env", "exit", "args",
                         "clock", "clockMs", "sleep", "isCancelled",
                         "regexMatch", "regexFind", "regexFindAll", "regexReplace",
-                        "regexFindGroups",
+                        "regexFindGroups", "regexSplit",
                         "regexCompile", "regexTest", "regexExec",
                         "regexExecGroups", "regexReplaceCompiled", "regexFree",
                         "httpGet", "httpPost",
@@ -80,7 +80,8 @@ void TypeChecker::registerBuiltins() {
     // Stdlib: Directory and Path operations
     for (auto &name : {"dirList", "dirCreate", "dirRemove", "dirExists",
                         "pathJoin", "pathDirname", "pathBasename",
-                        "pathExtension", "pathExists", "isFile",
+                        "pathExtension", "pathExists", "isFile", "isDir",
+                        "fileSize", "fileModifiedTime",
                         "fileRead", "fileWrite", "fileAppend",
                         "fileRemove", "fileCopy", "pathAbsolute"}) {
         Symbol sym;
@@ -104,7 +105,8 @@ void TypeChecker::registerBuiltins() {
                         "jsonGetBool", "jsonIsValid", "jsonKeys",
                         "jsonCreate", "jsonSet", "jsonSetInt",
                         "jsonSetFloat", "jsonSetBool", "jsonRemove",
-                        "jsonGetArray", "jsonGetObject", "jsonCount"}) {
+                        "jsonGetArray", "jsonGetObject", "jsonCount",
+                        "jsonStringifyPretty"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2078,7 +2080,7 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "regexFind") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
             node->setResolvedType(std::move(optType));
-        } else if (ident->getName() == "regexFindAll") {
+        } else if (ident->getName() == "regexFindAll" || ident->getName() == "regexSplit") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
             node->setResolvedType(std::move(arrType));
         } else if (ident->getName() == "regexReplace") {
@@ -2112,8 +2114,10 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(std::move(arrType));
         } else if (ident->getName() == "dirCreate" || ident->getName() == "dirRemove" ||
                    ident->getName() == "dirExists" || ident->getName() == "pathExists" ||
-                   ident->getName() == "isFile") {
+                   ident->getName() == "isFile" || ident->getName() == "isDir") {
             node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "fileSize" || ident->getName() == "fileModifiedTime") {
+            node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "pathJoin" || ident->getName() == "pathDirname" ||
                    ident->getName() == "pathBasename" || ident->getName() == "pathExtension" ||
                    ident->getName() == "pathAbsolute") {
@@ -2158,6 +2162,8 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "jsonCount") {
             node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "jsonStringifyPretty") {
+            node->setResolvedType(makeStringType());
         // Stdlib: Logging (all void)
         } else if (ident->getName() == "logDebug" || ident->getName() == "logInfo" ||
                    ident->getName() == "logWarn" || ident->getName() == "logError" ||

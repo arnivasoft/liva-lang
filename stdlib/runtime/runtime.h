@@ -176,6 +176,15 @@ char *liva_path_extension(const char *path);
 /// Check if a path exists (file or directory). Returns 1 if exists, 0 otherwise.
 int8_t liva_path_exists(const char *path);
 
+/// Returns 1 if path is an existing directory, else 0
+int8_t liva_path_is_dir(const char *path);
+
+/// Returns file size in bytes, or -1 on error
+int64_t liva_path_size(const char *path);
+
+/// Returns file modification time as unix timestamp, or -1 on error
+int64_t liva_path_modified_time(const char *path);
+
 /// Check if path is a regular file. Returns 1 if file, 0 otherwise.
 int8_t liva_file_is_file(const char *path);
 
@@ -343,6 +352,9 @@ char *liva_regex_find(const char *str, const char *pattern);
 /// Find all matches, sets count, returns malloc'd array of malloc'd strings
 char **liva_regex_find_all(const char *str, const char *pattern, int64_t *count);
 
+/// Split string by regex pattern (caller frees each element and array)
+char **liva_regex_split(const char *str, const char *pattern, int64_t *count);
+
 /// Replace all matches of pattern with replacement ($1,$2 supported), returns malloc'd
 char *liva_regex_replace(const char *str, const char *pattern, const char *replacement);
 
@@ -503,6 +515,9 @@ int8_t liva_json_is_valid(const char *json);
 
 /// Get all keys from JSON object, returns malloc'd array of malloc'd strings
 char **liva_json_keys(const char *json, int64_t *count);
+
+/// Pretty-print JSON with given indent width (2..16). Caller frees.
+char *liva_json_stringify_pretty(const char *json, int32_t indent);
 
 // === Logging ===
 
