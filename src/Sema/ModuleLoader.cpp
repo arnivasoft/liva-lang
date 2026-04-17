@@ -82,7 +82,8 @@ void ModuleLoader::registerBuiltinModules() {
         {"logDebug", "logInfo", "logWarn", "logError", "logSetLevel"});
 
     cache_["std::test"] = createBuiltinModule("std::test",
-        {"assert", "assertMsg", "assertEq", "assertEqStr", "assertEqFloat"});
+        {"assert", "assertMsg", "assertEq", "assertEqStr", "assertEqFloat",
+         "testRunClosure"});
 
     cache_["std::datetime"] = createBuiltinModule("std::datetime",
         {"dateNow", "timeNow", "datetimeNow", "dateFormat",

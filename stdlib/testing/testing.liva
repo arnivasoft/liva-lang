@@ -23,18 +23,26 @@ impl TestSuite {
     }
 
     pub func run(mut self, testName: String, fn: () -> void) {
-        fn()
-        self.passed = self.passed + 1
+        if testRunClosure(testName, fn) {
+            self.passed = self.passed + 1
+        } else {
+            self.failed = self.failed + 1
+        }
     }
 
-    // Runs test with before/after closures for setup/teardown
+    // Runs test with before/after closures for setup/teardown.
+    // before/after always run; body is wrapped in setjmp so an assertion
+    // failure increments failed rather than aborting.
     pub func runWithHooks(mut self, testName: String,
                           before: () -> void,
                           body: () -> void,
                           after: () -> void) {
         before()
-        body()
-        self.passed = self.passed + 1
+        if testRunClosure(testName, body) {
+            self.passed = self.passed + 1
+        } else {
+            self.failed = self.failed + 1
+        }
         after()
     }
 

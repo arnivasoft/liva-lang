@@ -574,6 +574,10 @@ void liva_test_begin();
 /// Run a single test: setjmp + call test_fn, print PASS/FAIL
 void liva_test_run(const char *name, void (*test_fn)(void));
 
+/// Closure-aware test runner. Passes env_ptr as first arg to fn_ptr, catches
+/// longjmp from liva_test_fail. Returns 1 on pass, 0 on failure.
+int8_t liva_test_run_closure(const char *name, void *fn_ptr, void *env_ptr);
+
 /// End a test run: print summary, return 0 if all passed, 1 if any failed
 int32_t liva_test_end();
 

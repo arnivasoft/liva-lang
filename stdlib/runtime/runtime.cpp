@@ -3327,6 +3327,27 @@ int32_t liva_test_end() {
     return 0;
 }
 
+// Closure-based test runner: wraps a Liva closure call with setjmp,
+// catches liva_test_fail longjmp, and returns 1 (passed) / 0 (failed).
+int8_t liva_test_run_closure(const char *name, void *fn_ptr, void *env_ptr) {
+    liva_test_total++;
+    liva_test_active = true;
+    int result = 1; // passed
+    if (setjmp(liva_test_jmpbuf) == 0) {
+        // Liva closure ABI: (env, args...) -> ret
+        auto fn = (void (*)(void *))fn_ptr;
+        fn(env_ptr);
+        liva_test_passed++;
+        if (name) fprintf(stderr, "  PASS: %s\n", name);
+    } else {
+        liva_test_failed_count++;
+        result = 0;
+        if (name) fprintf(stderr, "  FAIL: %s\n", name);
+    }
+    liva_test_active = false;
+    return (int8_t)result;
+}
+
 void liva_test_fail(const char *msg) {
     if (liva_test_active) {
         if (msg) fprintf(stderr, "    %s\n", msg);

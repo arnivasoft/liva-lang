@@ -835,6 +835,11 @@ void IRGen::createRuntimeDecls() {
     auto *testRunTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy, testFnPtrTy}, false);
     module_->getOrInsertFunction("liva_test_run", testRunTy);
 
+    // liva_test_run_closure(name, fn_ptr, env_ptr) -> i8
+    auto *testRunClosureTy = llvm::FunctionType::get(
+        i8Ty, {i8PtrTy, testFnPtrTy, testFnPtrTy}, false);
+    module_->getOrInsertFunction("liva_test_run_closure", testRunClosureTy);
+
     auto *testEndTy = llvm::FunctionType::get(i32Ty, {}, false);
     module_->getOrInsertFunction("liva_test_end", testEndTy);
 

@@ -1073,6 +1073,39 @@ TEST_F(StdlibModuleTest, TestingTestGroup) {
     EXPECT_TRUE(r.passed) << "TestGroup.test should type-check";
 }
 
+TEST_F(StdlibModuleTest, TestingFailedCounter) {
+    auto r = check(
+        "import testing::testing\n"
+        "func passingTest() {\n"
+        "    let e = Expect.new(1)\n"
+        "    e.toBe(1)\n"
+        "}\n"
+        "func failingTest() {\n"
+        "    let e = Expect.new(1)\n"
+        "    e.toBe(2)\n"
+        "}\n"
+        "func main() {\n"
+        "    var suite = TestSuite.new(\"ex\")\n"
+        "    suite.run(\"pass\", passingTest)\n"
+        "    suite.run(\"fail\", failingTest)\n"
+        "    let t = suite.total()\n"
+        "    let ok = suite.allPassed()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TestSuite.run using testRunClosure should type-check";
+}
+
+TEST_F(StdlibModuleTest, TestRunClosureBuiltin) {
+    auto r = check(
+        "func body() {\n"
+        "    let x = 1\n"
+        "}\n"
+        "func main() {\n"
+        "    let ok = testRunClosure(\"case\", body)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "testRunClosure builtin should be globally available";
+}
+
 TEST_F(StdlibModuleTest, TestingRunWithHooks) {
     auto r = check(
         "import testing::testing\n"

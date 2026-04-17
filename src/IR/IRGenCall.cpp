@@ -2950,6 +2950,26 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     }
 
     // === Testing ===
+    // testRunClosure(name, closure) -> bool
+    // Decomposes closure into funcPtr+envPtr, invokes runtime with setjmp
+    if (funcName == "testRunClosure" && node->getArgs().size() >= 2) {
+        auto *nameArg = visit(node->getArgs()[0].get());
+        auto *closureVal = visit(node->getArgs()[1].get());
+        if (!nameArg || !closureVal) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *closureObjTy = getClosureObjTy();
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *alloca = createEntryBlockAlloca(curFunc, "tc.tmp", closureObjTy);
+        builder_->CreateStore(closureVal, alloca);
+        auto *funcPtr = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(closureObjTy, alloca, 0), "tc.func");
+        auto *envPtr = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(closureObjTy, alloca, 1), "tc.env");
+        auto *fn = getOrPanic("liva_test_run_closure");
+        auto *r = builder_->CreateCall(fn, {nameArg, funcPtr, envPtr}, "tc.result");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "tc.bool");
+    }
+
     if (funcName == "assert" && !node->getArgs().empty()) {
         auto *condArg = visit(node->getArgs()[0].get());
         if (!condArg) return nullptr;

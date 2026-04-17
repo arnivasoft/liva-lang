@@ -126,7 +126,8 @@ void TypeChecker::registerBuiltins() {
 
     // Stdlib: Testing
     for (auto &name : {"assert", "assertMsg", "assertEq",
-                        "assertEqStr", "assertEqFloat"}) {
+                        "assertEqStr", "assertEqFloat",
+                        "testRunClosure"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2191,6 +2192,8 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "assertEq" || ident->getName() == "assertEqStr" ||
                    ident->getName() == "assertEqFloat") {
             // void — no resolved type needed
+        } else if (ident->getName() == "testRunClosure") {
+            node->setResolvedType(makeBoolType());
         // Stdlib: DateTime
         } else if (ident->getName() == "dateNow" || ident->getName() == "timeNow" ||
                    ident->getName() == "datetimeNow") {
