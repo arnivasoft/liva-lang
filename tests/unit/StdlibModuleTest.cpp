@@ -913,6 +913,112 @@ TEST_F(StdlibModuleTest, CollectionsMathHelpers) {
 }
 
 // ============================================================
+// Testing: extended assertions
+// ============================================================
+
+TEST_F(StdlibModuleTest, TestingExpectComparisons) {
+    auto r = check(
+        "import testing::testing\n"
+        "func main() {\n"
+        "    let e = Expect.new(42)\n"
+        "    e.toNotBe(99)\n"
+        "    e.toBeGt(10)\n"
+        "    e.toBeGte(42)\n"
+        "    e.toBeLt(100)\n"
+        "    e.toBeLte(42)\n"
+        "    e.toBeInRange(0, 100)\n"
+        "    e.toBePositive()\n"
+        "    let z = Expect.new(0)\n"
+        "    z.toBeZero()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Expect comparison assertions should type-check";
+}
+
+TEST_F(StdlibModuleTest, TestingExpectStrExtra) {
+    auto r = check(
+        "import testing::testing\n"
+        "func main() {\n"
+        "    let s = ExpectStr.new(\"hello world\")\n"
+        "    s.toContain(\"world\")\n"
+        "    s.toNotContain(\"xyz\")\n"
+        "    s.toStartWith(\"hello\")\n"
+        "    s.toEndWith(\"world\")\n"
+        "    s.toHaveLength(11)\n"
+        "    s.toNotBeEmpty()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ExpectStr extra assertions should type-check";
+}
+
+TEST_F(StdlibModuleTest, TestingExpectFloatTolerance) {
+    auto r = check(
+        "import testing::testing\n"
+        "func main() {\n"
+        "    let f = ExpectFloat.new(3.14)\n"
+        "    f.toBeNear(3.14159, 0.01)\n"
+        "    f.toBeGt(3.0)\n"
+        "    f.toBeBetween(3.0, 4.0)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ExpectFloat tolerance assertions should type-check";
+}
+
+TEST_F(StdlibModuleTest, TestingExpectArrays) {
+    auto r = check(
+        "import testing::testing\n"
+        "func main() {\n"
+        "    let nums: [i64] = [1, 2, 3]\n"
+        "    let a = ExpectArrI64.new(nums)\n"
+        "    a.toHaveLength(3)\n"
+        "    a.toNotBeEmpty()\n"
+        "    a.toContain(2)\n"
+        "    a.toNotContain(99)\n"
+        "    let strs: [String] = [\"a\", \"b\"]\n"
+        "    let sa = ExpectArrStr.new(strs)\n"
+        "    sa.toHaveLength(2)\n"
+        "    sa.toContain(\"a\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ExpectArrI64/ExpectArrStr should type-check";
+}
+
+TEST_F(StdlibModuleTest, TestingTestGroup) {
+    auto r = check(
+        "import testing::testing\n"
+        "func addTest() {\n"
+        "    let e = Expect.new(2)\n"
+        "    e.toBe(2)\n"
+        "}\n"
+        "func main() {\n"
+        "    var g = TestGroup.new(\"math\")\n"
+        "    g.runCase(\"addition\", addTest)\n"
+        "    let p = g.passed()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TestGroup.test should type-check";
+}
+
+TEST_F(StdlibModuleTest, TestingRunWithHooks) {
+    auto r = check(
+        "import testing::testing\n"
+        "func setup() { let x = 1 }\n"
+        "func runTest() {\n"
+        "    let e = Expect.new(1)\n"
+        "    e.toBe(1)\n"
+        "}\n"
+        "func teardown() { let x = 1 }\n"
+        "func main() {\n"
+        "    var suite = TestSuite.new(\"s\")\n"
+        "    suite.runWithHooks(\"t\", setup, runTest, teardown)\n"
+        "    suite.skip(\"pending\")\n"
+        "    let all = suite.allPassed()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TestSuite runWithHooks/skip should type-check";
+}
+
+// ============================================================
 // Module: io::io (buffered I/O helpers)
 // ============================================================
 

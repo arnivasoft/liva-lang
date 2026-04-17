@@ -1,8 +1,15 @@
-// testing::testing — TestSuite, Expect wrapper API
+// testing::testing — Expect-style assertion framework
 // Import with: import testing::testing
+//
+// Provides TestSuite, TestGroup and Expect / ExpectStr / ExpectFloat /
+// ExpectArrI64 / ExpectArrStr for BDD-style assertions.
 
 import std::test
 import std::convert
+
+// =============================================================
+// TestSuite — simple counter + optional before/after hooks
+// =============================================================
 
 pub struct TestSuite {
     var name: String
@@ -20,11 +27,60 @@ impl TestSuite {
         self.passed = self.passed + 1
     }
 
+    // Runs test with before/after closures for setup/teardown
+    pub func runWithHooks(mut self, testName: String,
+                          before: () -> void,
+                          body: () -> void,
+                          after: () -> void) {
+        before()
+        body()
+        self.passed = self.passed + 1
+        after()
+    }
+
+    pub func skip(mut self, testName: String) {
+        // skip — do nothing, counter unchanged
+    }
+
+    pub func total(ref self) -> i32 {
+        return self.passed + self.failed
+    }
+
+    pub func allPassed(ref self) -> bool {
+        return self.failed == 0
+    }
+
     pub func summary(ref self) -> String {
-        var total = self.passed + self.failed
         return self.name
     }
 }
+
+// =============================================================
+// TestGroup — scope identified by name, wraps a TestSuite
+// =============================================================
+
+pub struct TestGroup {
+    var name: String
+    var suite: TestSuite
+}
+
+impl TestGroup {
+    pub func new(name: String) -> TestGroup {
+        return TestGroup { name: name, suite: TestSuite.new(name) }
+    }
+
+    pub func runCase(mut self, label: String, fn: () -> void) {
+        self.suite.run(label, fn)
+    }
+
+    pub func passed(ref self) -> i32 {
+        return self.suite.passed
+    }
+}
+
+// =============================================================
+// Expect — integer assertions
+// =============================================================
 
 pub struct Expect {
     var value: i64
@@ -44,6 +100,10 @@ impl Expect {
         assertEq(self.value, expected)
     }
 
+    pub func toNotBe(ref self, expected: i64) {
+        assert(self.value != expected)
+    }
+
     pub func toBeTrue(ref self) {
         assert(self.value != 0)
     }
@@ -51,7 +111,44 @@ impl Expect {
     pub func toBeFalse(ref self) {
         assert(self.value == 0)
     }
+
+    pub func toBeGt(ref self, threshold: i64) {
+        assert(self.value > threshold)
+    }
+
+    pub func toBeGte(ref self, threshold: i64) {
+        assert(self.value >= threshold)
+    }
+
+    pub func toBeLt(ref self, threshold: i64) {
+        assert(self.value < threshold)
+    }
+
+    pub func toBeLte(ref self, threshold: i64) {
+        assert(self.value <= threshold)
+    }
+
+    pub func toBeInRange(ref self, lo: i64, hi: i64) {
+        assert(self.value >= lo)
+        assert(self.value <= hi)
+    }
+
+    pub func toBePositive(ref self) {
+        assert(self.value > 0)
+    }
+
+    pub func toBeNegative(ref self) {
+        assert(self.value < 0)
+    }
+
+    pub func toBeZero(ref self) {
+        assert(self.value == 0)
+    }
 }
+
+// =============================================================
+// ExpectStr — String assertions
+// =============================================================
 
 pub struct ExpectStr {
     var value: String
@@ -63,10 +160,46 @@ impl ExpectStr {
         return ExpectStr { value: val, label: "" }
     }
 
+    pub func named(val: String, label: String) -> ExpectStr {
+        return ExpectStr { value: val, label: label }
+    }
+
     pub func toBe(ref self, expected: String) {
         assertEqStr(self.value, expected)
     }
+
+    pub func toContain(ref self, sub: String) {
+        assert(strContains(self.value, sub))
+    }
+
+    pub func toNotContain(ref self, sub: String) {
+        assert(!strContains(self.value, sub))
+    }
+
+    pub func toStartWith(ref self, prefix: String) {
+        assert(strStartsWith(self.value, prefix))
+    }
+
+    pub func toEndWith(ref self, suffix: String) {
+        assert(strEndsWith(self.value, suffix))
+    }
+
+    pub func toHaveLength(ref self, n: i64) {
+        assert(len(self.value) == n)
+    }
+
+    pub func toBeEmpty(ref self) {
+        assert(len(self.value) == 0)
+    }
+
+    pub func toNotBeEmpty(ref self) {
+        assert(len(self.value) > 0)
+    }
 }
+
+// =============================================================
+// ExpectFloat — f64 assertions with tolerance
+// =============================================================
 
 pub struct ExpectFloat {
     var value: f64
@@ -79,5 +212,80 @@ impl ExpectFloat {
 
     pub func toBe(ref self, expected: f64) {
         assertEqFloat(self.value, expected)
+    }
+
+    pub func toBeNear(ref self, expected: f64, epsilon: f64) {
+        var diff = self.value - expected
+        if diff < 0.0 { diff = 0.0 - diff }
+        assert(diff <= epsilon)
+    }
+
+    pub func toBeGt(ref self, threshold: f64) {
+        assert(self.value > threshold)
+    }
+
+    pub func toBeLt(ref self, threshold: f64) {
+        assert(self.value < threshold)
+    }
+
+    pub func toBeBetween(ref self, lo: f64, hi: f64) {
+        assert(self.value >= lo)
+        assert(self.value <= hi)
+    }
+}
+
+// =============================================================
+// ExpectArrI64 / ExpectArrStr — array assertions
+// =============================================================
+
+pub struct ExpectArrI64 {
+    var value: [i64]
+}
+
+impl ExpectArrI64 {
+    pub func new(val: [i64]) -> ExpectArrI64 {
+        return ExpectArrI64 { value: val }
+    }
+
+    pub func toHaveLength(ref self, n: i64) {
+        assert(self.value.length == n)
+    }
+
+    pub func toBeEmpty(ref self) {
+        assert(self.value.length == 0)
+    }
+
+    pub func toNotBeEmpty(ref self) {
+        assert(self.value.length > 0)
+    }
+
+    pub func toContain(ref self, x: i64) {
+        assert(self.value.contains(x))
+    }
+
+    pub func toNotContain(ref self, x: i64) {
+        assert(!self.value.contains(x))
+    }
+}
+
+pub struct ExpectArrStr {
+    var value: [String]
+}
+
+impl ExpectArrStr {
+    pub func new(val: [String]) -> ExpectArrStr {
+        return ExpectArrStr { value: val }
+    }
+
+    pub func toHaveLength(ref self, n: i64) {
+        assert(self.value.length == n)
+    }
+
+    pub func toBeEmpty(ref self) {
+        assert(self.value.length == 0)
+    }
+
+    pub func toContain(ref self, x: String) {
+        assert(self.value.contains(x))
     }
 }
