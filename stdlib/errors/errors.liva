@@ -1,0 +1,111 @@
+// errors::errors — Error context chaining for Result<T, String>
+// Import with: import errors::errors
+//
+// Liva uses Result<T, E> with built-in Ok/Err. This module adds utilities
+// for wrapping errors with context as they propagate up the call stack —
+// similar to Rust's `anyhow::Context` or Go's `fmt.Errorf("%w: ...")`.
+//
+// Example:
+//   func loadConfig() -> Result<Config, String> {
+//       let txt = readFile("app.toml")
+//           |> context("loading config")
+//       ...
+//   }
+//
+// Since Liva doesn't have pipe operators yet, use:
+//   let txt = withContext(readFile("app.toml"), "loading config")
+
+// =============================================================
+// Context helpers on Result<T, String>
+// =============================================================
+
+// Wrap an error message with a context prefix.
+// Ok values pass through unchanged; Err(e) becomes Err("<ctx>: <e>").
+pub func withContext<T>(r: Result<T, String>, ctx: String) -> Result<T, String> {
+    return match r {
+        Result.Ok(v) => Result.ok(v)
+        Result.Err(e) => Result.err("" + ctx + ": " + e)
+    }
+}
+
+// Chain a lazy context — useful to avoid constructing expensive messages
+// when the operation succeeds.
+pub func withContextLazy<T>(
+    r: Result<T, String>,
+    f: () -> String
+) -> Result<T, String> {
+    return match r {
+        Result.Ok(v) => Result.ok(v)
+        Result.Err(e) => Result.err("" + f() + ": " + e)
+    }
+}
+
+// =============================================================
+// Introspection
+// =============================================================
+
+pub func isOk<T>(r: Result<T, String>) -> bool {
+    return match r {
+        Result.Ok(v) => true
+        Result.Err(e) => false
+    }
+}
+
+pub func isErr<T>(r: Result<T, String>) -> bool {
+    return match r {
+        Result.Ok(v) => false
+        Result.Err(e) => true
+    }
+}
+
+// =============================================================
+// Extraction with default
+// =============================================================
+
+pub func unwrapOr<T>(r: Result<T, String>, default: T) -> T {
+    return match r {
+        Result.Ok(v) => v
+        Result.Err(e) => default
+    }
+}
+
+pub func errOr<T>(r: Result<T, String>, default: String) -> String {
+    return match r {
+        Result.Ok(v) => default
+        Result.Err(e) => e
+    }
+}
+
+// =============================================================
+// ErrorChain — structured error with optional cause
+// =============================================================
+
+pub struct ErrorChain {
+    var message: String
+    var cause: String
+    var hasCause: bool
+}
+
+impl ErrorChain {
+    pub func new(message: String) -> ErrorChain {
+        return ErrorChain { message: message, cause: "", hasCause: false }
+    }
+
+    pub func wrap(message: String, cause: String) -> ErrorChain {
+        return ErrorChain { message: message, cause: cause, hasCause: true }
+    }
+
+    pub func toString(ref self) -> String {
+        if self.hasCause {
+            return "" + self.message + " (caused by: " + self.cause + ")"
+        }
+        return self.message
+    }
+
+    pub func root(ref self) -> String {
+        if self.hasCause {
+            return self.cause
+        }
+        return self.message
+    }
+}

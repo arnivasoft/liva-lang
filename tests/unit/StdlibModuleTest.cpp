@@ -1049,6 +1049,66 @@ TEST_F(StdlibModuleTest, TestingRunWithHooks) {
 }
 
 // ============================================================
+// Module: errors::errors (Result context chaining)
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportErrorsModule) {
+    auto r = check(
+        "import errors::errors\n"
+        "func readConfig() -> Result<String, String> {\n"
+        "    return Result.err(\"not found\")\n"
+        "}\n"
+        "func main() {\n"
+        "    let r1 = withContext(readConfig(), \"loading config\")\n"
+        "    let r2 = readConfig()\n"
+        "    let ok = isOk(r2)\n"
+        "    let r3 = readConfig()\n"
+        "    let e = isErr(r3)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import errors::errors should resolve withContext/isOk/isErr";
+}
+
+TEST_F(StdlibModuleTest, ErrorsUnwrapHelpers) {
+    auto r = check(
+        "import errors::errors\n"
+        "func op() -> Result<i32, String> {\n"
+        "    return Result.ok(42)\n"
+        "}\n"
+        "func main() {\n"
+        "    let v = unwrapOr(op(), 0)\n"
+        "    let e = errOr(op(), \"no error\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "unwrapOr/errOr helpers should type-check";
+}
+
+TEST_F(StdlibModuleTest, ErrorChainStruct) {
+    auto r = check(
+        "import errors::errors\n"
+        "func main() {\n"
+        "    let e1 = ErrorChain.new(\"base error\")\n"
+        "    let e2 = ErrorChain.wrap(\"outer\", \"inner cause\")\n"
+        "    let s = e2.toString()\n"
+        "    let r = e2.root()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "ErrorChain struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, ErrorsLazyContext) {
+    auto r = check(
+        "import errors::errors\n"
+        "func op() -> Result<i32, String> { return Result.err(\"x\") }\n"
+        "func makeMsg() -> String { return \"loading\" }\n"
+        "func main() {\n"
+        "    let r = withContextLazy(op(), makeMsg)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "withContextLazy should accept a closure producer";
+}
+
+// ============================================================
 // Module: io::io (buffered I/O helpers)
 // ============================================================
 
