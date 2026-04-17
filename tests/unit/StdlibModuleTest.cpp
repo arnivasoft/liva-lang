@@ -807,3 +807,124 @@ TEST_F(StdlibModuleTest, JsonStringifyPretty) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "JsonObject stringifyPretty should type-check";
 }
+
+// ============================================================
+// Collections extensions: Stack / Queue / Deque / HashSet
+// ============================================================
+
+TEST_F(StdlibModuleTest, CollectionsStack) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var s = StackI64.new()\n"
+        "    s.push(42)\n"
+        "    let t = s.peek()\n"
+        "    let p = s.pop()\n"
+        "    let e = s.isEmpty()\n"
+        "    let sz = s.size()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "StackI64 should type-check";
+}
+
+TEST_F(StdlibModuleTest, CollectionsStackStr) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var s = StackStr.new()\n"
+        "    s.push(\"hello\")\n"
+        "    let top = s.peek()\n"
+        "    let v = s.pop()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "StackStr should type-check";
+}
+
+TEST_F(StdlibModuleTest, CollectionsQueue) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var q = QueueI64.new()\n"
+        "    q.enqueue(1)\n"
+        "    q.enqueue(2)\n"
+        "    let front = q.peek()\n"
+        "    let head = q.dequeue()\n"
+        "    let sz = q.size()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "QueueI64 should type-check";
+}
+
+TEST_F(StdlibModuleTest, CollectionsDeque) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var d = DequeI64.new()\n"
+        "    d.pushBack(1)\n"
+        "    d.pushFront(0)\n"
+        "    let b = d.back()\n"
+        "    let f = d.front()\n"
+        "    let pb = d.popBack()\n"
+        "    let pf = d.popFront()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "DequeI64 should type-check";
+}
+
+TEST_F(StdlibModuleTest, CollectionsHashSetI64) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var s = HashSetI64.new()\n"
+        "    s.add(42)\n"
+        "    let h = s.contains(42)\n"
+        "    let r = s.remove(42)\n"
+        "    let sz = s.size()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HashSetI64 should type-check";
+}
+
+TEST_F(StdlibModuleTest, CollectionsHashSetStr) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    var s = HashSetStr.new()\n"
+        "    s.add(\"hello\")\n"
+        "    let h = s.contains(\"hello\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HashSetStr should type-check";
+}
+
+TEST_F(StdlibModuleTest, CollectionsMathHelpers) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    let nums: [i64] = [1, 2, 3, 4, 5]\n"
+        "    let s = sumI64(nums)\n"
+        "    let p = productI64(nums)\n"
+        "    let mn = minOfI64(nums)\n"
+        "    let mx = maxOfI64(nums)\n"
+        "    let a = avgI64(nums)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "sum/product/min/max/avg helpers should type-check";
+}
+
+TEST_F(StdlibModuleTest, CollectionsSliceHelpers) {
+    auto r = check(
+        "import collections::collections\n"
+        "func main() {\n"
+        "    let nums: [i64] = [1, 2, 3, 4, 5]\n"
+        "    let h = takeI64(nums, 3)\n"
+        "    let t = skipI64(nums, 2)\n"
+        "    let f = firstI64(nums)\n"
+        "    let l = lastI64(nums)\n"
+        "    let i = findIndexI64(nums, 3)\n"
+        "    let u = uniqueI64(nums)\n"
+        "    let r = reverseI64(nums)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "take/skip/first/last/findIndex/unique/reverse should type-check";
+}

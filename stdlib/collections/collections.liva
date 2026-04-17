@@ -1,30 +1,453 @@
-// std::collections — Collection types and utility functions
+// collections::collections — Extended collection types & helpers
 //
 // Built-in types: Map<K, V>, Set<T>, [T] (DynArray)
 //
-// Array methods:  push, pop, contains, indexOf, reverse, length
-//                 map, filter, forEach, reduce
-//
-// Map methods:    insert, get, contains, remove, size
-// Set methods:    insert, contains, remove, size
-//
-// Top-level utility functions:
-//   forEach(arr, fn)    -> void          — apply fn to each element
-//   enumerate(arr)      -> [(i64, T)]    — index-value pairs
-//   zip(a, b)           -> [(A, B)]      — combine two arrays
-//   sorted(arr)         -> [T]           — sorted copy
-//   reversed(arr)       -> [T]           — reversed copy
-//   flatten(arr)        -> [T]           — flatten nested arrays
-//   any(arr, pred)      -> bool          — true if any element matches
-//   all(arr, pred)      -> bool          — true if all elements match
-//   count(arr, pred)    -> i64           — count matching elements
+// This module adds:
+//   - StackI64 / StackStr  — LIFO stacks
+//   - QueueI64 / QueueStr  — FIFO queues (O(n) dequeue)
+//   - DequeI64 / DequeStr  — double-ended queues (O(n) pushFront)
+//   - HashSetI64 / HashSetStr — convenience wrappers over built-in Set
+//   - Math helpers: sumI64, productI64, minOfI64, maxOfI64, avgI64
+//   - Array helpers: takeI64, skipI64, firstI64, lastI64
 //
 // Usage:
-//   import std::collections
-//
-//   let nums = [3, 1, 4, 1, 5]
-//   let s = sorted(nums)         // [1, 1, 3, 4, 5]
-//   let r = reversed(nums)       // [5, 1, 4, 1, 3]
-//   let hasEven = any(nums, func(x: i64) -> bool { x % 2 == 0 })
-//   let allPos  = all(nums, func(x: i64) -> bool { x > 0 })
-//   let evens   = count(nums, func(x: i64) -> bool { x % 2 == 0 })
+//   import collections::collections
+//   var s = StackI64.new()
+//   s.push(42)
+//   let top = s.peek()
+
+import std::collections
+
+// =============================================================
+// Stack (LIFO)
+// =============================================================
+
+pub struct StackI64 {
+    var items: [i64]
+}
+
+impl StackI64 {
+    pub func new() -> StackI64 {
+        return StackI64 { items: [] }
+    }
+
+    pub func push(ref mut self, x: i64) {
+        self.items.push(x)
+    }
+
+    pub func pop(ref mut self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items.pop()
+    }
+
+    pub func peek(ref self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items[self.items.length - 1]
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.items.length
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.items.length == 0
+    }
+
+    pub func clear(ref mut self) {
+        self.items = []
+    }
+}
+
+pub struct StackStr {
+    var items: [String]
+}
+
+impl StackStr {
+    pub func new() -> StackStr {
+        return StackStr { items: [] }
+    }
+
+    pub func push(ref mut self, x: String) {
+        self.items.push(x)
+    }
+
+    pub func pop(ref mut self) -> String? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items.pop()
+    }
+
+    pub func peek(ref self) -> String? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items[self.items.length - 1]
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.items.length
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.items.length == 0
+    }
+}
+
+// =============================================================
+// Queue (FIFO) — O(n) dequeue
+// =============================================================
+
+pub struct QueueI64 {
+    var items: [i64]
+}
+
+impl QueueI64 {
+    pub func new() -> QueueI64 {
+        return QueueI64 { items: [] }
+    }
+
+    pub func enqueue(ref mut self, x: i64) {
+        self.items.push(x)
+    }
+
+    pub func dequeue(ref mut self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        let head = self.items[0]
+        var rest: [i64] = []
+        var i = 1
+        while i < self.items.length {
+            rest.push(self.items[i])
+            i = i + 1
+        }
+        self.items = rest
+        return head
+    }
+
+    pub func peek(ref self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items[0]
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.items.length
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.items.length == 0
+    }
+}
+
+pub struct QueueStr {
+    var items: [String]
+}
+
+impl QueueStr {
+    pub func new() -> QueueStr {
+        return QueueStr { items: [] }
+    }
+
+    pub func enqueue(ref mut self, x: String) {
+        self.items.push(x)
+    }
+
+    pub func dequeue(ref mut self) -> String? {
+        if self.items.length == 0 {
+            return nil
+        }
+        let head = self.items[0]
+        var rest: [String] = []
+        var i = 1
+        while i < self.items.length {
+            rest.push(self.items[i])
+            i = i + 1
+        }
+        self.items = rest
+        return head
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.items.length
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.items.length == 0
+    }
+}
+
+// =============================================================
+// Deque (double-ended queue) — O(n) pushFront/popFront
+// =============================================================
+
+pub struct DequeI64 {
+    var items: [i64]
+}
+
+impl DequeI64 {
+    pub func new() -> DequeI64 {
+        return DequeI64 { items: [] }
+    }
+
+    pub func pushBack(ref mut self, x: i64) {
+        self.items.push(x)
+    }
+
+    pub func pushFront(ref mut self, x: i64) {
+        var new: [i64] = [x]
+        var i = 0
+        while i < self.items.length {
+            new.push(self.items[i])
+            i = i + 1
+        }
+        self.items = new
+    }
+
+    pub func popBack(ref mut self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items.pop()
+    }
+
+    pub func popFront(ref mut self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        let head = self.items[0]
+        var rest: [i64] = []
+        var i = 1
+        while i < self.items.length {
+            rest.push(self.items[i])
+            i = i + 1
+        }
+        self.items = rest
+        return head
+    }
+
+    pub func front(ref self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items[0]
+    }
+
+    pub func back(ref self) -> i64? {
+        if self.items.length == 0 {
+            return nil
+        }
+        return self.items[self.items.length - 1]
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.items.length
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.items.length == 0
+    }
+}
+
+// =============================================================
+// HashSet wrappers (over built-in Set<T>)
+// =============================================================
+
+pub struct HashSetI64 {
+    var data: Set<i64>
+}
+
+impl HashSetI64 {
+    pub func new() -> HashSetI64 {
+        var s: Set<i64>
+        return HashSetI64 { data: s }
+    }
+
+    pub func add(ref mut self, x: i64) {
+        self.data.insert(x)
+    }
+
+    pub func contains(ref self, x: i64) -> bool {
+        return self.data.contains(x)
+    }
+
+    pub func remove(ref mut self, x: i64) -> bool {
+        return self.data.remove(x)
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.data.size
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.data.size == 0
+    }
+}
+
+pub struct HashSetStr {
+    var data: Set<String>
+}
+
+impl HashSetStr {
+    pub func new() -> HashSetStr {
+        var s: Set<String>
+        return HashSetStr { data: s }
+    }
+
+    pub func add(ref mut self, x: String) {
+        self.data.insert(x)
+    }
+
+    pub func contains(ref self, x: String) -> bool {
+        return self.data.contains(x)
+    }
+
+    pub func remove(ref mut self, x: String) -> bool {
+        return self.data.remove(x)
+    }
+
+    pub func size(ref self) -> i64 {
+        return self.data.size
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.data.size == 0
+    }
+}
+
+// =============================================================
+// Math helpers on [i64]
+// =============================================================
+
+pub func sumI64(arr: [i64]) -> i64 {
+    var total = 0 as i64
+    var i = 0 as i64
+    while i < arr.length {
+        total = total + arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+pub func productI64(arr: [i64]) -> i64 {
+    if arr.length == 0 {
+        return 0 as i64
+    }
+    var total = 1 as i64
+    var i = 0 as i64
+    while i < arr.length {
+        total = total * arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+pub func minOfI64(arr: [i64]) -> i64? {
+    if arr.length == 0 {
+        return nil
+    }
+    var best = arr[0]
+    var i = 1 as i64
+    while i < arr.length {
+        if arr[i] < best { best = arr[i] }
+        i = i + 1
+    }
+    return best
+}
+
+pub func maxOfI64(arr: [i64]) -> i64? {
+    if arr.length == 0 {
+        return nil
+    }
+    var best = arr[0]
+    var i = 1 as i64
+    while i < arr.length {
+        if arr[i] > best { best = arr[i] }
+        i = i + 1
+    }
+    return best
+}
+
+pub func avgI64(arr: [i64]) -> f64 {
+    if arr.length == 0 {
+        return 0.0
+    }
+    return (sumI64(arr) as f64) / (arr.length as f64)
+}
+
+// =============================================================
+// Slice helpers on [i64]
+// =============================================================
+
+pub func takeI64(arr: [i64], n: i64) -> [i64] {
+    var result: [i64] = []
+    var lim = n
+    if lim > arr.length {
+        lim = arr.length
+    }
+    var i = 0 as i64
+    while i < lim {
+        result.push(arr[i])
+        i = i + 1
+    }
+    return result
+}
+
+pub func skipI64(arr: [i64], n: i64) -> [i64] {
+    var result: [i64] = []
+    var i = n
+    while i < arr.length {
+        result.push(arr[i])
+        i = i + 1
+    }
+    return result
+}
+
+pub func firstI64(arr: [i64]) -> i64? {
+    if arr.length == 0 { return nil }
+    return arr[0]
+}
+
+pub func lastI64(arr: [i64]) -> i64? {
+    if arr.length == 0 { return nil }
+    return arr[arr.length - 1]
+}
+
+pub func findIndexI64(arr: [i64], target: i64) -> i64 {
+    var i = 0 as i64
+    while i < arr.length {
+        if arr[i] == target { return i }
+        i = i + 1
+    }
+    return -1 as i64
+}
+
+pub func uniqueI64(arr: [i64]) -> [i64] {
+    var seen: Set<i64>
+    var result: [i64] = []
+    var i = 0 as i64
+    while i < arr.length {
+        if !seen.contains(arr[i]) {
+            seen.insert(arr[i])
+            result.push(arr[i])
+        }
+        i = i + 1
+    }
+    return result
+}
+
+pub func reverseI64(arr: [i64]) -> [i64] {
+    var result: [i64] = []
+    var i = arr.length - 1
+    while i >= 0 {
+        result.push(arr[i])
+        i = i - 1
+    }
+    return result
+}
