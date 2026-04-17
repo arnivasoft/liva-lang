@@ -203,7 +203,11 @@ void TypeChecker::registerBuiltins() {
                         "strJoin", "strTrim", "strTrimLeft", "strTrimRight",
                         "strStartsWith", "strEndsWith",
                         "strToUpper", "strToLower",
-                        "strReverse", "strChars", "strLines"}) {
+                        "strReverse", "strChars", "strLines",
+                        "strCharCount", "strCodepointAt", "strIsAscii",
+                        "charIsAlpha", "charIsDigit", "charIsAlnum",
+                        "charIsSpace", "charIsUpper", "charIsLower",
+                        "charToUpper", "charToLower"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2307,6 +2311,18 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "strLines") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
             node->setResolvedType(std::move(arrType));
+        // Stdlib: UTF-8 helpers
+        } else if (ident->getName() == "strCharCount") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "strCodepointAt") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "strIsAscii" ||
+                   ident->getName() == "charIsAlpha" || ident->getName() == "charIsDigit" ||
+                   ident->getName() == "charIsAlnum" || ident->getName() == "charIsSpace" ||
+                   ident->getName() == "charIsUpper" || ident->getName() == "charIsLower") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "charToUpper" || ident->getName() == "charToLower") {
+            node->setResolvedType(makeI32Type());
         // Stdlib: UI (raylib backend)
         } else if (ident->getName() == "getClipboardText") {
             node->setResolvedType(makeStringType());

@@ -1093,6 +1093,49 @@ TEST_F(StdlibModuleTest, TestingRunWithHooks) {
 }
 
 // ============================================================
+// Module: strings::strings (UTF-8 utilities)
+// ============================================================
+
+TEST_F(StdlibModuleTest, StringsUtf8Builtins) {
+    auto r = check(
+        "func main() {\n"
+        "    let n = strCharCount(\"hello\")\n"
+        "    let cp = strCodepointAt(\"hello\", 0)\n"
+        "    let a = strIsAscii(\"hello\")\n"
+        "    let isA = charIsAlpha(65)\n"
+        "    let isD = charIsDigit(48)\n"
+        "    let up = charToUpper(97)\n"
+        "    let lo = charToLower(65)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "UTF-8 builtins should be globally resolvable";
+}
+
+TEST_F(StdlibModuleTest, StringsCodepointHelpers) {
+    auto r = check(
+        "import strings::strings\n"
+        "func main() {\n"
+        "    let cps = toCodepoints(\"abc\")\n"
+        "    let a = countAlpha(\"abc 123\")\n"
+        "    let d = countDigit(\"abc 123\")\n"
+        "    let an = isAlnum(\"abc123\")\n"
+        "    let bl = isBlank(\"   \")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "strings module UTF-8 helpers should type-check";
+}
+
+TEST_F(StdlibModuleTest, StringsCharPredicates) {
+    auto r = check(
+        "func main() {\n"
+        "    let a = charIsAlnum(65)\n"
+        "    let s = charIsSpace(32)\n"
+        "    let u = charIsUpper(65)\n"
+        "    let l = charIsLower(97)\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "char predicate builtins should type-check";
+}
+
+// ============================================================
 // Module: errors::errors (Result context chaining)
 // ============================================================
 

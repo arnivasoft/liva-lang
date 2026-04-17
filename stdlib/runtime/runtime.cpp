@@ -4098,6 +4098,83 @@ char **liva_str_lines(const char *s, int64_t *count) {
     return result;
 }
 
+// === UTF-8 utilities (public API) ===
+
+// UTF-8 codepoint count (same as liva_str_length)
+int64_t liva_str_char_count(const char *s) {
+    if (!s) return 0;
+    return utf8_count(s);
+}
+
+// Decode a codepoint from a UTF-8 sequence starting at bytes[0..len-1]
+static int32_t decode_utf8_cp(const unsigned char *bytes, int len) {
+    if (len == 1) return bytes[0];
+    if (len == 2) return ((bytes[0] & 0x1F) << 6) | (bytes[1] & 0x3F);
+    if (len == 3) return ((bytes[0] & 0x0F) << 12)
+                        | ((bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F);
+    if (len == 4) return ((bytes[0] & 0x07) << 18)
+                        | ((bytes[1] & 0x3F) << 12)
+                        | ((bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F);
+    return -1;
+}
+
+// Get Unicode codepoint at character index. Returns -1 on out-of-range.
+int32_t liva_str_codepoint_at(const char *s, int64_t index) {
+    if (!s || index < 0) return -1;
+    int64_t offset = utf8_offset(s, index);
+    if (offset < 0) return -1;
+    const unsigned char *p = (const unsigned char *)s + offset;
+    if (*p == '\0') return -1;
+    int clen = utf8_char_len(*p);
+    return decode_utf8_cp(p, clen);
+}
+
+// Returns 1 if all bytes are ASCII (< 0x80), 0 otherwise
+int8_t liva_str_is_ascii(const char *s) {
+    if (!s) return 1;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (*p & 0x80) return 0;
+    }
+    return 1;
+}
+
+// Codepoint predicates (ASCII-only for correctness; Unicode letter/digit
+// classes would require large tables — out of scope here).
+int8_t liva_char_is_alpha(int32_t cp) {
+    return ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z')) ? 1 : 0;
+}
+
+int8_t liva_char_is_digit(int32_t cp) {
+    return (cp >= '0' && cp <= '9') ? 1 : 0;
+}
+
+int8_t liva_char_is_alnum(int32_t cp) {
+    return (liva_char_is_alpha(cp) || liva_char_is_digit(cp)) ? 1 : 0;
+}
+
+int8_t liva_char_is_space(int32_t cp) {
+    return (cp == ' ' || cp == '\t' || cp == '\n' || cp == '\r' ||
+            cp == '\v' || cp == '\f') ? 1 : 0;
+}
+
+int8_t liva_char_is_upper(int32_t cp) {
+    return (cp >= 'A' && cp <= 'Z') ? 1 : 0;
+}
+
+int8_t liva_char_is_lower(int32_t cp) {
+    return (cp >= 'a' && cp <= 'z') ? 1 : 0;
+}
+
+int32_t liva_char_to_upper(int32_t cp) {
+    if (cp >= 'a' && cp <= 'z') return cp - ('a' - 'A');
+    return cp;
+}
+
+int32_t liva_char_to_lower(int32_t cp) {
+    if (cp >= 'A' && cp <= 'Z') return cp + ('a' - 'A');
+    return cp;
+}
+
 // === Collection Utility Functions (std::collections) ===
 
 void liva_array_reversed(const void *data, int64_t len, int64_t elem_size,

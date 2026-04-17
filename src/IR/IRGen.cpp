@@ -995,6 +995,34 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_str_chars", strCharsTy);
     module_->getOrInsertFunction("liva_str_lines", strCharsTy);
 
+    // === Stdlib: UTF-8 helpers ===
+
+    // liva_str_char_count(ptr) -> i64
+    auto *strCountTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_char_count", strCountTy);
+
+    // liva_str_codepoint_at(ptr, i64) -> i32
+    auto *strCpAtTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_str_codepoint_at", strCpAtTy);
+
+    // liva_str_is_ascii(ptr) -> i8
+    auto *strIsAsciiTy = llvm::FunctionType::get(i8Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_str_is_ascii", strIsAsciiTy);
+
+    // char predicates: (i32) -> i8
+    auto *charPredTy = llvm::FunctionType::get(i8Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_char_is_alpha", charPredTy);
+    module_->getOrInsertFunction("liva_char_is_digit", charPredTy);
+    module_->getOrInsertFunction("liva_char_is_alnum", charPredTy);
+    module_->getOrInsertFunction("liva_char_is_space", charPredTy);
+    module_->getOrInsertFunction("liva_char_is_upper", charPredTy);
+    module_->getOrInsertFunction("liva_char_is_lower", charPredTy);
+
+    // case conversion: (i32) -> i32
+    auto *charCaseTy = llvm::FunctionType::get(i32Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_char_to_upper", charCaseTy);
+    module_->getOrInsertFunction("liva_char_to_lower", charCaseTy);
+
     // === Stdlib: Collection utility functions ===
 
     auto *voidTy2 = builder_->getVoidTy();

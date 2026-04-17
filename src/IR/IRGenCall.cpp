@@ -3582,6 +3582,66 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return arrStruct;
     }
 
+    // === Stdlib: UTF-8 helpers ===
+
+    if (funcName == "strCharCount" && !node->getArgs().empty()) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *fn = getOrPanic("liva_str_char_count");
+        return builder_->CreateCall(fn, {s}, "str.char.count");
+    }
+
+    if (funcName == "strCodepointAt" && node->getArgs().size() >= 2) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *idx = visit(node->getArgs()[1].get());
+        if (!s || !idx) return nullptr;
+        if (idx->getType()->isIntegerTy(32))
+            idx = builder_->CreateSExt(idx, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_str_codepoint_at");
+        return builder_->CreateCall(fn, {s, idx}, "str.cp.at");
+    }
+
+    if (funcName == "strIsAscii" && !node->getArgs().empty()) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *fn = getOrPanic("liva_str_is_ascii");
+        auto *r = builder_->CreateCall(fn, {s}, "str.is.ascii");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "str.is.ascii.bool");
+    }
+
+    // charIsX(cp) -> bool  — codepoint predicates
+    if ((funcName == "charIsAlpha" || funcName == "charIsDigit" ||
+         funcName == "charIsAlnum" || funcName == "charIsSpace" ||
+         funcName == "charIsUpper" || funcName == "charIsLower") &&
+        !node->getArgs().empty()) {
+        auto *cp = visit(node->getArgs()[0].get());
+        if (!cp) return nullptr;
+        if (cp->getType()->isIntegerTy(64))
+            cp = builder_->CreateTrunc(cp, builder_->getInt32Ty());
+        std::string rt;
+        if (funcName == "charIsAlpha")      rt = "liva_char_is_alpha";
+        else if (funcName == "charIsDigit") rt = "liva_char_is_digit";
+        else if (funcName == "charIsAlnum") rt = "liva_char_is_alnum";
+        else if (funcName == "charIsSpace") rt = "liva_char_is_space";
+        else if (funcName == "charIsUpper") rt = "liva_char_is_upper";
+        else                                 rt = "liva_char_is_lower";
+        auto *fn = getOrPanic(rt.c_str());
+        auto *r = builder_->CreateCall(fn, {cp}, "char.pred");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "char.pred.bool");
+    }
+
+    // charToUpper/Lower(cp) -> i32
+    if ((funcName == "charToUpper" || funcName == "charToLower") &&
+        !node->getArgs().empty()) {
+        auto *cp = visit(node->getArgs()[0].get());
+        if (!cp) return nullptr;
+        if (cp->getType()->isIntegerTy(64))
+            cp = builder_->CreateTrunc(cp, builder_->getInt32Ty());
+        auto *fn = getOrPanic(funcName == "charToUpper"
+            ? "liva_char_to_upper" : "liva_char_to_lower");
+        return builder_->CreateCall(fn, {cp}, "char.case");
+    }
+
     // === Stdlib: UI (wxWidgets wrapper) ===
 
     // Helper lambda: emit a callback call decomposing Liva closure into func+env

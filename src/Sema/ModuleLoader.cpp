@@ -133,7 +133,11 @@ void ModuleLoader::registerBuiltinModules() {
          "strJoin", "strTrim", "strTrimLeft", "strTrimRight",
          "strStartsWith", "strEndsWith",
          "strToUpper", "strToLower",
-         "strReverse", "strChars", "strLines"});
+         "strReverse", "strChars", "strLines",
+         "strCharCount", "strCodepointAt", "strIsAscii",
+         "charIsAlpha", "charIsDigit", "charIsAlnum",
+         "charIsSpace", "charIsUpper", "charIsLower",
+         "charToUpper", "charToLower"});
 
     // std::ui — UI library (wxWidgets backend)
     cache_["std::ui"] = createBuiltinModule("std::ui",

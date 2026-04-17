@@ -1,33 +1,95 @@
-// std::strings — String utility functions
+// strings::strings — String & UTF-8 utilities
 //
-// Built-in string methods: contains, startsWith, endsWith,
-//   indexOf, substring, trim, toUpper, toLower, replace, split,
-//   length, byteLength
+// Built-in methods (on String values):
+//   s.contains, s.startsWith, s.endsWith, s.indexOf, s.substring,
+//   s.trim, s.toUpper, s.toLower, s.replace, s.split,
+//   s.length (codepoint count), s.byteLength
 //
-// Top-level utility functions:
-//   strRepeat(s, n)           -> string    — repeat s n times
-//   strPadLeft(s, width, ch)  -> string    — left-pad to width
-//   strPadRight(s, width, ch) -> string    — right-pad to width
-//   strJoin(arr, sep)         -> string    — join array with separator
-//   strTrim(s)                -> string    — trim both sides
-//   strTrimLeft(s)            -> string    — trim leading whitespace
-//   strTrimRight(s)           -> string    — trim trailing whitespace
-//   strReverse(s)             -> string    — reverse (UTF-8 aware)
-//   strChars(s)               -> [string]  — split into characters
-//   strLines(s)               -> [string]  — split into lines
-//   strContains(s, sub)       -> bool      — contains substring
-//   strStartsWith(s, pre)     -> bool      — starts with prefix
-//   strEndsWith(s, suf)       -> bool      — ends with suffix
-//   strReplace(s, old, new)   -> string    — replace all occurrences
-//   strSplit(s, delim)        -> [string]  — split by delimiter
-//   strToUpper(s)             -> string    — uppercase
-//   strToLower(s)             -> string    — lowercase
+// Stdlib builtins (std::strings):
+//   strRepeat/strPadLeft/strPadRight/strJoin
+//   strTrim/strTrimLeft/strTrimRight/strReverse
+//   strChars/strLines/strSplit
+//   strContains/strStartsWith/strEndsWith/strReplace
+//   strToUpper/strToLower
+//
+// UTF-8 builtins (this module):
+//   strCharCount(s)         -> i64   — codepoint count (== len(s))
+//   strCodepointAt(s, i)    -> i32   — codepoint at index (-1 if OOR)
+//   strIsAscii(s)           -> bool  — true if all bytes < 0x80
+//   charIsAlpha(cp)         -> bool  — codepoint is ASCII letter
+//   charIsDigit(cp)         -> bool  — codepoint is 0-9
+//   charIsAlnum(cp)         -> bool  — letter or digit
+//   charIsSpace(cp)         -> bool  — whitespace (space/tab/\n/\r/\v/\f)
+//   charIsUpper(cp)/charIsLower(cp)
+//   charToUpper(cp)/charToLower(cp) -> i32 (ASCII case fold)
 //
 // Usage:
-//   import std::string
-//
-//   let s = strRepeat("ab", 3)       // "ababab"
-//   let p = strPadLeft("42", 5, "0") // "00042"
-//   let t = strTrimLeft("  hello")   // "hello"
-//   let r = strReverse("hello")      // "olleh"
-//   let c = strContains("hello", "ell") // true
+//   import strings::strings
+//   for i in 0..len(s) {
+//       let cp = strCodepointAt(s, i)
+//       if charIsAlpha(cp) { ... }
+//   }
+import std::strings
+import std::convert
+
+// =============================================================
+// UTF-8 iteration helpers
+// =============================================================
+
+// Convert a String to a [i32] of codepoints.
+pub func toCodepoints(s: String) -> [i32] {
+    var result: [i32] = []
+    var i = 0 as i64
+    let n = strCharCount(s)
+    while i < n {
+        result.push(strCodepointAt(s, i))
+        i = i + 1
+    }
+    return result
+}
+
+// Count ASCII-alphabetic codepoints in s.
+pub func countAlpha(s: String) -> i64 {
+    var count = 0 as i64
+    var i = 0 as i64
+    let n = strCharCount(s)
+    while i < n {
+        if charIsAlpha(strCodepointAt(s, i)) { count = count + 1 }
+        i = i + 1
+    }
+    return count
+}
+
+// Count decimal-digit codepoints in s.
+pub func countDigit(s: String) -> i64 {
+    var count = 0 as i64
+    var i = 0 as i64
+    let n = strCharCount(s)
+    while i < n {
+        if charIsDigit(strCodepointAt(s, i)) { count = count + 1 }
+        i = i + 1
+    }
+    return count
+}
+
+// Check whether every codepoint in s is alphanumeric.
+pub func isAlnum(s: String) -> bool {
+    var i = 0 as i64
+    let n = strCharCount(s)
+    while i < n {
+        if !charIsAlnum(strCodepointAt(s, i)) { return false }
+        i = i + 1
+    }
+    return n > 0
+}
+
+// Check whether every codepoint in s is whitespace.
+pub func isBlank(s: String) -> bool {
+    var i = 0 as i64
+    let n = strCharCount(s)
+    while i < n {
+        if !charIsSpace(strCodepointAt(s, i)) { return false }
+        i = i + 1
+    }
+    return true
+}

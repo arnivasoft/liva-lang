@@ -699,6 +699,29 @@ char **liva_str_chars(const char *s, int64_t *count);
 /// Split string into lines by '\n', returns malloc'd array
 char **liva_str_lines(const char *s, int64_t *count);
 
+// === UTF-8 utilities ===
+
+/// Count Unicode codepoints in a UTF-8 string (same as len)
+int64_t liva_str_char_count(const char *s);
+
+/// Returns the Unicode codepoint at character index, or -1 if out of range
+int32_t liva_str_codepoint_at(const char *s, int64_t index);
+
+/// Returns 1 if every byte is ASCII (< 0x80), 0 otherwise
+int8_t liva_str_is_ascii(const char *s);
+
+/// Codepoint classification (ASCII range only)
+int8_t liva_char_is_alpha(int32_t cp);
+int8_t liva_char_is_digit(int32_t cp);
+int8_t liva_char_is_alnum(int32_t cp);
+int8_t liva_char_is_space(int32_t cp);
+int8_t liva_char_is_upper(int32_t cp);
+int8_t liva_char_is_lower(int32_t cp);
+
+/// Case conversion (ASCII range only)
+int32_t liva_char_to_upper(int32_t cp);
+int32_t liva_char_to_lower(int32_t cp);
+
 // === Collection Utility Functions (std::collections) ===
 
 /// Reverse a copy of array, returns malloc'd data
