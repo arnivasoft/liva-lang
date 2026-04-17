@@ -1959,6 +1959,317 @@ class Point {
 }
 ```
 
+### Statik Metotlar ve Alanlar
+
+`static` anahtar kelimesi instance'a bağlı olmayan tip-düzeyindeki metotlar ve
+alanlar için kullanılır:
+
+```liva
+class MathUtils {
+    static var count: i32
+
+    static func add(a: i32, b: i32) -> i32 {
+        return a + b
+    }
+
+    static func max(a: i32, b: i32) -> i32 {
+        if a > b { return a }
+        return b
+    }
+}
+
+// Instance oluşturmadan çağrı
+let s = MathUtils.add(3, 4)
+MathUtils.count = 10
+```
+
+Statik metotlar `self`'e erişemez. Statik alanlar modül-düzeyinde global
+değişken olarak üretilir ve tüm instance'lar arasında paylaşılır.
+
+### Hesaplanmış Özellikler (Computed Properties)
+
+`get`/`set` blokları taşıyan bir `var`, hesaplanmış bir özelliktir — kendi
+depolaması yoktur, her okuma/yazmada ilgili erişimci fonksiyonu çağrılır:
+
+```liva
+class Circle {
+    var radius: f64
+
+    init(r: f64) { self.radius = r }
+
+    var area: f64 {
+        get {
+            return self.radius * self.radius * 3.14159
+        }
+    }
+
+    var diameter: f64 {
+        get { return self.radius * 2.0 }
+        set { self.radius = newValue / 2.0 }
+    }
+}
+
+let c = Circle(5.0)
+println(c.area)       // getter çağrılır
+c.diameter = 20.0     // setter çağrılır, örtük parametre 'newValue'
+```
+
+Sadece `get` bloğu olan bir computed property salt-okunurdur. Hesaplanmış
+özellikler init-tüm-alanları kontrolünden muaftır.
+
+### Özellik Gözlemcileri (willSet / didSet)
+
+Stored özellikler, atamadan önce çalışan `willSet` ve atamadan sonra çalışan
+`didSet` gözlemcileri tanımlayabilir. `newValue` ve `oldValue` örtük
+parametrelerdir:
+
+```liva
+class Tracked {
+    var count: i32 {
+        willSet {
+            println("değişiyor:")
+            println(newValue)
+        }
+        didSet {
+            println("önceki:")
+            println(oldValue)
+        }
+    }
+    init() { self.count = 0 }
+}
+```
+
+Gözlemciler `init` içinde tetiklenmez — yalnızca sonraki atamalarda çalışır.
+
+### Final Sınıflar ve Metotlar
+
+Bir sınıfı `final` olarak işaretlemek kalıtımı yasaklar; bir metodu `final`
+işaretlemek override'ı yasaklar:
+
+```liva
+final class Singleton {
+    var value: i32
+    init(v: i32) { self.value = v }
+}
+
+class Base {
+    final func identity() -> i32 { return 1 }
+    func greet() -> string { return "merhaba" }
+}
+
+class Child : Base {
+    // override func identity() { ... }   // hata: final metod override edilemez
+    override func greet() -> string { return "selam" }
+}
+```
+
+### Tip Kontrolü: `is` ve `as?`
+
+Parent chain üzerinden vtable karşılaştırması ile çalışma zamanı tip kontrolü:
+
+```liva
+class Shape {
+    func name(ref self) -> string { return "Shape" }
+}
+
+class Rect : Shape {
+    var w: i32
+    var h: i32
+    init(w: i32, h: i32) { self.w = w; self.h = h }
+    override func name(ref self) -> string { return "Rect" }
+}
+
+func describe(s: Shape) {
+    if s is Rect {
+        println("dikdörtgen geldi")
+    }
+
+    // Güvenli downcast: Rect? (dinamik tip Rect veya alt sınıfı değilse nil)
+    let r = s as? Rect
+    if r != nil {
+        println(r!.w)
+    }
+}
+```
+
+Hedef tip, ifadenin statik tipiyle ilişkili değilse (ne ata ne de alt sınıf),
+derleyici kontrolün her zaman başarısız olacağına dair bir uyarı verir.
+
+### Sınıf Alt Tip Ataması
+
+Türetilmiş bir sınıfın örneği, herhangi bir atasının tipinde bir değişkene
+atanabilir:
+
+```liva
+let s: Shape = Rect(10, 20)   // Rect, Shape'in alt tipi — izinli
+```
+
+### Başarısız Olabilen Başlatıcılar (`init?`)
+
+`init?` ile bildirilen bir başlatıcı, başarısızlık durumunda `nil` döndürebilir.
+Constructor çağrısının sonuç tipi `ClassName?` olur:
+
+```liva
+class User {
+    var name: string
+    init?(n: string) {
+        if n == "" {
+            return nil       // erken çıkış → nullptr
+        }
+        self.name = n
+    }
+}
+
+let ok = User("Alice")       // User?
+let bad = User("")           // User? → nil
+```
+
+### Kolaylık Başlatıcıları ve Init Aşırı Yüklemesi
+
+Bir sınıf birden fazla başlatıcı bildirebilir. Alternatif olanları
+`convenience` ile işaretleyin:
+
+```liva
+class Point {
+    var x: i32
+    var y: i32
+
+    // Designated init
+    init(x: i32, y: i32) {
+        self.x = x
+        self.y = y
+    }
+
+    // Convenience init (init-tüm-alanları kontrolünden muaf)
+    convenience init() {
+        self.x = 0
+        self.y = 0
+    }
+}
+
+let a = Point(5, 10)   // designated init çağrılır
+let b = Point()        // convenience init çağrılır
+```
+
+Aşırı yük çözümleme argüman sayısına göre eşleşen init'i seçer.
+
+### Tembel (Lazy) Özellikler
+
+İçerisinde bir initializer ifadesi bulunan `lazy var`, ilk erişimde hesaplanır
+ve sonradan cache'lenir. Derleyici gizli bir `__lazy_init_<ad>` boolean bayrağı
+ve dallanan bir erişimci fonksiyon üretir:
+
+```liva
+class Cache {
+    var base: i32
+    lazy var doubled: i32 = self.base * 2
+
+    init(b: i32) { self.base = b }
+}
+
+let c = Cache(21)
+println(c.doubled)   // 42 hesaplanır (ilk erişim)
+println(c.doubled)   // cache'den 42 (sonraki erişim)
+```
+
+Lazy alanlar init-tüm-alanları kontrolünden muaftır.
+
+### Subscript (Indeks Operatörü Aşırı Yüklemesi)
+
+`subscript(...) -> T { get { } set { } }` ile `obj[i]` operatörü aşırı
+yüklenir. Subscript generic olabilir:
+
+```liva
+class IntBox {
+    var data: i32
+    init() { self.data = 0 }
+
+    subscript(i: i32) -> i32 {
+        get { return self.data + i }
+        set { self.data = newValue }
+    }
+}
+
+let box = IntBox()
+let x = box[5]          // getter çağrılır
+box[0] = 100            // setter çağrılır (newValue = 100)
+
+// Generic subscript
+class Container {
+    var data: i32
+    subscript<T>(i: T) -> i32 {
+        return self.data
+    }
+}
+```
+
+### Erişim Seviyeleri
+
+Swift'in modelini yansıtan beş erişim seviyesi desteklenir:
+
+| Belirleyici    | Anlam                                                           |
+|----------------|-----------------------------------------------------------------|
+| `open`         | Her yerden kalıtım alınabilir (sınıflar için varsayılan)        |
+| `public`       | Her yerden görünür, **fakat** kalıtım alınamaz                  |
+| `internal`     | Aynı modül içinden görünür                                      |
+| `fileprivate`  | Aynı dosya içinden görünür; dış erişim private gibi engellenir  |
+| `private`      | Yalnızca bildirildiği sınıf içinden görünür                     |
+
+```liva
+open class Base { }           // kalıtım alınabilir
+public class Sealed { }       // görünür ama kalıtım alınamaz
+class Child : Base { }        // OK
+// class Bad : Sealed { }     // hata: open olmayan sınıftan kalıtım alınamaz
+
+class Account {
+    fileprivate var balance: i32
+    private var pin: i32
+    init() {
+        self.balance = 0
+        self.pin = 0
+    }
+}
+```
+
+### Extension (Eklenti)
+
+`extension TypeName { ... }` sözdizimi mevcut bir tipe (struct, enum veya
+sınıf) metot ekler. Extension bağlama duyarlı bir anahtar kelimedir ve `impl`
+bloklarıyla aynı function table'a derlenir:
+
+```liva
+struct Point {
+    var x: i32
+    var y: i32
+}
+
+extension Point {
+    func sum(self) -> i32 {
+        return self.x + self.y
+    }
+}
+```
+
+### Güncellenmiş Class vs Struct Özeti
+
+| Özellik                         | `struct`  | `class`  |
+|---------------------------------|-----------|----------|
+| Semantik                        | Değer     | Referans |
+| Kalıtım                         | Hayır     | Evet     |
+| `init` / `deinit`               | Hayır     | Evet     |
+| `override` / sanal dispatch     | Hayır     | Evet     |
+| `static` üyeler                 | Hayır     | Evet     |
+| Hesaplanmış özellikler          | Hayır     | Evet     |
+| Özellik gözlemcileri            | Hayır     | Evet     |
+| `final`                         | Hayır     | Evet     |
+| `is` / `as?`                    | Hayır     | Evet     |
+| Failable `init?`                | Hayır     | Evet     |
+| `convenience init`              | Hayır     | Evet     |
+| `lazy var`                      | Hayır     | Evet     |
+| Subscript                       | Hayır     | Evet     |
+| Erişim seviyeleri (5 kademe)    | yalnız pub/private | Evet |
+| `extension`                     | Evet      | Evet     |
+
 ---
 
 ## 29. FFI (Yabancı Fonksiyon Arayüzü)

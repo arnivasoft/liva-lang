@@ -18,7 +18,7 @@ Liva compiles to native code via LLVM, offering memory safety without garbage co
 - **Modules** — Import system with standard library modules
 - **LLVM Backend** — Native code generation with optimization levels (O0-O3)
 - **Tooling** — LSP server (18+ features), interactive REPL with JIT, `livac bench`, `livac test`, project manifest (`liva.toml`)
-- **Classes** — Reference types with inheritance, init/deinit, vtable dispatch
+- **Classes** — Swift-style class system: single inheritance, vtable dispatch, `init`/`deinit`, `override`, `super`, `final`, `static`, computed properties, property observers (`willSet`/`didSet`), `is`/`as?` type checks, failable `init?`, `convenience init` with overload resolution, `lazy var`, subscripts (incl. generic), five access levels (`open`/`public`/`internal`/`fileprivate`/`private`), extensions
 - **FFI** — `extern "C"` declarations for C interoperability
 - **Comptime & Macros** — Compile-time evaluation blocks, pattern-based macros
 - **dyn Protocol** — Trait objects with dynamic dispatch
@@ -386,7 +386,7 @@ liva-lang/
     REPL/              # Interactive REPL
     Driver/            # CLI driver, project config (TOML)
   tests/
-    unit/              # GoogleTest unit tests (2149 tests)
+    unit/              # GoogleTest unit tests (2064 tests)
     integration/       # End-to-end .liva programs
     error/             # Expected-error test cases
   examples/            # Example Liva programs
@@ -396,7 +396,7 @@ liva-lang/
 
 ## Test Suite
 
-2149 tests across 19 test files:
+2064 tests across 19 test files:
 
 | Component | Tests | Coverage |
 |-----------|-------|----------|

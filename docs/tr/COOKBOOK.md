@@ -681,4 +681,186 @@ protocol LendingIterator {
 
 ---
 
+## 19. Swift-Tarzı Sınıf Özellikleri
+
+Tam sınıf araç setine ait reçeteler.
+
+### 19.1 Statik factory ve sayaç
+
+```liva
+class Counter {
+    static var total: i32
+
+    static func make() -> Counter {
+        Counter.total = Counter.total + 1
+        return Counter()
+    }
+}
+```
+
+### 19.2 Hesaplanmış özellikler
+
+```liva
+class Temperature {
+    var celsius: f64
+
+    init(c: f64) { self.celsius = c }
+
+    var fahrenheit: f64 {
+        get { return self.celsius * 1.8 + 32.0 }
+        set { self.celsius = (newValue - 32.0) / 1.8 }
+    }
+}
+```
+
+### 19.3 Loglama için özellik gözlemcileri
+
+```liva
+class Volume {
+    var level: i32 {
+        willSet {
+            println("değişiyor:")
+            println(self.level)
+            println("yeni değer:")
+            println(newValue)
+        }
+        didSet { println("değişti") }
+    }
+    init() { self.level = 0 }
+}
+```
+
+### 19.4 Failable init — girdi doğrulama
+
+```liva
+class Age {
+    var value: i32
+    init?(v: i32) {
+        if v < 0 {
+            return nil
+        }
+        self.value = v
+    }
+}
+
+let a = Age(-5)     // nil
+let b = Age(30)     // Age?
+```
+
+### 19.5 Designated + convenience init aşırı yükleme
+
+```liva
+class Point {
+    var x: i32
+    var y: i32
+
+    init(x: i32, y: i32) {
+        self.x = x
+        self.y = y
+    }
+
+    convenience init() {
+        self.x = 0
+        self.y = 0
+    }
+}
+
+let a = Point(5, 10)   // designated
+let b = Point()        // convenience
+```
+
+### 19.6 Pahalı hesaplamalar için lazy
+
+```liva
+class Report {
+    var rows: i32
+    lazy var summary: i32 = self.rows * self.rows * 1000
+
+    init(rows: i32) { self.rows = rows }
+}
+
+let r = Report(500)
+println(r.summary)   // ilk erişimde hesaplanır
+println(r.summary)   // ikinci seferde cache'ten
+```
+
+### 19.7 Subscript tabanlı tablo
+
+```liva
+class Table {
+    var base: i32
+    init() { self.base = 0 }
+
+    subscript(i: i32) -> i32 {
+        get { return self.base + i }
+        set { self.base = newValue - i }
+    }
+}
+
+let t = Table()
+let x = t[5]         // getter
+t[10] = 100          // setter (newValue = 100)
+```
+
+### 19.8 `is` / `as?` ile çalışma zamanı tip kontrolü
+
+```liva
+class Shape {
+    func name(ref self) -> string { return "Shape" }
+}
+class Circle : Shape { override func name(ref self) -> string { return "Circle" } }
+class Square : Shape { override func name(ref self) -> string { return "Square" } }
+
+func describe(s: Shape) {
+    if s is Circle {
+        println("daire bu")
+    }
+    let sq = s as? Square
+    if sq != nil {
+        println(sq!.name())
+    }
+}
+```
+
+### 19.9 Final singleton
+
+```liva
+final class Config {
+    var appName: string
+    init(n: string) { self.appName = n }
+}
+```
+
+### 19.10 Erişim seviyeleri
+
+```liva
+open class Widget { }          // kalıtım alınabilir
+public class Sealed { }        // kalıtım alınamaz
+class Button : Widget { }      // OK
+
+class Account {
+    private var pin: i32        // sadece Account içinden
+    fileprivate var balance: i32 // diğer çağrılardan gizli
+    init() {
+        self.pin = 0
+        self.balance = 0
+    }
+}
+```
+
+### 19.11 Extension metodu
+
+```liva
+struct Point {
+    var x: i32
+    var y: i32
+}
+
+extension Point {
+    func sum(self) -> i32 { return self.x + self.y }
+}
+```
+
+---
+
 *Bu yemek kitabi, 1.0.0 surumu itibariyla Liva'daki yaygin kaliplari kapsar.*

@@ -14,7 +14,7 @@ Liva, LLVM aracılığıyla native koda derlenir; garbage collector olmadan bell
 - **Modüller** — Standart kütüphane modülleriyle import sistemi
 - **LLVM Backend** — Optimizasyon seviyeleriyle (O0-O3) native kod üretimi
 - **Araçlar** — LSP sunucusu (18+ özellik), JIT destekli interaktif REPL, `livac bench`, `livac test`, proje manifest'i (`liva.toml`)
-- **Sınıflar (Classes)** — Kalıtım, init/deinit, vtable dispatch destekli referans tipleri
+- **Sınıflar (Classes)** — Swift tarzı sınıf sistemi: tekli kalıtım, vtable dispatch, `init`/`deinit`, `override`, `super`, `final`, `static`, hesaplanmış özellikler, özellik gözlemcileri (`willSet`/`didSet`), `is`/`as?` tip kontrolleri, failable `init?`, aşırı yüklemeli `convenience init`, `lazy var`, subscript (generic dahil), beş erişim seviyesi (`open`/`public`/`internal`/`fileprivate`/`private`), extension
 - **FFI** — C uyumluluğu için `extern "C"` bildirimleri
 - **Comptime & Macro'lar** — Derleme zamanı değerlendirme blokları, kalıp tabanlı macro'lar
 - **dyn Protocol** — Dinamik dispatch'li trait nesneleri
@@ -374,7 +374,7 @@ liva-lang/
     REPL/              # İnteraktif REPL
     Driver/            # CLI sürücüsü, proje konfigürasyonu (TOML)
   tests/
-    unit/              # GoogleTest birim testleri (2149 test)
+    unit/              # GoogleTest birim testleri (2064 test)
     integration/       # Uçtan uca .liva programları
     error/             # Beklenen hata test senaryoları
   examples/            # Örnek Liva programları
@@ -384,7 +384,7 @@ liva-lang/
 
 ## Test Paketi
 
-19 test dosyasında 2149 test:
+19 test dosyasında 2064 test:
 
 | Bileşen | Test Sayısı | Kapsam |
 |---------|-------------|--------|

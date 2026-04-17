@@ -2356,6 +2356,59 @@ func main() {
 Basit veri taşıyıcıları için **struct** kullanın (değer semantiği, kalıtım gerekmez).
 Kalıtım, sanal dispatch veya referans semantiği gerektiğinde **class** kullanın.
 
+### Temel özelliklerin ötesi
+
+Sınıflar zengin bir Swift tarzı özellik setine sahiptir:
+
+- **Statik üyeler**: `static func`, `static var` — tip-düzeyinde, `self` yok.
+- **Hesaplanmış özellikler**: `var area: f64 { get { ... } set { ... } }`.
+- **Özellik gözlemcileri**: Stored alanlarda `willSet { ... } didSet { ... }`.
+- **Final sınıflar/metotlar**: `final class` ve `final func` kalıtımı/override'ı engeller.
+- **Tip kontrolleri**: `expr is Type` → `bool`; `expr as? Type` → `Type?`.
+- **Failable init**: `init?(...)` başarısızlığı `return nil` ile bildirebilir;
+  sonuç tipi `ClassName?` olur.
+- **Çoklu init / convenience**: Sınıflar bir designated `init(...)` ve
+  argüman sayısına göre çözümlenen `convenience init(...)` aşırı yükleri
+  bildirebilir.
+- **Lazy özellikler**: `lazy var x: T = expr` ilk erişimde hesaplanır ve cache'lenir.
+- **Subscript**: `subscript(i: T) -> U { get { } set { } }` `obj[i]`'yi aşırı
+  yükler; generic subscript `subscript<T>(...)` ile desteklenir.
+- **Erişim seviyeleri**: `open`, `public`, `internal`, `fileprivate`, `private`
+  (Swift tarzı). Yalnızca `open` sınıflardan kalıtım alınabilir.
+- **Extension**: `extension TypeName { func ... }` mevcut bir tipe metot ekler.
+
+Kısa örnek:
+
+```liva
+final class Circle {
+    var radius: f64
+    init(r: f64) { self.radius = r }
+
+    var area: f64 {
+        get { return self.radius * self.radius * 3.14159 }
+    }
+
+    static func unit() -> Circle {
+        return Circle(1.0)
+    }
+}
+
+class Shape { func name(ref self) -> string { return "Shape" } }
+class Square : Shape {
+    override func name(ref self) -> string { return "Square" }
+}
+
+func describe(s: Shape) {
+    if s is Square {
+        println("kare")
+    }
+}
+```
+
+Tam spesifikasyon için [Dil Referansı](LANGUAGE-REFERENCE.md#28-sınıflar-classes)
+ve deyimsel tarifler için [Yemek Kitabı](COOKBOOK.md#19-swift-tarzı-sınıf-özellikleri)
+bölümlerine bakın.
+
 ---
 
 ## 26. Kodunuzu Test Etme

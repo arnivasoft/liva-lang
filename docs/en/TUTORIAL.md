@@ -2356,6 +2356,57 @@ func main() {
 Use **struct** for simple data containers (value semantics, no inheritance needed).
 Use **class** when you need inheritance, virtual dispatch, or reference semantics.
 
+### Beyond the basics
+
+Classes support a rich Swift-style feature set:
+
+- **Static members**: `static func`, `static var` — type-level, no `self`.
+- **Computed properties**: `var area: f64 { get { ... } set { ... } }`.
+- **Property observers**: `willSet { ... } didSet { ... }` on stored fields.
+- **Final classes/methods**: `final class` and `final func` prevent further inheritance/override.
+- **Type checks**: `expr is Type` returns `bool`; `expr as? Type` yields `Type?`.
+- **Failable init**: `init?(...)` may `return nil` to signal failure; result type is `ClassName?`.
+- **Multiple init / convenience**: classes may declare a designated `init(...)` plus
+  `convenience init(...)` overloads, resolved by argument count.
+- **Lazy properties**: `lazy var x: T = expr` is computed on first access and cached.
+- **Subscripts**: `subscript(i: T) -> U { get { } set { } }` overloads `obj[i]`;
+  generic subscripts are supported via `subscript<T>(...)`.
+- **Access levels**: `open`, `public`, `internal`, `fileprivate`, `private` (Swift-style).
+  Only `open` classes can be subclassed.
+- **Extensions**: `extension TypeName { func ... }` adds methods to an existing type.
+
+Quick example:
+
+```liva
+final class Circle {
+    var radius: f64
+    init(r: f64) { self.radius = r }
+
+    var area: f64 {
+        get { return self.radius * self.radius * 3.14159 }
+    }
+
+    static func unit() -> Circle {
+        return Circle(1.0)
+    }
+}
+
+class Shape { func name(ref self) -> string { return "Shape" } }
+class Square : Shape {
+    override func name(ref self) -> string { return "Square" }
+}
+
+func describe(s: Shape) {
+    if s is Square {
+        println("it is a square")
+    }
+}
+```
+
+See the [Language Reference](LANGUAGE-REFERENCE.md#28-classes) for the full
+specification and the [Cookbook](COOKBOOK.md#19-swift-style-class-features)
+for idiomatic recipes.
+
 ---
 
 ## 26. Testing Your Code

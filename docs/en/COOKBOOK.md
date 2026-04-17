@@ -763,4 +763,186 @@ protocol Container {
 
 ---
 
+## 19. Swift-Style Class Features
+
+Recipes for the full class toolkit.
+
+### 19.1 Static factory and counter
+
+```liva
+class Counter {
+    static var total: i32
+
+    static func make() -> Counter {
+        Counter.total = Counter.total + 1
+        return Counter()
+    }
+}
+```
+
+### 19.2 Computed properties
+
+```liva
+class Temperature {
+    var celsius: f64
+
+    init(c: f64) { self.celsius = c }
+
+    var fahrenheit: f64 {
+        get { return self.celsius * 1.8 + 32.0 }
+        set { self.celsius = (newValue - 32.0) / 1.8 }
+    }
+}
+```
+
+### 19.3 Property observers for logging
+
+```liva
+class Volume {
+    var level: i32 {
+        willSet {
+            println("changing from")
+            println(self.level)
+            println("to")
+            println(newValue)
+        }
+        didSet { println("changed") }
+    }
+    init() { self.level = 0 }
+}
+```
+
+### 19.4 Failable init — input validation
+
+```liva
+class Age {
+    var value: i32
+    init?(v: i32) {
+        if v < 0 {
+            return nil
+        }
+        self.value = v
+    }
+}
+
+let a = Age(-5)     // nil
+let b = Age(30)     // Age?
+```
+
+### 19.5 Designated + convenience init overloading
+
+```liva
+class Point {
+    var x: i32
+    var y: i32
+
+    init(x: i32, y: i32) {
+        self.x = x
+        self.y = y
+    }
+
+    convenience init() {
+        self.x = 0
+        self.y = 0
+    }
+}
+
+let a = Point(5, 10)   // designated
+let b = Point()        // convenience
+```
+
+### 19.6 Lazy expensive computation
+
+```liva
+class Report {
+    var rows: i32
+    lazy var summary: i32 = self.rows * self.rows * 1000
+
+    init(rows: i32) { self.rows = rows }
+}
+
+let r = Report(500)
+println(r.summary)   // computed on first access
+println(r.summary)   // cached second time
+```
+
+### 19.7 Subscript-based table
+
+```liva
+class Table {
+    var base: i32
+    init() { self.base = 0 }
+
+    subscript(i: i32) -> i32 {
+        get { return self.base + i }
+        set { self.base = newValue - i }
+    }
+}
+
+let t = Table()
+let x = t[5]         // getter
+t[10] = 100          // setter (newValue = 100)
+```
+
+### 19.8 Runtime type check with `is` / `as?`
+
+```liva
+class Shape {
+    func name(ref self) -> string { return "Shape" }
+}
+class Circle : Shape { override func name(ref self) -> string { return "Circle" } }
+class Square : Shape { override func name(ref self) -> string { return "Square" } }
+
+func describe(s: Shape) {
+    if s is Circle {
+        println("it's a circle")
+    }
+    let sq = s as? Square
+    if sq != nil {
+        println(sq!.name())
+    }
+}
+```
+
+### 19.9 Final singleton
+
+```liva
+final class Config {
+    var appName: string
+    init(n: string) { self.appName = n }
+}
+```
+
+### 19.10 Access levels
+
+```liva
+open class Widget { }          // subclassable
+public class Sealed { }        // not subclassable
+class Button : Widget { }      // OK
+
+class Account {
+    private var pin: i32        // only inside Account
+    fileprivate var balance: i32 // hidden from other callers
+    init() {
+        self.pin = 0
+        self.balance = 0
+    }
+}
+```
+
+### 19.11 Extension method
+
+```liva
+struct Point {
+    var x: i32
+    var y: i32
+}
+
+extension Point {
+    func sum(self) -> i32 { return self.x + self.y }
+}
+```
+
+---
+
 *This cookbook covers common patterns in Liva as of version 1.0.0. For a complete language reference, see [LANGUAGE-REFERENCE.md](LANGUAGE-REFERENCE.md). For the standard library API, see [API-REFERENCE.md](API-REFERENCE.md).*

@@ -1964,6 +1964,316 @@ class Point {
 }
 ```
 
+### Static Methods and Properties
+
+Use `static` for type-level methods and fields that are not bound to an instance:
+
+```liva
+class MathUtils {
+    static var count: i32
+
+    static func add(a: i32, b: i32) -> i32 {
+        return a + b
+    }
+
+    static func max(a: i32, b: i32) -> i32 {
+        if a > b { return a }
+        return b
+    }
+}
+
+// Call without an instance
+let s = MathUtils.add(3, 4)
+MathUtils.count = 10
+```
+
+Static methods cannot access `self`. Static fields are implemented as module-level
+global variables and are shared across all instances.
+
+### Computed Properties
+
+A `var` with `get`/`set` blocks becomes a computed property — it has no storage
+and runs the accessor functions on read/write:
+
+```liva
+class Circle {
+    var radius: f64
+
+    init(r: f64) { self.radius = r }
+
+    var area: f64 {
+        get {
+            return self.radius * self.radius * 3.14159
+        }
+    }
+
+    var diameter: f64 {
+        get { return self.radius * 2.0 }
+        set { self.radius = newValue / 2.0 }
+    }
+}
+
+let c = Circle(5.0)
+println(c.area)       // calls getter
+c.diameter = 20.0     // calls setter, implicit parameter 'newValue'
+```
+
+A computed property with only a `get` block is read-only. Computed properties
+are skipped by the init-all-fields check.
+
+### Property Observers (willSet / didSet)
+
+Stored properties may attach `willSet` (fires before assignment) and `didSet`
+(fires after assignment) observers. `newValue` and `oldValue` are implicit
+parameters:
+
+```liva
+class Tracked {
+    var count: i32 {
+        willSet {
+            println("about to set to")
+            println(newValue)
+        }
+        didSet {
+            println("was")
+            println(oldValue)
+        }
+    }
+    init() { self.count = 0 }
+}
+```
+
+Observers are not invoked during `init` — only on subsequent assignments.
+
+### Final Classes and Methods
+
+Mark a class `final` to forbid inheritance, or a method `final` to forbid
+overriding:
+
+```liva
+final class Singleton {
+    var value: i32
+    init(v: i32) { self.value = v }
+}
+
+class Base {
+    final func identity() -> i32 { return 1 }
+    func greet() -> string { return "hi" }
+}
+
+class Child : Base {
+    // override func identity() { ... }   // error: cannot override final method
+    override func greet() -> string { return "hello" }
+}
+```
+
+### Type Checking: `is` and `as?`
+
+Runtime type checks via vtable comparison, walking the parent chain:
+
+```liva
+class Shape {
+    func name(ref self) -> string { return "Shape" }
+}
+
+class Rect : Shape {
+    var w: i32
+    var h: i32
+    init(w: i32, h: i32) { self.w = w; self.h = h }
+    override func name(ref self) -> string { return "Rect" }
+}
+
+func describe(s: Shape) {
+    if s is Rect {
+        println("got a rectangle")
+    }
+
+    // Safe downcast: Rect? (nil if the dynamic type is not Rect or a descendant)
+    let r = s as? Rect
+    if r != nil {
+        println(r!.w)
+    }
+}
+```
+
+When the target type is unrelated to the expression's static type (neither
+ancestor nor descendant), the compiler emits a warning that the check will
+always fail.
+
+### Class Subtype Assignment
+
+An instance of a derived class may be assigned to a variable typed as any of
+its ancestors:
+
+```liva
+let s: Shape = Rect(10, 20)   // Rect is a subtype of Shape — allowed
+```
+
+### Failable Initializers (`init?`)
+
+An initializer declared with `init?` may return `nil` on failure. The
+constructor call's result type becomes `ClassName?`:
+
+```liva
+class User {
+    var name: string
+    init?(n: string) {
+        if n == "" {
+            return nil       // early exit → nullptr
+        }
+        self.name = n
+    }
+}
+
+let ok = User("Alice")       // User?
+let bad = User("")           // User? → nil
+```
+
+### Convenience Initializers and Init Overloading
+
+A class may declare multiple initializers. Mark secondary ones `convenience`:
+
+```liva
+class Point {
+    var x: i32
+    var y: i32
+
+    // Designated init
+    init(x: i32, y: i32) {
+        self.x = x
+        self.y = y
+    }
+
+    // Convenience init (skips the init-all-fields check)
+    convenience init() {
+        self.x = 0
+        self.y = 0
+    }
+}
+
+let a = Point(5, 10)   // calls designated init
+let b = Point()        // calls convenience init
+```
+
+Overload resolution chooses the matching init by argument count.
+
+### Lazy Properties
+
+A `lazy var` with an initializer expression is computed on first access and
+then cached. The compiler generates a hidden `__lazy_init_<name>` boolean flag
+and a branching accessor:
+
+```liva
+class Cache {
+    var base: i32
+    lazy var doubled: i32 = self.base * 2
+
+    init(b: i32) { self.base = b }
+}
+
+let c = Cache(21)
+println(c.doubled)   // computes 42 (first access)
+println(c.doubled)   // cached 42 (subsequent access)
+```
+
+Lazy fields are exempt from the init-all-fields check.
+
+### Subscripts
+
+Use `subscript(...) -> T { get { } set { } }` to overload the index operator
+`obj[i]`. Subscripts may be generic:
+
+```liva
+class IntBox {
+    var data: i32
+    init() { self.data = 0 }
+
+    subscript(i: i32) -> i32 {
+        get { return self.data + i }
+        set { self.data = newValue }
+    }
+}
+
+let box = IntBox()
+let x = box[5]          // calls getter
+box[0] = 100            // calls setter (newValue = 100)
+
+// Generic subscript
+class Container {
+    var data: i32
+    subscript<T>(i: T) -> i32 {
+        return self.data
+    }
+}
+```
+
+### Access Levels
+
+Five access modifiers are supported, matching Swift's model:
+
+| Modifier      | Meaning                                                      |
+|---------------|--------------------------------------------------------------|
+| `open`        | Subclassable from anywhere (default for classes)             |
+| `public`      | Visible everywhere; **not** subclassable                     |
+| `internal`    | Visible within the same module                               |
+| `fileprivate` | Visible within the same file; enforced as private externally |
+| `private`     | Visible only within the declaring class                      |
+
+```liva
+open class Base { }           // subclassable
+public class Sealed { }       // visible but not subclassable
+class Child : Base { }        // OK
+// class Bad : Sealed { }     // error: cannot inherit from non-open class
+
+class Account {
+    fileprivate var balance: i32
+    private var pin: i32
+    init() {
+        self.balance = 0
+        self.pin = 0
+    }
+}
+```
+
+### Extensions
+
+Use `extension TypeName { ... }` to add methods to an existing type (struct,
+enum, or class). Extensions are a contextual keyword and compile to the same
+function table as `impl` blocks:
+
+```liva
+struct Point {
+    var x: i32
+    var y: i32
+}
+
+extension Point {
+    func sum(self) -> i32 {
+        return self.x + self.y
+    }
+}
+```
+
+### Updated Class vs Struct Summary
+
+| Feature                      | `struct`  | `class`  |
+|------------------------------|-----------|----------|
+| Semantics                    | Value     | Reference |
+| Inheritance                  | No        | Yes      |
+| `init` / `deinit`            | No        | Yes      |
+| `override` / virtual dispatch| No        | Yes      |
+| `static` members             | No        | Yes      |
+| Computed properties          | No        | Yes      |
+| Property observers           | No        | Yes      |
+| `final`                      | No        | Yes      |
+| `is` / `as?`                 | No        | Yes      |
+| Failable `init?`             | No        | Yes      |
+| `convenience init`           | No        | Yes      |
+| `lazy var`                   | No        | Yes      |
+| Subscripts                   | No        | Yes      |
+| Access levels (5 tiers)      | pub/private only | Yes |
+| `extension`                  | Yes       | Yes      |
+
 ---
 
 ## 29. FFI (Foreign Function Interface)
