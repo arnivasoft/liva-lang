@@ -6331,6 +6331,125 @@ TEST_F(SemaTest, MutexTryLockReturnsBool) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, RwlockCreateReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let rw: i64 = rwlockCreate()
+            rwlockFree(rw)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RwlockReadWriteLockUnlockVoid) {
+    auto result = check(R"--(
+        func main() {
+            let rw: i64 = rwlockCreate()
+            rwlockReadLock(rw)
+            rwlockReadUnlock(rw)
+            rwlockWriteLock(rw)
+            rwlockWriteUnlock(rw)
+            rwlockFree(rw)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, RwlockTryLockReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let rw: i64 = rwlockCreate()
+            let r: bool = rwlockTryReadLock(rw)
+            let w: bool = rwlockTryWriteLock(rw)
+            rwlockFree(rw)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CondVarCreateReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let cv: i64 = condVarCreate()
+            condVarFree(cv)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, CondVarNotifyAndWaitVoid) {
+    auto result = check(R"--(
+        func main() {
+            let m: i64 = mutexCreate()
+            let cv: i64 = condVarCreate()
+            mutexLock(m)
+            condVarNotifyOne(cv)
+            condVarNotifyAll(cv)
+            mutexUnlock(m)
+            condVarFree(cv)
+            mutexFree(m)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelTrySendReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(4)
+            let ok: bool = channelTrySend(ch, 42)
+            channelFree(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ChannelTryReceiveReturnsOptional) {
+    auto result = check(R"--(
+        func main() {
+            let ch: i64 = channelCreate(4)
+            channelSend(ch, 7)
+            let v: i64? = channelTryReceive(ch)
+            channelFree(ch)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskIsDoneReturnsBool) {
+    // Use any i64-returning function as a stand-in for a Task pointer (Sema only).
+    auto result = check(R"--(
+        func main() {
+            let t: i64 = mutexCreate()
+            let done: bool = taskIsDone(t)
+            mutexFree(t)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskCancelIsVoid) {
+    auto result = check(R"--(
+        func main() {
+            let t: i64 = mutexCreate()
+            taskCancel(t)
+            mutexFree(t)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TaskIsCancelledReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let t: i64 = mutexCreate()
+            let c: bool = taskIsCancelled(t)
+            mutexFree(t)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, AtomicCreateReturnsI64) {
     auto result = check(R"--(
         func main() {

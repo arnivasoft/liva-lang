@@ -932,6 +932,35 @@ void IRGen::createRuntimeDecls() {
     // atomicFree(handle) -> void
     module_->getOrInsertFunction("liva_atomic_free", voidI64Ty);
 
+    // === Stdlib: RWLock ===
+
+    // rwlockCreate() -> i64
+    module_->getOrInsertFunction("liva_rwlock_create", noArgI64Ty);
+
+    // rwlock*Lock/*Unlock/Free(handle) -> void
+    module_->getOrInsertFunction("liva_rwlock_read_lock", voidI64Ty);
+    module_->getOrInsertFunction("liva_rwlock_read_unlock", voidI64Ty);
+    module_->getOrInsertFunction("liva_rwlock_write_lock", voidI64Ty);
+    module_->getOrInsertFunction("liva_rwlock_write_unlock", voidI64Ty);
+    module_->getOrInsertFunction("liva_rwlock_free", voidI64Ty);
+
+    // rwlockTry*Lock(handle) -> i8
+    module_->getOrInsertFunction("liva_rwlock_try_read_lock", i8FromI64Ty);
+    module_->getOrInsertFunction("liva_rwlock_try_write_lock", i8FromI64Ty);
+
+    // === Stdlib: ConditionVariable ===
+
+    // condVarCreate() -> i64
+    module_->getOrInsertFunction("liva_condvar_create", noArgI64Ty);
+
+    // condVarWait(cv, mtx) -> void
+    module_->getOrInsertFunction("liva_condvar_wait", voidI64I64Ty);
+
+    // condVarNotifyOne/All/Free(handle) -> void
+    module_->getOrInsertFunction("liva_condvar_notify_one", voidI64Ty);
+    module_->getOrInsertFunction("liva_condvar_notify_all", voidI64Ty);
+    module_->getOrInsertFunction("liva_condvar_free", voidI64Ty);
+
     // === Stdlib: Channel ===
 
     // channelCreate(capacity) -> i64
@@ -952,6 +981,13 @@ void IRGen::createRuntimeDecls() {
 
     // channelFree(handle) -> void
     module_->getOrInsertFunction("liva_channel_free", voidI64Ty);
+
+    // channelTrySend(handle, value) -> i8
+    auto *chTrySendTy = llvm::FunctionType::get(i8Ty, {i64Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_channel_try_send", chTrySendTy);
+
+    // channelTryReceive(handle, &ok) -> i64
+    module_->getOrInsertFunction("liva_channel_try_receive", chRecvTy);
 
     // === Stdlib: TaskGroup ===
 

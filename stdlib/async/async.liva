@@ -40,3 +40,57 @@ func runWithTimeout(task: i64, ms: i64) -> bool {
 func raceIndex(tasks: i64, count: i64) -> i64 {
     return taskSelect(tasks, count)
 }
+
+// === Retry with linear backoff ===
+
+/// Retry an action up to maxAttempts times, sleeping between attempts.
+/// Returns true on the first successful run, false if all attempts failed.
+/// Backoff: sleep(baseDelayMs * attempt) before each retry — linear growth.
+pub func retry(maxAttempts: i64, baseDelayMs: i64, action: () -> bool) -> bool {
+    var attempt: i64 = 0 as i64
+    while attempt < maxAttempts {
+        if action() {
+            return true
+        }
+        attempt = attempt + (1 as i64)
+        if attempt < maxAttempts {
+            sleep(baseDelayMs * attempt)
+        }
+    }
+    return false
+}
+
+// === Once: run an action exactly once across threads ===
+//
+// Allocates an atomic flag. The first call to do() that observes flag=0
+// runs the action and returns true; subsequent callers see flag=1 and skip.
+// Use Once.new() to create, Once.free(self) once done.
+
+pub struct Once {
+    var flag: i64  // atomic i64 handle, 0 = not run, 1 = done
+}
+
+impl Once {
+    pub func new() -> Once {
+        return Once { flag: atomicCreate(0 as i64) }
+    }
+
+    // Run action exactly once. Returns true if THIS call ran it,
+    // false if another caller already did.
+    pub func doIt(ref self, action: () -> Void) -> bool {
+        if atomicCas(self.flag, 0 as i64, 1 as i64) {
+            action()
+            return true
+        }
+        return false
+    }
+
+    // Has the action already run?
+    pub func done(ref self) -> bool {
+        return atomicLoad(self.flag) == (1 as i64)
+    }
+
+    pub func free(mut self) {
+        atomicFree(self.flag)
+    }
+}

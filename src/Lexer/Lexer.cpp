@@ -223,6 +223,8 @@ Token Lexer::nextToken() {
         if (match('.')) {
             if (match('.'))
                 return makeToken(TokenKind::ellipsis, startOffset);
+            if (match('='))
+                return makeToken(TokenKind::dotdotequal, startOffset);
             return makeToken(TokenKind::dotdot, startOffset);
         }
         return makeToken(TokenKind::dot, startOffset);

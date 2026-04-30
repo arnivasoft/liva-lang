@@ -507,6 +507,12 @@ void liva_channel_close(int64_t handle);
 int64_t liva_channel_len(int64_t handle);
 void liva_channel_free(int64_t handle);
 
+/// Non-blocking send. Returns 1 on success, 0 if buffer full or channel closed.
+int8_t liva_channel_try_send(int64_t handle, int64_t value);
+
+/// Non-blocking receive. Sets *ok to 1 if a value was retrieved, 0 if buffer empty.
+int64_t liva_channel_try_receive(int64_t handle, int8_t *ok);
+
 // === TaskGroup Runtime ===
 int64_t liva_task_group_create();
 void liva_task_group_spawn(int64_t group, LivaTask *task);
@@ -673,6 +679,50 @@ int8_t liva_atomic_cas(int64_t handle, int64_t expected, int64_t desired);
 
 /// Free an atomic handle
 void liva_atomic_free(int64_t handle);
+
+// === Synchronization: RWLock (shared/exclusive) ===
+
+/// Create a reader-writer lock, returns handle (0 on error)
+int64_t liva_rwlock_create();
+
+/// Acquire shared (read) lock, blocks until acquired
+void liva_rwlock_read_lock(int64_t handle);
+
+/// Release shared (read) lock
+void liva_rwlock_read_unlock(int64_t handle);
+
+/// Acquire exclusive (write) lock, blocks until acquired
+void liva_rwlock_write_lock(int64_t handle);
+
+/// Release exclusive (write) lock
+void liva_rwlock_write_unlock(int64_t handle);
+
+/// Try to acquire shared lock without blocking, returns 1 if acquired
+int8_t liva_rwlock_try_read_lock(int64_t handle);
+
+/// Try to acquire exclusive lock without blocking, returns 1 if acquired
+int8_t liva_rwlock_try_write_lock(int64_t handle);
+
+/// Free an rwlock
+void liva_rwlock_free(int64_t handle);
+
+// === Synchronization: ConditionVariable ===
+
+/// Create a condition variable, returns handle (0 on error)
+int64_t liva_condvar_create();
+
+/// Atomically release mtx and wait until notified, then reacquire mtx.
+/// Caller must already hold the mutex.
+void liva_condvar_wait(int64_t cvHandle, int64_t mtxHandle);
+
+/// Wake up one thread waiting on this condition variable
+void liva_condvar_notify_one(int64_t handle);
+
+/// Wake up all threads waiting on this condition variable
+void liva_condvar_notify_all(int64_t handle);
+
+/// Free a condition variable
+void liva_condvar_free(int64_t handle);
 
 // === String Utility Functions (std::string) ===
 

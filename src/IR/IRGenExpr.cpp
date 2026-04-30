@@ -1080,7 +1080,7 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
     }
     auto *ident = static_cast<const IdentifierExpr *>(node->getBase());
 
-    // === Range slicing: arr[1..3] or s[1..3] ===
+    // === Range slicing: arr[1..3] or s[1..3] or arr[1..=3] ===
     if (node->getIndex()->getKind() == ASTNode::NodeKind::RangeExpr) {
         auto *rangeExpr = static_cast<RangeExpr *>(const_cast<Expr *>(node->getIndex()));
         auto *startVal = visit(const_cast<Expr *>(rangeExpr->getStart()));
@@ -1090,6 +1090,9 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
             startVal = builder_->CreateSExt(startVal, builder_->getInt64Ty(), "slice.start");
         if (endVal->getType()->isIntegerTy(32))
             endVal = builder_->CreateSExt(endVal, builder_->getInt64Ty(), "slice.end");
+        // Inclusive range: end is one past the last index → bump end by 1
+        if (rangeExpr->isInclusive())
+            endVal = builder_->CreateAdd(endVal, builder_->getInt64(1), "slice.end.incl");
         auto *sliceLen = builder_->CreateSub(endVal, startVal, "slice.len");
 
         // String slicing: s[1..3] -> liva_str_substring(s, start, end-start)

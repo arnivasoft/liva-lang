@@ -449,17 +449,19 @@ private:
     std::unique_ptr<Expr> expr_;
 };
 
-/// Range expression: start..end
+/// Range expression: start..end (exclusive) or start..=end (inclusive)
 class RangeExpr : public Expr {
 public:
-    RangeExpr(std::unique_ptr<Expr> start, std::unique_ptr<Expr> end, SourceRange range)
+    RangeExpr(std::unique_ptr<Expr> start, std::unique_ptr<Expr> end,
+              bool inclusive, SourceRange range)
         : Expr(NodeKind::RangeExpr, range), start_(std::move(start)),
-          end_(std::move(end)) {}
+          end_(std::move(end)), inclusive_(inclusive) {}
 
     const Expr *getStart() const { return start_.get(); }
     const Expr *getEnd() const { return end_.get(); }
     Expr *getStart() { return start_.get(); }
     Expr *getEnd() { return end_.get(); }
+    bool isInclusive() const { return inclusive_; }
 
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::RangeExpr;
@@ -468,6 +470,7 @@ public:
 private:
     std::unique_ptr<Expr> start_;
     std::unique_ptr<Expr> end_;
+    bool inclusive_;
 };
 
 /// Force unwrap expression: x!

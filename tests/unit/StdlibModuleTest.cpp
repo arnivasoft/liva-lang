@@ -1365,3 +1365,30 @@ TEST_F(StdlibModuleTest, CollectionsSliceHelpers) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "take/skip/first/last/findIndex/unique/reverse should type-check";
 }
+
+// ============================================================
+// Module: async::async — retry + Once
+// ============================================================
+
+TEST_F(StdlibModuleTest, AsyncRetryTypeChecks) {
+    auto r = check(
+        "import async::async\n"
+        "func main() {\n"
+        "    let ok: bool = retry(3, 10, || -> bool { return true })\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "retry(maxAttempts, baseDelayMs, action) should type-check";
+}
+
+TEST_F(StdlibModuleTest, AsyncOnceTypeChecks) {
+    auto r = check(
+        "import async::async\n"
+        "func main() {\n"
+        "    let o = Once.new()\n"
+        "    let ran: bool = o.doIt(|| { println(\"hi\") })\n"
+        "    let d: bool = o.done()\n"
+        "    o.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Once struct API should type-check";
+}

@@ -506,11 +506,13 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
         builder_->CreateBr(condBB);
 
-        // Condition: i < end
+        // Condition: i < end (exclusive) or i <= end (inclusive)
         builder_->SetInsertPoint(condBB);
         auto *curVal = builder_->CreateLoad(builder_->getInt32Ty(), loopVar,
                                              node->getVarName());
-        auto *cond = builder_->CreateICmpSLT(curVal, endVal, "for.cmp");
+        auto *cond = range->isInclusive()
+                         ? builder_->CreateICmpSLE(curVal, endVal, "for.cmp")
+                         : builder_->CreateICmpSLT(curVal, endVal, "for.cmp");
         builder_->CreateCondBr(cond, bodyBB, exitBB);
 
         // Body

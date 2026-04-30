@@ -1973,6 +1973,16 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
     // === Stdlib: Synchronization ===
 
+    // Helper: ensure an integer-typed value is i64 (sign-extend from smaller widths).
+    // Liva integer literals default to i32, but most stdlib runtime functions expect i64.
+    auto toI64 = [&](llvm::Value *v) -> llvm::Value * {
+        if (!v) return v;
+        auto *t = v->getType();
+        if (t->isIntegerTy() && !t->isIntegerTy(64))
+            return builder_->CreateSExt(v, builder_->getInt64Ty(), "i64.coerce");
+        return v;
+    };
+
     // mutexCreate() -> i64
     if (funcName == "mutexCreate" && node->getArgs().empty()) {
         auto *fn = getOrPanic("liva_mutex_create");
@@ -2015,12 +2025,87 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 
+    // === Stdlib: RWLock ===
+
+    // rwlockCreate() -> i64
+    if (funcName == "rwlockCreate" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_rwlock_create");
+        return builder_->CreateCall(fn, {}, "rwlock.create");
+    }
+
+    // rwlockReadLock/ReadUnlock/WriteLock/WriteUnlock/Free(handle) -> void
+    static const struct { const char *liva; const char *runtime; } kRwlockVoid[] = {
+        {"rwlockReadLock", "liva_rwlock_read_lock"},
+        {"rwlockReadUnlock", "liva_rwlock_read_unlock"},
+        {"rwlockWriteLock", "liva_rwlock_write_lock"},
+        {"rwlockWriteUnlock", "liva_rwlock_write_unlock"},
+        {"rwlockFree", "liva_rwlock_free"},
+    };
+    for (auto &m : kRwlockVoid) {
+        if (funcName == m.liva && !node->getArgs().empty()) {
+            auto *handleArg = visit(node->getArgs()[0].get());
+            if (!handleArg) return nullptr;
+            auto *fn = getOrPanic(m.runtime);
+            builder_->CreateCall(fn, {handleArg});
+            return llvm::Constant::getNullValue(builder_->getInt64Ty());
+        }
+    }
+
+    // rwlockTryReadLock/TryWriteLock(handle) -> bool
+    static const struct { const char *liva; const char *runtime; } kRwlockBool[] = {
+        {"rwlockTryReadLock", "liva_rwlock_try_read_lock"},
+        {"rwlockTryWriteLock", "liva_rwlock_try_write_lock"},
+    };
+    for (auto &m : kRwlockBool) {
+        if (funcName == m.liva && !node->getArgs().empty()) {
+            auto *handleArg = visit(node->getArgs()[0].get());
+            if (!handleArg) return nullptr;
+            auto *fn = getOrPanic(m.runtime);
+            auto *result = builder_->CreateCall(fn, {handleArg}, "rwlock.try");
+            return builder_->CreateTrunc(result, builder_->getInt1Ty(), "rwlock.try.bool");
+        }
+    }
+
+    // === Stdlib: ConditionVariable ===
+
+    // condVarCreate() -> i64
+    if (funcName == "condVarCreate" && node->getArgs().empty()) {
+        auto *fn = getOrPanic("liva_condvar_create");
+        return builder_->CreateCall(fn, {}, "condvar.create");
+    }
+
+    // condVarWait(cv, mtx) -> void
+    if (funcName == "condVarWait" && node->getArgs().size() >= 2) {
+        auto *cvArg = visit(node->getArgs()[0].get());
+        auto *mtxArg = visit(node->getArgs()[1].get());
+        if (!cvArg || !mtxArg) return nullptr;
+        auto *fn = getOrPanic("liva_condvar_wait");
+        builder_->CreateCall(fn, {cvArg, mtxArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // condVarNotifyOne/NotifyAll/Free(handle) -> void
+    static const struct { const char *liva; const char *runtime; } kCondVoid[] = {
+        {"condVarNotifyOne", "liva_condvar_notify_one"},
+        {"condVarNotifyAll", "liva_condvar_notify_all"},
+        {"condVarFree", "liva_condvar_free"},
+    };
+    for (auto &m : kCondVoid) {
+        if (funcName == m.liva && !node->getArgs().empty()) {
+            auto *handleArg = visit(node->getArgs()[0].get());
+            if (!handleArg) return nullptr;
+            auto *fn = getOrPanic(m.runtime);
+            builder_->CreateCall(fn, {handleArg});
+            return llvm::Constant::getNullValue(builder_->getInt64Ty());
+        }
+    }
+
     // atomicCreate(initial) -> i64
     if (funcName == "atomicCreate" && !node->getArgs().empty()) {
         auto *initArg = visit(node->getArgs()[0].get());
         if (!initArg) return nullptr;
         auto *fn = getOrPanic("liva_atomic_create");
-        return builder_->CreateCall(fn, {initArg}, "atomic.create");
+        return builder_->CreateCall(fn, {toI64(initArg)}, "atomic.create");
     }
 
     // atomicLoad(handle) -> i64
@@ -2037,7 +2122,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *valArg = visit(node->getArgs()[1].get());
         if (!handleArg || !valArg) return nullptr;
         auto *fn = getOrPanic("liva_atomic_store");
-        builder_->CreateCall(fn, {handleArg, valArg});
+        builder_->CreateCall(fn, {toI64(handleArg), toI64(valArg)});
         return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 
@@ -2047,7 +2132,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *valArg = visit(node->getArgs()[1].get());
         if (!handleArg || !valArg) return nullptr;
         auto *fn = getOrPanic("liva_atomic_add");
-        return builder_->CreateCall(fn, {handleArg, valArg}, "atomic.add");
+        return builder_->CreateCall(fn, {toI64(handleArg), toI64(valArg)}, "atomic.add");
     }
 
     // atomicSub(handle, value) -> i64
@@ -2056,7 +2141,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *valArg = visit(node->getArgs()[1].get());
         if (!handleArg || !valArg) return nullptr;
         auto *fn = getOrPanic("liva_atomic_sub");
-        return builder_->CreateCall(fn, {handleArg, valArg}, "atomic.sub");
+        return builder_->CreateCall(fn, {toI64(handleArg), toI64(valArg)}, "atomic.sub");
     }
 
     // atomicCas(handle, expected, desired) -> bool
@@ -2066,7 +2151,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *desArg = visit(node->getArgs()[2].get());
         if (!handleArg || !expArg || !desArg) return nullptr;
         auto *fn = getOrPanic("liva_atomic_cas");
-        auto *result = builder_->CreateCall(fn, {handleArg, expArg, desArg}, "atomic.cas");
+        auto *result = builder_->CreateCall(fn, {toI64(handleArg), toI64(expArg), toI64(desArg)}, "atomic.cas");
         return builder_->CreateTrunc(result, builder_->getInt1Ty(), "atomic.cas.bool");
     }
 
@@ -2086,7 +2171,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *capArg = visit(node->getArgs()[0].get());
         if (!capArg) return nullptr;
         auto *fn = getOrPanic("liva_channel_create");
-        return builder_->CreateCall(fn, {capArg}, "channel.create");
+        return builder_->CreateCall(fn, {toI64(capArg)}, "channel.create");
     }
 
     // channelSend(handle, value) -> void
@@ -2095,7 +2180,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *valArg = visit(node->getArgs()[1].get());
         if (!handleArg || !valArg) return nullptr;
         auto *fn = getOrPanic("liva_channel_send");
-        builder_->CreateCall(fn, {handleArg, valArg});
+        builder_->CreateCall(fn, {toI64(handleArg), toI64(valArg)});
         return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 
@@ -2130,6 +2215,37 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 
+    // channelTrySend(handle, value) -> bool
+    if (funcName == "channelTrySend" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *valArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_try_send");
+        auto *result = builder_->CreateCall(fn, {toI64(handleArg), toI64(valArg)}, "ch.try_send");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "ch.try_send.bool");
+    }
+
+    // channelTryReceive(handle) -> i64? (Optional<i64>)
+    if (funcName == "channelTryReceive" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_try_receive");
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *okAlloca = createEntryBlockAlloca(curFunc, "ch.tryrecv.ok", builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *result = builder_->CreateCall(fn, {handleArg, okAlloca}, "ch.tryrecv.val");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "ch.tryrecv.ok.val");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0), "ch.tryrecv.hasval");
+        // Wrap in Optional<i64> {i1, i64}
+        auto *optTy = getOptionalType(builder_->getInt64Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "ch.tryrecv.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "ch.tryrecv.result");
+    }
+
     // channelLen(handle) -> i64
     if (funcName == "channelLen" && !node->getArgs().empty()) {
         auto *handleArg = visit(node->getArgs()[0].get());
@@ -2153,6 +2269,42 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (funcName == "taskGroupCreate") {
         auto *fn = getOrPanic("liva_task_group_create");
         return builder_->CreateCall(fn, {}, "tg.create");
+    }
+
+    // === Task control: taskIsDone, taskCancel, taskIsCancelled ===
+
+    // taskIsDone(task) -> bool
+    if (funcName == "taskIsDone" && !node->getArgs().empty()) {
+        auto *taskArg = visit(node->getArgs()[0].get());
+        if (!taskArg) return nullptr;
+        auto *taskPtr = builder_->CreateBitOrPointerCast(taskArg,
+            llvm::PointerType::getUnqual(*context_), "task.ptr");
+        auto *fn = getOrPanic("liva_task_is_done");
+        auto *result = builder_->CreateCall(fn, {taskPtr}, "task.is_done");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "task.is_done.bool");
+    }
+
+    // taskCancel(task) -> void
+    if (funcName == "taskCancel" && !node->getArgs().empty()) {
+        auto *taskArg = visit(node->getArgs()[0].get());
+        if (!taskArg) return nullptr;
+        auto *taskPtr = builder_->CreateBitOrPointerCast(taskArg,
+            llvm::PointerType::getUnqual(*context_), "task.ptr");
+        auto *fn = getOrPanic("liva_task_cancel");
+        builder_->CreateCall(fn, {taskPtr});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
+    // taskIsCancelled(task) -> bool — check a specific task's cancel flag
+    // (note: bare isCancelled() is the no-arg form that checks the current coroutine)
+    if (funcName == "taskIsCancelled" && !node->getArgs().empty()) {
+        auto *taskArg = visit(node->getArgs()[0].get());
+        if (!taskArg) return nullptr;
+        auto *taskPtr = builder_->CreateBitOrPointerCast(taskArg,
+            llvm::PointerType::getUnqual(*context_), "task.ptr");
+        auto *fn = getOrPanic("liva_task_is_cancelled");
+        auto *result = builder_->CreateCall(fn, {taskPtr}, "task.is_cancelled");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "task.is_cancelled.bool");
     }
 
     // taskGroupSpawn(group, task) -> void
@@ -2213,7 +2365,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *tasksPtr = builder_->CreateBitOrPointerCast(tasksArg,
             llvm::PointerType::getUnqual(*context_), "select.tasks.ptr");
         auto *fn = getOrPanic("liva_task_select");
-        return builder_->CreateCall(fn, {tasksPtr, countArg}, "task.select");
+        return builder_->CreateCall(fn, {tasksPtr, toI64(countArg)}, "task.select");
     }
 
     // withTimeout(task, ms) -> bool (true if completed, false if timed out)
@@ -2224,7 +2376,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *taskPtr = builder_->CreateBitOrPointerCast(taskArg,
             llvm::PointerType::getUnqual(*context_), "timeout.task.ptr");
         auto *fn = getOrPanic("liva_task_with_timeout");
-        auto *r = builder_->CreateCall(fn, {taskPtr, msArg}, "task.timeout");
+        auto *r = builder_->CreateCall(fn, {taskPtr, toI64(msArg)}, "task.timeout");
         return builder_->CreateICmpNE(r, builder_->getInt8(0), "task.timeout.bool");
     }
 

@@ -267,6 +267,27 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_atomic_cas);
     REG(liva_atomic_free);
 
+    // RWLock
+    REG(liva_rwlock_create);
+    REG(liva_rwlock_read_lock);
+    REG(liva_rwlock_read_unlock);
+    REG(liva_rwlock_write_lock);
+    REG(liva_rwlock_write_unlock);
+    REG(liva_rwlock_try_read_lock);
+    REG(liva_rwlock_try_write_lock);
+    REG(liva_rwlock_free);
+
+    // ConditionVariable
+    REG(liva_condvar_create);
+    REG(liva_condvar_wait);
+    REG(liva_condvar_notify_one);
+    REG(liva_condvar_notify_all);
+    REG(liva_condvar_free);
+
+    // Channel non-blocking
+    REG(liva_channel_try_send);
+    REG(liva_channel_try_receive);
+
     // Benchmark
     REG(liva_bench_start);
     REG(liva_bench_iter);

@@ -67,6 +67,75 @@ impl AtomicI64 {
     }
 }
 
+// === RWLock (reader-writer lock) ===
+
+pub struct RWLock {
+    var handle: i64
+}
+
+impl RWLock {
+    pub func new() -> RWLock {
+        return RWLock { handle: rwlockCreate() }
+    }
+
+    pub func readLock(ref self) {
+        rwlockReadLock(self.handle)
+    }
+
+    pub func readUnlock(ref self) {
+        rwlockReadUnlock(self.handle)
+    }
+
+    pub func writeLock(ref self) {
+        rwlockWriteLock(self.handle)
+    }
+
+    pub func writeUnlock(ref self) {
+        rwlockWriteUnlock(self.handle)
+    }
+
+    pub func tryReadLock(ref self) -> bool {
+        return rwlockTryReadLock(self.handle)
+    }
+
+    pub func tryWriteLock(ref self) -> bool {
+        return rwlockTryWriteLock(self.handle)
+    }
+
+    pub func free(mut self) {
+        rwlockFree(self.handle)
+    }
+}
+
+// === ConditionVariable ===
+// Use with a Mutex: caller must hold the mutex before calling wait().
+
+pub struct CondVar {
+    var handle: i64
+}
+
+impl CondVar {
+    pub func new() -> CondVar {
+        return CondVar { handle: condVarCreate() }
+    }
+
+    pub func wait(ref self, mtx: i64) {
+        condVarWait(self.handle, mtx)
+    }
+
+    pub func notifyOne(ref self) {
+        condVarNotifyOne(self.handle)
+    }
+
+    pub func notifyAll(ref self) {
+        condVarNotifyAll(self.handle)
+    }
+
+    pub func free(mut self) {
+        condVarFree(self.handle)
+    }
+}
+
 // === Channel ===
 
 pub struct Channel {

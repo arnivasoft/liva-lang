@@ -205,6 +205,114 @@ func main() {
 )--", "10\n");
 }
 
+TEST_F(SelfHostTest, ForInclusiveRange) {
+    expectOutput(R"--(
+func main() {
+    var sum: i32 = 0
+    for i in 0..=5 {
+        sum = sum + i
+    }
+    println(sum)
+}
+)--", "15\n");
+}
+
+TEST_F(SelfHostTest, InclusiveRangeArraySlice) {
+    expectOutput(R"--(
+func main() {
+    let arr: [i32] = [10, 20, 30, 40, 50]
+    let s = arr[1..=3]
+    for x in s {
+        println(x)
+    }
+}
+)--", "20\n30\n40\n");
+}
+
+TEST_F(SelfHostTest, RwlockBasicLifecycle) {
+    expectOutput(R"--(
+func main() {
+    let rw: i64 = rwlockCreate()
+    rwlockWriteLock(rw)
+    rwlockWriteUnlock(rw)
+    rwlockReadLock(rw)
+    rwlockReadUnlock(rw)
+    let acquired: bool = rwlockTryWriteLock(rw)
+    if acquired {
+        rwlockWriteUnlock(rw)
+        println("ok")
+    }
+    rwlockFree(rw)
+}
+)--", "ok\n");
+}
+
+TEST_F(SelfHostTest, CondVarNotifyWithoutWaiters) {
+    // notify_one/notify_all with no waiters is well-defined and does nothing.
+    // This exercises the IR wiring without needing multithreading.
+    expectOutput(R"--(
+func main() {
+    let m: i64 = mutexCreate()
+    let cv: i64 = condVarCreate()
+    mutexLock(m)
+    condVarNotifyOne(cv)
+    condVarNotifyAll(cv)
+    mutexUnlock(m)
+    condVarFree(cv)
+    mutexFree(m)
+    println("done")
+}
+)--", "done\n");
+}
+
+TEST_F(SelfHostTest, ChannelTrySendReceiveSuccess) {
+    expectOutput(R"--(
+func main() {
+    let ch: i64 = channelCreate(2)
+    let ok1: bool = channelTrySend(ch, 100)
+    let ok2: bool = channelTrySend(ch, 200)
+    if ok1 {
+        if ok2 {
+            println("both sent")
+        }
+    }
+    let v1: i64? = channelTryReceive(ch)
+    let v2: i64? = channelTryReceive(ch)
+    let v3: i64? = channelTryReceive(ch)
+    if let x = v1 {
+        println(x)
+    }
+    if let y = v2 {
+        println(y)
+    }
+    var hadV3: bool = false
+    if let z = v3 {
+        hadV3 = true
+    }
+    if !hadV3 {
+        println("empty")
+    }
+    channelFree(ch)
+}
+)--", "both sent\n100\n200\nempty\n");
+}
+
+TEST_F(SelfHostTest, ChannelTrySendFullReturnsFalse) {
+    expectOutput(R"--(
+func main() {
+    let ch: i64 = channelCreate(1)
+    let ok1: bool = channelTrySend(ch, 1)
+    let ok2: bool = channelTrySend(ch, 2)
+    if ok1 {
+        if !ok2 {
+            println("full")
+        }
+    }
+    channelFree(ch)
+}
+)--", "full\n");
+}
+
 TEST_F(SelfHostTest, NestedIf) {
     expectOutput(R"--(
 func main() {

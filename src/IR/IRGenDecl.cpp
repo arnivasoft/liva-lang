@@ -935,8 +935,15 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             builder_->CreateStore(llvm::Constant::getNullValue(innerLLVM), valPtr);
         } else if (node->hasInit()) {
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
-            builder_->CreateStore(builder_->getTrue(), hasValPtr);
-            if (initVal) builder_->CreateStore(initVal, valPtr);
+            if (initVal && initVal->getType() == optStructTy) {
+                // RHS is already an Optional<T> matching the declared type;
+                // store it as a single value rather than wrapping in Some(...)
+                builder_->CreateStore(initVal, alloca);
+            } else {
+                // RHS is a plain T value → wrap as Some(value)
+                builder_->CreateStore(builder_->getTrue(), hasValPtr);
+                if (initVal) builder_->CreateStore(initVal, valPtr);
+            }
         } else {
             builder_->CreateStore(builder_->getFalse(), hasValPtr);
             builder_->CreateStore(llvm::Constant::getNullValue(innerLLVM), valPtr);

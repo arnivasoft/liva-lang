@@ -485,6 +485,22 @@ TEST_F(LexerTest, EllipsisToken) {
     expectToken(tokens[1], TokenKind::ellipsis);
 }
 
+TEST_F(LexerTest, InclusiveRangeToken) {
+    auto tokens = lex(".. ..= ...");
+    ASSERT_GE(tokens.size(), 3);
+    expectToken(tokens[0], TokenKind::dotdot);
+    expectToken(tokens[1], TokenKind::dotdotequal);
+    expectToken(tokens[2], TokenKind::ellipsis);
+}
+
+TEST_F(LexerTest, InclusiveRangeBetweenInts) {
+    auto tokens = lex("0..=10");
+    ASSERT_GE(tokens.size(), 3);
+    expectToken(tokens[0], TokenKind::integer_literal);
+    expectToken(tokens[1], TokenKind::dotdotequal);
+    expectToken(tokens[2], TokenKind::integer_literal);
+}
+
 // === Doc Comment Token ===
 
 TEST_F(LexerTest, DocCommentSingle) {

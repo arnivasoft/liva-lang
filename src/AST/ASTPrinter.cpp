@@ -467,7 +467,7 @@ void ASTPrinter::visitGroupExpr(GroupExpr *node) {
 
 void ASTPrinter::visitRangeExpr(RangeExpr *node) {
     indent();
-    os_ << "RangeExpr\n";
+    os_ << "RangeExpr" << (node->isInclusive() ? " (inclusive)" : "") << "\n";
     increaseIndent();
     visit(node->getStart());
     visit(node->getEnd());

@@ -9,6 +9,7 @@
 #include <ctime>
 #include <cmath>
 #include <condition_variable>
+#include <shared_mutex>
 #include <deque>
 #include <future>
 #include <mutex>
@@ -3755,6 +3756,92 @@ void liva_atomic_free(int64_t handle) {
     delete val;
 }
 
+// === Synchronization: RWLock ===
+
+int64_t liva_rwlock_create() {
+    auto *rw = new (std::nothrow) std::shared_mutex();
+    if (!rw) return 0;
+    return (int64_t)(intptr_t)rw;
+}
+
+void liva_rwlock_read_lock(int64_t handle) {
+    if (!handle) return;
+    auto *rw = (std::shared_mutex *)(intptr_t)handle;
+    rw->lock_shared();
+}
+
+void liva_rwlock_read_unlock(int64_t handle) {
+    if (!handle) return;
+    auto *rw = (std::shared_mutex *)(intptr_t)handle;
+    rw->unlock_shared();
+}
+
+void liva_rwlock_write_lock(int64_t handle) {
+    if (!handle) return;
+    auto *rw = (std::shared_mutex *)(intptr_t)handle;
+    rw->lock();
+}
+
+void liva_rwlock_write_unlock(int64_t handle) {
+    if (!handle) return;
+    auto *rw = (std::shared_mutex *)(intptr_t)handle;
+    rw->unlock();
+}
+
+int8_t liva_rwlock_try_read_lock(int64_t handle) {
+    if (!handle) return 0;
+    auto *rw = (std::shared_mutex *)(intptr_t)handle;
+    return rw->try_lock_shared() ? 1 : 0;
+}
+
+int8_t liva_rwlock_try_write_lock(int64_t handle) {
+    if (!handle) return 0;
+    auto *rw = (std::shared_mutex *)(intptr_t)handle;
+    return rw->try_lock() ? 1 : 0;
+}
+
+void liva_rwlock_free(int64_t handle) {
+    if (!handle) return;
+    auto *rw = (std::shared_mutex *)(intptr_t)handle;
+    delete rw;
+}
+
+// === Synchronization: ConditionVariable ===
+// We use std::condition_variable_any so it pairs with our std::mutex* handle
+// without forcing the caller to hold a std::unique_lock.
+
+int64_t liva_condvar_create() {
+    auto *cv = new (std::nothrow) std::condition_variable_any();
+    if (!cv) return 0;
+    return (int64_t)(intptr_t)cv;
+}
+
+void liva_condvar_wait(int64_t cvHandle, int64_t mtxHandle) {
+    if (!cvHandle || !mtxHandle) return;
+    auto *cv = (std::condition_variable_any *)(intptr_t)cvHandle;
+    auto *mtx = (std::mutex *)(intptr_t)mtxHandle;
+    // Caller already holds *mtx. wait() releases it, blocks, then reacquires.
+    cv->wait(*mtx);
+}
+
+void liva_condvar_notify_one(int64_t handle) {
+    if (!handle) return;
+    auto *cv = (std::condition_variable_any *)(intptr_t)handle;
+    cv->notify_one();
+}
+
+void liva_condvar_notify_all(int64_t handle) {
+    if (!handle) return;
+    auto *cv = (std::condition_variable_any *)(intptr_t)handle;
+    cv->notify_all();
+}
+
+void liva_condvar_free(int64_t handle) {
+    if (!handle) return;
+    auto *cv = (std::condition_variable_any *)(intptr_t)handle;
+    delete cv;
+}
+
 // === Channel Runtime ===
 
 struct LivaChannel {
@@ -3835,6 +3922,34 @@ void liva_channel_free(int64_t handle) {
     auto *ch = (LivaChannel *)(intptr_t)handle;
     free(ch->buffer);
     delete ch;
+}
+
+int8_t liva_channel_try_send(int64_t handle, int64_t value) {
+    if (!handle) return 0;
+    auto *ch = (LivaChannel *)(intptr_t)handle;
+    std::unique_lock<std::mutex> lock(ch->mtx);
+    if (ch->closed) return 0;
+    if (ch->count >= ch->capacity) return 0;
+    ch->buffer[ch->tail] = value;
+    ch->tail = (ch->tail + 1) % ch->capacity;
+    ch->count++;
+    lock.unlock();
+    ch->cv_not_empty.notify_one();
+    return 1;
+}
+
+int64_t liva_channel_try_receive(int64_t handle, int8_t *ok) {
+    if (!handle) { if (ok) *ok = 0; return 0; }
+    auto *ch = (LivaChannel *)(intptr_t)handle;
+    std::unique_lock<std::mutex> lock(ch->mtx);
+    if (ch->count == 0) { if (ok) *ok = 0; return 0; }
+    int64_t value = ch->buffer[ch->head];
+    ch->head = (ch->head + 1) % ch->capacity;
+    ch->count--;
+    if (ok) *ok = 1;
+    lock.unlock();
+    ch->cv_not_full.notify_one();
+    return value;
 }
 
 // === TaskGroup Runtime ===

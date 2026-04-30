@@ -171,16 +171,23 @@ void TypeChecker::registerBuiltins() {
         scopes_.declare(name, sym);
     }
 
-    // Stdlib: Synchronization (Mutex + Atomic + Channel + TaskGroup)
+    // Stdlib: Synchronization (Mutex + Atomic + RWLock + CondVar + Channel + TaskGroup)
     for (auto &name : {"mutexCreate", "mutexLock", "mutexUnlock",
                         "mutexTryLock", "mutexFree",
                         "atomicCreate", "atomicLoad", "atomicStore",
                         "atomicAdd", "atomicSub", "atomicCas", "atomicFree",
+                        "rwlockCreate", "rwlockReadLock", "rwlockReadUnlock",
+                        "rwlockWriteLock", "rwlockWriteUnlock",
+                        "rwlockTryReadLock", "rwlockTryWriteLock", "rwlockFree",
+                        "condVarCreate", "condVarWait",
+                        "condVarNotifyOne", "condVarNotifyAll", "condVarFree",
                         "channelCreate", "channelSend", "channelReceive",
+                        "channelTrySend", "channelTryReceive",
                         "channelClose", "channelLen", "channelFree",
                         "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
                         "taskGroupCancelAll", "taskGroupCount", "taskGroupFree",
                         "taskSelect", "withTimeout",
+                        "taskIsDone", "taskCancel", "taskIsCancelled",
                         "schedulerInit", "schedulerShutdown", "schedulerWorkerCount",
                         "asyncFileRead", "asyncFileWrite"}) {
         Symbol sym;
@@ -2239,13 +2246,33 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "atomicStore" ||
                    ident->getName() == "atomicFree") {
             // void — no resolved type
+        // Stdlib: RWLock + ConditionVariable
+        } else if (ident->getName() == "rwlockCreate" ||
+                   ident->getName() == "condVarCreate") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "rwlockTryReadLock" ||
+                   ident->getName() == "rwlockTryWriteLock") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "rwlockReadLock" ||
+                   ident->getName() == "rwlockReadUnlock" ||
+                   ident->getName() == "rwlockWriteLock" ||
+                   ident->getName() == "rwlockWriteUnlock" ||
+                   ident->getName() == "rwlockFree" ||
+                   ident->getName() == "condVarWait" ||
+                   ident->getName() == "condVarNotifyOne" ||
+                   ident->getName() == "condVarNotifyAll" ||
+                   ident->getName() == "condVarFree") {
+            // void — no resolved type
         // Stdlib: Channel
         } else if (ident->getName() == "channelCreate" ||
                    ident->getName() == "channelLen") {
             node->setResolvedType(makeI64Type());
-        } else if (ident->getName() == "channelReceive") {
+        } else if (ident->getName() == "channelReceive" ||
+                   ident->getName() == "channelTryReceive") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeI64Type());
             node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "channelTrySend") {
+            node->setResolvedType(makeBoolType());
         } else if (ident->getName() == "channelSend" ||
                    ident->getName() == "channelClose" ||
                    ident->getName() == "channelFree") {
@@ -2264,6 +2291,12 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "withTimeout") {
             node->setResolvedType(makeBoolType());
+        // Stdlib: Task control (single-task)
+        } else if (ident->getName() == "taskIsDone" ||
+                   ident->getName() == "taskIsCancelled") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "taskCancel") {
+            // void — no resolved type
         // Stdlib: Thread Pool Scheduler
         } else if (ident->getName() == "schedulerWorkerCount") {
             node->setResolvedType(makeI32Type());

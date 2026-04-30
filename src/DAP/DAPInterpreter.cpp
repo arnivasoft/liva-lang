@@ -1031,7 +1031,8 @@ DAPValue DAPInterpreter::evaluateExpr(const Expr *expr) {
         // Create an array for the range
         std::vector<DAPValue> elements;
         if (startVal.kind == DAPValue::Integer && endVal.kind == DAPValue::Integer) {
-            for (int64_t i = startVal.intVal; i < endVal.intVal; ++i) {
+            int64_t end = re->isInclusive() ? endVal.intVal + 1 : endVal.intVal;
+            for (int64_t i = startVal.intVal; i < end; ++i) {
                 elements.push_back(DAPValue::makeInt(i));
             }
         }

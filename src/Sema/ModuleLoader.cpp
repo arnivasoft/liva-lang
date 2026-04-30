@@ -104,18 +104,27 @@ void ModuleLoader::registerBuiltinModules() {
         {"mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",
          "atomicCreate", "atomicLoad", "atomicStore",
          "atomicAdd", "atomicSub", "atomicCas", "atomicFree",
+         "rwlockCreate", "rwlockReadLock", "rwlockReadUnlock",
+         "rwlockWriteLock", "rwlockWriteUnlock",
+         "rwlockTryReadLock", "rwlockTryWriteLock", "rwlockFree",
+         "condVarCreate", "condVarWait",
+         "condVarNotifyOne", "condVarNotifyAll", "condVarFree",
          "channelCreate", "channelSend", "channelReceive",
+         "channelTrySend", "channelTryReceive",
          "channelClose", "channelLen", "channelFree",
          "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
          "taskGroupCancelAll", "taskGroupCount", "taskGroupFree",
-         "taskSelect", "withTimeout"});
+         "taskSelect", "withTimeout",
+         "taskIsDone", "taskCancel", "taskIsCancelled"});
 
     // std::async — async concurrency utilities
     cache_["std::async"] = createBuiltinModule("std::async",
         {"taskSelect", "withTimeout",
+         "taskIsDone", "taskCancel", "taskIsCancelled",
          "taskGroupCreate", "taskGroupSpawn", "taskGroupAwaitAll",
          "taskGroupCancelAll", "taskGroupCount", "taskGroupFree",
          "channelCreate", "channelSend", "channelReceive",
+         "channelTrySend", "channelTryReceive",
          "channelClose", "channelLen", "channelFree",
          "schedulerInit", "schedulerShutdown", "schedulerWorkerCount",
          "asyncFileRead", "asyncFileWrite"});
