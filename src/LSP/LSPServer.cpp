@@ -1196,6 +1196,9 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             // Crypto
             "sha256", "md5", "hmacSha256",
             "base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32",
+            // TOML
+            "tomlParse", "tomlGetString", "tomlGetInt",
+            "tomlGetBool", "tomlHasKey", "tomlFree",
             // Concurrency
             "mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",
             "atomicCreate", "atomicLoad", "atomicStore", "atomicAdd", "atomicSub",

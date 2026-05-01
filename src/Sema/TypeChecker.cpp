@@ -171,6 +171,15 @@ void TypeChecker::registerBuiltins() {
         scopes_.declare(name, sym);
     }
 
+    // Stdlib: TOML
+    for (auto &name : {"tomlParse", "tomlGetString", "tomlGetInt",
+                        "tomlGetBool", "tomlHasKey", "tomlFree"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
     // Stdlib: Synchronization (Mutex + Atomic + RWLock + CondVar + Channel + TaskGroup)
     for (auto &name : {"mutexCreate", "mutexLock", "mutexUnlock",
                         "mutexTryLock", "mutexFree",
@@ -2165,6 +2174,22 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeBoolType());
         } else if (ident->getName() == "processClose") {
             // void — no resolved type needed
+        // Stdlib: TOML
+        } else if (ident->getName() == "tomlParse") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "tomlGetString") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "tomlGetInt") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeI64Type());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "tomlGetBool") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeBoolType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "tomlHasKey") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "tomlFree") {
+            // void
         // Stdlib: JSON
         } else if (ident->getName() == "jsonGet") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());

@@ -239,16 +239,31 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
             auto *retIdent = static_cast<IdentifierExpr *>(node->getValue());
             heapStringVars_.erase(retIdent->getName());
         }
+        // When the return expression wraps a temp string in Optional<string>
+        // (e.g. `return jsonGet(...)`), the raw pointer is still in
+        // tempStrings_ but is now logically owned by the Optional we return.
+        // Clear the list to avoid emitting `free(raw)` *after* our ret in the
+        // surrounding visitBlockStmt's per-statement cleanup pass.
+        if (currentFuncOptionalInner_ && val &&
+            val->getType() == getOptionalType(currentFuncOptionalInner_)) {
+            tempStrings_.clear();
+        }
 
         emitScopeCleanup();
 
-        // Wrap plain value in Optional if the function returns T?
+        // Wrap plain value in Optional if the function returns T?.
+        // If val is already an Optional<T> matching the return type (e.g. when
+        // forwarding the result of another optional-returning call), leave it
+        // alone — wrapping again would store the whole Optional struct in the
+        // value slot.
         if (currentFuncOptionalInner_ && val) {
             auto *optTy = getOptionalType(currentFuncOptionalInner_);
-            llvm::Value *optVal = llvm::UndefValue::get(optTy);
-            optVal = builder_->CreateInsertValue(optVal, builder_->getTrue(), 0);
-            optVal = builder_->CreateInsertValue(optVal, val, 1);
-            val = optVal;
+            if (val->getType() != optTy) {
+                llvm::Value *optVal = llvm::UndefValue::get(optTy);
+                optVal = builder_->CreateInsertValue(optVal, builder_->getTrue(), 0);
+                optVal = builder_->CreateInsertValue(optVal, val, 1);
+                val = optVal;
+            }
         }
 
         if (currentIsAsync_ && currentCoroPromise_) {

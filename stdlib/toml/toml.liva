@@ -1,0 +1,57 @@
+// toml::toml — Minimal TOML parser stdlib module.
+//
+// Supports the same subset as liva.toml:
+//   [section] headers, key = "string" / 123 / true / false / ["a", "b"]
+//   No nested tables, no inline tables, no datetimes, no floats.
+//
+// Usage:
+//   import toml::toml
+//   let doc = TomlDocument.parse(text)
+//   if doc.isValid() {
+//       if let name = doc.getString("project", "name") { ... }
+//       if let port = doc.getInt("server", "port") { ... }
+//   }
+//   doc.free()
+
+import std::toml
+
+pub struct TomlDocument {
+    var handle: i64
+}
+
+impl TomlDocument {
+    // Parse TOML text. Returns a document; check isValid() to detect parse errors.
+    pub func parse(text: string) -> TomlDocument {
+        return TomlDocument { handle: tomlParse(text) }
+    }
+
+    // True if the document parsed successfully.
+    pub func isValid(ref self) -> bool {
+        return self.handle != (0 as i64)
+    }
+
+    // Get a string value, or nil if missing or wrong type.
+    pub func getString(ref self, section: string, key: string) -> string? {
+        return tomlGetString(self.handle, section, key)
+    }
+
+    // Get an integer value, or nil if missing or wrong type.
+    pub func getInt(ref self, section: string, key: string) -> i64? {
+        return tomlGetInt(self.handle, section, key)
+    }
+
+    // Get a boolean value, or nil if missing or wrong type.
+    pub func getBool(ref self, section: string, key: string) -> bool? {
+        return tomlGetBool(self.handle, section, key)
+    }
+
+    // Returns true if the section/key pair exists.
+    pub func hasKey(ref self, section: string, key: string) -> bool {
+        return tomlHasKey(self.handle, section, key)
+    }
+
+    // Release the underlying parsed document.
+    pub func free(mut self) {
+        tomlFree(self.handle)
+    }
+}

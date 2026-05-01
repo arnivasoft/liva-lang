@@ -313,6 +313,84 @@ func main() {
 )--", "full\n");
 }
 
+// === Compiler bug fix: function-typed parameters in struct methods ===
+// Previously visitImplDecl forgot to register fn-typed params in varFuncTypes_,
+// so calling them inside the method body produced "unresolved function".
+
+TEST_F(SelfHostTest, ClosureParamInStructMethod) {
+    expectOutput(R"--(
+struct Calc {
+    var n: i64
+}
+
+impl Calc {
+    pub func apply(ref self, fn: (i64) -> i64) -> i64 {
+        return fn(self.n)
+    }
+}
+
+func main() {
+    let c = Calc { n: 21 as i64 }
+    let r: i64 = c.apply(|x: i64| -> i64 { return x * (2 as i64) })
+    println(r)
+}
+)--", "42\n");
+}
+
+TEST_F(SelfHostTest, TomlParseAndGetters) {
+    expectOutput(R"--(
+import toml::toml
+func main() {
+    let text: string = "[project]\nname = \"liva\"\nversion = 42\nactive = true\n"
+    var doc = TomlDocument.parse(text)
+    if doc.isValid() {
+        if let name = doc.getString("project", "name") {
+            println(name)
+        }
+        if let v = doc.getInt("project", "version") {
+            println(v)
+        }
+        if let a = doc.getBool("project", "active") {
+            if a {
+                println("active")
+            }
+        }
+        if doc.hasKey("project", "name") {
+            println("has name")
+        }
+        if !doc.hasKey("project", "missing") {
+            println("no missing")
+        }
+    }
+    doc.free()
+}
+)--", "liva\n42\nactive\nhas name\nno missing\n");
+}
+
+TEST_F(SelfHostTest, TomlMissingKeysReturnNil) {
+    expectOutput(R"--(
+import toml::toml
+func main() {
+    var doc = TomlDocument.parse("[a]\nx = 1")
+    var hadStr: bool = false
+    if let s = doc.getString("a", "missing") {
+        hadStr = true
+    }
+    if !hadStr {
+        println("no string")
+    }
+    var hadInt: bool = false
+    if let i = doc.getInt("a", "missing") {
+        hadInt = true
+    }
+    if !hadInt {
+        println("no int")
+    }
+    doc.free()
+}
+)--", "no string\nno int\n");
+}
+
 TEST_F(SelfHostTest, NestedIf) {
     expectOutput(R"--(
 func main() {

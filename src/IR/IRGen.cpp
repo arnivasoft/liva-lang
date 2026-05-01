@@ -989,6 +989,31 @@ void IRGen::createRuntimeDecls() {
     // channelTryReceive(handle, &ok) -> i64
     module_->getOrInsertFunction("liva_channel_try_receive", chRecvTy);
 
+    // === Stdlib: TOML ===
+
+    // tomlParse(text) -> i64
+    auto *tomlParseTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_toml_parse", tomlParseTy);
+
+    // tomlGetString(handle, section, key) -> char*
+    auto *tomlGetStrTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_toml_get_string", tomlGetStrTy);
+
+    // tomlGetInt(handle, section, key, &ok) -> i64
+    auto *tomlGetIntTy = llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_toml_get_int", tomlGetIntTy);
+
+    // tomlGetBool(handle, section, key, &ok) -> i8
+    auto *tomlGetBoolTy = llvm::FunctionType::get(i8Ty, {i64Ty, i8PtrTy, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_toml_get_bool", tomlGetBoolTy);
+
+    // tomlHasKey(handle, section, key) -> i8
+    auto *tomlHasKeyTy = llvm::FunctionType::get(i8Ty, {i64Ty, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_toml_has_key", tomlHasKeyTy);
+
+    // tomlFree(handle) -> void
+    module_->getOrInsertFunction("liva_toml_free", voidI64Ty);
+
     // === Stdlib: TaskGroup ===
 
     // taskGroupCreate() -> i64

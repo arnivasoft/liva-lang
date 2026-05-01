@@ -1392,3 +1392,34 @@ TEST_F(StdlibModuleTest, AsyncOnceTypeChecks) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "Once struct API should type-check";
 }
+
+// ============================================================
+// Module: toml::toml — minimal TOML parser
+// ============================================================
+
+TEST_F(StdlibModuleTest, ImportTomlModule) {
+    auto r = check(
+        "import toml::toml\n"
+        "func main() {\n"
+        "    var doc = TomlDocument.parse(\"a = 1\")\n"
+        "    let ok: bool = doc.isValid()\n"
+        "    doc.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import toml::toml should resolve TomlDocument";
+}
+
+TEST_F(StdlibModuleTest, TomlDocumentMethods) {
+    auto r = check(
+        "import toml::toml\n"
+        "func main() {\n"
+        "    var doc = TomlDocument.parse(\"[a]\\nname = \\\"x\\\"\")\n"
+        "    let s: string? = doc.getString(\"a\", \"name\")\n"
+        "    let i: i64? = doc.getInt(\"a\", \"missing\")\n"
+        "    let b: bool? = doc.getBool(\"a\", \"flag\")\n"
+        "    let h: bool = doc.hasKey(\"a\", \"name\")\n"
+        "    doc.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "TomlDocument methods should type-check";
+}

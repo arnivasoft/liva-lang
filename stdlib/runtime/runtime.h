@@ -513,6 +513,32 @@ int8_t liva_channel_try_send(int64_t handle, int64_t value);
 /// Non-blocking receive. Sets *ok to 1 if a value was retrieved, 0 if buffer empty.
 int64_t liva_channel_try_receive(int64_t handle, int8_t *ok);
 
+// === TOML (minimal) ===
+//
+// Supports the same subset as the compiler's liva.toml parser:
+// [section] headers, key = "string" / 123 / true / false / ["a", "b"].
+// No nested tables, no inline tables, no datetimes, no floats.
+
+/// Parse TOML text. Returns opaque handle (>0) or 0 on error.
+int64_t liva_toml_parse(const char *text);
+
+/// Get a string value. Caller owns the returned malloc'd string, or NULL if missing.
+char *liva_toml_get_string(int64_t handle, const char *section, const char *key);
+
+/// Get an integer value. Sets *ok = 1 on success, 0 if missing or wrong type.
+int64_t liva_toml_get_int(int64_t handle, const char *section,
+                          const char *key, int8_t *ok);
+
+/// Get a boolean value. Sets *ok = 1 on success, 0 if missing or wrong type.
+int8_t liva_toml_get_bool(int64_t handle, const char *section,
+                          const char *key, int8_t *ok);
+
+/// Returns 1 if the key exists in the section, 0 otherwise.
+int8_t liva_toml_has_key(int64_t handle, const char *section, const char *key);
+
+/// Free a TOML document handle.
+void liva_toml_free(int64_t handle);
+
 // === TaskGroup Runtime ===
 int64_t liva_task_group_create();
 void liva_task_group_spawn(int64_t group, LivaTask *task);

@@ -1740,6 +1740,24 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
             }
         }
 
+        // Register function-typed method parameters in varFuncTypes_ so that
+        // calls like `fn(x)` inside the method body resolve as indirect calls
+        // through the closure object rather than as undefined function names.
+        for (auto &param : method->getParams()) {
+            if (!param.isSelf && param.type &&
+                param.type->getKind() == TypeRepr::Kind::Function) {
+                auto *ftr = static_cast<const FunctionTypeRepr *>(param.type.get());
+                std::vector<llvm::Type *> fParamTypes;
+                fParamTypes.push_back(llvm::PointerType::getUnqual(*context_)); // hidden env
+                for (auto &p : ftr->getParams())
+                    fParamTypes.push_back(toLLVMType(p.get()));
+                llvm::Type *fRetTy = ftr->getReturnType()
+                    ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
+                varFuncTypes_[param.name] =
+                    llvm::FunctionType::get(fRetTy, fParamTypes, false);
+            }
+        }
+
         visitBlockStmt(const_cast<BlockStmt *>(method->getBody()));
 
         // Add implicit return if needed

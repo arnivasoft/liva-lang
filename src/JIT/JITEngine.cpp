@@ -288,6 +288,14 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_channel_try_send);
     REG(liva_channel_try_receive);
 
+    // TOML
+    REG(liva_toml_parse);
+    REG(liva_toml_get_string);
+    REG(liva_toml_get_int);
+    REG(liva_toml_get_bool);
+    REG(liva_toml_has_key);
+    REG(liva_toml_free);
+
     // Benchmark
     REG(liva_bench_start);
     REG(liva_bench_iter);

@@ -100,6 +100,10 @@ void ModuleLoader::registerBuiltinModules() {
          "base64Encode", "base64Decode", "hexEncode", "hexDecode",
          "urlEncode", "urlDecode", "crc32"});
 
+    cache_["std::toml"] = createBuiltinModule("std::toml",
+        {"tomlParse", "tomlGetString", "tomlGetInt",
+         "tomlGetBool", "tomlHasKey", "tomlFree"});
+
     cache_["std::sync"] = createBuiltinModule("std::sync",
         {"mutexCreate", "mutexLock", "mutexUnlock", "mutexTryLock", "mutexFree",
          "atomicCreate", "atomicLoad", "atomicStore",

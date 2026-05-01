@@ -16,6 +16,7 @@
 #include <regex>
 #include <thread>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifdef _WIN32
@@ -3840,6 +3841,190 @@ void liva_condvar_free(int64_t handle) {
     if (!handle) return;
     auto *cv = (std::condition_variable_any *)(intptr_t)handle;
     delete cv;
+}
+
+// === TOML (minimal subset matching liva.toml semantics) ===
+
+namespace {
+
+struct LivaTomlValue {
+    enum Kind { String, Integer, Boolean, StringArray };
+    Kind kind = String;
+    std::string s;
+    int64_t i = 0;
+    bool b = false;
+    std::vector<std::string> arr;
+};
+
+struct LivaTomlDoc {
+    // sections[section][key] = value
+    std::unordered_map<std::string,
+        std::unordered_map<std::string, LivaTomlValue>> sections;
+};
+
+static std::string toml_trim(const std::string &s) {
+    size_t a = 0, b = s.size();
+    while (a < b && (s[a] == ' ' || s[a] == '\t')) ++a;
+    while (b > a && (s[b-1] == ' ' || s[b-1] == '\t' || s[b-1] == '\r')) --b;
+    return s.substr(a, b - a);
+}
+
+// Parse a quoted string starting at pos (must point to ").
+// Sets pos to one past the closing quote on success.
+static bool toml_parse_str(const std::string &s, size_t &pos, std::string &out) {
+    if (pos >= s.size() || s[pos] != '"') return false;
+    ++pos;
+    out.clear();
+    while (pos < s.size() && s[pos] != '"') {
+        if (s[pos] == '\\' && pos + 1 < s.size()) {
+            char c = s[pos + 1];
+            if (c == '"' || c == '\\') out.push_back(c);
+            else if (c == 'n') out.push_back('\n');
+            else if (c == 't') out.push_back('\t');
+            else if (c == 'r') out.push_back('\r');
+            else { out.push_back('\\'); out.push_back(c); }
+            pos += 2;
+        } else {
+            out.push_back(s[pos]);
+            ++pos;
+        }
+    }
+    if (pos >= s.size()) return false; // unterminated
+    ++pos; // consume closing "
+    return true;
+}
+
+} // anonymous namespace
+
+int64_t liva_toml_parse(const char *text) {
+    if (!text) return 0;
+    auto *doc = new (std::nothrow) LivaTomlDoc();
+    if (!doc) return 0;
+
+    std::string content(text);
+    std::string currentSection;
+    size_t lineStart = 0;
+    while (lineStart <= content.size()) {
+        size_t nl = content.find('\n', lineStart);
+        std::string raw = (nl == std::string::npos)
+            ? content.substr(lineStart)
+            : content.substr(lineStart, nl - lineStart);
+        lineStart = (nl == std::string::npos) ? content.size() + 1 : nl + 1;
+
+        std::string line = toml_trim(raw);
+        if (line.empty() || line[0] == '#') continue;
+
+        // [section]
+        if (line[0] == '[') {
+            auto close = line.find(']');
+            if (close == std::string::npos) { delete doc; return 0; }
+            currentSection = toml_trim(line.substr(1, close - 1));
+            continue;
+        }
+
+        auto eq = line.find('=');
+        if (eq == std::string::npos) { delete doc; return 0; }
+        std::string key = toml_trim(line.substr(0, eq));
+        std::string val = toml_trim(line.substr(eq + 1));
+
+        // strip inline comment when not inside string/array
+        if (!val.empty() && val[0] != '"' && val[0] != '[') {
+            auto h = val.find('#');
+            if (h != std::string::npos) val = toml_trim(val.substr(0, h));
+        }
+
+        LivaTomlValue v;
+        if (!val.empty() && val[0] == '"') {
+            size_t pos = 0;
+            std::string s;
+            if (!toml_parse_str(val, pos, s)) { delete doc; return 0; }
+            v.kind = LivaTomlValue::String;
+            v.s = std::move(s);
+        } else if (val == "true" || val == "false") {
+            v.kind = LivaTomlValue::Boolean;
+            v.b = (val == "true");
+        } else if (!val.empty() && val[0] == '[') {
+            auto closeB = val.find(']');
+            if (closeB == std::string::npos) { delete doc; return 0; }
+            v.kind = LivaTomlValue::StringArray;
+            std::string inner = toml_trim(val.substr(1, closeB - 1));
+            size_t p = 0;
+            while (p < inner.size()) {
+                while (p < inner.size() && (inner[p] == ' ' || inner[p] == '\t' || inner[p] == ','))
+                    ++p;
+                if (p >= inner.size()) break;
+                if (inner[p] != '"') { delete doc; return 0; }
+                std::string elem;
+                if (!toml_parse_str(inner, p, elem)) { delete doc; return 0; }
+                v.arr.push_back(std::move(elem));
+            }
+        } else {
+            char *endptr = nullptr;
+            long n = std::strtol(val.c_str(), &endptr, 10);
+            if (endptr != val.c_str() && (*endptr == '\0' || *endptr == ' ' || *endptr == '\t')) {
+                v.kind = LivaTomlValue::Integer;
+                v.i = n;
+            } else {
+                v.kind = LivaTomlValue::String;
+                v.s = val;
+            }
+        }
+        doc->sections[currentSection][key] = std::move(v);
+    }
+    return (int64_t)(intptr_t)doc;
+}
+
+char *liva_toml_get_string(int64_t handle, const char *section, const char *key) {
+    if (!handle || !section || !key) return nullptr;
+    auto *doc = (LivaTomlDoc *)(intptr_t)handle;
+    auto sIt = doc->sections.find(section);
+    if (sIt == doc->sections.end()) return nullptr;
+    auto kIt = sIt->second.find(key);
+    if (kIt == sIt->second.end() || kIt->second.kind != LivaTomlValue::String)
+        return nullptr;
+    return strdup(kIt->second.s.c_str());
+}
+
+int64_t liva_toml_get_int(int64_t handle, const char *section,
+                          const char *key, int8_t *ok) {
+    if (ok) *ok = 0;
+    if (!handle || !section || !key) return 0;
+    auto *doc = (LivaTomlDoc *)(intptr_t)handle;
+    auto sIt = doc->sections.find(section);
+    if (sIt == doc->sections.end()) return 0;
+    auto kIt = sIt->second.find(key);
+    if (kIt == sIt->second.end() || kIt->second.kind != LivaTomlValue::Integer)
+        return 0;
+    if (ok) *ok = 1;
+    return kIt->second.i;
+}
+
+int8_t liva_toml_get_bool(int64_t handle, const char *section,
+                          const char *key, int8_t *ok) {
+    if (ok) *ok = 0;
+    if (!handle || !section || !key) return 0;
+    auto *doc = (LivaTomlDoc *)(intptr_t)handle;
+    auto sIt = doc->sections.find(section);
+    if (sIt == doc->sections.end()) return 0;
+    auto kIt = sIt->second.find(key);
+    if (kIt == sIt->second.end() || kIt->second.kind != LivaTomlValue::Boolean)
+        return 0;
+    if (ok) *ok = 1;
+    return kIt->second.b ? 1 : 0;
+}
+
+int8_t liva_toml_has_key(int64_t handle, const char *section, const char *key) {
+    if (!handle || !section || !key) return 0;
+    auto *doc = (LivaTomlDoc *)(intptr_t)handle;
+    auto sIt = doc->sections.find(section);
+    if (sIt == doc->sections.end()) return 0;
+    return sIt->second.find(key) != sIt->second.end() ? 1 : 0;
+}
+
+void liva_toml_free(int64_t handle) {
+    if (!handle) return;
+    auto *doc = (LivaTomlDoc *)(intptr_t)handle;
+    delete doc;
 }
 
 // === Channel Runtime ===

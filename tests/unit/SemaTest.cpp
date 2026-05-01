@@ -6450,6 +6450,49 @@ TEST_F(SemaTest, TaskIsCancelledReturnsBool) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, TomlParseReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let h: i64 = tomlParse("a = 1")
+            tomlFree(h)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TomlGetStringReturnsOptional) {
+    auto result = check(R"--(
+        func main() {
+            let h: i64 = tomlParse("[a]\nname = \"x\"")
+            let s: string? = tomlGetString(h, "a", "name")
+            tomlFree(h)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TomlGetIntReturnsOptional) {
+    auto result = check(R"--(
+        func main() {
+            let h: i64 = tomlParse("[a]\nv = 42")
+            let v: i64? = tomlGetInt(h, "a", "v")
+            tomlFree(h)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, TomlHasKeyReturnsBool) {
+    auto result = check(R"--(
+        func main() {
+            let h: i64 = tomlParse("[a]\nx = 1")
+            let ok: bool = tomlHasKey(h, "a", "x")
+            tomlFree(h)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, AtomicCreateReturnsI64) {
     auto result = check(R"--(
         func main() {

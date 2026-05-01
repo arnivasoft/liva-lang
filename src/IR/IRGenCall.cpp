@@ -2225,6 +2225,106 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateTrunc(result, builder_->getInt1Ty(), "ch.try_send.bool");
     }
 
+    // === Stdlib: TOML ===
+
+    // tomlParse(text) -> i64
+    if (funcName == "tomlParse" && !node->getArgs().empty()) {
+        auto *textArg = visit(node->getArgs()[0].get());
+        if (!textArg) return nullptr;
+        auto *fn = getOrPanic("liva_toml_parse");
+        return builder_->CreateCall(fn, {textArg}, "toml.parse");
+    }
+
+    // tomlGetString(handle, section, key) -> string?
+    if (funcName == "tomlGetString" && node->getArgs().size() >= 3) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *secArg = visit(node->getArgs()[1].get());
+        auto *keyArg = visit(node->getArgs()[2].get());
+        if (!handleArg || !secArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_toml_get_string");
+        auto *result = builder_->CreateCall(fn, {toI64(handleArg), secArg, keyArg}, "toml.get_str.raw");
+        trackStringTemp(result);
+        // Wrap in Optional<string>: NULL → nil, else Some(ptr)
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result,
+            llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
+            "toml.get_str.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "toml.get_str.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "toml.get_str.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "toml.get_str.result");
+    }
+
+    // tomlGetInt(handle, section, key) -> i64? (Optional<i64>)
+    if (funcName == "tomlGetInt" && node->getArgs().size() >= 3) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *secArg = visit(node->getArgs()[1].get());
+        auto *keyArg = visit(node->getArgs()[2].get());
+        if (!handleArg || !secArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_toml_get_int");
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *okAlloca = createEntryBlockAlloca(curFunc, "toml.get_int.ok", builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *result = builder_->CreateCall(fn, {toI64(handleArg), secArg, keyArg, okAlloca}, "toml.get_int.val");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "toml.get_int.ok.val");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0), "toml.get_int.hasval");
+        auto *optTy = getOptionalType(builder_->getInt64Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "toml.get_int.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "toml.get_int.result");
+    }
+
+    // tomlGetBool(handle, section, key) -> bool? (Optional<bool>)
+    if (funcName == "tomlGetBool" && node->getArgs().size() >= 3) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *secArg = visit(node->getArgs()[1].get());
+        auto *keyArg = visit(node->getArgs()[2].get());
+        if (!handleArg || !secArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_toml_get_bool");
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *okAlloca = createEntryBlockAlloca(curFunc, "toml.get_bool.ok", builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *result = builder_->CreateCall(fn, {toI64(handleArg), secArg, keyArg, okAlloca}, "toml.get_bool.val");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "toml.get_bool.ok.val");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0), "toml.get_bool.hasval");
+        auto *resultBool = builder_->CreateTrunc(result, builder_->getInt1Ty(), "toml.get_bool.bool");
+        auto *optTy = getOptionalType(builder_->getInt1Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "toml.get_bool.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(resultBool, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "toml.get_bool.result");
+    }
+
+    // tomlHasKey(handle, section, key) -> bool
+    if (funcName == "tomlHasKey" && node->getArgs().size() >= 3) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *secArg = visit(node->getArgs()[1].get());
+        auto *keyArg = visit(node->getArgs()[2].get());
+        if (!handleArg || !secArg || !keyArg) return nullptr;
+        auto *fn = getOrPanic("liva_toml_has_key");
+        auto *result = builder_->CreateCall(fn, {toI64(handleArg), secArg, keyArg}, "toml.has");
+        return builder_->CreateTrunc(result, builder_->getInt1Ty(), "toml.has.bool");
+    }
+
+    // tomlFree(handle) -> void
+    if (funcName == "tomlFree" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_toml_free");
+        builder_->CreateCall(fn, {toI64(handleArg)});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
+    }
+
     // channelTryReceive(handle) -> i64? (Optional<i64>)
     if (funcName == "channelTryReceive" && !node->getArgs().empty()) {
         auto *handleArg = visit(node->getArgs()[0].get());
