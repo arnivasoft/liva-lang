@@ -5666,14 +5666,19 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
             fieldValues.push_back(val);
         }
 
-        // Prefer type args from the surrounding monomorphization context
-        // (e.g. `return Stream { ... }` inside Stream_string_from): T is
-        // already pinned to the concrete type via currentTypeSubst_, and
-        // inferStructTypeArgs only handles `var x: T` direct fields, not
-        // `var x: [T]` containers.
+        // Resolve type args in priority order:
+        //  1. Explicit turbofish on the literal: `Stream::<i64> { ... }`
+        //  2. Surrounding monomorphization context (`return Stream { ... }`
+        //     inside Stream_string_from has T pinned via currentTypeSubst_)
+        //  3. Inference from field init values (only catches `var x: T`)
         const auto &typeParams = gsIt->second->getTypeParams();
         std::vector<const TypeRepr *> typeArgs;
-        if (!currentTypeSubst_.empty()) {
+        if (!node->getTypeArgs().empty()) {
+            for (auto &ta : node->getTypeArgs())
+                typeArgs.push_back(ta.get());
+        }
+        if (typeArgs.size() != typeParams.size() && !currentTypeSubst_.empty()) {
+            typeArgs.clear();
             for (const auto &tp : typeParams) {
                 auto it = currentTypeSubst_.find(tp);
                 if (it != currentTypeSubst_.end())
@@ -5696,47 +5701,8 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
             if (idx < 0 || !fieldValues[i])
                 continue;
             auto *val = dupIfStringField(mangledName, idx, fieldValues[i]);
-            // Deep-clone DynArray field buffers so caller and struct can be
-            // freed independently (mirrors the non-generic path below).
-            auto ftrIt = structFieldTypeReprs_.find(mangledName);
-            if (ftrIt != structFieldTypeReprs_.end() &&
-                idx < static_cast<int>(ftrIt->second.size())) {
-                const TypeRepr *ft = ftrIt->second[idx];
-                if (ft && ft->getKind() == TypeRepr::Kind::Array) {
-                    auto *arrRepr = static_cast<const ArrayTypeRepr *>(ft);
-                    if (arrRepr->isDynamic() && val->getType()->isStructTy()) {
-                        auto *daTy = getDynArrayStructTy();
-                        auto *funcCur = builder_->GetInsertBlock()->getParent();
-                        auto *srcAlloca = createEntryBlockAlloca(funcCur,
-                            node->getFields()[i].name + ".src", daTy);
-                        builder_->CreateStore(val, srcAlloca);
-                        auto *dataGEP = builder_->CreateStructGEP(daTy, srcAlloca, 0);
-                        auto *lenGEP = builder_->CreateStructGEP(daTy, srcAlloca, 1);
-                        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                        auto *srcData = builder_->CreateLoad(ptrTy, dataGEP);
-                        auto *srcLen = builder_->CreateLoad(builder_->getInt64Ty(), lenGEP);
-                        auto *elemLLVMTy = toLLVMType(arrRepr->getElement());
-                        uint64_t elemSize = module_->getDataLayout()
-                            .getTypeAllocSize(elemLLVMTy);
-                        auto *cloned = builder_->CreateCall(getOrPanic("liva_array_clone"),
-                            {srcData, srcLen, builder_->getInt64(elemSize)},
-                            node->getFields()[i].name + ".clone");
-                        auto *newAlloca = createEntryBlockAlloca(funcCur,
-                            node->getFields()[i].name + ".cloned.da", daTy);
-                        builder_->CreateStore(cloned,
-                            builder_->CreateStructGEP(daTy, newAlloca, 0));
-                        builder_->CreateStore(srcLen,
-                            builder_->CreateStructGEP(daTy, newAlloca, 1));
-                        auto *eight = builder_->getInt64(8);
-                        auto *capVal = builder_->CreateSelect(
-                            builder_->CreateICmpSGT(srcLen, eight), srcLen, eight);
-                        builder_->CreateStore(capVal,
-                            builder_->CreateStructGEP(daTy, newAlloca, 2));
-                        val = builder_->CreateLoad(daTy, newAlloca,
-                            node->getFields()[i].name + ".cloned.val");
-                    }
-                }
-            }
+            val = cloneIfDynArrayField(mangledName, idx, val,
+                                       node->getFields()[i].name);
             auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, node->getFields()[i].name);
             builder_->CreateStore(val, gep);
         }
@@ -5763,51 +5729,7 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
         if (!val)
             continue;
         val = dupIfStringField(typeName, idx, val);
-        // DynArray field: deep-clone the buffer so the source variable and
-        // the new struct can be freed independently. Without this, both end
-        // up calling liva_array_free on the same data pointer (double free).
-        auto ftrIt = structFieldTypeReprs_.find(typeName);
-        if (ftrIt != structFieldTypeReprs_.end() &&
-            idx < static_cast<int>(ftrIt->second.size())) {
-            const TypeRepr *ft = ftrIt->second[idx];
-            if (ft && ft->getKind() == TypeRepr::Kind::Array) {
-                auto *arrRepr = static_cast<const ArrayTypeRepr *>(ft);
-                if (arrRepr->isDynamic() && val->getType()->isStructTy()) {
-                    auto *daTy = getDynArrayStructTy();
-                    auto *funcCur = builder_->GetInsertBlock()->getParent();
-                    auto *srcAlloca = createEntryBlockAlloca(funcCur,
-                        fieldInit.name + ".src", daTy);
-                    builder_->CreateStore(val, srcAlloca);
-                    auto *dataGEP = builder_->CreateStructGEP(daTy, srcAlloca, 0);
-                    auto *lenGEP = builder_->CreateStructGEP(daTy, srcAlloca, 1);
-                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                    auto *srcData = builder_->CreateLoad(ptrTy, dataGEP);
-                    auto *srcLen = builder_->CreateLoad(builder_->getInt64Ty(), lenGEP);
-                    auto *elemLLVMTy = toLLVMType(arrRepr->getElement());
-                    uint64_t elemSize = module_->getDataLayout()
-                        .getTypeAllocSize(elemLLVMTy);
-                    auto *cloned = builder_->CreateCall(getOrPanic("liva_array_clone"),
-                        {srcData, srcLen, builder_->getInt64(elemSize)},
-                        fieldInit.name + ".clone");
-                    // Build a fresh DynArray struct {cloned, len, max(len,8)}
-                    auto *newAlloca = createEntryBlockAlloca(funcCur,
-                        fieldInit.name + ".cloned.da", daTy);
-                    builder_->CreateStore(cloned,
-                        builder_->CreateStructGEP(daTy, newAlloca, 0));
-                    builder_->CreateStore(srcLen,
-                        builder_->CreateStructGEP(daTy, newAlloca, 1));
-                    // Capacity matches what liva_array_clone allocated (max(len, 8))
-                    auto *eight = builder_->getInt64(8);
-                    auto *capVal = builder_->CreateSelect(
-                        builder_->CreateICmpSGT(srcLen, eight), srcLen, eight,
-                        fieldInit.name + ".cap");
-                    builder_->CreateStore(capVal,
-                        builder_->CreateStructGEP(daTy, newAlloca, 2));
-                    val = builder_->CreateLoad(daTy, newAlloca,
-                        fieldInit.name + ".cloned.val");
-                }
-            }
-        }
+        val = cloneIfDynArrayField(typeName, idx, val, fieldInit.name);
         auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, fieldInit.name);
         builder_->CreateStore(val, gep);
     }

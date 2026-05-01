@@ -555,6 +555,48 @@ func main() {
 // the call, the monomorphized struct's [T] field used `ptr` instead of
 // `%DynArray`, and structFieldTypeReprs_ never got populated with the
 // substituted type (so `self.source.length` failed to resolve).
+// Turbofish (`Name::<T>`) on a struct literal disambiguates the type args
+// without relying on field-value inference, which only handles `var x: T`
+// direct fields and falls over on `var x: [T]` containers.
+TEST_F(SelfHostTest, TurbofishStructLiteralExplicitTypeArgs) {
+    expectOutput(R"--(
+pub struct Box<T> {
+    var value: T
+}
+
+func main() {
+    let bi = Box::<i64> { value: 42 as i64 }
+    println(bi.value)
+    let bs = Box::<string> { value: "hi" }
+    println(bs.value)
+}
+)--", "42\nhi\n");
+}
+
+TEST_F(SelfHostTest, TurbofishStaticMethodCall) {
+    expectOutput(R"--(
+pub struct Stream<T> {
+    var source: [T]
+    var index: i64
+}
+impl Stream<T> {
+    pub func from(arr: [T]) -> Stream<T> {
+        return Stream { source: arr, index: 0 as i64 }
+    }
+    pub func count(ref self) -> i64 {
+        return self.source.length - self.index
+    }
+}
+func main() {
+    var arr: [i64] = []
+    arr.push(1 as i64)
+    arr.push(2 as i64)
+    let s = Stream::<i64>.from(arr)
+    println(s.count())
+}
+)--", "2\n");
+}
+
 TEST_F(SelfHostTest, GenericStreamMonomorphizesPerElementType) {
     expectOutput(R"--(
 import stream::stream

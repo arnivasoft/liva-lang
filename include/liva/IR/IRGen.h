@@ -443,6 +443,14 @@ private:
     /// Handles both Kind::String and NamedTypeRepr("String")
     static bool isStringTypeRepr(const TypeRepr *tr);
 
+    /// If `structName.field[idx]` is a dynamic-array typed field and `val`
+    /// is a DynArray struct value, return a deep-cloned DynArray value so
+    /// the source variable and the new struct can be freed independently.
+    /// Otherwise returns `val` unchanged.
+    llvm::Value *cloneIfDynArrayField(const std::string &structName, int idx,
+                                       llvm::Value *val,
+                                       const std::string &nameHint);
+
     /// Emit cleanup calls for heap-allocated resources before scope exit
     void emitScopeCleanup();
 

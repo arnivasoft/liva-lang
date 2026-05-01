@@ -1027,8 +1027,25 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 fieldValues.push_back(val);
             }
 
-            // Infer type arguments from field values
-            auto typeArgs = inferStructTypeArgs(gsIt->second, structLit->getFields(), fieldValues);
+            // Resolve type args (priority: explicit turbofish, surrounding
+            // monomorphization context, inference from field values).
+            const auto &typeParams = gsIt->second->getTypeParams();
+            std::vector<const TypeRepr *> typeArgs;
+            if (!structLit->getTypeArgs().empty()) {
+                for (auto &ta : structLit->getTypeArgs())
+                    typeArgs.push_back(ta.get());
+            }
+            if (typeArgs.size() != typeParams.size() && !currentTypeSubst_.empty()) {
+                typeArgs.clear();
+                for (const auto &tp : typeParams) {
+                    auto it = currentTypeSubst_.find(tp);
+                    if (it != currentTypeSubst_.end())
+                        typeArgs.push_back(it->second);
+                }
+            }
+            if (typeArgs.size() != typeParams.size()) {
+                typeArgs = inferStructTypeArgs(gsIt->second, structLit->getFields(), fieldValues);
+            }
 
             // Monomorphize the struct
             monomorphizeStruct(gsIt->second, typeArgs);
@@ -1044,6 +1061,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 if (idx < 0 || !fieldValues[i])
                     continue;
                 auto *val = dupIfStringField(mangledName, idx, fieldValues[i]);
+                val = cloneIfDynArrayField(mangledName, idx, val,
+                                           structLit->getFields()[i].name);
                 auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
                                                        structLit->getFields()[i].name);
                 builder_->CreateStore(val, gep);
@@ -1071,6 +1090,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     continue;
                 // Dup string fields to ensure ownership for safe cleanup
                 val = dupIfStringField(typeName, idx, val);
+                val = cloneIfDynArrayField(typeName, idx, val, fieldInit.name);
                 auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
                                                        fieldInit.name);
                 builder_->CreateStore(val, gep);

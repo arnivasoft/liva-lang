@@ -303,6 +303,15 @@ public:
     const std::string &getTypeName() const { return typeName_; }
     const std::vector<FieldInit> &getFields() const { return fields_; }
 
+    /// Explicit generic type args (turbofish): `Stream::<i64> { ... }`.
+    /// Empty when the caller relied on inference from field/value types.
+    void setTypeArgs(std::vector<std::unique_ptr<TypeRepr>> args) {
+        typeArgs_ = std::move(args);
+    }
+    const std::vector<std::unique_ptr<TypeRepr>> &getTypeArgs() const {
+        return typeArgs_;
+    }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::StructLiteralExpr;
     }
@@ -310,6 +319,7 @@ public:
 private:
     std::string typeName_;
     std::vector<FieldInit> fields_;
+    std::vector<std::unique_ptr<TypeRepr>> typeArgs_;
 };
 
 /// Match arm for pattern matching

@@ -230,6 +230,45 @@ llvm::Value *IRGen::dupIfStringField(const std::string &structName,
     return val;
 }
 
+llvm::Value *IRGen::cloneIfDynArrayField(const std::string &structName, int idx,
+                                          llvm::Value *val,
+                                          const std::string &nameHint) {
+    if (!val || idx < 0) return val;
+    if (!val->getType()->isStructTy()) return val;
+    auto ftrIt = structFieldTypeReprs_.find(structName);
+    if (ftrIt == structFieldTypeReprs_.end()) return val;
+    if (idx >= static_cast<int>(ftrIt->second.size())) return val;
+    const TypeRepr *ft = ftrIt->second[idx];
+    if (!ft || ft->getKind() != TypeRepr::Kind::Array) return val;
+    auto *arrRepr = static_cast<const ArrayTypeRepr *>(ft);
+    if (!arrRepr->isDynamic()) return val;
+
+    auto *daTy = getDynArrayStructTy();
+    auto *funcCur = builder_->GetInsertBlock()->getParent();
+    auto *srcAlloca = createEntryBlockAlloca(funcCur, nameHint + ".src", daTy);
+    builder_->CreateStore(val, srcAlloca);
+    auto *dataGEP = builder_->CreateStructGEP(daTy, srcAlloca, 0);
+    auto *lenGEP = builder_->CreateStructGEP(daTy, srcAlloca, 1);
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+    auto *srcData = builder_->CreateLoad(ptrTy, dataGEP);
+    auto *srcLen = builder_->CreateLoad(builder_->getInt64Ty(), lenGEP);
+    auto *elemLLVMTy = toLLVMType(arrRepr->getElement());
+    uint64_t elemSize = module_->getDataLayout().getTypeAllocSize(elemLLVMTy);
+    auto *cloned = builder_->CreateCall(getOrPanic("liva_array_clone"),
+        {srcData, srcLen, builder_->getInt64(elemSize)}, nameHint + ".clone");
+    auto *newAlloca = createEntryBlockAlloca(funcCur, nameHint + ".cloned.da", daTy);
+    builder_->CreateStore(cloned,
+        builder_->CreateStructGEP(daTy, newAlloca, 0));
+    builder_->CreateStore(srcLen,
+        builder_->CreateStructGEP(daTy, newAlloca, 1));
+    auto *eight = builder_->getInt64(8);
+    auto *capVal = builder_->CreateSelect(
+        builder_->CreateICmpSGT(srcLen, eight), srcLen, eight);
+    builder_->CreateStore(capVal,
+        builder_->CreateStructGEP(daTy, newAlloca, 2));
+    return builder_->CreateLoad(daTy, newAlloca, nameHint + ".cloned.val");
+}
+
 llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
     if (diBuilder_) emitDebugLocation(node->getStartLoc());
     if (node->hasValue()) {

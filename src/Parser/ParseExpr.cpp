@@ -275,7 +275,8 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
         }
 
         // Turbofish: Name::<T, U> ... disambiguated via '::' before '<'.
-        // Gives explicit generic type args for a subsequent .method() call.
+        // Gives explicit generic type args for a subsequent .method() call,
+        // or for a struct literal: Name::<T, U> { field: value, ... }.
         if (check(TokenKind::coloncolon) && peek().is(TokenKind::less)) {
             advance(); // consume ::
             advance(); // consume <
@@ -288,6 +289,16 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
                 } while (match(TokenKind::comma));
             }
             expect(TokenKind::greater);
+            // Followed by `{` → explicit-typed struct literal.
+            if (check(TokenKind::l_brace) && !name.empty() &&
+                name[0] >= 'A' && name[0] <= 'Z') {
+                auto lit = parseStructLiteral(name, startLoc);
+                if (lit && lit->getKind() == ASTNode::NodeKind::StructLiteralExpr) {
+                    auto *sl = static_cast<StructLiteralExpr *>(lit.get());
+                    sl->setTypeArgs(std::move(typeArgs));
+                }
+                return lit;
+            }
             auto ident = std::make_unique<IdentifierExpr>(std::move(name), rangeFrom(startLoc));
             ident->setTypeArgs(std::move(typeArgs));
             return ident;
