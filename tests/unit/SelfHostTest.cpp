@@ -550,6 +550,60 @@ func main() {
 )--", "rejected\nrejected\n");
 }
 
+// Regression: strSplit returned an empty array when bound with an explicit
+// `[T]` annotation because the array branch in IRGenDecl ignored non-literal
+// initializers and allocated a fresh empty DynArray.
+TEST_F(SelfHostTest, StrSplitWithAnnotationReturnsParts) {
+    expectOutput(R"--(
+import std::strings
+func main() {
+    let parts: [string] = strSplit("a.b.c", ".")
+    println(parts.length)
+    for p in parts {
+        println(p)
+    }
+}
+)--", "3\na\nb\nc\n");
+}
+
+// Regression: returning a struct literal whose field is initialized from a
+// tracked-temp string call (e.g. `return Wrapper { s: strToUpper(x) }`)
+// emitted free() for the temp *after* the ret terminator, tripping LLVM
+// verifier's "Terminator in middle of basic block".
+TEST_F(SelfHostTest, StructLiteralWithTrackedTempCompiles) {
+    expectOutput(R"--(
+import std::strings
+struct Wrapper {
+    var s: string
+}
+impl Wrapper {
+    pub func make(s: string) -> Wrapper {
+        return Wrapper { s: strToUpper(s) }
+    }
+}
+func main() {
+    let w = Wrapper.make("hello")
+    println(w.s)
+}
+)--", "HELLO\n");
+}
+
+// Regression: `let opt: string? = hexDecode(...)` then `if let b = opt`
+// previously produced garbage because the inner ptr was tracked as a temp
+// and freed at end of the producing statement, leaving the variable holding
+// a dangling pointer (use-after-free).
+TEST_F(SelfHostTest, OptionalStringFromBuiltinSurvivesScope) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    let opt: string? = hexDecode("616263")
+    if let b = opt {
+        println(b)
+    }
+}
+)--", "abc\n");
+}
+
 TEST_F(SelfHostTest, IsoFractionalSeconds) {
     // Accept .fff fractional component (truncated to whole seconds).
     expectOutput(R"--(

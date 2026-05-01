@@ -414,6 +414,12 @@ private:
     /// String variables holding heap-allocated memory (freed at scope exit)
     std::set<std::string> heapStringVars_;
 
+    /// Optional<string> variables that own their inner heap string. Cleaned
+    /// up at scope exit by checking the hasVal flag and freeing only the
+    /// inner ptr when set. Populated when an Optional-returning builtin
+    /// (hexDecode, base64UrlDecode, tomlGetString, ...) is bound to a let.
+    std::set<std::string> heapOptionalStringVars_;
+
     /// Helper: emit free for all temp strings and clear list
     void emitTempStringCleanup();
 

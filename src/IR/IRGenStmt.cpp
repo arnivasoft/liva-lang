@@ -131,6 +131,35 @@ void IRGen::emitScopeCleanup() {
             auto *strPtr = builder_->CreateLoad(ptrTy, it->second, name + ".str.drop");
             builder_->CreateCall(freeFn, {strPtr});
         }
+        // Conditionally free Optional<string> inner ptrs (only if hasVal).
+        for (auto &name : heapOptionalStringVars_) {
+            if (movedVars_.count(name)) continue;
+            auto it = namedValues_.find(name);
+            if (it == namedValues_.end()) continue;
+            auto optIt = varOptionalTypes_.find(name);
+            if (optIt == varOptionalTypes_.end()) continue;
+            auto *innerTy = optIt->second;
+            auto *optTy = getOptionalType(innerTy);
+            auto *func = builder_->GetInsertBlock()->getParent();
+
+            auto *hasValGEP = builder_->CreateStructGEP(optTy, it->second, 0,
+                name + ".opt.has");
+            auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValGEP,
+                name + ".opt.has.val");
+            auto *thenBB = llvm::BasicBlock::Create(*context_, name + ".opt.free", func);
+            auto *contBB = llvm::BasicBlock::Create(*context_, name + ".opt.cont", func);
+            builder_->CreateCondBr(hasVal, thenBB, contBB);
+
+            builder_->SetInsertPoint(thenBB);
+            auto *innerGEP = builder_->CreateStructGEP(optTy, it->second, 1,
+                name + ".opt.inner");
+            auto *innerPtr = builder_->CreateLoad(ptrTy, innerGEP,
+                name + ".opt.inner.val");
+            builder_->CreateCall(freeFn, {innerPtr});
+            builder_->CreateBr(contBB);
+
+            builder_->SetInsertPoint(contBB);
+        }
     }
 }
 
@@ -248,6 +277,14 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
             val->getType() == getOptionalType(currentFuncOptionalInner_)) {
             tempStrings_.clear();
         }
+
+        // Free remaining tracked temp strings BEFORE the terminator. Otherwise
+        // visitBlockStmt's per-statement cleanup runs after CreateRet and
+        // produces "Terminator in middle of basic block" verifier errors —
+        // common pattern: `return Foo { s: strToUpper(x) }` where the temp is
+        // duplicated into the struct field but the original still needs to
+        // be freed.
+        emitTempStringCleanup();
 
         emitScopeCleanup();
 

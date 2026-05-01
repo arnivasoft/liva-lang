@@ -331,6 +331,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarTupleTypes = varTupleTypes_;
     auto oldMovedVars = movedVars_;
     auto oldHeapStringVars = heapStringVars_;
+    auto oldHeapOptionalStringVars = heapOptionalStringVars_;
     auto oldTempStrings = tempStrings_;
     auto *oldFuncResultInfo = currentFuncResultInfo_;
     auto *oldFuncOptInner = currentFuncOptionalInner_;
@@ -373,6 +374,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varTupleTypes_.clear();
     movedVars_.clear();
     heapStringVars_.clear();
+    heapOptionalStringVars_.clear();
     tempStrings_.clear();
     currentFuncResultInfo_ = nullptr;
     currentFuncOptionalInner_ = nullptr;
@@ -642,6 +644,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varTupleTypes_ = oldVarTupleTypes;
     movedVars_ = oldMovedVars;
     heapStringVars_ = oldHeapStringVars;
+    heapOptionalStringVars_ = oldHeapOptionalStringVars;
     tempStrings_ = oldTempStrings;
     currentFuncResultInfo_ = oldFuncResultInfo;
     currentFuncOptionalInner_ = oldFuncOptInner;
@@ -934,15 +937,34 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             builder_->CreateStore(builder_->getFalse(), hasValPtr);
             builder_->CreateStore(llvm::Constant::getNullValue(innerLLVM), valPtr);
         } else if (node->hasInit()) {
+            // Snapshot tempStrings_ to detect inner-string ownership transfer
+            // for Optional<string>-returning builtins (hexDecode, tomlGetString,
+            // base64UrlDecode, isoParse, ...). Their codegen calls
+            // trackStringTemp on the inner ptr; without ownership transfer the
+            // raw ptr is freed at the end of this statement, leaving the var
+            // holding a dangling pointer.
+            size_t tempsBeforeInit = tempStrings_.size();
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal && initVal->getType() == optStructTy) {
                 // RHS is already an Optional<T> matching the declared type;
                 // store it as a single value rather than wrapping in Some(...)
                 builder_->CreateStore(initVal, alloca);
+                if (innerLLVM->isPointerTy() &&
+                    tempStrings_.size() > tempsBeforeInit) {
+                    // Transfer ownership: drop the wrapping call's temp and
+                    // mark this variable for conditional cleanup.
+                    tempStrings_.pop_back();
+                    heapOptionalStringVars_.insert(node->getName());
+                }
             } else {
                 // RHS is a plain T value → wrap as Some(value)
                 builder_->CreateStore(builder_->getTrue(), hasValPtr);
                 if (initVal) builder_->CreateStore(initVal, valPtr);
+                if (innerLLVM->isPointerTy() && initVal &&
+                    tempStrings_.size() > tempsBeforeInit) {
+                    tempStrings_.pop_back();
+                    heapOptionalStringVars_.insert(node->getName());
+                }
             }
         } else {
             builder_->CreateStore(builder_->getFalse(), hasValPtr);
@@ -1151,8 +1173,15 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     }
 
     // Dynamic array: var arr: [i32] = [1, 2, 3] or var arr: [i32] = []
+    // (only handles array-literal initializers; for `let arr: [T] = call()`
+    // we fall through to the inferred-init DynArray branch below so the
+    // call's struct value is actually stored — otherwise this branch silently
+    // discards the init and allocates an empty array.)
+    bool initIsArrayLit = node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::ArrayLiteralExpr;
     if (node->hasTypeAnnotation() && node->getType() &&
-        node->getType()->getKind() == TypeRepr::Kind::Array) {
+        node->getType()->getKind() == TypeRepr::Kind::Array &&
+        (!node->hasInit() || initIsArrayLit)) {
         auto *arrTypeRepr = static_cast<const ArrayTypeRepr *>(node->getType());
         if (arrTypeRepr->isDynamic()) {
             auto *elemType = toLLVMType(arrTypeRepr->getElement());
@@ -1380,11 +1409,19 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         return alloca;
     }
 
-    // Init returns DynArray (map/filter/split): let doubled = arr.map(...)
-    if (node->hasInit() && node->getInit()->getResolvedType() &&
-        node->getInit()->getResolvedType()->getKind() == TypeRepr::Kind::Array) {
-        auto *arrReprType = static_cast<const ArrayTypeRepr *>(node->getInit()->getResolvedType());
-        if (arrReprType->isDynamic()) {
+    // Init returns DynArray (map/filter/split, or `let p: [T] = call(...)`):
+    // prefer the annotation when present (more precise element type), else
+    // fall back to the call's resolved type.
+    {
+        const ArrayTypeRepr *arrReprType = nullptr;
+        if (node->hasTypeAnnotation() && node->getType() &&
+            node->getType()->getKind() == TypeRepr::Kind::Array) {
+            arrReprType = static_cast<const ArrayTypeRepr *>(node->getType());
+        } else if (node->hasInit() && node->getInit()->getResolvedType() &&
+                   node->getInit()->getResolvedType()->getKind() == TypeRepr::Kind::Array) {
+            arrReprType = static_cast<const ArrayTypeRepr *>(node->getInit()->getResolvedType());
+        }
+        if (arrReprType && arrReprType->isDynamic() && node->hasInit()) {
             auto *elemType = toLLVMType(arrReprType->getElement());
             const llvm::DataLayout &dl = module_->getDataLayout();
             uint64_t elemSize = dl.getTypeAllocSize(elemType);
@@ -1400,6 +1437,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
     // Fallback: visit init first to determine correct type for inferred vars
     if (node->hasInit()) {
+        // Snapshot tempStrings_ before init so we can identify any temp strings
+        // produced by the init expression — needed for Optional<string>
+        // ownership transfer below.
+        size_t tempsBeforeInit = tempStrings_.size();
         auto *initVal = visit(const_cast<Expr *>(node->getInit()));
         auto *type = toLLVMType(node->getType());
         // Use init value's type when annotation is absent/inferred (avoids i32 default)
@@ -1435,6 +1476,24 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             if (structTy->getNumElements() == 2 &&
                 structTy->getElementType(0)->isIntegerTy(1)) {
                 varOptionalTypes_[node->getName()] = structTy->getElementType(1);
+
+                // Optional<string> ownership transfer: builtins like hexDecode
+                // and tomlGetString call trackStringTemp on their inner pointer
+                // so the temp gets freed at the end of the producing statement.
+                // For `let opt: string? = call()` that means the inner ptr is
+                // freed before the variable is used → use-after-free.
+                //
+                // Detect the inner-ptr temp added during this init and hand
+                // ownership to the variable; emitScopeCleanup will free it
+                // conditionally (only when hasVal is true) at scope end.
+                if (structTy->getElementType(1)->isPointerTy() &&
+                    tempStrings_.size() > tempsBeforeInit) {
+                    // Take the LAST entry — that's the wrapping call's result.
+                    // Earlier temps in the same statement are unrelated nested
+                    // calls and continue along the normal cleanup path.
+                    tempStrings_.pop_back();
+                    heapOptionalStringVars_.insert(node->getName());
+                }
             }
         }
 

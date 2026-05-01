@@ -3965,7 +3965,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateStore(cnt, lenGEP);
         auto *capGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 2);
         builder_->CreateStore(cnt, capGEP);
-        return arrStruct;
+        // Return the DynArray *value* — callers store it into a struct-typed
+        // alloca, not a pointer slot, so handing back the alloca pointer would
+        // truncate the store to 8 of 24 bytes (data only), zeroing length.
+        return builder_->CreateLoad(arrStructTy, arrStruct, "strsplit.val");
     }
     if ((funcName == "strChars" || funcName == "strLines") && node->getArgs().size() >= 1) {
         auto *s = visit(node->getArgs()[0].get());
@@ -3982,7 +3985,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateStore(cnt, lenGEP);
         auto *capGEP = builder_->CreateStructGEP(arrStructTy, arrStruct, 2);
         builder_->CreateStore(cnt, capGEP);
-        return arrStruct;
+        return builder_->CreateLoad(arrStructTy, arrStruct, "strarr.val");
     }
 
     // === Stdlib: UTF-8 helpers ===
