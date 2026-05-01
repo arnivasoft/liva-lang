@@ -3078,8 +3078,13 @@ void TypeChecker::visitRefExpr(RefExpr *node) {
 void TypeChecker::visitGroupExpr(GroupExpr *node) {
     visit(node->getExpr());
     if (node->getExpr()->getResolvedType()) {
+        // Use cloneTypeRepr so non-primitive inner types (Named/Array/
+        // Optional/...) keep their concrete subclass. makePrimitiveType
+        // only constructs a TypeRepr base with the kind tag, which slices
+        // away NamedTypeRepr's name field and similar — later code that
+        // downcasts to the subclass then reads garbage and crashes.
         node->setResolvedType(
-            makePrimitiveType(node->getExpr()->getResolvedType()->getKind()));
+            cloneTypeRepr(node->getExpr()->getResolvedType()));
     }
 }
 

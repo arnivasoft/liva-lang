@@ -623,6 +623,32 @@ func main() {
 // for-iter parsers now set suppressStructLit_ around the condition
 // expression; nested parens, brackets, and call args reset it so
 // `f(Foo { x: 1 })` and `(Foo { x: 1 })` still work.
+// Regression: `let g = (P{x:1})` and `let g = (makeP())` (paren-wrapped
+// struct values) used to segfault in semantic analysis. visitGroupExpr
+// constructed its resolved type via `makePrimitiveType(innerKind)`,
+// which only builds the TypeRepr base — for non-primitive inner types
+// it sliced away NamedTypeRepr's name field (and similar), and later
+// downcasts read garbage. cloneTypeRepr keeps the concrete subclass.
+TEST_F(SelfHostTest, ParenWrappedStructValueDoesNotCrash) {
+    expectOutput(R"--(
+struct P {
+    var x: i64
+}
+pub func make() -> P {
+    return P { x: 7 as i64 }
+}
+func main() {
+    let a: P = (P { x: 1 as i64 })
+    println(a.x)
+    let b: P = (make())
+    println(b.x)
+    let c: P = ((P { x: 5 as i64 }))
+    println(c.x)
+    println((P { x: 9 as i64 }).x)
+}
+)--", "1\n7\n5\n9\n");
+}
+
 TEST_F(SelfHostTest, IfConditionWithUppercaseRhsCmp) {
     expectOutput(R"--(
 func main() {
