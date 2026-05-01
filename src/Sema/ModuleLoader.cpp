@@ -89,7 +89,8 @@ void ModuleLoader::registerBuiltinModules() {
         {"dateNow", "timeNow", "datetimeNow", "dateFormat",
          "dateYear", "dateMonth", "dateDay", "dateWeekday",
          "dateTimestamp", "dateParse", "dateAdd", "dateDiff",
-         "dateHour", "dateMinute", "dateSecond"});
+         "dateHour", "dateMinute", "dateSecond",
+         "isoFormatUtc", "isoParse"});
 
     cache_["std::compress"] = createBuiltinModule("std::compress",
         {"base64Encode", "base64Decode", "hexEncode", "hexDecode",

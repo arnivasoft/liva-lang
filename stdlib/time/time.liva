@@ -192,6 +192,11 @@ impl DateTime {
         return dateFormat(self.timestamp, "%Y-%m-%d %H:%M:%S")
     }
 
+    // RFC 3339 / ISO 8601 UTC: "YYYY-MM-DDTHH:MM:SSZ"
+    pub func toISO(ref self) -> String {
+        return isoFormatUtc(self.timestamp)
+    }
+
     pub func toDate(ref self) -> String {
         return dateFormat(self.timestamp, "%Y-%m-%d")
     }
@@ -221,4 +226,14 @@ pub func fromUnix(ts: i64) -> DateTime {
 
 pub func today() -> DateTime {
     return DateTime.now()
+}
+
+// Parse RFC 3339 / ISO 8601 string into a DateTime. Returns nil on failure.
+// Accepts: YYYY-MM-DD[THH:MM:SS[.fff][Z|±HH:MM]].
+pub func fromISO(s: String) -> DateTime? {
+    let ts: f64? = isoParse(s)
+    if let v = ts {
+        return DateTime { timestamp: v }
+    }
+    return nil
 }

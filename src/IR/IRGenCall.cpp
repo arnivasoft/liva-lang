@@ -3321,6 +3321,40 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(fn, {strArg, fmtArg}, "date.parse");
     }
 
+    if (funcName == "isoFormatUtc" && !node->getArgs().empty()) {
+        auto *tsArg = visit(node->getArgs()[0].get());
+        if (!tsArg) return nullptr;
+        // Auto-promote i64 → f64 (Liva's dateTimestamp returns f64 already, but
+        // callers passing literal seconds may use i64).
+        if (tsArg->getType()->isIntegerTy()) {
+            tsArg = builder_->CreateSIToFP(tsArg, builder_->getDoubleTy(), "ts.f64");
+        }
+        auto *fn = getOrPanic("liva_iso_format_utc");
+        auto *r = builder_->CreateCall(fn, {tsArg}, "iso.fmt");
+        trackStringTemp(r);
+        return r;
+    }
+
+    if (funcName == "isoParse" && !node->getArgs().empty()) {
+        auto *strArg = visit(node->getArgs()[0].get());
+        if (!strArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *okAlloca = createEntryBlockAlloca(curFunc, "iso.ok",
+            builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *fn = getOrPanic("liva_iso_parse");
+        auto *result = builder_->CreateCall(fn, {strArg, okAlloca}, "iso.parse.raw");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "iso.ok.val");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0), "iso.parse.hasval");
+        // Wrap into Optional<f64>.
+        auto *f64Ty = builder_->getDoubleTy();
+        auto *optTy = getOptionalType(f64Ty);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "iso.parse.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "iso.parse.result");
+    }
+
     if (funcName == "dateAdd" && node->getArgs().size() >= 2) {
         auto *tsArg = visit(node->getArgs()[0].get());
         auto *secsArg = visit(node->getArgs()[1].get());

@@ -492,6 +492,76 @@ func main() {
 )--", "rejected\n");
 }
 
+TEST_F(SelfHostTest, IsoRoundTripUtc) {
+    // 2026-01-15 00:00:00 UTC = 1768435200
+    expectOutput(R"--(
+import std::datetime
+func main() {
+    let s: string = isoFormatUtc(1768435200.0 as f64)
+    println(s)
+    if let t = isoParse(s) {
+        println(t as i64)
+    }
+}
+)--", "2026-01-15T00:00:00Z\n1768435200\n");
+}
+
+TEST_F(SelfHostTest, IsoParseTimezoneOffset) {
+    // "2026-01-15T12:34:56+03:00" — UTC = 09:34:56 = 1768469696
+    expectOutput(R"--(
+import std::datetime
+func main() {
+    if let t = isoParse("2026-01-15T12:34:56+03:00") {
+        println(t as i64)
+    }
+    if let t = isoParse("2026-01-15T12:34:56-05:30") {
+        println(t as i64)
+    }
+}
+)--", "1768469696\n1768500296\n");
+}
+
+TEST_F(SelfHostTest, IsoParseDateOnly) {
+    expectOutput(R"--(
+import std::datetime
+func main() {
+    if let t = isoParse("2026-01-15") {
+        println(t as i64)
+    }
+}
+)--", "1768435200\n");
+}
+
+TEST_F(SelfHostTest, IsoParseRejectsBogus) {
+    expectOutput(R"--(
+import std::datetime
+func main() {
+    if let t = isoParse("not a date") {
+        println("accepted")
+    } else {
+        println("rejected")
+    }
+    if let t = isoParse("") {
+        println("accepted")
+    } else {
+        println("rejected")
+    }
+}
+)--", "rejected\nrejected\n");
+}
+
+TEST_F(SelfHostTest, IsoFractionalSeconds) {
+    // Accept .fff fractional component (truncated to whole seconds).
+    expectOutput(R"--(
+import std::datetime
+func main() {
+    if let t = isoParse("2026-01-15T12:34:56.789Z") {
+        println(t as i64)
+    }
+}
+)--", "1768480496\n");
+}
+
 TEST_F(SelfHostTest, JwtVerifyRejectsMalformed) {
     expectOutput(R"--(
 import jwt::jwt

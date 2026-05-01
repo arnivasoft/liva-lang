@@ -243,6 +243,8 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_date_month);
     REG(liva_date_day);
     REG(liva_date_weekday);
+    REG(liva_iso_format_utc);
+    REG(liva_iso_parse);
 
     // Encoding
     REG(liva_base64_encode);

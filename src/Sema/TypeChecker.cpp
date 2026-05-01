@@ -138,7 +138,8 @@ void TypeChecker::registerBuiltins() {
     for (auto &name : {"dateNow", "timeNow", "datetimeNow", "dateFormat",
                         "dateYear", "dateMonth", "dateDay", "dateWeekday",
                         "dateTimestamp", "dateParse", "dateAdd", "dateDiff",
-                        "dateHour", "dateMinute", "dateSecond"}) {
+                        "dateHour", "dateMinute", "dateSecond",
+                        "isoFormatUtc", "isoParse"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2244,6 +2245,11 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "dateTimestamp" || ident->getName() == "dateParse" ||
                    ident->getName() == "dateAdd" || ident->getName() == "dateDiff") {
             node->setResolvedType(makeF64Type());
+        } else if (ident->getName() == "isoFormatUtc") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "isoParse") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeF64Type());
+            node->setResolvedType(std::move(optType));
         // Stdlib: Encoding/Compression
         } else if (ident->getName() == "base64Encode" || ident->getName() == "hexEncode" ||
                    ident->getName() == "urlEncode" || ident->getName() == "base64UrlEncode") {

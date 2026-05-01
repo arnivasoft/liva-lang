@@ -6547,6 +6547,24 @@ TEST_F(SemaTest, Base64UrlDecodeReturnsOptional) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, IsoFormatUtcReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let s: string = isoFormatUtc(1768435200.0 as f64)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, IsoParseReturnsOptionalF64) {
+    auto result = check(R"--(
+        func main() {
+            let t: f64? = isoParse("2026-01-15T12:34:56Z")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, AtomicCreateReturnsI64) {
     auto result = check(R"--(
         func main() {

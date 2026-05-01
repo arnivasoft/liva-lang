@@ -1228,6 +1228,7 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "dateYear", "dateMonth", "dateDay", "dateWeekday", "dateTimestamp",
             "dateParse", "dateAdd", "dateDiff",
             "dateHour", "dateMinute", "dateSecond",
+            "isoFormatUtc", "isoParse",
             // Benchmark
             "benchStart", "benchIter", "benchDone", "benchReport", "benchReset"
         };

@@ -884,6 +884,17 @@ char *liva_jwt_hs256_verify(const char *secret, const char *token);
 /// Verify HS512 JWT — same contract as the HS256 variant.
 char *liva_jwt_hs512_verify(const char *secret, const char *token);
 
+/// Format a Unix timestamp as RFC 3339 / ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SSZ")
+char *liva_iso_format_utc(double timestamp);
+
+/// Parse RFC 3339 / ISO 8601 string to Unix timestamp. Accepts:
+///   YYYY-MM-DD
+///   YYYY-MM-DDTHH:MM:SS
+///   YYYY-MM-DDTHH:MM:SS.fff
+///   YYYY-MM-DDTHH:MM:SS[Z|±HH:MM]
+/// Sets *ok to 1 on success, 0 on failure.
+double liva_iso_parse(const char *str, int8_t *ok);
+
 // === Panic ===
 
 /// Called when an unrecoverable error occurs

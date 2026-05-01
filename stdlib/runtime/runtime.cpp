@@ -5304,6 +5304,86 @@ char *liva_jwt_hs512_verify(const char *secret, const char *token) {
     return jwt_verify_impl(secret, token, liva_jwt_hs512_sig);
 }
 
+// === ISO 8601 / RFC 3339 ===
+
+char *liva_iso_format_utc(double timestamp) {
+    time_t t = (time_t)timestamp;
+    struct tm tm_utc;
+#ifdef _WIN32
+    if (gmtime_s(&tm_utc, &t) != 0) return nullptr;
+#else
+    if (!gmtime_r(&t, &tm_utc)) return nullptr;
+#endif
+    char *buf = (char *)malloc(32);
+    if (!buf) liva_panic("out of memory");
+    snprintf(buf, 32, "%04d-%02d-%02dT%02d:%02d:%02dZ",
+             tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday,
+             tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec);
+    return buf;
+}
+
+double liva_iso_parse(const char *str, int8_t *ok) {
+    if (ok) *ok = 0;
+    if (!str) return 0.0;
+    int year = 0, mon = 0, day = 0, hour = 0, minute = 0, sec = 0;
+    int consumed = 0;
+    bool have_time = false;
+    if (sscanf(str, "%d-%d-%dT%d:%d:%d%n",
+               &year, &mon, &day, &hour, &minute, &sec, &consumed) == 6) {
+        have_time = true;
+    } else if (sscanf(str, "%d-%d-%d %d:%d:%d%n",
+                      &year, &mon, &day, &hour, &minute, &sec, &consumed) == 6) {
+        have_time = true;
+    } else if (sscanf(str, "%d-%d-%d%n", &year, &mon, &day, &consumed) == 3) {
+        // date-only — already at midnight UTC
+    } else {
+        return 0.0;
+    }
+
+    const char *p = str + consumed;
+    int tz_offset_secs = 0;
+
+    if (have_time) {
+        // Optional fractional seconds — accept and ignore (timestamp is whole seconds).
+        if (*p == '.') {
+            p++;
+            while (*p >= '0' && *p <= '9') p++;
+        }
+        if (*p == 'Z' || *p == 'z') {
+            p++;
+        } else if (*p == '+' || *p == '-') {
+            char sign = *p;
+            int tz_h = 0, tz_m = 0;
+            if (sscanf(p + 1, "%d:%d", &tz_h, &tz_m) != 2) {
+                // Some forms write +HHMM without colon; try that.
+                if (sscanf(p + 1, "%2d%2d", &tz_h, &tz_m) != 2) return 0.0;
+            }
+            tz_offset_secs = tz_h * 3600 + tz_m * 60;
+            if (sign == '-') tz_offset_secs = -tz_offset_secs;
+        }
+        // If no Z and no offset, treat as UTC (lenient — RFC 3339 requires
+        // some indicator, but many sources omit it).
+    }
+
+    struct tm t;
+    memset(&t, 0, sizeof(t));
+    t.tm_year = year - 1900;
+    t.tm_mon = mon - 1;
+    t.tm_mday = day;
+    t.tm_hour = hour;
+    t.tm_min = minute;
+    t.tm_sec = sec;
+#ifdef _WIN32
+    time_t utc_ts = _mkgmtime(&t);
+#else
+    time_t utc_ts = timegm(&t);
+#endif
+    if (utc_ts == (time_t)-1) return 0.0;
+
+    if (ok) *ok = 1;
+    return (double)(utc_ts - tz_offset_secs);
+}
+
 // === Panic ===
 
 void liva_panic(const char *message) {

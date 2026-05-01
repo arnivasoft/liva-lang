@@ -310,6 +310,27 @@ TEST_F(StdlibModuleTest, ImportJwtModule) {
     EXPECT_TRUE(r.passed) << "import jwt::jwt should resolve Jwt";
 }
 
+TEST_F(StdlibModuleTest, TimeDateTimeToISO) {
+    auto r = check(
+        "import time::time\n"
+        "func main() {\n"
+        "    let dt = DateTime.now()\n"
+        "    let s: String = dt.toISO()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "DateTime.toISO should type-check";
+}
+
+TEST_F(StdlibModuleTest, TimeFromISOReturnsOptional) {
+    auto r = check(
+        "import time::time\n"
+        "func main() {\n"
+        "    let dt: DateTime? = fromISO(\"2026-01-15T12:34:56Z\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "fromISO should return DateTime?";
+}
+
 TEST_F(StdlibModuleTest, JwtVerifyReturnsOptional) {
     auto r = check(
         "import jwt::jwt\n"
