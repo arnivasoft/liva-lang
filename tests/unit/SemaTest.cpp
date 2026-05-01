@@ -6529,6 +6529,24 @@ TEST_F(SemaTest, HmacSha512ReturnsString) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, Base64UrlEncodeReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let h: string = base64UrlEncode("hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, Base64UrlDecodeReturnsOptional) {
+    auto result = check(R"--(
+        func main() {
+            let h: string? = base64UrlDecode("aGVsbG8")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, AtomicCreateReturnsI64) {
     auto result = check(R"--(
         func main() {

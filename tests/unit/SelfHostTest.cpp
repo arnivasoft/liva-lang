@@ -410,6 +410,106 @@ func main() {
         "82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a\n");
 }
 
+TEST_F(SelfHostTest, Base64UrlRoundTrip) {
+    // RFC 4648 §10: "Hello World" -> "SGVsbG8gV29ybGQ=" (std);
+    // base64url drops padding -> "SGVsbG8gV29ybGQ".
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    let e: string = base64UrlEncode("Hello World")
+    println(e)
+    if let d = base64UrlDecode(e) {
+        println(d)
+    }
+}
+)--", "SGVsbG8gV29ybGQ\nHello World\n");
+}
+
+TEST_F(SelfHostTest, Base64UrlNoPaddingNoSlashOrPlus) {
+    // Bytes 0xFB 0xFF would yield "+/" and "==" in std base64;
+    // base64url should produce "-_" and no padding.
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    if let raw = hexDecode("fbff") {
+        println(base64UrlEncode(raw))
+    }
+}
+)--", "-_8\n");
+}
+
+TEST_F(SelfHostTest, JwtSignHS256HeaderShape) {
+    // Canonical header for HS256 JWT, base64url-encoded:
+    //   {"alg":"HS256","typ":"JWT"} -> "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+    expectOutput(R"--(
+import jwt::jwt
+func main() {
+    let t = Jwt.signHS256("k", "{}")
+    let s: string = t.toString()
+    println(s.startsWith("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."))
+}
+)--", "1\n");
+}
+
+TEST_F(SelfHostTest, JwtRoundTripHS256) {
+    expectOutput(R"--(
+import jwt::jwt
+func main() {
+    let payload: string = "{\"sub\":\"alice\"}"
+    let tok = Jwt.signHS256("topsecret", payload)
+    if let got = Jwt.verifyHS256(tok.toString(), "topsecret") {
+        println(got)
+    } else {
+        println("verify failed")
+    }
+}
+)--", "{\"sub\":\"alice\"}\n");
+}
+
+TEST_F(SelfHostTest, JwtRoundTripHS512) {
+    expectOutput(R"--(
+import jwt::jwt
+func main() {
+    let tok = Jwt.signHS512("k", "{\"r\":1}")
+    if let got = Jwt.verifyHS512(tok.toString(), "k") {
+        println(got)
+    }
+}
+)--", "{\"r\":1}\n");
+}
+
+TEST_F(SelfHostTest, JwtVerifyRejectsWrongSecret) {
+    expectOutput(R"--(
+import jwt::jwt
+func main() {
+    let tok = Jwt.signHS256("right", "{}")
+    if let got = Jwt.verifyHS256(tok.toString(), "wrong") {
+        println("accepted: " + got)
+    } else {
+        println("rejected")
+    }
+}
+)--", "rejected\n");
+}
+
+TEST_F(SelfHostTest, JwtVerifyRejectsMalformed) {
+    expectOutput(R"--(
+import jwt::jwt
+func main() {
+    if let got = Jwt.verifyHS256("not.a.jwt.token", "k") {
+        println("accepted")
+    } else {
+        println("rejected")
+    }
+    if let got = Jwt.verifyHS256("nodots", "k") {
+        println("accepted")
+    } else {
+        println("rejected")
+    }
+}
+)--", "rejected\nrejected\n");
+}
+
 TEST_F(SelfHostTest, TomlMissingKeysReturnNil) {
     expectOutput(R"--(
 import toml::toml

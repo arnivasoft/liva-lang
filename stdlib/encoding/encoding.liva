@@ -40,6 +40,15 @@ pub func checksum(data: String) -> i64 {
     return crc32(data)
 }
 
+// Base64URL (RFC 4648 §5) — used by JWT
+pub func toBase64Url(data: String) -> String {
+    return base64UrlEncode(data)
+}
+
+pub func fromBase64Url(data: String) -> String? {
+    return base64UrlDecode(data)
+}
+
 // =============================================================
 // Base64 struct
 // =============================================================
@@ -85,6 +94,32 @@ impl Hex {
 
     pub func decode(ref self) -> String? {
         return hexDecode(self.value)
+    }
+
+    pub func toString(ref self) -> String {
+        return self.value
+    }
+}
+
+// =============================================================
+// Base64Url struct (RFC 4648 §5 — JWT-safe)
+// =============================================================
+
+pub struct Base64Url {
+    var value: String
+}
+
+impl Base64Url {
+    pub func encode(data: String) -> Base64Url {
+        return Base64Url { value: base64UrlEncode(data) }
+    }
+
+    pub func fromEncoded(encoded: String) -> Base64Url {
+        return Base64Url { value: encoded }
+    }
+
+    pub func decode(ref self) -> String? {
+        return base64UrlDecode(self.value)
     }
 
     pub func toString(ref self) -> String {

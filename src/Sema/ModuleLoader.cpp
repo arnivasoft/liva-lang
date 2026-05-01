@@ -93,13 +93,17 @@ void ModuleLoader::registerBuiltinModules() {
 
     cache_["std::compress"] = createBuiltinModule("std::compress",
         {"base64Encode", "base64Decode", "hexEncode", "hexDecode",
-         "urlEncode", "urlDecode", "crc32"});
+         "urlEncode", "urlDecode", "crc32",
+         "base64UrlEncode", "base64UrlDecode"});
 
     cache_["std::crypto"] = createBuiltinModule("std::crypto",
         {"sha256", "md5", "hmacSha256",
          "sha1", "sha512", "hmacSha1", "hmacSha512",
          "base64Encode", "base64Decode", "hexEncode", "hexDecode",
-         "urlEncode", "urlDecode", "crc32"});
+         "urlEncode", "urlDecode", "crc32",
+         "base64UrlEncode", "base64UrlDecode",
+         "jwtHS256Sig", "jwtHS512Sig",
+         "jwtHS256Verify", "jwtHS512Verify"});
 
     cache_["std::toml"] = createBuiltinModule("std::toml",
         {"tomlParse", "tomlGetString", "tomlGetInt",

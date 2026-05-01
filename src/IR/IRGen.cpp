@@ -883,6 +883,15 @@ void IRGen::createRuntimeDecls() {
     // urlEncode/urlDecode: (ptr) -> ptr
     module_->getOrInsertFunction("liva_url_encode", strNoArgTy);
     module_->getOrInsertFunction("liva_url_decode", strNoArgTy);
+    // base64UrlEncode/base64UrlDecode: (ptr) -> ptr (RFC 4648 §5)
+    module_->getOrInsertFunction("liva_base64_url_encode", strNoArgTy);
+    module_->getOrInsertFunction("liva_base64_url_decode", strNoArgTy);
+    // jwtHS256Sig/jwtHS512Sig: (ptr, ptr) -> ptr (HMAC + base64url, binary-safe)
+    module_->getOrInsertFunction("liva_jwt_hs256_sig", concatTy);
+    module_->getOrInsertFunction("liva_jwt_hs512_sig", concatTy);
+    // jwtHS256Verify/jwtHS512Verify: (secret, token) -> ptr (payload or NULL)
+    module_->getOrInsertFunction("liva_jwt_hs256_verify", concatTy);
+    module_->getOrInsertFunction("liva_jwt_hs512_verify", concatTy);
     // crc32: (ptr) -> i64
     module_->getOrInsertFunction("liva_crc32", lenTy); // (ptr) -> i64
 

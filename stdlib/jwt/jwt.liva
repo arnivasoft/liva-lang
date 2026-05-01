@@ -1,0 +1,67 @@
+// jwt::jwt — Minimal JWT (HS256/HS512) sign + verify.
+//
+// JWT compact form: header.payload.signature (each base64url-encoded,
+// no padding). The header is fixed to {"alg":"HS256","typ":"JWT"} or
+// {"alg":"HS512","typ":"JWT"} — callers supply only the payload JSON.
+//
+// Usage:
+//   import jwt::jwt
+//   let tok = Jwt.signHS256("secret", "{\"sub\":\"alice\"}")
+//   if let payload = Jwt.verifyHS256(tok.toString(), "secret") {
+//       println(payload)
+//   }
+
+import std::crypto
+
+pub struct Jwt {
+    var token: string
+}
+
+pub func jwtBuildHS256(secret: string, payloadJson: string) -> string {
+    let header: string = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
+    let h: string = base64UrlEncode(header)
+    let p: string = base64UrlEncode(payloadJson)
+    let signing: string = h + "." + p
+    let sig: string = jwtHS256Sig(secret, signing)
+    let token: string = signing + "." + sig
+    return token
+}
+
+pub func jwtBuildHS512(secret: string, payloadJson: string) -> string {
+    let header: string = "{\"alg\":\"HS512\",\"typ\":\"JWT\"}"
+    let h: string = base64UrlEncode(header)
+    let p: string = base64UrlEncode(payloadJson)
+    let signing: string = h + "." + p
+    let sig: string = jwtHS512Sig(secret, signing)
+    let token: string = signing + "." + sig
+    return token
+}
+
+impl Jwt {
+    // Sign a payload with HS256. payloadJson must be valid JSON text.
+    pub func signHS256(secret: string, payloadJson: string) -> Jwt {
+        let t: string = jwtBuildHS256(secret, payloadJson)
+        return Jwt { token: t }
+    }
+
+    // Sign a payload with HS512.
+    pub func signHS512(secret: string, payloadJson: string) -> Jwt {
+        let t: string = jwtBuildHS512(secret, payloadJson)
+        return Jwt { token: t }
+    }
+
+    pub func toString(ref self) -> string {
+        return self.token
+    }
+
+    // Verify an HS256 token. Returns the raw payload JSON if the
+    // signature matches, otherwise nil. Constant-time comparison.
+    pub func verifyHS256(token: string, secret: string) -> string? {
+        return jwtHS256Verify(secret, token)
+    }
+
+    // Verify an HS512 token.
+    pub func verifyHS512(token: string, secret: string) -> string? {
+        return jwtHS512Verify(secret, token)
+    }
+}

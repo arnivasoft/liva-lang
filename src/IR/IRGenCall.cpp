@@ -3435,6 +3435,73 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(optTy, optAlloca, "url.dec.result");
     }
 
+    if (funcName == "base64UrlEncode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_base64_url_encode"), {dataArg}, "b64u.enc");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "jwtHS256Sig" && node->getArgs().size() >= 2) {
+        auto *secretArg = visit(node->getArgs()[0].get());
+        auto *dataArg = visit(node->getArgs()[1].get());
+        if (!secretArg || !dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_jwt_hs256_sig"),
+                                        {secretArg, dataArg}, "jwt.hs256");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "jwtHS512Sig" && node->getArgs().size() >= 2) {
+        auto *secretArg = visit(node->getArgs()[0].get());
+        auto *dataArg = visit(node->getArgs()[1].get());
+        if (!secretArg || !dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_jwt_hs512_sig"),
+                                        {secretArg, dataArg}, "jwt.hs512");
+        trackStringTemp(r);
+        return r;
+    }
+    if ((funcName == "jwtHS256Verify" || funcName == "jwtHS512Verify") &&
+        node->getArgs().size() >= 2) {
+        auto *secretArg = visit(node->getArgs()[0].get());
+        auto *tokenArg = visit(node->getArgs()[1].get());
+        if (!secretArg || !tokenArg) return nullptr;
+        auto *fn = getOrPanic(funcName == "jwtHS256Verify"
+                              ? "liva_jwt_hs256_verify"
+                              : "liva_jwt_hs512_verify");
+        auto *result = builder_->CreateCall(fn, {secretArg, tokenArg},
+                                            "jwt.verify.raw");
+        trackStringTemp(result);
+        // Wrap NULL → nil, ptr → Some(ptr) into Optional<string>.
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result,
+            llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
+            "jwt.verify.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "jwt.verify.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "jwt.verify.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "jwt.verify.result");
+    }
+    if (funcName == "base64UrlDecode" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *fn = getOrPanic("liva_base64_url_decode");
+        auto *result = builder_->CreateCall(fn, {dataArg}, "b64u.dec.raw");
+        trackStringTemp(result);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(ptrTy)), "b64u.dec.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "b64u.dec.hasval");
+        auto *optTy = getOptionalType(ptrTy);
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "b64u.dec.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "b64u.dec.result");
+    }
+
     // Crypto builtins: sha256, md5, hmacSha256
     if (funcName == "sha256" && !node->getArgs().empty()) {
         auto *dataArg = visit(node->getArgs()[0].get());

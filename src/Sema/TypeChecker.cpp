@@ -147,7 +147,8 @@ void TypeChecker::registerBuiltins() {
 
     // Stdlib: Encoding/Compression
     for (auto &name : {"base64Encode", "base64Decode", "hexEncode",
-                        "hexDecode", "urlEncode", "urlDecode", "crc32"}) {
+                        "hexDecode", "urlEncode", "urlDecode", "crc32",
+                        "base64UrlEncode", "base64UrlDecode"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -156,7 +157,9 @@ void TypeChecker::registerBuiltins() {
 
     // Stdlib: Crypto
     for (auto &name : {"sha256", "md5", "hmacSha256",
-                       "sha1", "sha512", "hmacSha1", "hmacSha512"}) {
+                       "sha1", "sha512", "hmacSha1", "hmacSha512",
+                       "jwtHS256Sig", "jwtHS512Sig",
+                       "jwtHS256Verify", "jwtHS512Verify"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2243,10 +2246,10 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeF64Type());
         // Stdlib: Encoding/Compression
         } else if (ident->getName() == "base64Encode" || ident->getName() == "hexEncode" ||
-                   ident->getName() == "urlEncode") {
+                   ident->getName() == "urlEncode" || ident->getName() == "base64UrlEncode") {
             node->setResolvedType(makeStringType());
         } else if (ident->getName() == "base64Decode" || ident->getName() == "hexDecode" ||
-                   ident->getName() == "urlDecode") {
+                   ident->getName() == "urlDecode" || ident->getName() == "base64UrlDecode") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
             node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "crc32") {
@@ -2255,8 +2258,13 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "sha256" || ident->getName() == "md5" ||
                    ident->getName() == "hmacSha256" ||
                    ident->getName() == "sha1" || ident->getName() == "sha512" ||
-                   ident->getName() == "hmacSha1" || ident->getName() == "hmacSha512") {
+                   ident->getName() == "hmacSha1" || ident->getName() == "hmacSha512" ||
+                   ident->getName() == "jwtHS256Sig" || ident->getName() == "jwtHS512Sig") {
             node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "jwtHS256Verify" ||
+                   ident->getName() == "jwtHS512Verify") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
         // Stdlib: Synchronization
         } else if (ident->getName() == "mutexCreate" ||
                    ident->getName() == "atomicCreate") {

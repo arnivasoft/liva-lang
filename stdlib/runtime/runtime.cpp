@@ -3574,6 +3574,44 @@ char *liva_base64_decode(const char *data) {
     return out;
 }
 
+// Base64URL (RFC 4648 §5): same alphabet but '-' instead of '+',
+// '_' instead of '/', and no '=' padding. Used by JWT.
+char *liva_base64_url_encode(const char *data) {
+    char *std_enc = liva_base64_encode(data);
+    if (!std_enc) return nullptr;
+    size_t len = strlen(std_enc);
+    // Strip trailing '=' padding
+    while (len > 0 && std_enc[len - 1] == '=') {
+        std_enc[--len] = '\0';
+    }
+    // Replace '+' -> '-', '/' -> '_'
+    for (size_t i = 0; i < len; i++) {
+        if (std_enc[i] == '+') std_enc[i] = '-';
+        else if (std_enc[i] == '/') std_enc[i] = '_';
+    }
+    return std_enc;
+}
+
+char *liva_base64_url_decode(const char *data) {
+    if (!data) return nullptr;
+    size_t len = strlen(data);
+    // Pad to multiple of 4 with '=' and translate URL-safe alphabet to standard
+    size_t pad = (4 - (len % 4)) % 4;
+    char *buf = (char *)malloc(len + pad + 1);
+    if (!buf) return nullptr;
+    for (size_t i = 0; i < len; i++) {
+        char c = data[i];
+        if (c == '-')      buf[i] = '+';
+        else if (c == '_') buf[i] = '/';
+        else               buf[i] = c;
+    }
+    for (size_t i = 0; i < pad; i++) buf[len + i] = '=';
+    buf[len + pad] = '\0';
+    char *out = liva_base64_decode(buf);
+    free(buf);
+    return out;
+}
+
 char *liva_hex_encode(const char *data) {
     if (!data) return nullptr;
     size_t len = strlen(data);
@@ -5105,6 +5143,165 @@ char *liva_hmac_sha512(const char *key, const char *data) {
         sprintf(result + i * 2, "%02x", final_hash[i]);
     result[128] = '\0';
     return result;
+}
+
+// === JWT signature helpers ===
+//
+// JWT signatures cannot go through Liva's hex-decoded `string` because the
+// raw HMAC bytes can contain '\0' (which liva strings treat as end-of-string).
+// These functions compute HMAC raw bytes and base64url-encode them in one
+// step, returning a malloc'd C string ready to splice into a token.
+
+// Length-aware base64url encoder for binary input.
+static char *b64u_encode_bytes(const uint8_t *data, size_t len) {
+    // Output length: ceil(len/3) groups of 4 chars, minus padding.
+    size_t full_groups = len / 3;
+    size_t rem = len % 3;
+    size_t out_len = full_groups * 4 + (rem == 0 ? 0 : (rem == 1 ? 2 : 3));
+    char *out = (char *)malloc(out_len + 1);
+    if (!out) liva_panic("out of memory");
+    size_t j = 0;
+    static const char b64u[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    for (size_t i = 0; i + 3 <= len; i += 3) {
+        uint32_t triple = ((uint32_t)data[i] << 16)
+                        | ((uint32_t)data[i + 1] << 8)
+                        | (uint32_t)data[i + 2];
+        out[j++] = b64u[(triple >> 18) & 0x3F];
+        out[j++] = b64u[(triple >> 12) & 0x3F];
+        out[j++] = b64u[(triple >> 6) & 0x3F];
+        out[j++] = b64u[triple & 0x3F];
+    }
+    if (rem == 1) {
+        uint32_t triple = (uint32_t)data[len - 1] << 16;
+        out[j++] = b64u[(triple >> 18) & 0x3F];
+        out[j++] = b64u[(triple >> 12) & 0x3F];
+    } else if (rem == 2) {
+        uint32_t triple = ((uint32_t)data[len - 2] << 16)
+                        | ((uint32_t)data[len - 1] << 8);
+        out[j++] = b64u[(triple >> 18) & 0x3F];
+        out[j++] = b64u[(triple >> 12) & 0x3F];
+        out[j++] = b64u[(triple >> 6) & 0x3F];
+    }
+    out[j] = '\0';
+    return out;
+}
+
+// Inline HMAC-SHA256 producing raw 32-byte output, then base64url-encode.
+char *liva_jwt_hs256_sig(const char *secret, const char *data) {
+    if (!secret) secret = "";
+    if (!data) data = "";
+    uint8_t k_pad[64];
+    memset(k_pad, 0, 64);
+    size_t key_len = strlen(secret);
+    if (key_len > 64) {
+        sha256_hash((const uint8_t *)secret, key_len, k_pad);
+        key_len = 32;
+    } else {
+        memcpy(k_pad, secret, key_len);
+    }
+    uint8_t i_pad[64], o_pad[64];
+    for (int i = 0; i < 64; i++) {
+        i_pad[i] = k_pad[i] ^ 0x36;
+        o_pad[i] = k_pad[i] ^ 0x5c;
+    }
+    size_t data_len = strlen(data);
+    size_t inner_len = 64 + data_len;
+    uint8_t *inner_msg = (uint8_t *)malloc(inner_len);
+    if (!inner_msg) liva_panic("out of memory");
+    memcpy(inner_msg, i_pad, 64);
+    memcpy(inner_msg + 64, data, data_len);
+    uint8_t inner_hash[32];
+    sha256_hash(inner_msg, inner_len, inner_hash);
+    free(inner_msg);
+    uint8_t outer_msg[96];
+    memcpy(outer_msg, o_pad, 64);
+    memcpy(outer_msg + 64, inner_hash, 32);
+    uint8_t final_hash[32];
+    sha256_hash(outer_msg, 96, final_hash);
+    return b64u_encode_bytes(final_hash, 32);
+}
+
+// Inline HMAC-SHA512 producing raw 64-byte output, then base64url-encode.
+char *liva_jwt_hs512_sig(const char *secret, const char *data) {
+    if (!secret) secret = "";
+    if (!data) data = "";
+    uint8_t k_pad[128];
+    memset(k_pad, 0, 128);
+    size_t key_len = strlen(secret);
+    if (key_len > 128) {
+        sha512_hash((const uint8_t *)secret, key_len, k_pad);
+        key_len = 64;
+    } else {
+        memcpy(k_pad, secret, key_len);
+    }
+    uint8_t i_pad[128], o_pad[128];
+    for (int i = 0; i < 128; i++) {
+        i_pad[i] = k_pad[i] ^ 0x36;
+        o_pad[i] = k_pad[i] ^ 0x5c;
+    }
+    size_t data_len = strlen(data);
+    size_t inner_len = 128 + data_len;
+    uint8_t *inner_msg = (uint8_t *)malloc(inner_len);
+    if (!inner_msg) liva_panic("out of memory");
+    memcpy(inner_msg, i_pad, 128);
+    memcpy(inner_msg + 128, data, data_len);
+    uint8_t inner_hash[64];
+    sha512_hash(inner_msg, inner_len, inner_hash);
+    free(inner_msg);
+    uint8_t outer_msg[192];
+    memcpy(outer_msg, o_pad, 128);
+    memcpy(outer_msg + 128, inner_hash, 64);
+    uint8_t final_hash[64];
+    sha512_hash(outer_msg, 192, final_hash);
+    return b64u_encode_bytes(final_hash, 64);
+}
+
+// Common verify path — `signer` is liva_jwt_hsXXX_sig.
+static char *jwt_verify_impl(const char *secret, const char *token,
+                             char *(*signer)(const char *, const char *)) {
+    if (!secret || !token) return nullptr;
+    const char *d1 = strchr(token, '.');
+    if (!d1) return nullptr;
+    const char *d2 = strchr(d1 + 1, '.');
+    if (!d2) return nullptr;
+    if (strchr(d2 + 1, '.')) return nullptr; // reject tokens with 4+ segments
+    // Build header.payload signing input (everything before the second dot).
+    size_t signing_len = (size_t)(d2 - token);
+    char *signing = (char *)malloc(signing_len + 1);
+    if (!signing) return nullptr;
+    memcpy(signing, token, signing_len);
+    signing[signing_len] = '\0';
+    char *expected = signer(secret, signing);
+    free(signing);
+    if (!expected) return nullptr;
+    const char *provided = d2 + 1;
+    size_t exp_len = strlen(expected);
+    size_t prov_len = strlen(provided);
+    if (exp_len != prov_len) { free(expected); return nullptr; }
+    // Constant-time compare to avoid timing side channels.
+    int diff = 0;
+    for (size_t i = 0; i < exp_len; i++)
+        diff |= (uint8_t)expected[i] ^ (uint8_t)provided[i];
+    free(expected);
+    if (diff != 0) return nullptr;
+    // Signature OK — decode the payload segment (between the two dots).
+    size_t payload_len = (size_t)(d2 - d1 - 1);
+    char *payload_b64 = (char *)malloc(payload_len + 1);
+    if (!payload_b64) return nullptr;
+    memcpy(payload_b64, d1 + 1, payload_len);
+    payload_b64[payload_len] = '\0';
+    char *payload = liva_base64_url_decode(payload_b64);
+    free(payload_b64);
+    return payload;
+}
+
+char *liva_jwt_hs256_verify(const char *secret, const char *token) {
+    return jwt_verify_impl(secret, token, liva_jwt_hs256_sig);
+}
+
+char *liva_jwt_hs512_verify(const char *secret, const char *token) {
+    return jwt_verify_impl(secret, token, liva_jwt_hs512_sig);
 }
 
 // === Panic ===

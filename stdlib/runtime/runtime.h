@@ -865,6 +865,25 @@ char *liva_hmac_sha1(const char *key, const char *data);
 /// HMAC-SHA512, returns malloc'd 128-char hex string
 char *liva_hmac_sha512(const char *key, const char *data);
 
+/// Base64URL (RFC 4648 §5) encode — '-' '_' alphabet, no padding (JWT)
+char *liva_base64_url_encode(const char *data);
+
+/// Base64URL decode — accepts URL-safe alphabet, padding optional
+char *liva_base64_url_decode(const char *data);
+
+/// JWT-friendly: HMAC-SHA256 raw bytes → base64url-encoded signature
+char *liva_jwt_hs256_sig(const char *secret, const char *data);
+
+/// JWT-friendly: HMAC-SHA512 raw bytes → base64url-encoded signature
+char *liva_jwt_hs512_sig(const char *secret, const char *data);
+
+/// Verify HS256 JWT — returns malloc'd payload JSON if signature matches,
+/// nullptr otherwise. Signature comparison is constant-time.
+char *liva_jwt_hs256_verify(const char *secret, const char *token);
+
+/// Verify HS512 JWT — same contract as the HS256 variant.
+char *liva_jwt_hs512_verify(const char *secret, const char *token);
+
 // === Panic ===
 
 /// Called when an unrecoverable error occurs

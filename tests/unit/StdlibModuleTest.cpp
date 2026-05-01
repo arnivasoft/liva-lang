@@ -276,6 +276,51 @@ TEST_F(StdlibModuleTest, CryptoSha1AndSha512) {
     EXPECT_TRUE(r.passed) << "Hash.sha1/sha512 should type-check";
 }
 
+TEST_F(StdlibModuleTest, EncodingBase64Url) {
+    auto r = check(
+        "import encoding::encoding\n"
+        "func main() {\n"
+        "    let e: string = toBase64Url(\"hello\")\n"
+        "    let d: string? = fromBase64Url(e)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "toBase64Url/fromBase64Url should type-check";
+}
+
+TEST_F(StdlibModuleTest, EncodingBase64UrlStruct) {
+    auto r = check(
+        "import encoding::encoding\n"
+        "func main() {\n"
+        "    let b = Base64Url.encode(\"hello\")\n"
+        "    let s: string = b.toString()\n"
+        "    let d: string? = b.decode()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Base64Url struct should type-check";
+}
+
+TEST_F(StdlibModuleTest, ImportJwtModule) {
+    auto r = check(
+        "import jwt::jwt\n"
+        "func main() {\n"
+        "    let t = Jwt.signHS256(\"secret\", \"{}\")\n"
+        "    let s: string = t.toString()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import jwt::jwt should resolve Jwt";
+}
+
+TEST_F(StdlibModuleTest, JwtVerifyReturnsOptional) {
+    auto r = check(
+        "import jwt::jwt\n"
+        "func main() {\n"
+        "    let p: string? = Jwt.verifyHS256(\"a.b.c\", \"k\")\n"
+        "    let q: string? = Jwt.verifyHS512(\"a.b.c\", \"k\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Jwt.verify methods should return string?";
+}
+
 TEST_F(StdlibModuleTest, CryptoHmacSha1AndSha512) {
     auto r = check(
         "import crypto::crypto\n"
