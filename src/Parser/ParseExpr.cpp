@@ -304,6 +304,78 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
             return ident;
         }
 
+        // Plain generic invocation without turbofish:
+        //   Stream<i64>{...}   or   Stream<i64>.from(arr)
+        // The `<` here would otherwise parse as less-than. Disambiguate by
+        // scanning forward token-by-token (saving lexer state) until the
+        // matching `>` and peeking what follows. Generic context only when:
+        //   - identifier starts with an uppercase letter (struct convention)
+        //   - the closing `>` is followed by `{` (struct literal) or `.`
+        //     (static method call). For comparisons (`Foo < x > y`) we
+        //     restore and fall through to the operator parser.
+        if (check(TokenKind::less) && !name.empty() &&
+            name[0] >= 'A' && name[0] <= 'Z') {
+            auto savedLex = lexer_.saveState();
+            Token savedCur = current_;
+            advance(); // consume <
+            int depth = 1;
+            bool ok = false;
+            while (!check(TokenKind::eof)) {
+                if (check(TokenKind::less)) {
+                    depth++;
+                } else if (check(TokenKind::greater)) {
+                    if (--depth == 0) { ok = true; break; }
+                } else if (check(TokenKind::semicolon) ||
+                           check(TokenKind::l_brace) ||
+                           check(TokenKind::r_brace) ||
+                           check(TokenKind::r_paren) ||
+                           check(TokenKind::r_bracket)) {
+                    // Tokens that should never appear inside a type-arg list
+                    // (except the closing `>` we're scanning for) — bail
+                    // and treat the original `<` as a comparison.
+                    break;
+                }
+                advance();
+            }
+            if (ok) {
+                advance(); // consume the matching `>`
+                bool isGeneric = check(TokenKind::l_brace) ||
+                                 check(TokenKind::dot);
+                lexer_.restoreState(savedLex);
+                current_ = savedCur;
+                if (isGeneric) {
+                    advance(); // consume <
+                    std::vector<std::unique_ptr<TypeRepr>> typeArgs;
+                    if (!check(TokenKind::greater)) {
+                        do {
+                            auto ty = parseType();
+                            if (!ty) return nullptr;
+                            typeArgs.push_back(std::move(ty));
+                        } while (match(TokenKind::comma));
+                    }
+                    expect(TokenKind::greater);
+                    if (check(TokenKind::l_brace)) {
+                        auto lit = parseStructLiteral(name, startLoc);
+                        if (lit && lit->getKind() ==
+                                ASTNode::NodeKind::StructLiteralExpr) {
+                            auto *sl = static_cast<StructLiteralExpr *>(lit.get());
+                            sl->setTypeArgs(std::move(typeArgs));
+                        }
+                        return lit;
+                    }
+                    // Static method call follows: leave as IdentifierExpr
+                    // with type args; postfix parser handles the .method().
+                    auto ident = std::make_unique<IdentifierExpr>(
+                        std::move(name), rangeFrom(startLoc));
+                    ident->setTypeArgs(std::move(typeArgs));
+                    return ident;
+                }
+            } else {
+                lexer_.restoreState(savedLex);
+                current_ = savedCur;
+            }
+        }
+
         // Check for struct literal: Name { field: value, ... }
         // Convention: struct names start with uppercase letter
         if (check(TokenKind::l_brace) && !name.empty() &&

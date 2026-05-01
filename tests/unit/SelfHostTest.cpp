@@ -610,6 +610,43 @@ func main() {
 )--", "lt\ngt\nle\nge\nnlt\n");
 }
 
+// Plain generic syntax without turbofish: `Stream<i64>{...}` and
+// `Stream<i64>.from(...)`. Disambiguation is done via lexer-state
+// save/restore + token-level lookahead: when an uppercase identifier
+// is followed by `<`, the parser scans forward through balanced angle
+// brackets and only commits to a type-arg list if the closing `>` is
+// followed by `{` or `.`. Comparisons (`A < B`) restore and fall
+// through to the operator parser.
+TEST_F(SelfHostTest, PlainGenericStructLiteralAndStaticCall) {
+    expectOutput(R"--(
+pub struct Stream<T> {
+    var source: [T]
+    var index: i64
+}
+impl Stream<T> {
+    pub func from(arr: [T]) -> Stream<T> {
+        return Stream<T> { source: arr, index: 0 as i64 }
+    }
+    pub func count(ref self) -> i64 {
+        return self.source.length - self.index
+    }
+}
+func main() {
+    var arr: [i64] = []
+    arr.push(1 as i64)
+    arr.push(2 as i64)
+    arr.push(3 as i64)
+    let s = Stream<i64>.from(arr)
+    println(s.count())
+
+    var arr2: [i64] = []
+    arr2.push(99 as i64)
+    let s2 = Stream<i64> { source: arr2, index: 0 as i64 }
+    println(s2.source.length)
+}
+)--", "3\n1\n");
+}
+
 TEST_F(SelfHostTest, TurbofishStructLiteralExplicitTypeArgs) {
     expectOutput(R"--(
 pub struct Box<T> {

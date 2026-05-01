@@ -25,6 +25,34 @@ public:
     /// Check if we've reached end of input
     bool isEof() const { return currentPos_ >= source_.size(); }
 
+    /// Opaque snapshot of lexer state for speculative lookahead in the
+    /// parser (e.g. disambiguating `Stream<T> {` from `a < b > c`).
+    struct State {
+        size_t pos;
+        uint32_t line;
+        uint32_t column;
+        bool hasPeeked;
+        Token peekedToken;
+        bool inInterpolation;
+        int interpParenDepth;
+        bool continueString;
+    };
+    State saveState() const {
+        return State{currentPos_, currentLine_, currentColumn_,
+                     hasPeeked_, peekedToken_,
+                     inInterpolation_, interpParenDepth_, continueString_};
+    }
+    void restoreState(const State &s) {
+        currentPos_ = s.pos;
+        currentLine_ = s.line;
+        currentColumn_ = s.column;
+        hasPeeked_ = s.hasPeeked;
+        peekedToken_ = s.peekedToken;
+        inInterpolation_ = s.inInterpolation;
+        interpParenDepth_ = s.interpParenDepth;
+        continueString_ = s.continueString;
+    }
+
 private:
     void advance();
     char peek() const;

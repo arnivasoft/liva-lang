@@ -1033,7 +1033,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             std::vector<const TypeRepr *> typeArgs;
             if (!structLit->getTypeArgs().empty()) {
                 for (auto &ta : structLit->getTypeArgs())
-                    typeArgs.push_back(ta.get());
+                    typeArgs.push_back(substituteTypeRepr(ta.get(), currentTypeSubst_));
             }
             if (typeArgs.size() != typeParams.size() && !currentTypeSubst_.empty()) {
                 typeArgs.clear();

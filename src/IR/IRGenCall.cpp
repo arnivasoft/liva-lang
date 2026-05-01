@@ -5681,8 +5681,11 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
         const auto &typeParams = gsIt->second->getTypeParams();
         std::vector<const TypeRepr *> typeArgs;
         if (!node->getTypeArgs().empty()) {
+            // Substitute type-param refs through the surrounding mono context
+            // so that `return Stream<T> { ... }` inside Stream_string_from
+            // produces Stream_string, not Stream_T.
             for (auto &ta : node->getTypeArgs())
-                typeArgs.push_back(ta.get());
+                typeArgs.push_back(substituteTypeRepr(ta.get(), currentTypeSubst_));
         }
         if (typeArgs.size() != typeParams.size() && !currentTypeSubst_.empty()) {
             typeArgs.clear();
