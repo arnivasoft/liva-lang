@@ -312,6 +312,18 @@ TEST_F(StdlibModuleTest, ImportStreamModule) {
     EXPECT_TRUE(r.passed) << "import stream::stream should resolve StringStream/IntStream";
 }
 
+TEST_F(StdlibModuleTest, StreamGenericResolves) {
+    auto r = check(
+        "import stream::stream\n"
+        "func main() {\n"
+        "    var arr: [i64] = []\n"
+        "    let s = Stream.from(arr)\n"
+        "    let n: i64 = s.count()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "generic Stream<T> should monomorphize from arr type";
+}
+
 TEST_F(StdlibModuleTest, ImportCsvModule) {
     auto r = check(
         "import csv::csv\n"

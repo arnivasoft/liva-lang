@@ -1,18 +1,88 @@
-// stream::stream — Lazy iterators over fixed-element-type sequences.
+// stream::stream — Lazy iterators over sequences.
 //
-// Liva's generic struct methods don't yet monomorphize cleanly for
-// non-trivial element types, so this module exposes per-type streams:
-//   StringStream — over [string]
-//   IntStream    — over [i64]
-//
-// Usage:
+// Stream<T> is generic and works for any element type:
 //   import stream::stream
-//   let s = StringStream.from(words)
-//   let longs: [string] = s.filter(|w: string| -> bool { return w.length > (3 as i64) })
-//   let upper: [string] = s.mapToString(|w: string| -> string { return w.toUpper() })
-//   let lens:  [i64]    = s.mapToInt(|w: string| -> i64 { return w.length })
+//   let s = Stream.from(words)                           // Stream<string>
+//   let longs = s.filter(|w: string| -> bool { return w.length > (3 as i64) })
+//   let lens  = s.mapToInt(|w: string| -> i64 { return w.length })
+//
+// StringStream and IntStream are kept as type-pinned aliases for
+// callers that prefer a non-generic name; they mirror Stream<string>
+// and Stream<i64>.
 
 import std::strings
+
+// =============================================================
+// Stream<T> — generic lazy iterator
+// =============================================================
+
+pub struct Stream<T> {
+    var source: [T]
+    var index: i64
+}
+
+impl Stream<T> {
+    pub func from(arr: [T]) -> Stream<T> {
+        return Stream { source: arr, index: 0 as i64 }
+    }
+
+    pub func count(ref self) -> i64 {
+        return self.source.length - self.index
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.index >= self.source.length
+    }
+
+    pub func collect(ref self) -> [T] {
+        var result: [T] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            result.push(self.source[i])
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    pub func filter(ref self, pred: (T) -> bool) -> [T] {
+        var result: [T] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: T = self.source[i]
+            if pred(v) {
+                result.push(v)
+            }
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    pub func mapToInt(ref self, f: (T) -> i64) -> [i64] {
+        var result: [i64] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: T = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    pub func mapToString(ref self, f: (T) -> string) -> [string] {
+        var result: [string] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: T = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+}
 
 // =============================================================
 // StringStream

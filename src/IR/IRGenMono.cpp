@@ -191,6 +191,43 @@ std::string IRGen::mangleGenericStruct(const std::string &baseName,
     return result;
 }
 
+// Walk a TypeRepr and produce a substituted clone, replacing any
+// NamedType reference whose name matches a key in `subst` with the
+// substitute. The returned type lives inside `inferredTypes_` so the
+// pointers stored in structFieldTypeReprs_ stay valid for the lifetime
+// of the IRGen.
+const TypeRepr *IRGen::substituteTypeRepr(
+    const TypeRepr *type,
+    const std::unordered_map<std::string, const TypeRepr *> &subst) {
+    if (!type) return nullptr;
+    switch (type->getKind()) {
+    case TypeRepr::Kind::Named: {
+        auto *n = static_cast<const NamedTypeRepr *>(type);
+        auto it = subst.find(n->getName());
+        if (it != subst.end()) return it->second;
+        return type; // no substitution needed, reuse original
+    }
+    case TypeRepr::Kind::Optional: {
+        auto *o = static_cast<const OptionalTypeRepr *>(type);
+        const TypeRepr *innerSub = substituteTypeRepr(o->getInner(), subst);
+        if (innerSub == o->getInner()) return type; // unchanged
+        inferredTypes_.push_back(std::make_unique<OptionalTypeRepr>(
+            cloneTypeRepr(innerSub)));
+        return inferredTypes_.back().get();
+    }
+    case TypeRepr::Kind::Array: {
+        auto *a = static_cast<const ArrayTypeRepr *>(type);
+        const TypeRepr *elemSub = substituteTypeRepr(a->getElement(), subst);
+        if (elemSub == a->getElement()) return type;
+        inferredTypes_.push_back(std::make_unique<ArrayTypeRepr>(
+            cloneTypeRepr(elemSub), a->getSize()));
+        return inferredTypes_.back().get();
+    }
+    default:
+        return type;
+    }
+}
+
 void IRGen::monomorphizeStruct(const StructDecl *structDecl,
                                 const std::vector<const TypeRepr *> &typeArgs) {
     std::string mangledName = mangleGenericStruct(structDecl->getName(), typeArgs);
@@ -212,14 +249,31 @@ void IRGen::monomorphizeStruct(const StructDecl *structDecl,
 
     std::vector<llvm::Type *> fieldTypes;
     std::vector<std::string> fieldNames;
+    std::vector<const TypeRepr *> fieldTypeReprs;
     for (auto &field : structDecl->getFields()) {
-        fieldTypes.push_back(toLLVMType(field->getType()));
+        // Dynamic array field → use DynArray struct (24-byte by-value layout)
+        // instead of ptr so the field can store {data, len, cap} in-line.
+        // Mirrors declareExternStruct / visitStructDecl.
+        auto *fieldType = field->getType();
+        llvm::Type *llvmTy = nullptr;
+        if (fieldType && fieldType->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRepr = static_cast<const ArrayTypeRepr *>(fieldType);
+            if (arrRepr->isDynamic())
+                llvmTy = getDynArrayStructTy();
+        }
+        if (!llvmTy) llvmTy = toLLVMType(fieldType);
+        fieldTypes.push_back(llvmTy);
         fieldNames.push_back(field->getName());
+        // Record substituted field type so member access (`x.field.length`,
+        // dyn-array detection, etc.) sees `[string]` instead of `[T]`.
+        fieldTypeReprs.push_back(
+            substituteTypeRepr(fieldType, currentTypeSubst_));
     }
 
     auto *structType = llvm::StructType::create(*context_, fieldTypes, mangledName);
     structTypes_[mangledName] = structType;
     structFieldNames_[mangledName] = std::move(fieldNames);
+    structFieldTypeReprs_[mangledName] = std::move(fieldTypeReprs);
     monomorphizedStructs_.insert(mangledName);
     structTypeArgs_[mangledName] = typeArgs;
     ++monoStats_.structCount;
@@ -330,16 +384,31 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
         currentTypeSubst_[typeParams[i]] = typeArgs[i];
     }
 
-    // Build function type: self is pointer, rest are substituted
+    // Build function type: self is pointer, rest are substituted.
+    // Dynamic arrays must be passed as the DynArray struct value, not ptr —
+    // toLLVMType maps Array→ptr by default but the calling code treats [T]
+    // params as struct-by-value (matching visitFuncDecl).
     std::vector<llvm::Type *> paramTypes;
     for (auto &param : methodDecl->getParams()) {
         if (param.isSelf) {
             paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+        } else if (param.type && param.type->getKind() == TypeRepr::Kind::Array) {
+            auto *arrTy = static_cast<const ArrayTypeRepr *>(param.type.get());
+            if (arrTy->isDynamic())
+                paramTypes.push_back(getDynArrayStructTy());
+            else
+                paramTypes.push_back(toLLVMType(param.type.get()));
         } else {
             paramTypes.push_back(toLLVMType(param.type.get()));
         }
     }
     auto *returnType = toLLVMType(methodDecl->getReturnType());
+    if (methodDecl->getReturnType() &&
+        methodDecl->getReturnType()->getKind() == TypeRepr::Kind::Array) {
+        auto *arrRet = static_cast<const ArrayTypeRepr *>(methodDecl->getReturnType());
+        if (arrRet->isDynamic())
+            returnType = getDynArrayStructTy();
+    }
     auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
     auto *func = llvm::Function::Create(
         funcType, llvm::Function::LinkOnceODRLinkage, mangledName, *module_);
@@ -381,6 +450,39 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
             varStructTypes_["self"] = mangledStructName;
         }
         ++idx;
+    }
+
+    // Register Function-typed method parameters in varFuncTypes_ so calls
+    // like `pred(x)` inside the body resolve through the closure object
+    // rather than as undefined function names. Mirrors visitImplDecl.
+    for (auto &param : methodDecl->getParams()) {
+        if (!param.isSelf && param.type &&
+            param.type->getKind() == TypeRepr::Kind::Function) {
+            auto *ftr = static_cast<const FunctionTypeRepr *>(param.type.get());
+            std::vector<llvm::Type *> fParamTypes;
+            fParamTypes.push_back(llvm::PointerType::getUnqual(*context_));
+            for (auto &p : ftr->getParams())
+                fParamTypes.push_back(toLLVMType(p.get()));
+            llvm::Type *fRetTy = ftr->getReturnType()
+                ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
+            varFuncTypes_[param.name] =
+                llvm::FunctionType::get(fRetTy, fParamTypes, false);
+        }
+    }
+    // Mark [T] params as borrowed (skip in scope cleanup) — caller owns the
+    // backing buffer.
+    for (auto &param : methodDecl->getParams()) {
+        if (!param.isSelf && param.type &&
+            param.type->getKind() == TypeRepr::Kind::Array) {
+            auto *arrTy = static_cast<const ArrayTypeRepr *>(param.type.get());
+            if (arrTy->isDynamic()) {
+                auto *elemType = toLLVMType(arrTy->getElement());
+                uint64_t elemSize = module_->getDataLayout()
+                    .getTypeAllocSize(elemType);
+                varDynArrayTypes_[param.name] = {elemType, elemSize};
+                movedVars_.insert(param.name);
+            }
+        }
     }
 
     // Visit body

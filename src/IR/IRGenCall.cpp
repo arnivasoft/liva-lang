@@ -1386,6 +1386,91 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     return builder_->CreateCall(callee, args, "scall");
                 }
             }
+            // Generic struct static method: Stream.from(arr), Map.new(), ...
+            // We don't know the type args until we look at the call args, so
+            // infer them from arg AST types matched against the method's param
+            // type signature, then monomorphize struct + method on demand.
+            auto gsIt = genericStructDecls_.find(objName);
+            if (gsIt != genericStructDecls_.end()) {
+                auto giIt = genericImplDecls_.find(objName);
+                if (giIt != genericImplDecls_.end()) {
+                    const ImplDecl *implDecl = giIt->second;
+                    const FuncDecl *methodDecl = nullptr;
+                    for (auto &m : implDecl->getMethods()) {
+                        if (m->getName() == methodName && !m->isMethod()) {
+                            methodDecl = m.get();
+                            break;
+                        }
+                    }
+                    if (methodDecl) {
+                        // Visit args first so resolved-type info is available.
+                        std::vector<llvm::Value *> args;
+                        args.reserve(node->getArgs().size());
+                        for (auto &arg : node->getArgs()) {
+                            auto *val = visit(arg.get());
+                            if (!val) return nullptr;
+                            args.push_back(val);
+                        }
+
+                        // Type-arg inference: walk param type AST and arg
+                        // resolved type AST in parallel, recording which type
+                        // param maps to which concrete type.
+                        const auto &typeParams = gsIt->second->getTypeParams();
+                        std::unordered_set<std::string> tpSet(typeParams.begin(),
+                                                              typeParams.end());
+                        std::unordered_map<std::string, const TypeRepr *> inferred;
+                        std::function<void(const TypeRepr *, const TypeRepr *)> unify =
+                            [&](const TypeRepr *p, const TypeRepr *a) {
+                            if (!p || !a) return;
+                            if (p->getKind() == TypeRepr::Kind::Named) {
+                                auto *n = static_cast<const NamedTypeRepr *>(p);
+                                if (tpSet.count(n->getName()) &&
+                                    !inferred.count(n->getName())) {
+                                    inferred[n->getName()] = a;
+                                }
+                                return;
+                            }
+                            if (p->getKind() == TypeRepr::Kind::Array &&
+                                a->getKind() == TypeRepr::Kind::Array) {
+                                unify(static_cast<const ArrayTypeRepr *>(p)->getElement(),
+                                      static_cast<const ArrayTypeRepr *>(a)->getElement());
+                                return;
+                            }
+                            if (p->getKind() == TypeRepr::Kind::Optional &&
+                                a->getKind() == TypeRepr::Kind::Optional) {
+                                unify(static_cast<const OptionalTypeRepr *>(p)->getInner(),
+                                      static_cast<const OptionalTypeRepr *>(a)->getInner());
+                                return;
+                            }
+                        };
+                        for (size_t i = 0;
+                             i < methodDecl->getParams().size() &&
+                             i < node->getArgs().size(); ++i) {
+                            unify(methodDecl->getParams()[i].type.get(),
+                                  node->getArgs()[i]->getResolvedType());
+                        }
+                        std::vector<const TypeRepr *> typeArgs;
+                        typeArgs.reserve(typeParams.size());
+                        for (const auto &tp : typeParams) {
+                            auto inIt = inferred.find(tp);
+                            if (inIt != inferred.end())
+                                typeArgs.push_back(inIt->second);
+                        }
+                        if (typeArgs.size() == typeParams.size()) {
+                            monomorphizeStruct(gsIt->second, typeArgs);
+                            std::string mangledStructName =
+                                mangleGenericStruct(objName, typeArgs);
+                            auto *callee = monomorphizeMethod(implDecl, methodDecl,
+                                                               mangledStructName, typeArgs);
+                            if (callee) {
+                                if (callee->getReturnType()->isVoidTy())
+                                    return builder_->CreateCall(callee, args);
+                                return builder_->CreateCall(callee, args, "scall");
+                            }
+                        }
+                    }
+                }
+            }
             // Also check for enum type static calls
             auto enumIt = enumTypes_.find(objName);
             if (enumIt != enumTypes_.end()) {
@@ -5581,7 +5666,23 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
             fieldValues.push_back(val);
         }
 
-        auto typeArgs = inferStructTypeArgs(gsIt->second, node->getFields(), fieldValues);
+        // Prefer type args from the surrounding monomorphization context
+        // (e.g. `return Stream { ... }` inside Stream_string_from): T is
+        // already pinned to the concrete type via currentTypeSubst_, and
+        // inferStructTypeArgs only handles `var x: T` direct fields, not
+        // `var x: [T]` containers.
+        const auto &typeParams = gsIt->second->getTypeParams();
+        std::vector<const TypeRepr *> typeArgs;
+        if (!currentTypeSubst_.empty()) {
+            for (const auto &tp : typeParams) {
+                auto it = currentTypeSubst_.find(tp);
+                if (it != currentTypeSubst_.end())
+                    typeArgs.push_back(it->second);
+            }
+        }
+        if (typeArgs.size() != typeParams.size()) {
+            typeArgs = inferStructTypeArgs(gsIt->second, node->getFields(), fieldValues);
+        }
         monomorphizeStruct(gsIt->second, typeArgs);
         std::string mangledName = mangleGenericStruct(typeName, typeArgs);
 
@@ -5595,6 +5696,47 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
             if (idx < 0 || !fieldValues[i])
                 continue;
             auto *val = dupIfStringField(mangledName, idx, fieldValues[i]);
+            // Deep-clone DynArray field buffers so caller and struct can be
+            // freed independently (mirrors the non-generic path below).
+            auto ftrIt = structFieldTypeReprs_.find(mangledName);
+            if (ftrIt != structFieldTypeReprs_.end() &&
+                idx < static_cast<int>(ftrIt->second.size())) {
+                const TypeRepr *ft = ftrIt->second[idx];
+                if (ft && ft->getKind() == TypeRepr::Kind::Array) {
+                    auto *arrRepr = static_cast<const ArrayTypeRepr *>(ft);
+                    if (arrRepr->isDynamic() && val->getType()->isStructTy()) {
+                        auto *daTy = getDynArrayStructTy();
+                        auto *funcCur = builder_->GetInsertBlock()->getParent();
+                        auto *srcAlloca = createEntryBlockAlloca(funcCur,
+                            node->getFields()[i].name + ".src", daTy);
+                        builder_->CreateStore(val, srcAlloca);
+                        auto *dataGEP = builder_->CreateStructGEP(daTy, srcAlloca, 0);
+                        auto *lenGEP = builder_->CreateStructGEP(daTy, srcAlloca, 1);
+                        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                        auto *srcData = builder_->CreateLoad(ptrTy, dataGEP);
+                        auto *srcLen = builder_->CreateLoad(builder_->getInt64Ty(), lenGEP);
+                        auto *elemLLVMTy = toLLVMType(arrRepr->getElement());
+                        uint64_t elemSize = module_->getDataLayout()
+                            .getTypeAllocSize(elemLLVMTy);
+                        auto *cloned = builder_->CreateCall(getOrPanic("liva_array_clone"),
+                            {srcData, srcLen, builder_->getInt64(elemSize)},
+                            node->getFields()[i].name + ".clone");
+                        auto *newAlloca = createEntryBlockAlloca(funcCur,
+                            node->getFields()[i].name + ".cloned.da", daTy);
+                        builder_->CreateStore(cloned,
+                            builder_->CreateStructGEP(daTy, newAlloca, 0));
+                        builder_->CreateStore(srcLen,
+                            builder_->CreateStructGEP(daTy, newAlloca, 1));
+                        auto *eight = builder_->getInt64(8);
+                        auto *capVal = builder_->CreateSelect(
+                            builder_->CreateICmpSGT(srcLen, eight), srcLen, eight);
+                        builder_->CreateStore(capVal,
+                            builder_->CreateStructGEP(daTy, newAlloca, 2));
+                        val = builder_->CreateLoad(daTy, newAlloca,
+                            node->getFields()[i].name + ".cloned.val");
+                    }
+                }
+            }
             auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, node->getFields()[i].name);
             builder_->CreateStore(val, gep);
         }

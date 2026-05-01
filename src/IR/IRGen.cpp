@@ -1616,6 +1616,27 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
             // Phase 2: Task<T> is opaque ptr (LivaTask*)
             return llvm::PointerType::getUnqual(*context_);
         }
+        // User-defined generic struct (Stream<T>, Pair<A,B>, ...): resolve
+        // to the monomorphized struct type using currentTypeSubst_ for any
+        // type-param refs in the type args.
+        if (genericStructDecls_.count(genType->getBaseName())) {
+            std::vector<const TypeRepr *> resolvedArgs;
+            resolvedArgs.reserve(genType->getTypeArgs().size());
+            for (auto &ta : genType->getTypeArgs()) {
+                const TypeRepr *resolved = ta.get();
+                if (ta->getKind() == TypeRepr::Kind::Named) {
+                    auto *nt = static_cast<const NamedTypeRepr *>(ta.get());
+                    auto subIt = currentTypeSubst_.find(nt->getName());
+                    if (subIt != currentTypeSubst_.end())
+                        resolved = subIt->second;
+                }
+                resolvedArgs.push_back(resolved);
+            }
+            std::string mangled = mangleGenericStruct(genType->getBaseName(), resolvedArgs);
+            auto stIt = structTypes_.find(mangled);
+            if (stIt != structTypes_.end())
+                return stIt->second;
+        }
         // Other generics (Map, Set, etc.) are handled elsewhere
         return llvm::PointerType::getUnqual(*context_);
     }

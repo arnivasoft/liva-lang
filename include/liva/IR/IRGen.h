@@ -335,6 +335,13 @@ private:
         const std::vector<StructLiteralExpr::FieldInit> &fieldInits,
         const std::vector<llvm::Value *> &fieldValues);
 
+    /// Walk a TypeRepr and replace NamedType refs that appear in `subst`
+    /// with their substitutes. Cloned-with-subst nodes are stored in
+    /// inferredTypes_ so the returned pointer outlives the call.
+    const TypeRepr *substituteTypeRepr(
+        const TypeRepr *type,
+        const std::unordered_map<std::string, const TypeRepr *> &subst);
+
     /// Enum LLVM StructType for payload enums: enumName -> StructType
     std::unordered_map<std::string, llvm::StructType *> enumTypes_;
 

@@ -550,6 +550,34 @@ func main() {
 )--", "rejected\nrejected\n");
 }
 
+// Regression: generic struct method monomorphization. Earlier the static
+// dispatch path for `Stream.from(arr)` on a generic struct silently dropped
+// the call, the monomorphized struct's [T] field used `ptr` instead of
+// `%DynArray`, and structFieldTypeReprs_ never got populated with the
+// substituted type (so `self.source.length` failed to resolve).
+TEST_F(SelfHostTest, GenericStreamMonomorphizesPerElementType) {
+    expectOutput(R"--(
+import stream::stream
+func main() {
+    var nums: [i64] = []
+    nums.push(1 as i64)
+    nums.push(2 as i64)
+    nums.push(3 as i64)
+    let s = Stream.from(nums)
+    println(s.count())
+    let evens: [i64] = s.filter(|x: i64| -> bool { return x % (2 as i64) == (0 as i64) })
+    for e in evens { println(e) }
+
+    var words: [string] = []
+    words.push("apple")
+    words.push("bee")
+    let ws = Stream.from(words)
+    let lens: [i64] = ws.mapToInt(|w: string| -> i64 { return w.length })
+    for n in lens { println(n) }
+}
+)--", "3\n2\n5\n3\n");
+}
+
 TEST_F(SelfHostTest, StringStreamFilterAndMap) {
     expectOutput(R"--(
 import stream::stream
