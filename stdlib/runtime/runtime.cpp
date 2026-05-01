@@ -5257,6 +5257,19 @@ char *liva_jwt_hs512_sig(const char *secret, const char *data) {
     return b64u_encode_bytes(final_hash, 64);
 }
 
+void *liva_array_clone(const void *data, int64_t count, int64_t elem_size) {
+    // Always allocate at least an 8-element buffer so the resulting
+    // DynArray can be pushed-into without an immediate realloc.
+    int64_t cap = count > 8 ? count : 8;
+    if (cap > (int64_t)(SIZE_MAX / (size_t)elem_size))
+        liva_panic("array clone overflow");
+    void *new_data = malloc((size_t)cap * (size_t)elem_size);
+    if (!new_data) liva_panic("out of memory");
+    if (data && count > 0)
+        memcpy(new_data, data, (size_t)count * (size_t)elem_size);
+    return new_data;
+}
+
 // Constant-time string equality — used for HMAC signatures, password
 // hashes, etc. where leaking byte-by-byte position via timing matters.
 int8_t liva_const_time_eq(const char *a, const char *b) {

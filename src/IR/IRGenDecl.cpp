@@ -190,6 +190,13 @@ void IRGen::declareExternImpl(ImplDecl *implDecl) {
         }
 
         auto *returnType = toLLVMType(method->getReturnType());
+        // Dynamic arrays: pass/return as DynArray struct value, not ptr.
+        if (method->getReturnType() &&
+            method->getReturnType()->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRet = static_cast<const ArrayTypeRepr *>(method->getReturnType());
+            if (arrRet->isDynamic())
+                returnType = getDynArrayStructTy();
+        }
         auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
         module_->getOrInsertFunction(mangledName, funcType);
     }
@@ -1687,6 +1694,13 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         }
 
         auto *returnType = toLLVMType(method->getReturnType());
+        // Dynamic arrays: pass/return as DynArray struct value, not ptr.
+        if (method->getReturnType() &&
+            method->getReturnType()->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRet = static_cast<const ArrayTypeRepr *>(method->getReturnType());
+            if (arrRet->isDynamic())
+                returnType = getDynArrayStructTy();
+        }
         auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
         auto *func = llvm::Function::Create(
             funcType, llvm::Function::ExternalLinkage, mangledName, *module_);
@@ -1814,6 +1828,8 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     auto &DL = module_->getDataLayout();
                     uint64_t elemSize = DL.getTypeAllocSize(elemType);
                     varDynArrayTypes_[param.name] = {elemType, elemSize};
+                    // Borrowed: skip in cleanup (caller owns the buffer).
+                    movedVars_.insert(param.name);
                     if (arrType->getElement() &&
                         arrType->getElement()->getKind() == TypeRepr::Kind::DynProtocol) {
                         auto *dynP = static_cast<const DynProtocolTypeRepr *>(arrType->getElement());
@@ -2254,6 +2270,13 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         }
 
         auto *returnType = toLLVMType(method->getReturnType());
+        // Dynamic arrays: pass/return as DynArray struct value, not ptr.
+        if (method->getReturnType() &&
+            method->getReturnType()->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRet = static_cast<const ArrayTypeRepr *>(method->getReturnType());
+            if (arrRet->isDynamic())
+                returnType = getDynArrayStructTy();
+        }
         auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
         auto *func = llvm::Function::Create(
             funcType, llvm::Function::ExternalLinkage, mangledName, *module_);

@@ -299,6 +299,19 @@ TEST_F(StdlibModuleTest, EncodingBase64UrlStruct) {
     EXPECT_TRUE(r.passed) << "Base64Url struct should type-check";
 }
 
+TEST_F(StdlibModuleTest, ImportStreamModule) {
+    auto r = check(
+        "import stream::stream\n"
+        "func main() {\n"
+        "    var arr: [string] = []\n"
+        "    let s = StringStream.from(arr)\n"
+        "    var nums: [i64] = []\n"
+        "    let ns = IntStream.from(nums)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import stream::stream should resolve StringStream/IntStream";
+}
+
 TEST_F(StdlibModuleTest, ImportCsvModule) {
     auto r = check(
         "import csv::csv\n"

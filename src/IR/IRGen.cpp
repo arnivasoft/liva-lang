@@ -893,6 +893,10 @@ void IRGen::createRuntimeDecls() {
     auto *constEqTy = llvm::FunctionType::get(builder_->getInt8Ty(),
         {i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_const_time_eq", constEqTy);
+    // arrayClone(data, count, elem_size) -> ptr  (deep-copy buffer)
+    auto *arrayCloneTy = llvm::FunctionType::get(i8PtrTy,
+        {i8PtrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false);
+    module_->getOrInsertFunction("liva_array_clone", arrayCloneTy);
     // isoFormatUtc(ts: f64) -> ptr; isoParse(str, *ok) -> f64
     auto *isoFmtTy = llvm::FunctionType::get(i8PtrTy, {builder_->getDoubleTy()}, false);
     module_->getOrInsertFunction("liva_iso_format_utc", isoFmtTy);

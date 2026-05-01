@@ -885,6 +885,12 @@ char *liva_jwt_hs256_verify(const char *secret, const char *token);
 /// Comparison time depends only on the length of the longer string.
 int8_t liva_const_time_eq(const char *a, const char *b);
 
+/// Allocate a new buffer that is a shallow copy of `data` (count*elem_size
+/// bytes). Used by struct literals that store a DynArray field value: the
+/// new struct gets an independently-freeable buffer so the source array
+/// can also still be freed safely.
+void *liva_array_clone(const void *data, int64_t count, int64_t elem_size);
+
 /// Format a Unix timestamp as RFC 3339 / ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SSZ")
 char *liva_iso_format_utc(double timestamp);
 

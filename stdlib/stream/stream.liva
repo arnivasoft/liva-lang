@@ -1,0 +1,217 @@
+// stream::stream — Lazy iterators over fixed-element-type sequences.
+//
+// Liva's generic struct methods don't yet monomorphize cleanly for
+// non-trivial element types, so this module exposes per-type streams:
+//   StringStream — over [string]
+//   IntStream    — over [i64]
+//
+// Usage:
+//   import stream::stream
+//   let s = StringStream.from(words)
+//   let longs: [string] = s.filter(|w: string| -> bool { return w.length > (3 as i64) })
+//   let upper: [string] = s.mapToString(|w: string| -> string { return w.toUpper() })
+//   let lens:  [i64]    = s.mapToInt(|w: string| -> i64 { return w.length })
+
+import std::strings
+
+// =============================================================
+// StringStream
+// =============================================================
+
+pub struct StringStream {
+    var source: [string]
+    var index: i64
+}
+
+impl StringStream {
+    pub func from(arr: [string]) -> StringStream {
+        return StringStream { source: arr, index: 0 as i64 }
+    }
+
+    // Number of unconsumed elements remaining in the stream.
+    pub func count(ref self) -> i64 {
+        return self.source.length - self.index
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.index >= self.source.length
+    }
+
+    // Consume and return the next element, or nil if the stream is empty.
+    pub func next(mut self) -> string? {
+        if self.index >= self.source.length {
+            return nil
+        }
+        let v: string = self.source[self.index]
+        self.index = self.index + (1 as i64)
+        return v
+    }
+
+    // Drain the remaining elements into a fresh array.
+    pub func collect(ref self) -> [string] {
+        var result: [string] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            result.push(self.source[i])
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    // Keep only elements where pred returns true.
+    pub func filter(ref self, pred: (string) -> bool) -> [string] {
+        var result: [string] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: string = self.source[i]
+            if pred(v) {
+                result.push(v)
+            }
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    // Transform each element through `f`, producing a new [string].
+    pub func mapToString(ref self, f: (string) -> string) -> [string] {
+        var result: [string] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: string = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    // Transform each element through `f`, producing [i64].
+    pub func mapToInt(ref self, f: (string) -> i64) -> [i64] {
+        var result: [i64] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: string = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    // Fold left over the remaining elements with seed and combine fn.
+    pub func reduceString(ref self, seed: string, f: (string, string) -> string) -> string {
+        var acc: string = seed
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            acc = f(acc, self.source[i])
+            i = i + (1 as i64)
+        }
+        return acc
+    }
+}
+
+// =============================================================
+// IntStream
+// =============================================================
+
+pub struct IntStream {
+    var source: [i64]
+    var index: i64
+}
+
+impl IntStream {
+    pub func from(arr: [i64]) -> IntStream {
+        return IntStream { source: arr, index: 0 as i64 }
+    }
+
+    pub func count(ref self) -> i64 {
+        return self.source.length - self.index
+    }
+
+    pub func isEmpty(ref self) -> bool {
+        return self.index >= self.source.length
+    }
+
+    pub func next(mut self) -> i64? {
+        if self.index >= self.source.length {
+            return nil
+        }
+        let v: i64 = self.source[self.index]
+        self.index = self.index + (1 as i64)
+        return v
+    }
+
+    pub func collect(ref self) -> [i64] {
+        var result: [i64] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            result.push(self.source[i])
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    pub func filter(ref self, pred: (i64) -> bool) -> [i64] {
+        var result: [i64] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: i64 = self.source[i]
+            if pred(v) {
+                result.push(v)
+            }
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    pub func mapToInt(ref self, f: (i64) -> i64) -> [i64] {
+        var result: [i64] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: i64 = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    pub func mapToString(ref self, f: (i64) -> string) -> [string] {
+        var result: [string] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: i64 = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    pub func sum(ref self) -> i64 {
+        var total: i64 = 0 as i64
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            total = total + self.source[i]
+            i = i + (1 as i64)
+        }
+        return total
+    }
+
+    pub func reduce(ref self, seed: i64, f: (i64, i64) -> i64) -> i64 {
+        var acc: i64 = seed
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            acc = f(acc, self.source[i])
+            i = i + (1 as i64)
+        }
+        return acc
+    }
+}

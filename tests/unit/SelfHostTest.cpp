@@ -550,6 +550,63 @@ func main() {
 )--", "rejected\nrejected\n");
 }
 
+TEST_F(SelfHostTest, StringStreamFilterAndMap) {
+    expectOutput(R"--(
+import stream::stream
+func main() {
+    var w: [string] = []
+    w.push("a")
+    w.push("bb")
+    w.push("ccc")
+    let s = StringStream.from(w)
+    let longs: [string] = s.filter(|x: string| -> bool { return x.length > (1 as i64) })
+    println(longs.length)
+    let lens: [i64] = s.mapToInt(|x: string| -> i64 { return x.length })
+    for n in lens { println(n) }
+}
+)--", "2\n1\n2\n3\n");
+}
+
+TEST_F(SelfHostTest, IntStreamReduceSumProductMax) {
+    expectOutput(R"--(
+import stream::stream
+func main() {
+    var nums: [i64] = []
+    nums.push(1 as i64)
+    nums.push(2 as i64)
+    nums.push(3 as i64)
+    nums.push(4 as i64)
+    nums.push(5 as i64)
+    let s = IntStream.from(nums)
+    println(s.sum())
+    let prod: i64 = s.reduce(1 as i64, |a: i64, b: i64| -> i64 { return a * b })
+    println(prod)
+    let mx: i64 = s.reduce(0 as i64, |a: i64, b: i64| -> i64 {
+        if a > b { return a }
+        return b
+    })
+    println(mx)
+}
+)--", "15\n120\n5\n");
+}
+
+TEST_F(SelfHostTest, StreamNextAndCollect) {
+    expectOutput(R"--(
+import stream::stream
+func main() {
+    var arr: [string] = []
+    arr.push("x")
+    arr.push("y")
+    arr.push("z")
+    var s = StringStream.from(arr)
+    if let v = s.next() { println(v) }
+    let rest: [string] = s.collect()
+    println(rest.length)
+    for r in rest { println(r) }
+}
+)--", "x\n2\ny\nz\n");
+}
+
 TEST_F(SelfHostTest, CsvParsePlainRow) {
     expectOutput(R"--(
 import csv::csv
