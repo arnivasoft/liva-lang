@@ -550,6 +550,18 @@ func main() {
 )--", "rejected\nrejected\n");
 }
 
+TEST_F(SelfHostTest, ConstTimeEqMatchAndMismatch) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    if constTimeEq("abc", "abc") { println("eq") } else { println("ne") }
+    if constTimeEq("abc", "abd") { println("eq") } else { println("ne") }
+    if constTimeEq("abc", "abcd") { println("eq") } else { println("ne") }
+    if constTimeEq("", "") { println("eq") } else { println("ne") }
+}
+)--", "eq\nne\nne\neq\n");
+}
+
 // Regression: strSplit returned an empty array when bound with an explicit
 // `[T]` annotation because the array branch in IRGenDecl ignored non-literal
 // initializers and allocated a fresh empty DynArray.

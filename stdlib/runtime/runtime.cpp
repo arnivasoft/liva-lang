@@ -5257,51 +5257,21 @@ char *liva_jwt_hs512_sig(const char *secret, const char *data) {
     return b64u_encode_bytes(final_hash, 64);
 }
 
-// Common verify path — `signer` is liva_jwt_hsXXX_sig.
-static char *jwt_verify_impl(const char *secret, const char *token,
-                             char *(*signer)(const char *, const char *)) {
-    if (!secret || !token) return nullptr;
-    const char *d1 = strchr(token, '.');
-    if (!d1) return nullptr;
-    const char *d2 = strchr(d1 + 1, '.');
-    if (!d2) return nullptr;
-    if (strchr(d2 + 1, '.')) return nullptr; // reject tokens with 4+ segments
-    // Build header.payload signing input (everything before the second dot).
-    size_t signing_len = (size_t)(d2 - token);
-    char *signing = (char *)malloc(signing_len + 1);
-    if (!signing) return nullptr;
-    memcpy(signing, token, signing_len);
-    signing[signing_len] = '\0';
-    char *expected = signer(secret, signing);
-    free(signing);
-    if (!expected) return nullptr;
-    const char *provided = d2 + 1;
-    size_t exp_len = strlen(expected);
-    size_t prov_len = strlen(provided);
-    if (exp_len != prov_len) { free(expected); return nullptr; }
-    // Constant-time compare to avoid timing side channels.
+// Constant-time string equality — used for HMAC signatures, password
+// hashes, etc. where leaking byte-by-byte position via timing matters.
+int8_t liva_const_time_eq(const char *a, const char *b) {
+    if (!a) a = "";
+    if (!b) b = "";
+    size_t la = strlen(a);
+    size_t lb = strlen(b);
+    // Different-length strings can't be equal. Returning early on length
+    // doesn't leak which byte differed (the only side channel we care
+    // about); time still depends on input length, which is public.
+    if (la != lb) return 0;
     int diff = 0;
-    for (size_t i = 0; i < exp_len; i++)
-        diff |= (uint8_t)expected[i] ^ (uint8_t)provided[i];
-    free(expected);
-    if (diff != 0) return nullptr;
-    // Signature OK — decode the payload segment (between the two dots).
-    size_t payload_len = (size_t)(d2 - d1 - 1);
-    char *payload_b64 = (char *)malloc(payload_len + 1);
-    if (!payload_b64) return nullptr;
-    memcpy(payload_b64, d1 + 1, payload_len);
-    payload_b64[payload_len] = '\0';
-    char *payload = liva_base64_url_decode(payload_b64);
-    free(payload_b64);
-    return payload;
-}
-
-char *liva_jwt_hs256_verify(const char *secret, const char *token) {
-    return jwt_verify_impl(secret, token, liva_jwt_hs256_sig);
-}
-
-char *liva_jwt_hs512_verify(const char *secret, const char *token) {
-    return jwt_verify_impl(secret, token, liva_jwt_hs512_sig);
+    for (size_t i = 0; i < la; i++)
+        diff |= (uint8_t)a[i] ^ (uint8_t)b[i];
+    return diff == 0 ? 1 : 0;
 }
 
 // === ISO 8601 / RFC 3339 ===

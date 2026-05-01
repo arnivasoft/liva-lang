@@ -160,7 +160,7 @@ void TypeChecker::registerBuiltins() {
     for (auto &name : {"sha256", "md5", "hmacSha256",
                        "sha1", "sha512", "hmacSha1", "hmacSha512",
                        "jwtHS256Sig", "jwtHS512Sig",
-                       "jwtHS256Verify", "jwtHS512Verify"}) {
+                       "constTimeEq"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2267,10 +2267,8 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "hmacSha1" || ident->getName() == "hmacSha512" ||
                    ident->getName() == "jwtHS256Sig" || ident->getName() == "jwtHS512Sig") {
             node->setResolvedType(makeStringType());
-        } else if (ident->getName() == "jwtHS256Verify" ||
-                   ident->getName() == "jwtHS512Verify") {
-            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
-            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "constTimeEq") {
+            node->setResolvedType(makeBoolType());
         // Stdlib: Synchronization
         } else if (ident->getName() == "mutexCreate" ||
                    ident->getName() == "atomicCreate") {

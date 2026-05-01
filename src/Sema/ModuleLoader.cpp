@@ -104,7 +104,7 @@ void ModuleLoader::registerBuiltinModules() {
          "urlEncode", "urlDecode", "crc32",
          "base64UrlEncode", "base64UrlDecode",
          "jwtHS256Sig", "jwtHS512Sig",
-         "jwtHS256Verify", "jwtHS512Verify"});
+         "constTimeEq"});
 
     cache_["std::toml"] = createBuiltinModule("std::toml",
         {"tomlParse", "tomlGetString", "tomlGetInt",

@@ -12,6 +12,7 @@
 //   }
 
 import std::crypto
+import std::strings
 
 pub struct Jwt {
     var token: string
@@ -37,6 +38,40 @@ pub func jwtBuildHS512(secret: string, payloadJson: string) -> string {
     return token
 }
 
+pub func jwtVerifyHS256(token: string, secret: string) -> string? {
+    let parts: [string] = strSplit(token, ".")
+    if parts.length != (3 as i64) {
+        return nil
+    }
+    let p0: string = parts[0 as i64]
+    let p1: string = parts[1 as i64]
+    let p2: string = parts[2 as i64]
+    let signing: string = p0 + "." + p1
+    let expected: string = jwtHS256Sig(secret, signing)
+    if constTimeEq(expected, p2) {
+        let payload: string? = base64UrlDecode(p1)
+        return payload
+    }
+    return nil
+}
+
+pub func jwtVerifyHS512(token: string, secret: string) -> string? {
+    let parts: [string] = strSplit(token, ".")
+    if parts.length != (3 as i64) {
+        return nil
+    }
+    let p0: string = parts[0 as i64]
+    let p1: string = parts[1 as i64]
+    let p2: string = parts[2 as i64]
+    let signing: string = p0 + "." + p1
+    let expected: string = jwtHS512Sig(secret, signing)
+    if constTimeEq(expected, p2) {
+        let payload: string? = base64UrlDecode(p1)
+        return payload
+    }
+    return nil
+}
+
 impl Jwt {
     // Sign a payload with HS256. payloadJson must be valid JSON text.
     pub func signHS256(secret: string, payloadJson: string) -> Jwt {
@@ -57,11 +92,11 @@ impl Jwt {
     // Verify an HS256 token. Returns the raw payload JSON if the
     // signature matches, otherwise nil. Constant-time comparison.
     pub func verifyHS256(token: string, secret: string) -> string? {
-        return jwtHS256Verify(secret, token)
+        return jwtVerifyHS256(token, secret)
     }
 
     // Verify an HS512 token.
     pub func verifyHS512(token: string, secret: string) -> string? {
-        return jwtHS512Verify(secret, token)
+        return jwtVerifyHS512(token, secret)
     }
 }

@@ -1199,7 +1199,7 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32",
             "base64UrlEncode", "base64UrlDecode",
             "jwtHS256Sig", "jwtHS512Sig",
-            "jwtHS256Verify", "jwtHS512Verify",
+            "constTimeEq",
             // TOML
             "tomlParse", "tomlGetString", "tomlGetInt",
             "tomlGetBool", "tomlHasKey", "tomlFree",

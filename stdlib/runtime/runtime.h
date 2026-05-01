@@ -881,8 +881,9 @@ char *liva_jwt_hs512_sig(const char *secret, const char *data);
 /// nullptr otherwise. Signature comparison is constant-time.
 char *liva_jwt_hs256_verify(const char *secret, const char *token);
 
-/// Verify HS512 JWT — same contract as the HS256 variant.
-char *liva_jwt_hs512_verify(const char *secret, const char *token);
+/// Constant-time string equality — returns 1 if equal, 0 otherwise.
+/// Comparison time depends only on the length of the longer string.
+int8_t liva_const_time_eq(const char *a, const char *b);
 
 /// Format a Unix timestamp as RFC 3339 / ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SSZ")
 char *liva_iso_format_utc(double timestamp);

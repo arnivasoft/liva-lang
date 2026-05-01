@@ -264,9 +264,12 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
         auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
         if (tIt != tempStrings_.end()) tempStrings_.erase(tIt);
         // If returning a heap string variable, remove from heapStringVars_
+        // Same for Optional<string> variables that own their inner pointer:
+        // we hand the storage to the caller, so we must NOT free here.
         if (node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *retIdent = static_cast<IdentifierExpr *>(node->getValue());
             heapStringVars_.erase(retIdent->getName());
+            heapOptionalStringVars_.erase(retIdent->getName());
         }
         // When the return expression wraps a temp string in Optional<string>
         // (e.g. `return jsonGet(...)`), the raw pointer is still in

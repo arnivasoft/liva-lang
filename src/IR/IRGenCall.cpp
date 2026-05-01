@@ -3494,29 +3494,13 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         trackStringTemp(r);
         return r;
     }
-    if ((funcName == "jwtHS256Verify" || funcName == "jwtHS512Verify") &&
-        node->getArgs().size() >= 2) {
-        auto *secretArg = visit(node->getArgs()[0].get());
-        auto *tokenArg = visit(node->getArgs()[1].get());
-        if (!secretArg || !tokenArg) return nullptr;
-        auto *fn = getOrPanic(funcName == "jwtHS256Verify"
-                              ? "liva_jwt_hs256_verify"
-                              : "liva_jwt_hs512_verify");
-        auto *result = builder_->CreateCall(fn, {secretArg, tokenArg},
-                                            "jwt.verify.raw");
-        trackStringTemp(result);
-        // Wrap NULL → nil, ptr → Some(ptr) into Optional<string>.
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-        auto *curFunc = builder_->GetInsertBlock()->getParent();
-        auto *isNull = builder_->CreateICmpEQ(result,
-            llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
-            "jwt.verify.isnull");
-        auto *hasVal = builder_->CreateNot(isNull, "jwt.verify.hasval");
-        auto *optTy = getOptionalType(ptrTy);
-        auto *optAlloca = createEntryBlockAlloca(curFunc, "jwt.verify.opt", optTy);
-        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
-        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
-        return builder_->CreateLoad(optTy, optAlloca, "jwt.verify.result");
+    if (funcName == "constTimeEq" && node->getArgs().size() >= 2) {
+        auto *aArg = visit(node->getArgs()[0].get());
+        auto *bArg = visit(node->getArgs()[1].get());
+        if (!aArg || !bArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_const_time_eq"),
+                                        {aArg, bArg}, "const.eq");
+        return builder_->CreateICmpNE(r, builder_->getInt8(0), "const.eq.bool");
     }
     if (funcName == "base64UrlDecode" && !node->getArgs().empty()) {
         auto *dataArg = visit(node->getArgs()[0].get());

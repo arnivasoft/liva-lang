@@ -889,9 +889,10 @@ void IRGen::createRuntimeDecls() {
     // jwtHS256Sig/jwtHS512Sig: (ptr, ptr) -> ptr (HMAC + base64url, binary-safe)
     module_->getOrInsertFunction("liva_jwt_hs256_sig", concatTy);
     module_->getOrInsertFunction("liva_jwt_hs512_sig", concatTy);
-    // jwtHS256Verify/jwtHS512Verify: (secret, token) -> ptr (payload or NULL)
-    module_->getOrInsertFunction("liva_jwt_hs256_verify", concatTy);
-    module_->getOrInsertFunction("liva_jwt_hs512_verify", concatTy);
+    // constTimeEq(a, b) -> i8 (1 if equal, 0 otherwise)
+    auto *constEqTy = llvm::FunctionType::get(builder_->getInt8Ty(),
+        {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_const_time_eq", constEqTy);
     // isoFormatUtc(ts: f64) -> ptr; isoParse(str, *ok) -> f64
     auto *isoFmtTy = llvm::FunctionType::get(i8PtrTy, {builder_->getDoubleTy()}, false);
     module_->getOrInsertFunction("liva_iso_format_utc", isoFmtTy);
