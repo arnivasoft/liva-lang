@@ -379,7 +379,7 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
         // Check for struct literal: Name { field: value, ... }
         // Convention: struct names start with uppercase letter
         if (check(TokenKind::l_brace) && !name.empty() &&
-            name[0] >= 'A' && name[0] <= 'Z') {
+            name[0] >= 'A' && name[0] <= 'Z' && !suppressStructLit_) {
             return parseStructLiteral(name, startLoc);
         }
 
@@ -388,9 +388,15 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
 
     case TokenKind::l_paren: {
         advance(); // consume (
+        // Inside parens we're shielded from `if cond { ... }` ambiguity, so
+        // struct literals are unambiguously fine again.
+        bool savedSuppress = suppressStructLit_;
+        suppressStructLit_ = false;
         auto expr = parseExpression();
-        if (!expr)
+        if (!expr) {
+            suppressStructLit_ = savedSuppress;
             return nullptr;
+        }
 
         // Comma → tuple literal
         if (match(TokenKind::comma)) {
@@ -399,16 +405,21 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
             if (!check(TokenKind::r_paren)) {
                 do {
                     auto elem = parseExpression();
-                    if (!elem) return nullptr;
+                    if (!elem) {
+                        suppressStructLit_ = savedSuppress;
+                        return nullptr;
+                    }
                     elements.push_back(std::move(elem));
                 } while (match(TokenKind::comma));
             }
             expect(TokenKind::r_paren);
+            suppressStructLit_ = savedSuppress;
             return std::make_unique<TupleLiteralExpr>(std::move(elements), rangeFrom(startLoc));
         }
 
         // No comma → grouping expression
         expect(TokenKind::r_paren);
+        suppressStructLit_ = savedSuppress;
         return std::make_unique<GroupExpr>(std::move(expr), rangeFrom(startLoc));
     }
 
@@ -497,14 +508,20 @@ std::unique_ptr<Expr> Parser::parseCallExpr(std::unique_ptr<Expr> callee) {
     auto startLoc = callee->getStartLoc();
     expect(TokenKind::l_paren);
 
+    // Inside call args we're shielded from the if/while-condition
+    // ambiguity, so struct literals are unambiguously fine.
+    bool savedSuppress = suppressStructLit_;
+    suppressStructLit_ = false;
     std::vector<std::unique_ptr<Expr>> args;
     if (!check(TokenKind::r_paren)) {
         do {
             auto arg = parseExpression();
             if (!arg) {
                 // Skip to next comma or closing paren to recover
-                if (!skipToExprDelimiter(TokenKind::r_paren))
+                if (!skipToExprDelimiter(TokenKind::r_paren)) {
+                    suppressStructLit_ = savedSuppress;
                     return nullptr;
+                }
                 if (check(TokenKind::r_paren)) break;
                 if (match(TokenKind::comma)) continue;
                 break;
@@ -514,6 +531,7 @@ std::unique_ptr<Expr> Parser::parseCallExpr(std::unique_ptr<Expr> callee) {
     }
 
     expect(TokenKind::r_paren);
+    suppressStructLit_ = savedSuppress;
 
     return std::make_unique<CallExpr>(std::move(callee), std::move(args),
                                       rangeFrom(startLoc));
@@ -605,13 +623,17 @@ std::unique_ptr<Expr> Parser::parseArrayLiteral() {
     auto startLoc = current_.getLocation();
     expect(TokenKind::l_bracket);
 
+    bool savedSuppress = suppressStructLit_;
+    suppressStructLit_ = false;
     std::vector<std::unique_ptr<Expr>> elements;
     if (!check(TokenKind::r_bracket)) {
         do {
             auto elem = parseExpression();
             if (!elem) {
-                if (!skipToExprDelimiter(TokenKind::r_bracket))
+                if (!skipToExprDelimiter(TokenKind::r_bracket)) {
+                    suppressStructLit_ = savedSuppress;
                     return nullptr;
+                }
                 if (check(TokenKind::r_bracket)) break;
                 if (match(TokenKind::comma)) continue;
                 break;
@@ -621,6 +643,7 @@ std::unique_ptr<Expr> Parser::parseArrayLiteral() {
     }
 
     expect(TokenKind::r_bracket);
+    suppressStructLit_ = savedSuppress;
 
     return std::make_unique<ArrayLiteralExpr>(std::move(elements), rangeFrom(startLoc));
 }

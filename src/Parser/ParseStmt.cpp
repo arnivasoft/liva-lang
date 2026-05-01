@@ -107,7 +107,10 @@ std::unique_ptr<ASTNode> Parser::parseIfStmt() {
         return parseIfLetStmt(startLoc);
     }
 
+    bool savedSuppress = suppressStructLit_;
+    suppressStructLit_ = true;
     auto condition = parseExpression();
+    suppressStructLit_ = savedSuppress;
     if (!condition) {
         skipBalancedBraces(); // skip then-block
         if (match(TokenKind::kw_else)) {
@@ -140,7 +143,10 @@ std::unique_ptr<IfLetStmt> Parser::parseIfLetStmt(SourceLocation ifLoc) {
     expect(TokenKind::kw_let);
     auto bindingName = expect(TokenKind::identifier);
     expect(TokenKind::equal);
+    bool savedSuppress = suppressStructLit_;
+    suppressStructLit_ = true;
     auto optionalExpr = parseExpression();
+    suppressStructLit_ = savedSuppress;
     if (!optionalExpr) {
         skipBalancedBraces();
         if (match(TokenKind::kw_else)) {
@@ -173,7 +179,10 @@ std::unique_ptr<ASTNode> Parser::parseWhileStmt() {
         advance(); // consume 'let'
         auto bindingName = expect(TokenKind::identifier).getText();
         expect(TokenKind::equal);
+        bool savedSuppressWL = suppressStructLit_;
+        suppressStructLit_ = true;
         auto optionalExpr = parseExpression();
+        suppressStructLit_ = savedSuppressWL;
         if (!optionalExpr) { skipBalancedBraces(); return nullptr; }
         auto body = parseBlock();
         if (!body) return nullptr;
@@ -181,7 +190,10 @@ std::unique_ptr<ASTNode> Parser::parseWhileStmt() {
             std::move(optionalExpr), std::move(body), rangeFrom(startLoc));
     }
 
+    bool savedSuppress = suppressStructLit_;
+    suppressStructLit_ = true;
     auto condition = parseExpression();
+    suppressStructLit_ = savedSuppress;
     if (!condition) { skipBalancedBraces(); return nullptr; }
 
     auto body = parseBlock();
@@ -212,7 +224,10 @@ std::unique_ptr<ForStmt> Parser::parseForStmt() {
         expect(TokenKind::r_paren);
         expect(TokenKind::kw_in);
 
+        bool savedSuppressForIter = suppressStructLit_;
+        suppressStructLit_ = true;
         auto iterable = parseExpression();
+        suppressStructLit_ = savedSuppressForIter;
         if (!iterable) { skipBalancedBraces(); return nullptr; }
 
         auto body = parseBlock();

@@ -109,6 +109,13 @@ private:
     DiagnosticsEngine &diag_;
     Token current_;
     bool inClassBody_ = false;
+    /// When true, parsePrimary refuses to treat `Name { ... }` as a struct
+    /// literal — disambiguates the classic `if X < Y { ... }` /
+    /// `while cond { ... }` / `for x in iter { ... }` cases where the
+    /// trailing `{` belongs to the surrounding statement, not the
+    /// expression. Reset (false) inside parens, brackets, and call args
+    /// so nested struct literals still work.
+    bool suppressStructLit_ = false;
     std::vector<std::unique_ptr<ASTNode>> pendingDecls_;
 };
 

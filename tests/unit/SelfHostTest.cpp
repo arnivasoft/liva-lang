@@ -617,6 +617,50 @@ func main() {
 // brackets and only commits to a type-arg list if the closing `>` is
 // followed by `{` or `.`. Comparisons (`A < B`) restore and fall
 // through to the operator parser.
+// Regression: `if X < Y { ... }` where Y starts uppercase used to parse
+// `Y { ... }` as a struct literal because the struct-literal heuristic
+// (uppercase Name + l_brace) fired regardless of context. The if/while/
+// for-iter parsers now set suppressStructLit_ around the condition
+// expression; nested parens, brackets, and call args reset it so
+// `f(Foo { x: 1 })` and `(Foo { x: 1 })` still work.
+TEST_F(SelfHostTest, IfConditionWithUppercaseRhsCmp) {
+    expectOutput(R"--(
+func main() {
+    let A: i64 = 3 as i64
+    let B: i64 = 5 as i64
+    if A < B { println("less") }
+
+    var k: i64 = 0 as i64
+    while k < B {
+        k = k + (1 as i64)
+    }
+    println(k)
+}
+)--", "less\n5\n");
+}
+
+TEST_F(SelfHostTest, StructLiteralStillWorksOutsideConditions) {
+    // Ensure the struct-literal flag is correctly reset inside call args
+    // and array element expressions even when the call is itself inside a
+    // condition (struct literal nested into the call should be fine).
+    expectOutput(R"--(
+struct P {
+    var x: i64
+}
+pub func take(p: P) -> i64 {
+    return p.x
+}
+func main() {
+    let p1 = P { x: 1 as i64 }
+    println(p1.x)
+    println(take(P { x: 2 as i64 }))
+    var arr: [i64] = []
+    arr.push(P { x: 4 as i64 }.x)
+    for v in arr { println(v) }
+}
+)--", "1\n2\n4\n");
+}
+
 TEST_F(SelfHostTest, PlainGenericStructLiteralAndStaticCall) {
     expectOutput(R"--(
 pub struct Stream<T> {
