@@ -299,6 +299,19 @@ TEST_F(StdlibModuleTest, EncodingBase64UrlStruct) {
     EXPECT_TRUE(r.passed) << "Base64Url struct should type-check";
 }
 
+TEST_F(StdlibModuleTest, ImportCsvModule) {
+    auto r = check(
+        "import csv::csv\n"
+        "func main() {\n"
+        "    let r: [string] = csvParseRow(\"a,b,c\")\n"
+        "    var fields: [string] = []\n"
+        "    fields.push(\"x\")\n"
+        "    let line: string = csvJoinRow(fields)\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import csv::csv should resolve csvParseRow/csvJoinRow";
+}
+
 TEST_F(StdlibModuleTest, ImportJwtModule) {
     auto r = check(
         "import jwt::jwt\n"

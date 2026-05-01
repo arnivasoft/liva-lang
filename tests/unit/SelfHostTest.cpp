@@ -550,6 +550,57 @@ func main() {
 )--", "rejected\nrejected\n");
 }
 
+TEST_F(SelfHostTest, CsvParsePlainRow) {
+    expectOutput(R"--(
+import csv::csv
+func main() {
+    let r: [string] = csvParseRow("a,b,c")
+    println(r.length)
+    for f in r { println(f) }
+}
+)--", "3\na\nb\nc\n");
+}
+
+TEST_F(SelfHostTest, CsvParseQuotedFields) {
+    // Quoted field with comma inside; doubled quote → literal "
+    expectOutput(R"--(
+import csv::csv
+func main() {
+    let r1: [string] = csvParseRow("x,\"y,z\",w")
+    for f in r1 { println(f) }
+    let r2: [string] = csvParseRow("\"a\"\"b\",c")
+    for f in r2 { println(f) }
+}
+)--", "x\ny,z\nw\na\"b\nc\n");
+}
+
+TEST_F(SelfHostTest, CsvParseEmptyFields) {
+    expectOutput(R"--(
+import csv::csv
+func main() {
+    let r: [string] = csvParseRow("a,,b")
+    println(r.length)
+    for f in r { println("[" + f + "]") }
+}
+)--", "3\n[a]\n[]\n[b]\n");
+}
+
+TEST_F(SelfHostTest, CsvJoinAndRoundTrip) {
+    expectOutput(R"--(
+import csv::csv
+func main() {
+    var fields: [string] = []
+    fields.push("x")
+    fields.push("y, z")
+    fields.push("a\"b")
+    let line: string = csvJoinRow(fields)
+    println(line)
+    let back: [string] = csvParseRow(line)
+    for f in back { println(f) }
+}
+)--", "x,\"y, z\",\"a\"\"b\"\nx\ny, z\na\"b\n");
+}
+
 TEST_F(SelfHostTest, ConstTimeEqMatchAndMismatch) {
     expectOutput(R"--(
 import std::crypto
@@ -560,6 +611,69 @@ func main() {
     if constTimeEq("", "") { println("eq") } else { println("ne") }
 }
 )--", "eq\nne\nne\neq\n");
+}
+
+// Regression: Liva-defined functions could not return [T] DynArrays — the
+// return type used `ptr` instead of the struct, so the caller got 8 bytes
+// (data) and zeros for length/capacity. Also, returning a local DynArray
+// var triggered emitScopeCleanup → liva_array_free, freeing the buffer the
+// caller had just received.
+TEST_F(SelfHostTest, FunctionReturningDynArray) {
+    expectOutput(R"--(
+pub func makeArr() -> [string] {
+    var arr: [string] = []
+    arr.push("a")
+    arr.push("b")
+    return arr
+}
+func main() {
+    let r: [string] = makeArr()
+    println(r.length)
+    for f in r { println(f) }
+}
+)--", "2\na\nb\n");
+}
+
+// Regression: a [T] parameter is borrowed — the caller owns the data buffer.
+// emitScopeCleanup used to free it inside the callee, corrupting caller
+// state on use of the array after the call.
+TEST_F(SelfHostTest, FunctionTakingDynArrayParam) {
+    expectOutput(R"--(
+pub func sumLengths(parts: [string]) -> i64 {
+    var total: i64 = 0 as i64
+    for p in parts {
+        total = total + p.length
+    }
+    return total
+}
+func main() {
+    var arr: [string] = []
+    arr.push("ab")
+    arr.push("cde")
+    println(sumLengths(arr))
+    println(arr.length)
+}
+)--", "5\n2\n");
+}
+
+// Regression: `var s: string = literal` followed by a reassignment to a
+// concat result freed the string literal (heap corruption). Initializing a
+// mutable string variable now stores a heap copy so reassignments can free
+// the old value uniformly.
+TEST_F(SelfHostTest, MutableStringVarConcatLoop) {
+    expectOutput(R"--(
+import std::strings
+import std::convert
+func main() {
+    var s: string = ""
+    var i: i32 = 0
+    while i < 3 {
+        s = s + "x"
+        i = i + 1
+    }
+    println(s)
+}
+)--", "xxx\n");
 }
 
 // Regression: strSplit returned an empty array when bound with an explicit

@@ -1,0 +1,123 @@
+// csv::csv — RFC 4180 CSV parser/writer (line-oriented).
+//
+// Operates on a single CSV row at a time:
+//   csvParseRow("a,\"b,c\",d") -> ["a", "b,c", "d"]
+//   csvJoinRow(["x", "y, z"])  -> "x,\"y, z\""
+//
+// Quoted fields support:
+//   - embedded commas: "a,b"
+//   - escaped quotes: "" inside quotes -> a literal "
+//
+// Embedded newlines inside quoted fields are NOT supported — split the
+// input by newlines before parsing rows.
+//
+// Usage:
+//   import csv::csv
+//   import std::strings
+//   let lines: [string] = strSplit(text, "\n")
+//   for line in lines {
+//       let fields: [string] = csvParseRow(line)
+//       // ...
+//   }
+
+import std::strings
+import std::convert
+
+// Codepoints used as field delimiters (kept as constants for readability).
+//   COMMA = 44, QUOTE = 34, CR = 13, LF = 10
+
+pub func csvParseRow(line: string) -> [string] {
+    var fields: [string] = []
+    var current: string = ""
+    var inQuotes: bool = false
+    var i: i64 = 0 as i64
+    let n: i64 = strCharCount(line)
+
+    while i < n {
+        let c: i32 = strCodepointAt(line, i)
+        if inQuotes {
+            if c == 34 {
+                // Look-ahead for an escaped quote: "" -> literal "
+                let next: i64 = i + (1 as i64)
+                if next < n && strCodepointAt(line, next) == 34 {
+                    current = current + "\""
+                    i = i + (2 as i64)
+                } else {
+                    inQuotes = false
+                    i = i + (1 as i64)
+                }
+            } else {
+                current = current + charToString(c)
+                i = i + (1 as i64)
+            }
+        } else {
+            if c == 44 {
+                fields.push(current)
+                current = ""
+                i = i + (1 as i64)
+            } else if c == 34 {
+                inQuotes = true
+                i = i + (1 as i64)
+            } else {
+                current = current + charToString(c)
+                i = i + (1 as i64)
+            }
+        }
+    }
+    fields.push(current)
+    return fields
+}
+
+// True if a field needs CSV quoting (contains comma, quote, CR, or LF).
+pub func csvFieldNeedsQuote(s: string) -> bool {
+    var i: i64 = 0 as i64
+    let n: i64 = strCharCount(s)
+    while i < n {
+        let c: i32 = strCodepointAt(s, i)
+        if c == 44 { return true }
+        if c == 34 { return true }
+        if c == 13 { return true }
+        if c == 10 { return true }
+        i = i + (1 as i64)
+    }
+    return false
+}
+
+// Escape a single field for CSV output. Returns the field unchanged if no
+// quoting is required, otherwise wraps it in double quotes and doubles any
+// embedded quote characters.
+pub func csvEscapeField(s: string) -> string {
+    if !csvFieldNeedsQuote(s) {
+        return s
+    }
+    var out: string = "\""
+    var i: i64 = 0 as i64
+    let n: i64 = strCharCount(s)
+    while i < n {
+        let c: i32 = strCodepointAt(s, i)
+        if c == 34 {
+            out = out + "\"\""
+        } else {
+            out = out + charToString(c)
+        }
+        i = i + (1 as i64)
+    }
+    out = out + "\""
+    return out
+}
+
+// Join a list of fields into a single CSV row.
+pub func csvJoinRow(fields: [string]) -> string {
+    var out: string = ""
+    var i: i64 = 0 as i64
+    let n: i64 = fields.length
+    while i < n {
+        if i > (0 as i64) {
+            out = out + ","
+        }
+        let f: string = fields[i]
+        out = out + csvEscapeField(f)
+        i = i + (1 as i64)
+    }
+    return out
+}

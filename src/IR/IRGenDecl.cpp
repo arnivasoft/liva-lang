@@ -103,6 +103,14 @@ void IRGen::declareExternFunction(FuncDecl *funcDecl) {
     auto *returnType = toLLVMType(funcDecl->getReturnType());
     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
+    // Dynamic arrays are passed/returned as DynArray struct values, not ptr.
+    if (funcDecl->getReturnType() &&
+        funcDecl->getReturnType()->getKind() == TypeRepr::Kind::Array) {
+        auto *arrRet = static_cast<const ArrayTypeRepr *>(funcDecl->getReturnType());
+        if (arrRet->isDynamic())
+            returnType = getDynArrayStructTy();
+    }
+
     // Async functions return ptr (LivaTask*)
     if (funcDecl->isAsync()) {
         asyncFuncNames_.insert(funcDecl->getName());
@@ -228,6 +236,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     auto *returnType = toLLVMType(node->getReturnType());
     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+    // Dynamic arrays are passed/returned as DynArray struct values, not ptr.
+    if (node->getReturnType() &&
+        node->getReturnType()->getKind() == TypeRepr::Kind::Array) {
+        auto *arrRet = static_cast<const ArrayTypeRepr *>(node->getReturnType());
+        if (arrRet->isDynamic())
+            returnType = getDynArrayStructTy();
+    }
 
     // Async functions: return ptr (LivaTask*) instead of {i1, T}
     llvm::Type *asyncInnerRetType = nullptr;
@@ -517,6 +533,9 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
                 auto &DL = module_->getDataLayout();
                 uint64_t elemSize = DL.getTypeAllocSize(elemType);
                 varDynArrayTypes_[param.name] = {elemType, elemSize};
+                // Params are borrowed: the caller owns the backing buffer.
+                // Skip them in emitScopeCleanup to avoid double-free.
+                movedVars_.insert(param.name);
                 // Track dyn Protocol element type
                 if (arrType->getElement() &&
                     arrType->getElement()->getKind() == TypeRepr::Kind::DynProtocol) {
@@ -1466,7 +1485,21 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 isString = true;
             }
             if (isString) {
-                transferStringOwnership(initVal, node->getName());
+                // For mutable string vars, ensure the slot always holds a
+                // heap-allocated pointer so reassignments can free the old
+                // value uniformly. If init is a string literal (not tracked),
+                // dup it; otherwise transfer the temp's ownership.
+                auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), initVal);
+                if (tIt != tempStrings_.end()) {
+                    transferStringOwnership(initVal, node->getName());
+                } else if (node->isMutable()) {
+                    // Literal or borrowed init — replace stored value with a
+                    // heap copy and mark as heap-owned.
+                    auto *dup = builder_->CreateCall(getOrPanic("liva_str_dup"),
+                                                     {initVal}, node->getName() + ".own");
+                    builder_->CreateStore(dup, alloca);
+                    heapStringVars_.insert(node->getName());
+                }
             }
         }
 

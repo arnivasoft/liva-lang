@@ -366,6 +366,30 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 if (methodName == "push" && !node->getArgs().empty()) {
                     auto *val = visit(node->getArgs()[0].get());
                     if (!val) return nullptr;
+                    // [string].push: take an owned copy. Otherwise the
+                    // pushed pointer would alias either a tracked temp
+                    // (freed at end of the producing statement) or a
+                    // heapStringVars_ slot (freed on the next reassign of
+                    // that variable), which leaves the array holding a
+                    // dangling pointer.
+                    bool elemIsString = false;
+                    if (auto *arrTr = dynamic_cast<const ArrayTypeRepr *>(
+                            node->getArgs()[0]->getResolvedType())) {
+                        (void)arrTr; // silence unused warning
+                    }
+                    if (val->getType()->isPointerTy()) {
+                        // Heuristic: if the array element type is a pointer
+                        // (i.e. [string]) AND the value source is dynamic
+                        // (variable load or temp call), take a heap copy.
+                        if (daIt->second.elementType->isPointerTy()) {
+                            val = builder_->CreateCall(getOrPanic("liva_str_dup"),
+                                                        {val}, "push.dup");
+                            elemIsString = true;
+                        } else {
+                            removeFromTempStrings(val);
+                        }
+                    }
+                    (void)elemIsString;
                     auto *func = builder_->GetInsertBlock()->getParent();
                     auto *elemAlloca = createEntryBlockAlloca(func, "push.tmp",
                                                               daIt->second.elementType);
@@ -5164,13 +5188,37 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                         llvm::PointerType::getUnqual(*context_), it->second, "old.str");
                     builder_->CreateCall(freeFn, {old});
                 }
-                // Transfer ownership from tempStrings_ if applicable
+                // Transfer ownership from tempStrings_ if applicable.
+                // Storing a literal (Constant ptr) into a heap-tracked string
+                // var: dup it first so the slot keeps holding heap memory.
+                // Otherwise the next reassignment's free(old) would free a
+                // string literal (heap corruption) and intervening reads
+                // would alias the global.
                 auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
                 if (tIt != tempStrings_.end()) {
                     tempStrings_.erase(tIt);
                     // keep in heapStringVars_
+                } else if (val && val->getType()->isPointerTy() &&
+                           llvm::isa<llvm::Constant>(val) &&
+                           it->second->getAllocatedType()->isPointerTy()) {
+                    val = builder_->CreateCall(getOrPanic("liva_str_dup"),
+                                                {val}, ident->getName() + ".own");
+                    // current still in heapStringVars_
                 } else {
                     heapStringVars_.erase(ident->getName());
+                }
+            } else if (node->getOp() == AssignExpr::Op::Assign &&
+                       val && val->getType()->isPointerTy() &&
+                       it->second->getAllocatedType()->isPointerTy()) {
+                // First-time assignment of a heap string into a ptr-typed
+                // variable that wasn't yet heap-tracked (e.g.
+                // `var s: string = ""; s = strToUpper(x)`). Without this,
+                // statement-end cleanup frees the temp while the variable
+                // still references it → use-after-free on the next read.
+                auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
+                if (tIt != tempStrings_.end()) {
+                    tempStrings_.erase(tIt);
+                    heapStringVars_.insert(ident->getName());
                 }
             }
 

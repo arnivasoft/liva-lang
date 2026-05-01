@@ -264,12 +264,16 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
         auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
         if (tIt != tempStrings_.end()) tempStrings_.erase(tIt);
         // If returning a heap string variable, remove from heapStringVars_
-        // Same for Optional<string> variables that own their inner pointer:
-        // we hand the storage to the caller, so we must NOT free here.
+        // Same for Optional<string> variables that own their inner pointer.
+        // Same for DynArray variables: returning the struct hands ownership
+        // to the caller, so we must NOT free its backing buffer here.
+        // We piggyback on movedVars_ which emitScopeCleanup already honours
+        // to skip both heapStringVars_ and varDynArrayTypes_/varMapTypes_.
         if (node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *retIdent = static_cast<IdentifierExpr *>(node->getValue());
             heapStringVars_.erase(retIdent->getName());
             heapOptionalStringVars_.erase(retIdent->getName());
+            movedVars_.insert(retIdent->getName());
         }
         // When the return expression wraps a temp string in Optional<string>
         // (e.g. `return jsonGet(...)`), the raw pointer is still in
