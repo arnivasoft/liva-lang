@@ -373,6 +373,7 @@ void IRGen::createRuntimeDecls() {
 
     auto *equalTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_str_equal", equalTy);
+    module_->getOrInsertFunction("liva_str_compare", equalTy);
 
     auto *lenTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_str_length", lenTy);
@@ -548,6 +549,7 @@ void IRGen::createRuntimeDecls() {
 
     auto *randUuidTy = llvm::FunctionType::get(i8PtrTy, {}, false);
     module_->getOrInsertFunction("liva_rand_uuid", randUuidTy);
+    module_->getOrInsertFunction("liva_rand_uuid_v7", randUuidTy);
 
     // === Stdlib: Process/Env ===
     auto *envGetTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);

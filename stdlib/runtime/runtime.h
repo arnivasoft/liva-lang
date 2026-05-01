@@ -45,6 +45,9 @@ char *liva_str_concat(const char *a, const char *b);
 /// Compare two C strings for equality (returns 1 if equal, 0 otherwise)
 int32_t liva_str_equal(const char *a, const char *b);
 
+/// Lexicographic compare: <0 if a<b, 0 if equal, >0 if a>b
+int32_t liva_str_compare(const char *a, const char *b);
+
 /// Get length of a C string (UTF-8 code point count)
 int64_t liva_str_length(const char *a);
 
@@ -289,6 +292,10 @@ int64_t liva_rand_i64();
 
 /// Generate a UUID v4 string (caller frees)
 char *liva_rand_uuid();
+
+/// Generate a UUID v7 string (RFC 9562) — time-ordered, 48-bit ms
+/// timestamp prefix + 74 random bits. Caller frees.
+char *liva_rand_uuid_v7();
 
 // === Process/Env ===
 

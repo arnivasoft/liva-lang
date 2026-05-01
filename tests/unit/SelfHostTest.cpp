@@ -558,6 +558,58 @@ func main() {
 // Turbofish (`Name::<T>`) on a struct literal disambiguates the type args
 // without relying on field-value inference, which only handles `var x: T`
 // direct fields and falls over on `var x: [T]` containers.
+TEST_F(SelfHostTest, RandUuidV7HasCorrectShape) {
+    // UUID v7 layout (RFC 9562):
+    //   xxxxxxxx-xxxx-7xxx-Vxxx-xxxxxxxxxxxx
+    //                  ^      ^
+    //              version=7  variant ∈ {8,9,a,b}
+    expectOutput(R"--(
+import std::random
+func main() {
+    let u: string = randUuidV7()
+    println(u.length)
+    let dash1: string = u.substring(8 as i64, 1 as i64)
+    let dash2: string = u.substring(13 as i64, 1 as i64)
+    let dash3: string = u.substring(18 as i64, 1 as i64)
+    let dash4: string = u.substring(23 as i64, 1 as i64)
+    println(dash1)
+    println(dash2)
+    println(dash3)
+    println(dash4)
+    let ver: string = u.substring(14 as i64, 1 as i64)
+    println(ver)
+}
+)--", "36\n-\n-\n-\n-\n7\n");
+}
+
+// Two v7 UUIDs minted ~ms apart sort lexicographically by mint time —
+// the whole point of v7. Also exercises the new string ordering operators
+// (which previously did pointer compare).
+TEST_F(SelfHostTest, RandUuidV7IsTimeOrdered) {
+    expectOutput(R"--(
+import std::random
+import std::os
+func main() {
+    let a: string = randUuidV7()
+    sleep(2)
+    let b: string = randUuidV7()
+    if a < b { println("ordered") } else { println("not ordered") }
+}
+)--", "ordered\n");
+}
+
+TEST_F(SelfHostTest, StringLessGreaterCompareLexicographically) {
+    expectOutput(R"--(
+func main() {
+    if "abc" < "abd" { println("lt") }
+    if "abd" > "abc" { println("gt") }
+    if "abc" <= "abc" { println("le") }
+    if "abc" >= "abc" { println("ge") }
+    if !("xyz" < "abc") { println("nlt") }
+}
+)--", "lt\ngt\nle\nge\nnlt\n");
+}
+
 TEST_F(SelfHostTest, TurbofishStructLiteralExplicitTypeArgs) {
     expectOutput(R"--(
 pub struct Box<T> {

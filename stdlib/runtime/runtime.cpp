@@ -210,6 +210,15 @@ int32_t liva_str_equal(const char *a, const char *b) {
     return strcmp(a, b) == 0 ? 1 : 0;
 }
 
+// Lexicographic compare: <0 if a<b, 0 if equal, >0 if a>b. Used for
+// ordering operators (<, <=, >, >=) on string operands. nil sorts first.
+int32_t liva_str_compare(const char *a, const char *b) {
+    if (!a && !b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    return strcmp(a, b);
+}
+
 int64_t liva_str_length(const char *a) {
     if (!a) return 0;
     return utf8_count(a);
@@ -1354,6 +1363,40 @@ char *liva_rand_uuid() {
         } else {
             buf[i] = hex[rand() & 0xF];
         }
+    }
+    buf[36] = '\0';
+    return buf;
+}
+
+// UUID v7 (RFC 9562): 48-bit unix_ts_ms || ver=7 || 12-bit rand_a ||
+// var=0b10 || 62-bit rand_b. Time-ordered, monotonic when sorted as
+// strings — useful as DB primary keys.
+char *liva_rand_uuid_v7() {
+    ensure_rand_seeded();
+    uint8_t b[16];
+
+    // Bytes 0-5: unix milliseconds, big-endian.
+    uint64_t ms = (uint64_t)liva_clock_ms();
+    b[0] = (uint8_t)(ms >> 40);
+    b[1] = (uint8_t)(ms >> 32);
+    b[2] = (uint8_t)(ms >> 24);
+    b[3] = (uint8_t)(ms >> 16);
+    b[4] = (uint8_t)(ms >> 8);
+    b[5] = (uint8_t)(ms);
+
+    // Bytes 6-15: random with version + variant fields overlaid.
+    for (int i = 6; i < 16; ++i) b[i] = (uint8_t)(rand() & 0xFF);
+    b[6] = (uint8_t)((b[6] & 0x0F) | 0x70); // version 7 in high nibble
+    b[8] = (uint8_t)((b[8] & 0x3F) | 0x80); // variant 0b10 in top 2 bits
+
+    char *buf = (char *)malloc(37);
+    if (!buf) liva_panic("out of memory");
+    static const char hex[] = "0123456789abcdef";
+    int j = 0;
+    for (int i = 0; i < 16; ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) buf[j++] = '-';
+        buf[j++] = hex[(b[i] >> 4) & 0xF];
+        buf[j++] = hex[b[i] & 0xF];
     }
     buf[36] = '\0';
     return buf;

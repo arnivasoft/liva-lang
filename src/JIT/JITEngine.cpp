@@ -38,6 +38,7 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     // String
     REG(liva_str_concat);
     REG(liva_str_equal);
+    REG(liva_str_compare);
     REG(liva_str_length);
     REG(liva_str_byte_length);
     REG(liva_i32_to_str);
@@ -134,6 +135,10 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     // Random
     REG(liva_rand_int);
     REG(liva_rand_float);
+    REG(liva_rand_seed);
+    REG(liva_rand_i64);
+    REG(liva_rand_uuid);
+    REG(liva_rand_uuid_v7);
 
     // System
     REG(liva_init_args);

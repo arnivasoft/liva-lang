@@ -312,6 +312,18 @@ TEST_F(StdlibModuleTest, ImportStreamModule) {
     EXPECT_TRUE(r.passed) << "import stream::stream should resolve StringStream/IntStream";
 }
 
+TEST_F(StdlibModuleTest, RandomUuidV7Resolves) {
+    auto r = check(
+        "import random::random\n"
+        "func main() {\n"
+        "    let u: string = randUuidV7()\n"
+        "    let r = Random.new()\n"
+        "    let v: string = r.uuidV7()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "randUuidV7 + Random.uuidV7 should type-check";
+}
+
 TEST_F(StdlibModuleTest, StreamGenericResolves) {
     auto r = check(
         "import stream::stream\n"

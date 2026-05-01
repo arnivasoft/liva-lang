@@ -1169,7 +1169,7 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "strStartsWith", "strEndsWith",
             "strToUpper", "strToLower", "strReverse", "strChars", "strLines",
             // Random
-            "randInt", "randFloat",
+            "randInt", "randFloat", "randSeed", "randI64", "randUuid", "randUuidV7",
             // OS/Process
             "sleep", "env", "exit", "args", "clock", "clockMs",
             "exec", "execOutput",
@@ -1962,6 +1962,8 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
             // Random
             {"randInt", "func randInt(min: i64, max: i64) -> i64", {"min: i64", "max: i64"}},
             {"randFloat", "func randFloat() -> f64", {}},
+            {"randUuid", "func randUuid() -> string", {}},
+            {"randUuidV7", "func randUuidV7() -> string", {}},
             // Collections
             {"len", "func len(collection: any) -> i64", {"collection: any"}},
             {"push", "func push(array: [any], value: any)", {"array: [any]", "value: any"}},

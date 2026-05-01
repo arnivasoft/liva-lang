@@ -1,8 +1,8 @@
 // random::random — Random number generator wrapper API
 // Import with: import random::random
 //
-// Re-exports std::random builtins (randInt, randFloat, randSeed, randI64, randUuid)
-// plus Random struct and convenience helpers.
+// Re-exports std::random builtins (randInt, randFloat, randSeed, randI64,
+// randUuid, randUuidV7) plus Random struct and convenience helpers.
 
 import std::random
 
@@ -49,5 +49,10 @@ impl Random {
 
     pub func uuid(ref self) -> String {
         return randUuid()
+    }
+
+    // RFC 9562 UUID v7 — time-ordered, suitable for DB primary keys.
+    pub func uuidV7(ref self) -> String {
+        return randUuidV7()
     }
 }

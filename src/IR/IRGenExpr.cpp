@@ -179,6 +179,28 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
             return builder_->CreateICmpEQ(result,
                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context_), 0));
         }
+        case BinaryExpr::Op::Less:
+        case BinaryExpr::Op::LessEq:
+        case BinaryExpr::Op::Greater:
+        case BinaryExpr::Op::GreaterEq: {
+            // Lexicographic ordering via runtime strcmp; compare the
+            // returned i32 (negative / zero / positive) to 0.
+            auto *cmpFn = getOrPanic("liva_str_compare");
+            auto *cmp = builder_->CreateCall(cmpFn, {lhs, rhs}, "str.cmp");
+            auto *zero = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context_), 0);
+            switch (node->getOp()) {
+            case BinaryExpr::Op::Less:
+                return builder_->CreateICmpSLT(cmp, zero, "strlt");
+            case BinaryExpr::Op::LessEq:
+                return builder_->CreateICmpSLE(cmp, zero, "strle");
+            case BinaryExpr::Op::Greater:
+                return builder_->CreateICmpSGT(cmp, zero, "strgt");
+            case BinaryExpr::Op::GreaterEq:
+                return builder_->CreateICmpSGE(cmp, zero, "strge");
+            default: break;
+            }
+            return cmp; // unreachable
+        }
         default:
             break;
         }

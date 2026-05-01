@@ -62,7 +62,7 @@ void TypeChecker::registerBuiltins() {
     }
 
     // Stdlib: Random, Process/Env, Date/Time, Regex, Networking
-    for (auto &name : {"randInt", "randFloat", "randSeed", "randI64", "randUuid",
+    for (auto &name : {"randInt", "randFloat", "randSeed", "randI64", "randUuid", "randUuidV7",
                         "env", "exit", "args",
                         "clock", "clockMs", "sleep", "isCancelled",
                         "regexMatch", "regexFind", "regexFindAll", "regexReplace",
@@ -2072,7 +2072,8 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             // void — no resolved type needed
         } else if (ident->getName() == "randI64") {
             node->setResolvedType(makeI64Type());
-        } else if (ident->getName() == "randUuid") {
+        } else if (ident->getName() == "randUuid" ||
+                   ident->getName() == "randUuidV7") {
             node->setResolvedType(makeStringType());
         // Stdlib: Process/Env
         } else if (ident->getName() == "env") {

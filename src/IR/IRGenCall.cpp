@@ -1753,6 +1753,13 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return result;
     }
 
+    if (funcName == "randUuidV7") {
+        auto *fn = getOrPanic("liva_rand_uuid_v7");
+        auto *result = builder_->CreateCall(fn, {}, "randuuidv7");
+        trackStringTemp(result);
+        return result;
+    }
+
     // === Stdlib: Process/Env ===
     if (funcName == "env" && !node->getArgs().empty()) {
         auto *nameArg = visit(node->getArgs()[0].get());
