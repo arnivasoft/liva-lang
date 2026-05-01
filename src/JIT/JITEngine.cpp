@@ -288,6 +288,15 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_channel_try_send);
     REG(liva_channel_try_receive);
 
+    // Crypto (hashes, HMAC)
+    REG(liva_sha256);
+    REG(liva_md5);
+    REG(liva_hmac_sha256);
+    REG(liva_sha1);
+    REG(liva_sha512);
+    REG(liva_hmac_sha1);
+    REG(liva_hmac_sha512);
+
     // TOML
     REG(liva_toml_parse);
     REG(liva_toml_get_string);

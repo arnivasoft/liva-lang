@@ -17,6 +17,14 @@ impl Hash {
         return Hash { value: md5(data) }
     }
 
+    pub func sha1(data: String) -> Hash {
+        return Hash { value: sha1(data) }
+    }
+
+    pub func sha512(data: String) -> Hash {
+        return Hash { value: sha512(data) }
+    }
+
     pub func hex(ref self) -> String {
         return self.value
     }
@@ -29,6 +37,14 @@ pub struct Hmac {
 impl Hmac {
     pub func sha256(key: String, data: String) -> Hmac {
         return Hmac { value: hmacSha256(key, data) }
+    }
+
+    pub func sha1(key: String, data: String) -> Hmac {
+        return Hmac { value: hmacSha1(key, data) }
+    }
+
+    pub func sha512(key: String, data: String) -> Hmac {
+        return Hmac { value: hmacSha512(key, data) }
     }
 
     pub func hex(ref self) -> String {

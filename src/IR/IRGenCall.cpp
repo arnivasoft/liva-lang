@@ -3458,6 +3458,36 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         trackStringTemp(r);
         return r;
     }
+    if (funcName == "sha1" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_sha1"), {dataArg}, "sha1");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "sha512" && !node->getArgs().empty()) {
+        auto *dataArg = visit(node->getArgs()[0].get());
+        if (!dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_sha512"), {dataArg}, "sha512");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "hmacSha1" && node->getArgs().size() >= 2) {
+        auto *keyArg = visit(node->getArgs()[0].get());
+        auto *dataArg = visit(node->getArgs()[1].get());
+        if (!keyArg || !dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_hmac_sha1"), {keyArg, dataArg}, "hmac");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "hmacSha512" && node->getArgs().size() >= 2) {
+        auto *keyArg = visit(node->getArgs()[0].get());
+        auto *dataArg = visit(node->getArgs()[1].get());
+        if (!keyArg || !dataArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_hmac_sha512"), {keyArg, dataArg}, "hmac");
+        trackStringTemp(r);
+        return r;
+    }
 
     // Handle readLine() built-in
     if (funcName == "readLine") {

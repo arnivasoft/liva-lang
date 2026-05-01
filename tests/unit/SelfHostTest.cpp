@@ -367,6 +367,49 @@ func main() {
 )--", "liva\n42\nactive\nhas name\nno missing\n");
 }
 
+TEST_F(SelfHostTest, Sha1KnownVectors) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    println(sha1("abc"))
+    println(sha1("hello world"))
+}
+)--",
+        "a9993e364706816aba3e25717850c26c9cd0d89d\n"
+        "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed\n");
+}
+
+TEST_F(SelfHostTest, Sha512KnownVector) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    println(sha512("abc"))
+}
+)--",
+        "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+        "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f\n");
+}
+
+TEST_F(SelfHostTest, HmacSha1KnownVector) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    println(hmacSha1("key", "The quick brown fox jumps over the lazy dog"))
+}
+)--", "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9\n");
+}
+
+TEST_F(SelfHostTest, HmacSha512KnownVector) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    println(hmacSha512("key", "The quick brown fox jumps over the lazy dog"))
+}
+)--",
+        "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb"
+        "82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a\n");
+}
+
 TEST_F(SelfHostTest, TomlMissingKeysReturnNil) {
     expectOutput(R"--(
 import toml::toml

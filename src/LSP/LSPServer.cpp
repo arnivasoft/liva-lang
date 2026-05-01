@@ -1195,6 +1195,7 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "regexReplaceCompiled", "regexFree",
             // Crypto
             "sha256", "md5", "hmacSha256",
+            "sha1", "sha512", "hmacSha1", "hmacSha512",
             "base64Encode", "base64Decode", "hexEncode", "hexDecode", "crc32",
             // TOML
             "tomlParse", "tomlGetString", "tomlGetInt",
@@ -1978,6 +1979,10 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
             {"sha256", "func sha256(data: string) -> string", {"data: string"}},
             {"md5", "func md5(data: string) -> string", {"data: string"}},
             {"hmacSha256", "func hmacSha256(key: string, data: string) -> string", {"key: string", "data: string"}},
+            {"sha1", "func sha1(data: string) -> string", {"data: string"}},
+            {"sha512", "func sha512(data: string) -> string", {"data: string"}},
+            {"hmacSha1", "func hmacSha1(key: string, data: string) -> string", {"key: string", "data: string"}},
+            {"hmacSha512", "func hmacSha512(key: string, data: string) -> string", {"key: string", "data: string"}},
             // Concurrency
             {"channelCreate", "func channelCreate(capacity: i64) -> i64", {"capacity: i64"}},
             {"channelSend", "func channelSend(ch: i64, value: any)", {"ch: i64", "value: any"}},

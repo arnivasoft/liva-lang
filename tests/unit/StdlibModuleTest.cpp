@@ -263,6 +263,32 @@ TEST_F(StdlibModuleTest, CryptoEncodingHelpers) {
     EXPECT_TRUE(r.passed) << "Encoding helper functions should type-check";
 }
 
+TEST_F(StdlibModuleTest, CryptoSha1AndSha512) {
+    auto r = check(
+        "import crypto::crypto\n"
+        "func main() {\n"
+        "    let h1 = Hash.sha1(\"hello\")\n"
+        "    let h2 = Hash.sha512(\"hello\")\n"
+        "    let s1 = h1.hex()\n"
+        "    let s2 = h2.hex()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Hash.sha1/sha512 should type-check";
+}
+
+TEST_F(StdlibModuleTest, CryptoHmacSha1AndSha512) {
+    auto r = check(
+        "import crypto::crypto\n"
+        "func main() {\n"
+        "    let m1 = Hmac.sha1(\"k\", \"d\")\n"
+        "    let m2 = Hmac.sha512(\"k\", \"d\")\n"
+        "    let s1 = m1.hex()\n"
+        "    let s2 = m2.hex()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "Hmac.sha1/sha512 should type-check";
+}
+
 // ============================================================
 // Module 6: http::http
 // ============================================================

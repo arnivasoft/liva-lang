@@ -6493,6 +6493,42 @@ TEST_F(SemaTest, TomlHasKeyReturnsBool) {
     EXPECT_TRUE(result.passed);
 }
 
+TEST_F(SemaTest, Sha1ReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let h: string = sha1("hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, Sha512ReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let h: string = sha512("hello")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HmacSha1ReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let h: string = hmacSha1("key", "data")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, HmacSha512ReturnsString) {
+    auto result = check(R"--(
+        func main() {
+            let h: string = hmacSha512("key", "data")
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, AtomicCreateReturnsI64) {
     auto result = check(R"--(
         func main() {

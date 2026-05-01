@@ -155,7 +155,8 @@ void TypeChecker::registerBuiltins() {
     }
 
     // Stdlib: Crypto
-    for (auto &name : {"sha256", "md5", "hmacSha256"}) {
+    for (auto &name : {"sha256", "md5", "hmacSha256",
+                       "sha1", "sha512", "hmacSha1", "hmacSha512"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2252,7 +2253,9 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI64Type());
         // Stdlib: Crypto
         } else if (ident->getName() == "sha256" || ident->getName() == "md5" ||
-                   ident->getName() == "hmacSha256") {
+                   ident->getName() == "hmacSha256" ||
+                   ident->getName() == "sha1" || ident->getName() == "sha512" ||
+                   ident->getName() == "hmacSha1" || ident->getName() == "hmacSha512") {
             node->setResolvedType(makeStringType());
         // Stdlib: Synchronization
         } else if (ident->getName() == "mutexCreate" ||

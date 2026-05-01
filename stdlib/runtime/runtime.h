@@ -853,6 +853,18 @@ char *liva_md5(const char *data);
 /// HMAC-SHA256, returns malloc'd 64-char hex string
 char *liva_hmac_sha256(const char *key, const char *data);
 
+/// SHA-1 hash, returns malloc'd 40-char hex string
+char *liva_sha1(const char *data);
+
+/// SHA-512 hash, returns malloc'd 128-char hex string
+char *liva_sha512(const char *data);
+
+/// HMAC-SHA1, returns malloc'd 40-char hex string
+char *liva_hmac_sha1(const char *key, const char *data);
+
+/// HMAC-SHA512, returns malloc'd 128-char hex string
+char *liva_hmac_sha512(const char *key, const char *data);
+
 // === Panic ===
 
 /// Called when an unrecoverable error occurs

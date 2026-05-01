@@ -892,6 +892,12 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_md5", strNoArgTy);     // (ptr) -> ptr
     // hmacSha256(key, data) -> hex string
     module_->getOrInsertFunction("liva_hmac_sha256", concatTy); // (ptr, ptr) -> ptr
+    // sha1(data), sha512(data) -> hex string
+    module_->getOrInsertFunction("liva_sha1", strNoArgTy);    // (ptr) -> ptr
+    module_->getOrInsertFunction("liva_sha512", strNoArgTy);  // (ptr) -> ptr
+    // hmacSha1(key, data), hmacSha512(key, data) -> hex string
+    module_->getOrInsertFunction("liva_hmac_sha1", concatTy);   // (ptr, ptr) -> ptr
+    module_->getOrInsertFunction("liva_hmac_sha512", concatTy); // (ptr, ptr) -> ptr
 
     // === Stdlib: Synchronization ===
 
