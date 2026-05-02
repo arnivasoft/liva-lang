@@ -456,6 +456,24 @@ char *liva_http_req_header(int64_t handle, const char *name);
 /// Release the response buffer.
 void liva_http_req_close(int64_t handle);
 
+// === WebSocket (WinHTTP-backed on Windows; returns 0 on platforms without support) ===
+
+/// Open a WebSocket. URL must be ws:// or wss://. Returns opaque handle (0 on failure).
+int64_t liva_ws_connect(const char *url);
+
+/// Send UTF-8 text frame. Returns 0 on success, nonzero on failure.
+int32_t liva_ws_send_text(int64_t handle, const char *msg);
+
+/// Receive next message (full reassembly across fragments).
+/// Returns malloc'd string (caller frees) or nullptr on close/error.
+char *liva_ws_recv_text(int64_t handle);
+
+/// Close handshake + free underlying handles. Status is the close code (e.g. 1000).
+int32_t liva_ws_close(int64_t handle, int32_t status, const char *reason);
+
+/// Returns 1 if the socket is still open, 0 otherwise.
+int32_t liva_ws_is_open(int64_t handle);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {

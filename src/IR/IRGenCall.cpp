@@ -2897,6 +2897,64 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return nullptr;
     }
 
+    // wsConnect(url) -> i64 (0 = failure)
+    if (funcName == "wsConnect" && !node->getArgs().empty()) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        if (!urlArg) return nullptr;
+        auto *fn = getOrPanic("liva_ws_connect");
+        return builder_->CreateCall(fn, {urlArg}, "ws.connect");
+    }
+
+    // wsSend(handle, msg) -> bool (true = success)
+    if (funcName == "wsSend" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *msgArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !msgArg) return nullptr;
+        auto *fn = getOrPanic("liva_ws_send_text");
+        auto *rc = builder_->CreateCall(fn, {handleArg, msgArg}, "ws.send.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "ws.send.ok");
+    }
+
+    // wsRecv(handle) -> string?
+    if (funcName == "wsRecv" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_ws_recv_text");
+        auto *result = builder_->CreateCall(fn, {handleArg}, "ws.recv.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "ws.recv.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "ws.recv.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "ws.recv.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "ws.recv.result");
+    }
+
+    // wsClose(handle, status, reason) -> void
+    if (funcName == "wsClose" && node->getArgs().size() >= 3) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *statusArg = visit(node->getArgs()[1].get());
+        auto *reasonArg = visit(node->getArgs()[2].get());
+        if (!handleArg || !statusArg || !reasonArg) return nullptr;
+        if (statusArg->getType()->isIntegerTy(64))
+            statusArg = builder_->CreateTrunc(statusArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_ws_close");
+        builder_->CreateCall(fn, {handleArg, statusArg, reasonArg});
+        return nullptr;
+    }
+
+    // wsIsOpen(handle) -> bool
+    if (funcName == "wsIsOpen" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_ws_is_open");
+        auto *r = builder_->CreateCall(fn, {handleArg}, "ws.isopen.rc");
+        return builder_->CreateICmpNE(r, builder_->getInt32(0), "ws.isopen.bool");
+    }
+
     // === Directory operations ===
     if (funcName == "dirList" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

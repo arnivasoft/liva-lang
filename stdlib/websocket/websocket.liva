@@ -1,0 +1,46 @@
+// websocket::websocket — WebSocket client (WinHTTP-backed on Windows)
+// Import with: import websocket::websocket
+
+import std::websocket
+
+// =============================================================
+// WebSocket — a single client connection
+//
+// Lifetime: WebSocket.connect() returns the only owner. Calling
+// .close() on the owner releases all underlying handles. Recv/send
+// after close return false / nil.
+// =============================================================
+
+pub struct WebSocket {
+    var handle: i64
+}
+
+impl WebSocket {
+    pub func connect(url: String) -> WebSocket? {
+        let h: i64 = wsConnect(url)
+        if h == 0 as i64 { return nil }
+        return WebSocket { handle: h }
+    }
+
+    pub func send(ref self, msg: String) -> bool {
+        return wsSend(self.handle, msg)
+    }
+
+    pub func recv(ref self) -> String? {
+        return wsRecv(self.handle)
+    }
+
+    pub func isOpen(ref self) -> bool {
+        return wsIsOpen(self.handle)
+    }
+
+    pub func close(mut self) {
+        wsClose(self.handle, 1000, "")
+        self.handle = 0 as i64
+    }
+
+    pub func closeWith(mut self, status: i32, reason: String) {
+        wsClose(self.handle, status, reason)
+        self.handle = 0 as i64
+    }
+}

@@ -70,6 +70,9 @@ void ModuleLoader::registerBuiltinModules() {
         {"httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
          "httpRequest", "httpStatus", "httpBody", "httpHeader", "httpClose"});
 
+    cache_["std::websocket"] = createBuiltinModule("std::websocket",
+        {"wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen"});
+
     cache_["std::json"] = createBuiltinModule("std::json",
         {"jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
          "jsonIsValid", "jsonKeys",

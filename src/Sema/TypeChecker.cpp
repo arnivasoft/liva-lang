@@ -72,7 +72,8 @@ void TypeChecker::registerBuiltins() {
                         "httpGet", "httpPost",
                         "httpPut", "httpPatch", "httpDelete",
                         "httpRequest", "httpStatus", "httpBody",
-                        "httpHeader", "httpClose"}) {
+                        "httpHeader", "httpClose",
+                        "wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2170,6 +2171,18 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "httpClose") {
             // void
+        // Stdlib: WebSocket
+        } else if (ident->getName() == "wsConnect") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "wsSend") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "wsRecv") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "wsClose") {
+            // void
+        } else if (ident->getName() == "wsIsOpen") {
+            node->setResolvedType(makeBoolType());
         // Stdlib: Directory operations
         } else if (ident->getName() == "dirList") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);

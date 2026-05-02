@@ -668,6 +668,27 @@ void IRGen::createRuntimeDecls() {
     auto *httpCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
     module_->getOrInsertFunction("liva_http_req_close", httpCloseTy);
 
+    // === Stdlib: WebSocket ===
+    // wsConnect(url) -> i64
+    auto *wsConnectTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ws_connect", wsConnectTy);
+
+    // wsSend(handle, msg) -> i32
+    auto *wsSendTy = llvm::FunctionType::get(i32Ty, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ws_send_text", wsSendTy);
+
+    // wsRecv(handle) -> char* (nullable)
+    auto *wsRecvTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_ws_recv_text", wsRecvTy);
+
+    // wsClose(handle, status, reason) -> i32
+    auto *wsCloseTy = llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ws_close", wsCloseTy);
+
+    // wsIsOpen(handle) -> i32 (treated as bool by Liva)
+    auto *wsIsOpenTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_ws_is_open", wsIsOpenTy);
+
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
     auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);

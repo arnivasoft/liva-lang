@@ -781,6 +781,36 @@ func main() {
 )--", "rejected\n");
 }
 
+TEST_F(SelfHostTest, WebSocketConnectFailsOnBadUrl) {
+    // Connect to a URL with invalid scheme — handle is 0, no socket opened.
+    expectOutput(R"--(
+import websocket::websocket
+func main() {
+    let r: WebSocket? = WebSocket.connect("not-a-ws-url")
+    if let ws = r {
+        println("never")
+    } else {
+        println("connect failed")
+    }
+}
+)--", "connect failed\n");
+}
+
+TEST_F(SelfHostTest, WebSocketConnectFailsOnUnreachableHost) {
+    // 127.0.0.1:1 — nothing listening, connect must fail cleanly (no crash).
+    expectOutput(R"--(
+import websocket::websocket
+func main() {
+    let r: WebSocket? = WebSocket.connect("ws://127.0.0.1:1/")
+    if let ws = r {
+        println("never")
+    } else {
+        println("unreachable")
+    }
+}
+)--", "unreachable\n");
+}
+
 TEST_F(SelfHostTest, GzipCompressesRedundantData) {
     // 1000 identical bytes must compress to far less than 1000.
     // Stored-only deflate would emit ~1005 bytes; fixed Huffman + LZ77
