@@ -1754,6 +1754,11 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
             // Phase 2: Task<T> is opaque ptr (LivaTask*)
             return llvm::PointerType::getUnqual(*context_);
         }
+        if (genType->getBaseName() == "Generator") {
+            // Generator<T> is also a LivaTask* wrapper around a coroutine
+            // handle whose promise slot stores T.
+            return llvm::PointerType::getUnqual(*context_);
+        }
         // User-defined generic struct (Stream<T>, Pair<A,B>, ...): resolve
         // to the monomorphized struct type using currentTypeSubst_ for any
         // type-param refs in the type args.

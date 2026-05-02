@@ -1,0 +1,11 @@
+.gradle/
+build/
+*.log
+.idea/
+*.iml
+out/
+local.properties
+# Gradle wrapper artefacts auto-generated on first build — leave to the user.
+gradlew
+gradlew.bat
+gradle/

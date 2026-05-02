@@ -626,6 +626,87 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
     if (diBuilder_) emitDebugLocation(node->getStartLoc());
     auto *func = builder_->GetInsertBlock()->getParent();
 
+    // === Generator iteration: for x in genFunc(args) ===
+    //
+    // A generator function call returns a LivaTask* (handle wrapper) whose
+    // coroutine is suspended at its first yield. To iterate we read the
+    // current promise value, run the body, then coro.resume to advance to
+    // the next yield. coro.done tells us when the coroutine has fallen off
+    // the end and there are no more values.
+    if (node->getIterable()->getKind() == ASTNode::NodeKind::CallExpr) {
+        auto *callExpr = static_cast<CallExpr *>(
+            const_cast<Expr *>(node->getIterable()));
+        std::string genName;
+        if (callExpr->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            genName = static_cast<IdentifierExpr *>(callExpr->getCallee())->getName();
+        }
+        auto genIt = !genName.empty() ? generatorFuncs_.find(genName)
+                                      : generatorFuncs_.end();
+        if (genIt != generatorFuncs_.end()) {
+            llvm::Type *yieldType = genIt->second;
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+            // Visit the call — produces a LivaTask*.
+            auto *task = visit(callExpr);
+            if (!task) return nullptr;
+
+            // Pull the coroutine handle out of the task wrapper.
+            auto *getHandleFn = getOrPanic("liva_task_get_handle");
+            auto *handle = builder_->CreateCall(getHandleFn, {task}, "gen.hdl");
+
+            // Loop variable lives outside the loop body.
+            auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), yieldType);
+            namedValues_[node->getVarName()] = loopVar;
+
+            auto *condBB  = llvm::BasicBlock::Create(*context_, "gen.cond", func);
+            auto *bodyBB  = llvm::BasicBlock::Create(*context_, "gen.body", func);
+            auto *latchBB = llvm::BasicBlock::Create(*context_, "gen.latch", func);
+            auto *exitBB  = llvm::BasicBlock::Create(*context_, "gen.exit", func);
+
+            builder_->CreateBr(condBB);
+
+            // cond: if coro.done(handle) → exit, else read promise + run body.
+            builder_->SetInsertPoint(condBB);
+            auto *coroDoneFn = llvm::Intrinsic::getOrInsertDeclaration(
+                module_.get(), llvm::Intrinsic::coro_done);
+            auto *isDone = builder_->CreateCall(coroDoneFn, {handle}, "gen.done");
+            builder_->CreateCondBr(isDone, exitBB, bodyBB);
+
+            // body: read promise → loopVar = *promise; run user body.
+            builder_->SetInsertPoint(bodyBB);
+            auto *coroPromiseFn = llvm::Intrinsic::getOrInsertDeclaration(
+                module_.get(), llvm::Intrinsic::coro_promise);
+            auto &dl = module_->getDataLayout();
+            uint32_t promAlign = (uint32_t)dl.getABITypeAlign(yieldType).value();
+            auto *promisePtr = builder_->CreateCall(coroPromiseFn,
+                {handle, builder_->getInt32(promAlign), builder_->getFalse()},
+                "gen.promise.ptr");
+            auto *value = builder_->CreateLoad(yieldType, promisePtr, "gen.value");
+            builder_->CreateStore(value, loopVar);
+
+            loopStack_.push_back({exitBB, latchBB});
+            visit(const_cast<ASTNode *>(node->getBody()));
+            loopStack_.pop_back();
+            if (!builder_->GetInsertBlock()->getTerminator())
+                builder_->CreateBr(latchBB);
+
+            // latch: coro.resume(handle) → goto cond.
+            builder_->SetInsertPoint(latchBB);
+            auto *coroResumeFn = llvm::Intrinsic::getOrInsertDeclaration(
+                module_.get(), llvm::Intrinsic::coro_resume);
+            builder_->CreateCall(coroResumeFn, {handle});
+            builder_->CreateBr(condBB);
+
+            // exit: tear the coroutine + wrapper task down.
+            builder_->SetInsertPoint(exitBB);
+            auto *coroDestroyFn = getOrPanic("liva_coro_destroy");
+            builder_->CreateCall(coroDestroyFn, {handle});
+            auto *taskDestroyFn = getOrPanic("liva_task_destroy");
+            builder_->CreateCall(taskDestroyFn, {task});
+            return nullptr;
+        }
+    }
+
     // Check if iterable is a RangeExpr
     if (node->getIterable()->getKind() == ASTNode::NodeKind::RangeExpr) {
         auto *range = static_cast<RangeExpr *>(

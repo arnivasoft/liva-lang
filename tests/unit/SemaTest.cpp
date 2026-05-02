@@ -9415,6 +9415,27 @@ TEST_F(SemaTest, Generator_NoYieldNoGenerator) {
     EXPECT_FALSE(result.diag.hasErrors()) << "Regular function should not be generator";
 }
 
+TEST_F(SemaTest, Generator_CallReturnsGeneratorType) {
+    // A generator function call must resolve to Generator<T>, never void.
+    // Without this wrapping `let g = countTo(3)` errors with "void variable",
+    // and `for x in countTo(3)` cannot bind a loop variable type.
+    auto result = check(R"--(
+        func countTo(n: i32) {
+            var i: i32 = 0
+            while i < n {
+                yield i
+                i = i + 1
+            }
+        }
+
+        func main() {
+            let g = countTo(3)
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors())
+        << "generator call must produce a non-void Generator<T> type";
+}
+
 // ============================================================
 // Const Generics (B1)
 // ============================================================

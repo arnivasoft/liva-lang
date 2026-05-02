@@ -2665,6 +2665,30 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             taskArgs.push_back(cloneTypeRepr(node->getResolvedType()));
             node->setResolvedType(std::make_unique<GenericTypeRepr>("Task", std::move(taskArgs)));
         }
+
+        // Wrap return type in Generator<T> for generator function calls.
+        // Generator functions auto-detected from `yield` typically have no
+        // declared return type, so default the yielded value type to i64
+        // (the runtime promise slot uses i64 unless the function explicitly
+        // declares a different yielded type).
+        auto *genSym = scopes_.lookup(ident->getName());
+        if (genSym && genSym->funcDecl && genSym->funcDecl->isGenerator()) {
+            std::vector<std::unique_ptr<TypeRepr>> genArgs;
+            if (node->getResolvedType()) {
+                // Already wrapped (e.g., Task<T>) — unwrap and re-wrap as Generator<T>.
+                if (node->getResolvedType()->getKind() == TypeRepr::Kind::Generic) {
+                    auto *gt = static_cast<const GenericTypeRepr *>(node->getResolvedType());
+                    if (gt->getBaseName() == "Task" && !gt->getTypeArgs().empty()) {
+                        genArgs.push_back(cloneTypeRepr(gt->getTypeArgs()[0].get()));
+                    }
+                }
+                if (genArgs.empty())
+                    genArgs.push_back(cloneTypeRepr(node->getResolvedType()));
+            } else {
+                genArgs.push_back(makeI32Type());
+            }
+            node->setResolvedType(std::make_unique<GenericTypeRepr>("Generator", std::move(genArgs)));
+        }
     }
 
     // Map/Set method call resolution: m.insert(), m.get(), m.contains(), m.remove()

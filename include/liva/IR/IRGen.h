@@ -395,6 +395,12 @@ private:
 
     /// Async function tracking
     std::set<std::string> asyncFuncNames_;
+
+    /// Generator-flagged functions and the LLVM type of their yielded value.
+    /// Populated during visitFuncDecl so visitForStmt can recognise a
+    /// generator-call iterable and emit a coro.resume / coro.done / coro.promise
+    /// loop instead of the standard array iteration.
+    std::unordered_map<std::string, llvm::Type *> generatorFuncs_;
     bool currentIsAsync_ = false;
     llvm::Type *asyncDeclaredRetType_ = nullptr;
 

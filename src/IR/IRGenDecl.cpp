@@ -259,7 +259,16 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         asyncFuncNames_.insert(node->getName());
         asyncInnerRetType = returnType;
         if (returnType->isVoidTy()) {
-            asyncInnerRetType = builder_->getInt1Ty(); // placeholder for Void tasks
+            // Generator functions auto-detected from yield don't carry a
+            // declared return type — default the yielded value to i32 (Liva's
+            // default integer width) so the promise slot matches the value
+            // pushed by `yield expr`.
+            asyncInnerRetType = node->isGenerator()
+                ? (llvm::Type *)builder_->getInt32Ty()
+                : (llvm::Type *)builder_->getInt1Ty();
+        }
+        if (node->isGenerator()) {
+            generatorFuncs_[node->getName()] = asyncInnerRetType;
         }
         returnType = ptrTy;  // Phase 2: returns LivaTask* (or generator handle)
         if (node->getName() == "main" && node->isAsync()) {
