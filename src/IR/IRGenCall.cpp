@@ -2955,6 +2955,112 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateICmpNE(r, builder_->getInt32(0), "ws.isopen.bool");
     }
 
+    // sqliteOpen(path) -> i64
+    if (funcName == "sqliteOpen" && !node->getArgs().empty()) {
+        auto *pathArg = visit(node->getArgs()[0].get());
+        if (!pathArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_open");
+        return builder_->CreateCall(fn, {pathArg}, "sqlite.open");
+    }
+
+    // sqliteClose(handle) -> void
+    if (funcName == "sqliteClose" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_close");
+        builder_->CreateCall(fn, {handleArg});
+        return nullptr;
+    }
+
+    // sqliteExec(handle, sql) -> bool (true on success)
+    if (funcName == "sqliteExec" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *sqlArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !sqlArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_exec");
+        auto *rc = builder_->CreateCall(fn, {handleArg, sqlArg}, "sqlite.exec.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.exec.ok");
+    }
+
+    // sqliteQueryFirst(handle, sql) -> string?
+    if (funcName == "sqliteQueryFirst" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *sqlArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !sqlArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_query_first");
+        auto *result = builder_->CreateCall(fn, {handleArg, sqlArg}, "sqlite.qfirst.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "sqlite.qfirst.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "sqlite.qfirst.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "sqlite.qfirst.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "sqlite.qfirst.result");
+    }
+
+    // sqliteQueryInt(handle, sql) -> i64? (nil when no row)
+    if (funcName == "sqliteQueryInt" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *sqlArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !sqlArg) return nullptr;
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *okAlloca = createEntryBlockAlloca(curFunc, "sqlite.qint.ok",
+                                                 builder_->getInt32Ty());
+        builder_->CreateStore(builder_->getInt32(0), okAlloca);
+        auto *fn = getOrPanic("liva_sqlite_query_int");
+        auto *val = builder_->CreateCall(fn, {handleArg, sqlArg, okAlloca},
+                                          "sqlite.qint.val");
+        auto *okVal = builder_->CreateLoad(builder_->getInt32Ty(), okAlloca,
+                                            "sqlite.qint.okv");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt32(0),
+                                               "sqlite.qint.hasval");
+        auto *optTy = getOptionalType(builder_->getInt64Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "sqlite.qint.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(val, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "sqlite.qint.result");
+    }
+
+    // sqliteQueryColumn(handle, sql) -> string  (newline-joined first column)
+    if (funcName == "sqliteQueryColumn" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *sqlArg = visit(node->getArgs()[1].get());
+        if (!handleArg || !sqlArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_query_all_first_col");
+        auto *r = builder_->CreateCall(fn, {handleArg, sqlArg}, "sqlite.qall");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // sqliteLastInsertRowid(handle) -> i64
+    if (funcName == "sqliteLastInsertRowid" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_last_insert_rowid");
+        return builder_->CreateCall(fn, {handleArg}, "sqlite.lastid");
+    }
+
+    // sqliteChanges(handle) -> i32
+    if (funcName == "sqliteChanges" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_changes");
+        return builder_->CreateCall(fn, {handleArg}, "sqlite.changes");
+    }
+
+    // sqliteErrmsg(handle) -> string
+    if (funcName == "sqliteErrmsg" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_errmsg");
+        auto *r = builder_->CreateCall(fn, {handleArg}, "sqlite.errmsg");
+        trackStringTemp(r);
+        return r;
+    }
+
     // === Directory operations ===
     if (funcName == "dirList" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

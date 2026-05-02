@@ -798,6 +798,44 @@ func main() {
 )--", "connect failed\n");
 }
 
+TEST_F(SelfHostTest, SqliteInMemoryCrud) {
+    // End-to-end smoke test against winsqlite3.dll: CREATE/INSERT/SELECT,
+    // queryInt, queryString, queryColumn (newline-joined first column).
+    expectOutput(R"--(
+import sqlite::sqlite
+func main() {
+    let db = SqliteDB.openMemory()
+    if let d = db {
+        var dd = d
+        let r1 = dd.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+        println(r1)
+        dd.exec("INSERT INTO t (name) VALUES ('Alice')")
+        dd.exec("INSERT INTO t (name) VALUES ('Bob')")
+        if let cnt = dd.queryInt("SELECT COUNT(*) FROM t") { println(cnt) }
+        if let n = dd.queryString("SELECT name FROM t WHERE id=1") { println(n) }
+        println(dd.queryColumn("SELECT name FROM t ORDER BY id"))
+        dd.close()
+    } else {
+        println("open failed")
+    }
+}
+)--", "true\n2\nAlice\nAlice\nBob\n");
+}
+
+TEST_F(SelfHostTest, SqliteRejectsBadSql) {
+    // exec() must return false when SQL fails to compile.
+    expectOutput(R"--(
+import sqlite::sqlite
+func main() {
+    if let d = SqliteDB.openMemory() {
+        var dd = d
+        let ok = dd.exec("THIS IS NOT SQL")
+        println(ok)
+    }
+}
+)--", "false\n");
+}
+
 TEST_F(SelfHostTest, FailableStaticFactoryInferredOptional) {
     // Regression: `let r = Foo.tryNew(...)` where tryNew returns `Foo?` was
     // allocating a plain Foo slot and silently dropping the discriminant,

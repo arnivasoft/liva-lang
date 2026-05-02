@@ -2616,6 +2616,248 @@ int32_t liva_ws_is_open(int64_t handle) {
     return ws->open ? 1 : 0;
 }
 
+// === SQLite (Windows: dynamic-loaded winsqlite3.dll; stub elsewhere) ===
+//
+// Windows 10+ ships winsqlite3.dll in System32. We pull it in via
+// LoadLibrary/GetProcAddress so the runtime has no link-time dependency
+// — the SQLite functions resolve to nullptr if the DLL is missing,
+// and every entry point treats that as "feature unavailable" (returns 0,
+// nullptr, or false). Linux/macOS have no system-wide SQLite analog;
+// landing those needs vendoring the amalgamation, which is left for
+// later.
+
+#ifdef _WIN32
+namespace {
+
+// SQLite result codes used here.
+constexpr int LIVA_SQLITE_OK = 0;
+constexpr int LIVA_SQLITE_ROW = 100;
+constexpr int LIVA_SQLITE_DONE = 101;
+
+struct SqliteApi {
+    HMODULE dll = nullptr;
+
+    int  (*open)(const char *, void **) = nullptr;
+    int  (*close)(void *) = nullptr;
+    int  (*exec)(void *, const char *, int (*)(void *, int, char **, char **),
+                 void *, char **) = nullptr;
+    int  (*prepare_v2)(void *, const char *, int, void **, const char **) = nullptr;
+    int  (*step)(void *) = nullptr;
+    int  (*finalize)(void *) = nullptr;
+    int  (*column_count)(void *) = nullptr;
+    const unsigned char *(*column_text)(void *, int) = nullptr;
+    long long (*column_int64)(void *, int) = nullptr;
+    int  (*bind_text)(void *, int, const char *, int, void (*)(void *)) = nullptr;
+    int  (*bind_int64)(void *, int, long long) = nullptr;
+    long long (*last_insert_rowid)(void *) = nullptr;
+    int  (*changes)(void *) = nullptr;
+    const char *(*errmsg)(void *) = nullptr;
+    void (*free)(void *) = nullptr;
+};
+
+static SqliteApi &sqlite_api() {
+    static SqliteApi api;
+    static std::once_flag flag;
+    std::call_once(flag, [&]() {
+        api.dll = LoadLibraryA("winsqlite3.dll");
+        if (!api.dll) return;
+        auto resolve = [&](const char *name) -> FARPROC {
+            return GetProcAddress(api.dll, name);
+        };
+        api.open = (decltype(api.open))resolve("sqlite3_open");
+        api.close = (decltype(api.close))resolve("sqlite3_close");
+        api.exec = (decltype(api.exec))resolve("sqlite3_exec");
+        api.prepare_v2 = (decltype(api.prepare_v2))resolve("sqlite3_prepare_v2");
+        api.step = (decltype(api.step))resolve("sqlite3_step");
+        api.finalize = (decltype(api.finalize))resolve("sqlite3_finalize");
+        api.column_count = (decltype(api.column_count))resolve("sqlite3_column_count");
+        api.column_text = (decltype(api.column_text))resolve("sqlite3_column_text");
+        api.column_int64 = (decltype(api.column_int64))resolve("sqlite3_column_int64");
+        api.bind_text = (decltype(api.bind_text))resolve("sqlite3_bind_text");
+        api.bind_int64 = (decltype(api.bind_int64))resolve("sqlite3_bind_int64");
+        api.last_insert_rowid = (decltype(api.last_insert_rowid))resolve("sqlite3_last_insert_rowid");
+        api.changes = (decltype(api.changes))resolve("sqlite3_changes");
+        api.errmsg = (decltype(api.errmsg))resolve("sqlite3_errmsg");
+        api.free = (decltype(api.free))resolve("sqlite3_free");
+    });
+    return api;
+}
+
+} // namespace
+#endif
+
+int64_t liva_sqlite_open(const char *path) {
+    if (!path) return 0;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.open) return 0;
+    void *db = nullptr;
+    if (api.open(path, &db) != LIVA_SQLITE_OK) {
+        if (db && api.close) api.close(db);
+        return 0;
+    }
+    return (int64_t)(uintptr_t)db;
+#else
+    (void)path;
+    return 0;
+#endif
+}
+
+void liva_sqlite_close(int64_t handle) {
+    if (!handle) return;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (api.close) api.close((void *)(uintptr_t)handle);
+#else
+    (void)handle;
+#endif
+}
+
+int32_t liva_sqlite_exec(int64_t handle, const char *sql) {
+    if (!handle || !sql) return -1;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.exec) return -1;
+    char *errmsg = nullptr;
+    int rc = api.exec((void *)(uintptr_t)handle, sql, nullptr, nullptr, &errmsg);
+    if (errmsg && api.free) api.free(errmsg);
+    return rc == LIVA_SQLITE_OK ? 0 : -1;
+#else
+    (void)handle;
+    (void)sql;
+    return -1;
+#endif
+}
+
+// First column of the first row as a freshly malloc'd string. Returns nullptr
+// if the query produced no rows or failed.
+char *liva_sqlite_query_first(int64_t handle, const char *sql) {
+    if (!handle || !sql) return nullptr;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.prepare_v2 || !api.step || !api.finalize || !api.column_text)
+        return nullptr;
+    void *stmt = nullptr;
+    if (api.prepare_v2((void *)(uintptr_t)handle, sql, -1, &stmt, nullptr)
+            != LIVA_SQLITE_OK || !stmt) {
+        if (stmt) api.finalize(stmt);
+        return nullptr;
+    }
+    char *out = nullptr;
+    if (api.step(stmt) == LIVA_SQLITE_ROW) {
+        const unsigned char *txt = api.column_text(stmt, 0);
+        out = strdup_safe(txt ? (const char *)txt : "");
+    }
+    api.finalize(stmt);
+    return out;
+#else
+    (void)handle;
+    (void)sql;
+    return nullptr;
+#endif
+}
+
+// First column of the first row as i64. *ok set to 1 on success, 0 otherwise.
+int64_t liva_sqlite_query_int(int64_t handle, const char *sql, int32_t *ok) {
+    if (ok) *ok = 0;
+    if (!handle || !sql) return 0;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.prepare_v2 || !api.step || !api.finalize || !api.column_int64)
+        return 0;
+    void *stmt = nullptr;
+    if (api.prepare_v2((void *)(uintptr_t)handle, sql, -1, &stmt, nullptr)
+            != LIVA_SQLITE_OK || !stmt) {
+        if (stmt) api.finalize(stmt);
+        return 0;
+    }
+    int64_t result = 0;
+    if (api.step(stmt) == LIVA_SQLITE_ROW) {
+        result = (int64_t)api.column_int64(stmt, 0);
+        if (ok) *ok = 1;
+    }
+    api.finalize(stmt);
+    return result;
+#else
+    (void)handle;
+    (void)sql;
+    return 0;
+#endif
+}
+
+// All rows, first column each, joined with '\n'. Returns malloc'd string
+// (empty if no rows). Useful for quick sanity checks; use prepare/step
+// for richer iteration once that API lands.
+char *liva_sqlite_query_all_first_col(int64_t handle, const char *sql) {
+    if (!handle || !sql) return nullptr;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.prepare_v2 || !api.step || !api.finalize || !api.column_text)
+        return nullptr;
+    void *stmt = nullptr;
+    if (api.prepare_v2((void *)(uintptr_t)handle, sql, -1, &stmt, nullptr)
+            != LIVA_SQLITE_OK || !stmt) {
+        if (stmt) api.finalize(stmt);
+        return nullptr;
+    }
+    std::string accum;
+    bool first = true;
+    while (api.step(stmt) == LIVA_SQLITE_ROW) {
+        if (!first) accum.push_back('\n');
+        first = false;
+        const unsigned char *txt = api.column_text(stmt, 0);
+        if (txt) accum.append((const char *)txt);
+    }
+    api.finalize(stmt);
+    char *out = (char *)malloc(accum.size() + 1);
+    if (!out) return nullptr;
+    memcpy(out, accum.data(), accum.size());
+    out[accum.size()] = '\0';
+    return out;
+#else
+    (void)handle;
+    (void)sql;
+    return nullptr;
+#endif
+}
+
+int64_t liva_sqlite_last_insert_rowid(int64_t handle) {
+    if (!handle) return 0;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.last_insert_rowid) return 0;
+    return (int64_t)api.last_insert_rowid((void *)(uintptr_t)handle);
+#else
+    (void)handle;
+    return 0;
+#endif
+}
+
+int32_t liva_sqlite_changes(int64_t handle) {
+    if (!handle) return 0;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.changes) return 0;
+    return (int32_t)api.changes((void *)(uintptr_t)handle);
+#else
+    (void)handle;
+    return 0;
+#endif
+}
+
+char *liva_sqlite_errmsg(int64_t handle) {
+    if (!handle) return nullptr;
+#ifdef _WIN32
+    auto &api = sqlite_api();
+    if (!api.errmsg) return nullptr;
+    const char *m = api.errmsg((void *)(uintptr_t)handle);
+    return strdup_safe(m ? m : "");
+#else
+    (void)handle;
+    return nullptr;
+#endif
+}
+
 // === Async/Coroutine Runtime ===
 
 // --- Dynamic ready queue (resizable circular buffer) ---

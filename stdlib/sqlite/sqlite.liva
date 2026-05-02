@@ -1,0 +1,70 @@
+// sqlite::sqlite — Embedded SQL database client
+// Import with: import sqlite::sqlite
+//
+// Backed by winsqlite3.dll on Windows 10+. On platforms without a
+// system SQLite, every entry point fails closed (open returns nil,
+// exec returns false, queries return nil/empty).
+
+import std::sqlite
+
+// =============================================================
+// SqliteDB — a single database connection
+//
+// Lifetime: SqliteDB.open() returns the only owner. Calling .close()
+// releases the underlying connection. Subsequent calls fail closed.
+// Use ":memory:" as the path for an in-memory database.
+// =============================================================
+
+pub struct SqliteDB {
+    var handle: i64
+}
+
+impl SqliteDB {
+    pub func open(path: String) -> SqliteDB? {
+        let h: i64 = sqliteOpen(path)
+        if h == 0 as i64 { return nil }
+        return SqliteDB { handle: h }
+    }
+
+    pub func openMemory() -> SqliteDB? {
+        return SqliteDB.open(":memory:")
+    }
+
+    //Run a statement that produces no rows: CREATE, INSERT, UPDATE,
+    //DELETE, PRAGMA, etc. Returns true on success.
+    pub func exec(ref self, sql: String) -> bool {
+        return sqliteExec(self.handle, sql)
+    }
+
+    //First column of the first row, as a string. Nil if no row.
+    pub func queryString(ref self, sql: String) -> String? {
+        return sqliteQueryFirst(self.handle, sql)
+    }
+
+    //First column of the first row, as i64. Nil if no row.
+    pub func queryInt(ref self, sql: String) -> i64? {
+        return sqliteQueryInt(self.handle, sql)
+    }
+
+    //First column of every row, joined by '\n'. Empty if no rows.
+    pub func queryColumn(ref self, sql: String) -> String {
+        return sqliteQueryColumn(self.handle, sql)
+    }
+
+    pub func lastInsertId(ref self) -> i64 {
+        return sqliteLastInsertRowid(self.handle)
+    }
+
+    pub func changes(ref self) -> i32 {
+        return sqliteChanges(self.handle)
+    }
+
+    pub func errorMessage(ref self) -> String {
+        return sqliteErrmsg(self.handle)
+    }
+
+    pub func close(mut self) {
+        sqliteClose(self.handle)
+        self.handle = 0 as i64
+    }
+}

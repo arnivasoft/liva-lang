@@ -474,6 +474,40 @@ int32_t liva_ws_close(int64_t handle, int32_t status, const char *reason);
 /// Returns 1 if the socket is still open, 0 otherwise.
 int32_t liva_ws_is_open(int64_t handle);
 
+// === SQLite (Windows: dynamic-loaded winsqlite3.dll; returns 0/null on platforms without support) ===
+
+/// Open or create a database. Path can be ":memory:" for an in-memory DB.
+/// Returns opaque i64 handle (0 on failure).
+int64_t liva_sqlite_open(const char *path);
+
+/// Release the database connection.
+void liva_sqlite_close(int64_t handle);
+
+/// Execute SQL with no result rows (CREATE/INSERT/UPDATE/DELETE/PRAGMA).
+/// Returns 0 on success, nonzero on error.
+int32_t liva_sqlite_exec(int64_t handle, const char *sql);
+
+/// Run a query and return the first column of the first row as a fresh
+/// malloc'd string. Returns nullptr if the query produced no rows or failed.
+char *liva_sqlite_query_first(int64_t handle, const char *sql);
+
+/// Run a query and return the first column of the first row as i64.
+/// *ok is set to 1 if a row was produced, 0 otherwise.
+int64_t liva_sqlite_query_int(int64_t handle, const char *sql, int32_t *ok);
+
+/// Run a query and return the first column of every row, joined by '\n'.
+/// Returns a fresh malloc'd string (empty if no rows).
+char *liva_sqlite_query_all_first_col(int64_t handle, const char *sql);
+
+/// Last INSERT'd rowid on this connection (0 if none).
+int64_t liva_sqlite_last_insert_rowid(int64_t handle);
+
+/// Number of rows changed by the most recent exec on this connection.
+int32_t liva_sqlite_changes(int64_t handle);
+
+/// Last error message on this connection (caller frees).
+char *liva_sqlite_errmsg(int64_t handle);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {

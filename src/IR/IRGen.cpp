@@ -689,6 +689,43 @@ void IRGen::createRuntimeDecls() {
     auto *wsIsOpenTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
     module_->getOrInsertFunction("liva_ws_is_open", wsIsOpenTy);
 
+    // === Stdlib: SQLite ===
+    // sqliteOpen(path) -> i64
+    auto *sqliteOpenTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_open", sqliteOpenTy);
+
+    // sqliteClose(handle) -> void
+    auto *sqliteCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_close", sqliteCloseTy);
+
+    // sqliteExec(handle, sql) -> i32
+    auto *sqliteExecTy = llvm::FunctionType::get(i32Ty, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_exec", sqliteExecTy);
+
+    // sqliteQueryFirst(handle, sql) -> char* (nullable)
+    auto *sqliteQFirstTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_query_first", sqliteQFirstTy);
+
+    // sqliteQueryInt(handle, sql, *ok) -> i64
+    auto *sqliteQIntTy = llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_query_int", sqliteQIntTy);
+
+    // sqliteQueryAllFirstCol(handle, sql) -> char*
+    auto *sqliteQAllTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_query_all_first_col", sqliteQAllTy);
+
+    // sqliteLastInsertRowid(handle) -> i64
+    auto *sqliteLastIdTy = llvm::FunctionType::get(i64Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_last_insert_rowid", sqliteLastIdTy);
+
+    // sqliteChanges(handle) -> i32
+    auto *sqliteChangesTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_changes", sqliteChangesTy);
+
+    // sqliteErrmsg(handle) -> char*
+    auto *sqliteErrTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_errmsg", sqliteErrTy);
+
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
     auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);

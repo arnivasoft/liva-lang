@@ -73,7 +73,10 @@ void TypeChecker::registerBuiltins() {
                         "httpPut", "httpPatch", "httpDelete",
                         "httpRequest", "httpStatus", "httpBody",
                         "httpHeader", "httpClose",
-                        "wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen"}) {
+                        "wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen",
+                        "sqliteOpen", "sqliteClose", "sqliteExec",
+                        "sqliteQueryFirst", "sqliteQueryInt", "sqliteQueryColumn",
+                        "sqliteLastInsertRowid", "sqliteChanges", "sqliteErrmsg"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2188,6 +2191,27 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             // void
         } else if (ident->getName() == "wsIsOpen") {
             node->setResolvedType(makeBoolType());
+        // Stdlib: SQLite
+        } else if (ident->getName() == "sqliteOpen") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "sqliteClose") {
+            // void
+        } else if (ident->getName() == "sqliteExec") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "sqliteQueryFirst") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "sqliteQueryInt") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeI64Type());
+            node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "sqliteQueryColumn") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "sqliteLastInsertRowid") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "sqliteChanges") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "sqliteErrmsg") {
+            node->setResolvedType(makeStringType());
         // Stdlib: Directory operations
         } else if (ident->getName() == "dirList") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);

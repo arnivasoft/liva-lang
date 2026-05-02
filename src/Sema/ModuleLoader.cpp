@@ -73,6 +73,11 @@ void ModuleLoader::registerBuiltinModules() {
     cache_["std::websocket"] = createBuiltinModule("std::websocket",
         {"wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen"});
 
+    cache_["std::sqlite"] = createBuiltinModule("std::sqlite",
+        {"sqliteOpen", "sqliteClose", "sqliteExec",
+         "sqliteQueryFirst", "sqliteQueryInt", "sqliteQueryColumn",
+         "sqliteLastInsertRowid", "sqliteChanges", "sqliteErrmsg"});
+
     cache_["std::json"] = createBuiltinModule("std::json",
         {"jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
          "jsonIsValid", "jsonKeys",
