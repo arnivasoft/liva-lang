@@ -1,0 +1,123 @@
+// RuntimeExecTest: end-to-end harness that compiles a .liva source string to
+// a native executable, runs it, and asserts on stdout + exit code.
+//
+// This is the foundational test layer for runtime-behavior verification — it
+// exercises the FULL pipeline (Lexer -> Parser -> Sema -> IRGen -> CodeGen ->
+// link with liva_runtime -> execute), not just type checking. All subsequent
+// generator/yield runtime work depends on this harness.
+//
+// The harness uses the in-process CompilerInstance::compile() entry point —
+// the same code path that `livac` uses — so we are testing real driver
+// behavior, not a parallel reimplementation. The only thing we add is exec +
+// stdout capture via popen.
+//
+// Only built when LIVA_HAS_LLVM is defined (Clang build with LLVM backend).
+
+#ifdef LIVA_HAS_LLVM
+
+#include "liva/Driver/CompilerInstance.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <gtest/gtest.h>
+#include <sstream>
+#include <string>
+
+#ifdef _WIN32
+#define POPEN  _popen
+#define PCLOSE _pclose
+#define EXE_SUFFIX ".exe"
+#else
+#include <sys/wait.h>
+#define POPEN  popen
+#define PCLOSE pclose
+#define EXE_SUFFIX ""
+#endif
+
+namespace {
+
+struct RunResult {
+    // Exit code of the executed program, or -1 if compile/link/spawn failed.
+    int exit_code;
+    // Captured stdout (and stderr — we redirect 2>&1 so failures surface) from
+    // the executed program. On compile failure this contains a short
+    // diagnostic marker.
+    std::string stdout_output;
+};
+
+// Compile a Liva source string to an executable, run it, capture stdout and
+// the exit code. Mirrors livac's flow by calling CompilerInstance::compile()
+// directly — no shortcuts, no parallel link logic.
+//
+// `test_name` is used to name the temporary executable so concurrent tests
+// don't collide. Temp files are written under the build directory and cleaned
+// up before return.
+RunResult compileAndRun(const std::string &source, const std::string &test_name) {
+    const std::string buildDir = LIVA_BUILD_DIR;
+    const std::string exePath  = buildDir + "/_runtime_exec_" + test_name + EXE_SUFFIX;
+    const std::string outPath  = buildDir + "/_runtime_exec_" + test_name + ".out.txt";
+    // CompilerInstance::compile() creates a temp .o next to the exe; we clean
+    // both up regardless of outcome.
+    const std::string objPath  = exePath + ".o";
+
+    auto cleanup = [&]() {
+        std::remove(exePath.c_str());
+        std::remove(outPath.c_str());
+        std::remove(objPath.c_str());
+    };
+
+    liva::CompilerInstance compiler;
+    compiler.setSource("_runtime_exec_" + test_name + ".liva", source);
+#ifdef _WIN32
+    compiler.setExecutablePath(buildDir + "/livac.exe");
+#else
+    compiler.setExecutablePath(buildDir + "/livac");
+#endif
+
+    if (!compiler.compile(exePath)) {
+        cleanup();
+        return RunResult{-1, "<compile failed>"};
+    }
+
+    // Execute the produced binary. Redirect stderr -> stdout so any runtime
+    // crash output is captured alongside println() text. Use a file rather
+    // than popen so behavior is uniform across cmd.exe quoting quirks.
+    std::string cmd = "\"" + exePath + "\" > \"" + outPath + "\" 2>&1";
+#ifdef _WIN32
+    // cmd.exe strips outer quotes when /S /C is used by std::system; wrap the
+    // whole command so the inner quotes survive.
+    cmd = "\"" + cmd + "\"";
+#endif
+    int rawStatus = std::system(cmd.c_str());
+
+    std::ifstream ifs(outPath);
+    std::stringstream ss;
+    if (ifs.is_open())
+        ss << ifs.rdbuf();
+    std::string captured = ss.str();
+
+    cleanup();
+
+    int exitCode;
+#ifdef _WIN32
+    // std::system() on MSVCRT returns the program's exit code directly.
+    exitCode = rawStatus;
+#else
+    exitCode = WIFEXITED(rawStatus) ? WEXITSTATUS(rawStatus) : -1;
+#endif
+    return RunResult{exitCode, captured};
+}
+
+}  // namespace
+
+TEST(RuntimeExecTest, HelloWorld_PrintsAndExitsZero) {
+    auto r = compileAndRun(
+        "func main() { println(\"hello\") }\n",
+        "hello_world");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("hello"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+#endif // LIVA_HAS_LLVM

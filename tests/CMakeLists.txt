@@ -143,6 +143,27 @@ if(LIVA_HAS_LLVM AND NOT MINGW)
     add_dependencies(selfhost_test liva_runtime)
 endif()
 
+# Runtime exec harness — compile .liva source -> exe -> run -> assert stdout.
+# Foundational layer for generator/yield runtime tests (Tasks 2-8 of the
+# generator-runtime plan depend on this). Mirrors selfhost_test linkage.
+if(LIVA_HAS_LLVM AND NOT MINGW)
+    liva_add_test(runtime_exec_test
+        unit/RuntimeExecTest.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/Driver.cpp
+    )
+    target_link_libraries(runtime_exec_test PRIVATE
+        liva_codegen liva_irgen liva_sema liva_parser liva_driver liva_plugin
+        liva_lsp liva_dap liva_repl liva_jit liva_runtime)
+    if(WIN32)
+        target_link_libraries(runtime_exec_test PRIVATE winhttp)
+    endif()
+    target_compile_definitions(runtime_exec_test PRIVATE
+        LIVA_HAS_LLVM=1
+        LIVA_BUILD_DIR="${CMAKE_BINARY_DIR}")
+    add_dependencies(runtime_exec_test liva_runtime)
+endif()
+
 # Fuzz targets (requires Clang with libFuzzer: -DLIVA_ENABLE_FUZZING=ON)
 if(LIVA_ENABLE_FUZZING)
     function(liva_add_fuzz_target name source)
