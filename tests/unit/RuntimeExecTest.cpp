@@ -220,6 +220,15 @@ TEST(RuntimeExecTest, Generator_NestedYieldInIf_Yields) {
 }
 
 TEST(RuntimeExecTest, Generator_VarShadowingAcrossFunctions_NoStaleType) {
+    // Regression: previously varGeneratorTypes_ was not scope-saved/restored
+    // across functions. After a()'s `let g = gen()` registered g as a
+    // generator, b()'s `var g: [i32] = ...` took the dyn-array fast path in
+    // visitVarDecl that returns BEFORE the shadowing-erase line — so the
+    // stale entry survived and `for x in g` in b() mis-dispatched as coroutine
+    // iteration over an Array (silent miscompile: empty stdout, exit 0).
+    // The fix is the visitFuncDecl save/clear/restore of varGeneratorTypes_
+    // in IRGenDecl.cpp. Reverting both the function-entry clear AND the
+    // function-exit restore makes this test fail (verified locally).
     auto r = compileAndRun(R"(
         func gen() {
             yield 1
@@ -231,8 +240,10 @@ TEST(RuntimeExecTest, Generator_VarShadowingAcrossFunctions_NoStaleType) {
             }
         }
         func b() {
-            let g = 42
-            println(g)
+            var g: [i32] = [10, 20, 30]
+            for x in g {
+                println(x)
+            }
         }
         func main() {
             a()
@@ -240,7 +251,7 @@ TEST(RuntimeExecTest, Generator_VarShadowingAcrossFunctions_NoStaleType) {
         }
     )", "gen_shadow");
     EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
-    EXPECT_EQ(r.stdout_output, "1\n42\n") << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n10\n20\n30\n") << "stdout: " << r.stdout_output;
 }
 
 #endif // LIVA_HAS_LLVM
