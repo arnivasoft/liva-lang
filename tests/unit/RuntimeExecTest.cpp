@@ -107,6 +107,80 @@ RunResult compileAndRun(const std::string &source, const std::string &test_name)
     return RunResult{exitCode, captured};
 }
 
+// Multi-module variant of compileAndRun: writes a producer .liva module to the
+// build directory, registers that directory as a module search path, then
+// compiles `main_source` (which is expected to `import producer_name`) and
+// runs the resulting executable. Cleans up the producer .liva file along with
+// the usual exe/obj/output, even on failure.
+//
+// `producer_name` is the bare module name as it appears in `import` (no
+// `.liva` suffix, no `::` segments). For dotted module paths a single helper
+// is enough today — extend as needed.
+RunResult compileAndRunWithModule(const std::string &producer_source,
+                                  const std::string &producer_name,
+                                  const std::string &main_source,
+                                  const std::string &test_name) {
+    const std::string buildDir     = LIVA_BUILD_DIR;
+    const std::string exePath      = buildDir + "/_runtime_exec_" + test_name + EXE_SUFFIX;
+    const std::string outPath      = buildDir + "/_runtime_exec_" + test_name + ".out.txt";
+    const std::string objPath      = exePath + ".o";
+    const std::string producerPath = buildDir + "/" + producer_name + ".liva";
+
+    auto cleanup = [&]() {
+        std::remove(exePath.c_str());
+        std::remove(outPath.c_str());
+        std::remove(objPath.c_str());
+        std::remove(producerPath.c_str());
+    };
+
+    // Write producer module to the build dir so ModuleLoader can find it via
+    // the search path we configure below.
+    {
+        std::ofstream pf(producerPath);
+        if (!pf.is_open()) {
+            cleanup();
+            return RunResult{-1, "<failed to write producer module to " + producerPath + ">"};
+        }
+        pf << producer_source;
+    }
+
+    liva::CompilerInstance compiler;
+    compiler.setSource("_runtime_exec_" + test_name + ".liva", main_source);
+    compiler.setSearchPaths({buildDir});
+#ifdef _WIN32
+    compiler.setExecutablePath(buildDir + "/livac.exe");
+#else
+    compiler.setExecutablePath(buildDir + "/livac");
+#endif
+
+    if (!compiler.compile(exePath)) {
+        cleanup();
+        return RunResult{-1, "<compile failed — see stderr above for diagnostics>"};
+    }
+
+    std::string cmd = "\"" + exePath + "\" > \"" + outPath + "\" 2>&1";
+#ifdef _WIN32
+    cmd = "\"" + cmd + "\"";
+#endif
+    int rawStatus = std::system(cmd.c_str());
+
+    std::ifstream ifs(outPath);
+    std::stringstream ss;
+    if (ifs.is_open())
+        ss << ifs.rdbuf();
+    std::string captured = ss.str();
+
+    cleanup();
+
+    int exitCode;
+#ifdef _WIN32
+    exitCode = rawStatus;
+#else
+    exitCode = WIFEXITED(rawStatus) ? WEXITSTATUS(rawStatus) : -1;
+#endif
+    return RunResult{exitCode, captured};
+}
+
 }  // namespace
 
 TEST(RuntimeExecTest, HelloWorld_PrintsAndExitsZero) {
@@ -347,6 +421,36 @@ TEST(RuntimeExecTest, Generator_BreakOnFirstIteration_NoOutput) {
     )", "gen_break_first");
     EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
     EXPECT_EQ(r.stdout_output, "done\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, Generator_CrossModule_Iterates) {
+    // Cross-module generator: producer module exports a `pub func` generator,
+    // consumer imports it and iterates via for-in. Verifies the
+    // PresplitCoroutine attribute survives the ModuleLoader IR-import path —
+    // i.e. the imported coroutine is still recognized by CoroSplit and gets
+    // its intrinsics lowered before reaching CodeGen. Without proper attr
+    // propagation across modules this would either fail to compile or crash
+    // at runtime with the same "Do not know how to promote this operator's
+    // operand!" abort that single-module generators hit before Task 6.
+    const char *producer = R"(
+        pub func crossGen() {
+            yield 100
+            yield 200
+            yield 300
+        }
+    )";
+    const char *consumer = R"(
+        import gen_producer
+        func main() {
+            for x in crossGen() {
+                println(x)
+            }
+        }
+    )";
+    auto r = compileAndRunWithModule(producer, "gen_producer", consumer,
+                                     "gen_cross_module");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "100\n200\n300\n") << "stdout: " << r.stdout_output;
 }
 
 #endif // LIVA_HAS_LLVM
