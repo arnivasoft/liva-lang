@@ -254,4 +254,99 @@ TEST(RuntimeExecTest, Generator_VarShadowingAcrossFunctions_NoStaleType) {
     EXPECT_EQ(r.stdout_output, "1\n10\n20\n30\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, Generator_BreakEarly_DestroysSuspendedCoro) {
+    // Break out of a generator loop before exhaustion — exercises
+    // liva_coro_destroy on a still-suspended coroutine frame. Without
+    // proper destroy, this can leak the frame or crash on Windows MSVC.
+    auto r = compileAndRun(R"(
+        func gen(n: i32) {
+            var i: i32 = 0
+            while i < n {
+                yield i
+                i = i + 1
+            }
+        }
+        func main() {
+            for x in gen(10) {
+                if x == 3 {
+                    break
+                }
+                println(x)
+            }
+        }
+    )", "gen_break");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n1\n2\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, Generator_ContinueSkips_ResumesCorrectly) {
+    // Continue inside a generator loop — verifies coro.resume sequencing
+    // when control jumps past `println` to the latch block.
+    auto r = compileAndRun(R"(
+        func gen(n: i32) {
+            var i: i32 = 0
+            while i < n {
+                yield i
+                i = i + 1
+            }
+        }
+        func main() {
+            for x in gen(5) {
+                if x == 2 {
+                    continue
+                }
+                println(x)
+            }
+        }
+    )", "gen_continue");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n1\n3\n4\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, Generator_BreakOnVarBoundGenerator_DestroysCoro) {
+    // Same as Generator_BreakEarly but with a variable-bound generator
+    // (Task 7's `let g = gen(); for x in g` path) — exercises the
+    // separate IRGenStmt branch that lives at lines 661-674.
+    auto r = compileAndRun(R"(
+        func gen(n: i32) {
+            var i: i32 = 0
+            while i < n {
+                yield i
+                i = i + 1
+            }
+        }
+        func main() {
+            let g = gen(100)
+            for x in g {
+                if x == 2 {
+                    break
+                }
+                println(x)
+            }
+        }
+    )", "gen_break_var");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n1\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, Generator_BreakOnFirstIteration_NoOutput) {
+    // Edge case: break BEFORE any println on the very first iteration.
+    // Coroutine has yielded once but the consumer takes the first value
+    // and immediately bails. Frame must still destroy cleanly.
+    auto r = compileAndRun(R"(
+        func gen() {
+            yield 42
+            yield 99
+        }
+        func main() {
+            for x in gen() {
+                break
+            }
+            println("done")
+        }
+    )", "gen_break_first");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "done\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
