@@ -141,4 +141,38 @@ TEST(RuntimeExecTest, AsyncSimple_ReturnsAndPrints) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, Generator_CountToThree_Yields012) {
+    // XFAIL baseline as of f5f56f2: in-process compile aborts during LLVM
+    // CodeGen with `LLVM ERROR: Do not know how to promote this operator's
+    // operand!` — IR survives the verifier but trips SelectionDAG type
+    // legalization on a generator coroutine ramp operand (likely a
+    // token/promise-type mismatch in the yield/await/suspend lowering).
+    // Distinct from the AsyncSimple SEH 0xc0000005 crash (async fails earlier
+    // in IRGen itself); both share the coroutine ramp surface but the failure
+    // points differ. Task 6 is expected to repair ramp construction so valid
+    // legalizable IR is emitted; Task 7 may be needed if state-machine
+    // sequencing also contributes. Remove this GTEST_SKIP once those land.
+    GTEST_SKIP() << "XFAIL: codegen-abort — `LLVM ERROR: Do not know how to "
+                    "promote this operator's operand!` during DAG type "
+                    "legalization of generator coroutine ramp";
+
+    auto r = compileAndRun(R"(
+        func countTo(n: i32) {
+            var i: i32 = 0
+            while i < n {
+                yield i
+                i = i + 1
+            }
+        }
+        func main() {
+            for x in countTo(3) {
+                println(x)
+            }
+        }
+    )", "gen_count_three");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n1\n2\n")
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
