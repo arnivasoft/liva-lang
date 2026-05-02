@@ -184,6 +184,10 @@ private:
     /// "TypeName::ProtocolName::AssocType" -> concrete type name
     std::unordered_map<std::string, std::string> implAssociatedTypeResolutions_;
 
+    /// Method return-type tracking for user-defined types: "TypeName::methodName"
+    /// → return type (raw pointer, owned by the FuncDecl in the AST)
+    std::unordered_map<std::string, const TypeRepr *> typeMethodReturnTypes_;
+
     /// Class declaration tracking
     std::unordered_map<std::string, const ClassDecl *> classDecls_;
     std::unordered_map<std::string, std::string> classParent_;

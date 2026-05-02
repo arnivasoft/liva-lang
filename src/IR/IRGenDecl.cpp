@@ -1147,13 +1147,33 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
                 auto stIt = structTypes_.find(ident->getName());
                 if (stIt != structTypes_.end()) {
-                    auto *structTy = stIt->second;
                     auto *initVal = visit(const_cast<Expr *>(node->getInit()));
                     if (initVal) {
-                        auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+                        // Use the call's *actual* return type — failable
+                        // factories like `Foo.tryNew(...) -> Foo?` return
+                        // Optional<Foo>, not Foo. Allocating a plain Foo slot
+                        // would silently truncate the Optional discriminant.
+                        auto *resultTy = initVal->getType();
+                        auto *alloca = createEntryBlockAlloca(func, node->getName(), resultTy);
                         builder_->CreateStore(initVal, alloca);
                         namedValues_[node->getName()] = alloca;
-                        varStructTypes_[node->getName()] = ident->getName();
+                        if (resultTy->isStructTy()) {
+                            auto *st = llvm::cast<llvm::StructType>(resultTy);
+                            if (st->getNumElements() == 2 &&
+                                st->getElementType(0)->isIntegerTy(1)) {
+                                // Optional<T>: register inner type for if-let
+                                varOptionalTypes_[node->getName()] = st->getElementType(1);
+                                if (st->getElementType(1) == stIt->second) {
+                                    // Optional chaining still wants the
+                                    // underlying struct name available.
+                                    varStructTypes_[node->getName()] = ident->getName();
+                                }
+                            } else {
+                                varStructTypes_[node->getName()] = ident->getName();
+                            }
+                        } else {
+                            varStructTypes_[node->getName()] = ident->getName();
+                        }
                         return alloca;
                     }
                 }

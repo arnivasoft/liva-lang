@@ -783,10 +783,12 @@ func main() {
 
 TEST_F(SelfHostTest, WebSocketConnectFailsOnBadUrl) {
     // Connect to a URL with invalid scheme — handle is 0, no socket opened.
+    // Also exercises Optional return-type inference for static struct
+    // methods: `let r = T.factory(...)` where the factory returns `T?`.
     expectOutput(R"--(
 import websocket::websocket
 func main() {
-    let r: WebSocket? = WebSocket.connect("not-a-ws-url")
+    let r = WebSocket.connect("not-a-ws-url")
     if let ws = r {
         println("never")
     } else {
@@ -794,6 +796,31 @@ func main() {
     }
 }
 )--", "connect failed\n");
+}
+
+TEST_F(SelfHostTest, FailableStaticFactoryInferredOptional) {
+    // Regression: `let r = Foo.tryNew(...)` where tryNew returns `Foo?` was
+    // allocating a plain Foo slot and silently dropping the discriminant,
+    // so the subsequent if-let saw a non-Optional alloca and bailed.
+    expectOutput(R"--(
+pub struct Foo {
+    var x: i32
+}
+
+impl Foo {
+    pub func tryNew(n: i32) -> Foo? {
+        if n < 0 { return nil }
+        return Foo { x: n }
+    }
+}
+
+func main() {
+    let ok = Foo.tryNew(7)
+    if let f = ok { println(f.x) } else { println("nil") }
+    let bad = Foo.tryNew(-1)
+    if let f = bad { println("never") } else { println("nil") }
+}
+)--", "7\nnil\n");
 }
 
 TEST_F(SelfHostTest, WebSocketConnectFailsOnUnreachableHost) {

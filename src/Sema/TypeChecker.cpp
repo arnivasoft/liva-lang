@@ -1366,6 +1366,11 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
     }
     for (auto &method : node->getMethods()) {
         visitFuncDecl(method.get());
+        // Record return type so Type.method(args) calls can be resolved later.
+        if (method->getReturnType()) {
+            std::string key = node->getTypeName() + "::" + method->getName();
+            typeMethodReturnTypes_[key] = method->getReturnType();
+        }
     }
     currentImplTypeName_ = prevImplType;
     scopes_.popScope();
@@ -2681,6 +2686,15 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             if (ident->getName() == "File" && methodName == "open") {
                 auto optType = std::make_unique<OptionalTypeRepr>(makeNamedType("File"));
                 node->setResolvedType(std::move(optType));
+            }
+
+            // User-defined struct/class static method: TypeName.method(args)
+            if (!node->getResolvedType()) {
+                std::string key = ident->getName() + "::" + methodName;
+                auto retIt = typeMethodReturnTypes_.find(key);
+                if (retIt != typeMethodReturnTypes_.end() && retIt->second) {
+                    node->setResolvedType(cloneTypeRepr(retIt->second));
+                }
             }
 
             // File instance methods
