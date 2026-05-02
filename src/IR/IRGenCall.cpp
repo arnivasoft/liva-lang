@@ -4661,6 +4661,16 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             auto *arg = visit(node->getArgs()[i].get());
             if (!arg) continue;
 
+            // bool → "true"/"false" via runtime helper, printed as %s. Without
+            // this, printf with %d on an i1 vararg reads garbage from the
+            // calling-convention slot (varargs require at least i32).
+            if (arg->getType()->isIntegerTy(1)) {
+                auto *ext = builder_->CreateZExt(arg, llvm::Type::getInt8Ty(*context_));
+                arg = builder_->CreateCall(getOrPanic("liva_bool_to_str"), {ext},
+                                            "bool.str");
+                trackStringTemp(arg);
+            }
+
             std::string fmt;
             if (arg->getType()->isIntegerTy(32))
                 fmt = "%d";
@@ -4670,8 +4680,6 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 fmt = "%f";
             else if (arg->getType()->isPointerTy())
                 fmt = "%s";
-            else if (arg->getType()->isIntegerTy(1))
-                fmt = "%d";
             else
                 fmt = "%d";
 

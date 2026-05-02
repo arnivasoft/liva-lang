@@ -448,7 +448,7 @@ func main() {
     let s: string = t.toString()
     println(s.startsWith("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."))
 }
-)--", "1\n");
+)--", "true\n");
 }
 
 TEST_F(SelfHostTest, JwtRoundTripHS256) {
@@ -629,6 +629,24 @@ func main() {
 // which only builds the TypeRepr base — for non-primitive inner types
 // it sliced away NamedTypeRepr's name field (and similar), and later
 // downcasts read garbage. cloneTypeRepr keeps the concrete subclass.
+// Regression: println of a bool (literal or comparison result) used to
+// emit garbage like "1528307457" because the printf format was "%d" but
+// the i1 vararg never got promoted to i32. Now: bool is run through
+// liva_bool_to_str ("true"/"false") and printed as %s.
+TEST_F(SelfHostTest, PrintBoolLiteralAndComparison) {
+    expectOutput(R"--(
+func main() {
+    let a: i64 = 5 as i64
+    let b: i64 = 10 as i64
+    let r1: bool = a < b
+    println(r1)
+    println(a > b)
+    println(true)
+    println(false)
+}
+)--", "true\nfalse\ntrue\nfalse\n");
+}
+
 TEST_F(SelfHostTest, ParenWrappedStructValueDoesNotCrash) {
     expectOutput(R"--(
 struct P {
