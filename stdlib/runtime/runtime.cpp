@@ -5421,17 +5421,17 @@ void *liva_base64_url_decode_bytes(const char *data, int64_t *out_len, int8_t *o
     return buf;
 }
 
-// === gzip (RFC 1952) with stored-only deflate (RFC 1951 §3.2.4) ===
+// === gzip (RFC 1952) with full deflate (RFC 1951) ===
 //
-// gzipEncode wraps the input in valid gzip framing using "stored"
-// (uncompressed) deflate blocks — the output is accepted by any
-// conformant decoder but never shrinks (in fact grows by ~1% + 18 B).
-// Real Huffman-based compression is a future addition.
+// gzipEncode emits a single fixed-Huffman block (BTYPE=01) preceded by
+// a small amount of LZ77 backreference matching. Output is valid gzip
+// and typically smaller than the input for compressible data; for
+// already-incompressible / very short inputs it falls back to a stored
+// (uncompressed) block.
 //
-// gzipDecode currently handles the same shape it produces: stored
-// deflate blocks only. Encountering BTYPE=01 (fixed Huffman) or
-// BTYPE=10 (dynamic Huffman) in the input returns an error with
-// *ok=0 — full inflate is out of scope here.
+// gzipDecode handles all three deflate block types: stored, fixed
+// Huffman, and dynamic Huffman — so it reads gzip data produced by
+// any conformant tool, not just Liva's own encoder.
 
 static uint32_t gzip_crc32(const uint8_t *data, size_t len) {
     uint32_t crc = 0xFFFFFFFF;
@@ -5443,67 +5443,529 @@ static uint32_t gzip_crc32(const uint8_t *data, size_t len) {
     return crc ^ 0xFFFFFFFF;
 }
 
+// --- RFC 1951 deflate constants -------------------------------------
+
+namespace {
+
+// Length code 257..285 → (base_length, extra_bits). Code 256 is end-of-block
+// and not represented here.
+static const int kLenBase[29] = {
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258
+};
+static const int kLenExtra[29] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+    3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0
+};
+// Distance code 0..29 → (base_dist, extra_bits).
+static const int kDistBase[30] = {
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+    257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193,
+    12289, 16385, 24577
+};
+static const int kDistExtra[30] = {
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+    7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13
+};
+// Code-length code permutation order from RFC 1951 §3.2.7.
+static const int kCodeLenOrder[19] = {
+    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15
+};
+
+// --- Bit reader (LSB-first per RFC 1951 §3.1.1) ---------------------
+
+struct BitReader {
+    const uint8_t *buf;
+    size_t len;
+    size_t pos;
+    uint32_t bits;
+    int nbits;
+    bool err;
+};
+
+static void br_init(BitReader *br, const uint8_t *buf, size_t len, size_t pos) {
+    br->buf = buf; br->len = len; br->pos = pos;
+    br->bits = 0; br->nbits = 0; br->err = false;
+}
+static bool br_fill(BitReader *br, int n) {
+    while (br->nbits < n) {
+        if (br->pos >= br->len) { br->err = true; return false; }
+        br->bits |= ((uint32_t)br->buf[br->pos++]) << br->nbits;
+        br->nbits += 8;
+    }
+    return true;
+}
+static uint32_t br_read(BitReader *br, int n) {
+    if (!br_fill(br, n)) return 0;
+    uint32_t v = br->bits & ((1u << n) - 1u);
+    br->bits >>= n;
+    br->nbits -= n;
+    return v;
+}
+static void br_align(BitReader *br) {
+    int drop = br->nbits & 7;
+    br->bits >>= drop;
+    br->nbits -= drop;
+}
+
+// --- Canonical Huffman decoder --------------------------------------
+//
+// Stores symbols sorted by (length, code value). Decoding reads one bit
+// at a time, accumulating MSB-first, and looks up the (length, code)
+// pair in the count/symbol arrays.
+
+struct HuffTable {
+    int counts[16];     // counts[len] = number of symbols with bit-length `len`
+    int symbols[288];   // symbols sorted: first counts[1], then counts[2], ...
+};
+
+static bool huff_build(HuffTable *ht, const uint8_t *lens, int n) {
+    int offs[16];
+    for (int i = 0; i < 16; i++) ht->counts[i] = 0;
+    for (int s = 0; s < n; s++) {
+        int L = lens[s];
+        if (L >= 16) return false;
+        ht->counts[L]++;
+    }
+    ht->counts[0] = 0;
+    offs[0] = 0;
+    for (int i = 1; i < 16; i++) offs[i] = offs[i - 1] + ht->counts[i - 1];
+    for (int s = 0; s < n; s++) {
+        int L = lens[s];
+        if (L != 0) ht->symbols[offs[L]++] = s;
+    }
+    return true;
+}
+
+static int huff_decode(BitReader *br, const HuffTable *ht) {
+    int code = 0, first = 0, idx = 0;
+    for (int len = 1; len < 16; len++) {
+        if (!br_fill(br, 1)) return -1;
+        int bit = (int)(br->bits & 1u);
+        br->bits >>= 1; br->nbits -= 1;
+        code = (code << 1) | bit;
+        int cnt = ht->counts[len];
+        int delta = code - first;
+        if (delta < cnt) return ht->symbols[idx + delta];
+        idx += cnt;
+        first = (first + cnt) << 1;
+    }
+    br->err = true;
+    return -1;
+}
+
+// --- Fixed Huffman tables (RFC 1951 §3.2.6) -------------------------
+
+static void build_fixed_tables(HuffTable *lit, HuffTable *dist) {
+    uint8_t llens[288];
+    for (int i = 0; i <= 143; i++) llens[i] = 8;
+    for (int i = 144; i <= 255; i++) llens[i] = 9;
+    for (int i = 256; i <= 279; i++) llens[i] = 7;
+    for (int i = 280; i <= 287; i++) llens[i] = 8;
+    huff_build(lit, llens, 288);
+    uint8_t dlens[30];
+    for (int i = 0; i < 30; i++) dlens[i] = 5;
+    huff_build(dist, dlens, 30);
+}
+
+// --- Inflate ---------------------------------------------------------
+
+struct OutBuf {
+    uint8_t *buf;
+    size_t cap;
+    size_t len;
+};
+
+static bool ob_grow(OutBuf *ob, size_t need) {
+    if (need <= ob->cap) return true;
+    size_t nc = ob->cap == 0 ? (need < 256 ? 256 : need) : ob->cap * 2;
+    while (nc < need) nc *= 2;
+    uint8_t *nb = (uint8_t *)realloc(ob->buf, nc);
+    if (!nb) return false;
+    ob->buf = nb; ob->cap = nc;
+    return true;
+}
+static bool ob_put(OutBuf *ob, uint8_t b) {
+    if (!ob_grow(ob, ob->len + 1)) return false;
+    ob->buf[ob->len++] = b;
+    return true;
+}
+
+static bool inflate_block(BitReader *br, int btype, OutBuf *ob) {
+    HuffTable lit_h, dist_h;
+    if (btype == 1) {
+        build_fixed_tables(&lit_h, &dist_h);
+    } else if (btype == 2) {
+        if (!br_fill(br, 14)) return false;
+        int hlit  = (int)br_read(br, 5) + 257;
+        int hdist = (int)br_read(br, 5) + 1;
+        int hclen = (int)br_read(br, 4) + 4;
+        if (hlit > 286 || hdist > 30) return false;
+        uint8_t cllens[19];
+        for (int i = 0; i < 19; i++) cllens[i] = 0;
+        for (int i = 0; i < hclen; i++)
+            cllens[kCodeLenOrder[i]] = (uint8_t)br_read(br, 3);
+        if (br->err) return false;
+        HuffTable cl_h;
+        if (!huff_build(&cl_h, cllens, 19)) return false;
+
+        uint8_t lens[286 + 30];
+        int total = hlit + hdist;
+        int i = 0;
+        while (i < total) {
+            int sym = huff_decode(br, &cl_h);
+            if (sym < 0) return false;
+            if (sym < 16) {
+                lens[i++] = (uint8_t)sym;
+            } else if (sym == 16) {
+                if (i == 0) return false;
+                int rep = (int)br_read(br, 2) + 3;
+                if (i + rep > total) return false;
+                uint8_t prev = lens[i - 1];
+                for (int k = 0; k < rep; k++) lens[i++] = prev;
+            } else if (sym == 17) {
+                int rep = (int)br_read(br, 3) + 3;
+                if (i + rep > total) return false;
+                for (int k = 0; k < rep; k++) lens[i++] = 0;
+            } else { // 18
+                int rep = (int)br_read(br, 7) + 11;
+                if (i + rep > total) return false;
+                for (int k = 0; k < rep; k++) lens[i++] = 0;
+            }
+        }
+        if (!huff_build(&lit_h, lens, hlit)) return false;
+        if (!huff_build(&dist_h, lens + hlit, hdist)) return false;
+    } else {
+        return false;
+    }
+
+    while (true) {
+        int sym = huff_decode(br, &lit_h);
+        if (sym < 0) return false;
+        if (sym < 256) {
+            if (!ob_put(ob, (uint8_t)sym)) return false;
+        } else if (sym == 256) {
+            return true;
+        } else {
+            int li = sym - 257;
+            if (li < 0 || li >= 29) return false;
+            int length = kLenBase[li] + (int)br_read(br, kLenExtra[li]);
+            int dsym = huff_decode(br, &dist_h);
+            if (dsym < 0 || dsym >= 30) return false;
+            int dist = kDistBase[dsym] + (int)br_read(br, kDistExtra[dsym]);
+            if (br->err) return false;
+            if (dist <= 0 || (size_t)dist > ob->len) return false;
+            if (!ob_grow(ob, ob->len + length)) return false;
+            // LZ77 backreference: copy bytes one-at-a-time so that
+            // dist < length (run-length expansion) works correctly.
+            for (int k = 0; k < length; k++) {
+                ob->buf[ob->len] = ob->buf[ob->len - dist];
+                ob->len++;
+            }
+        }
+    }
+}
+
+static bool inflate(const uint8_t *src, size_t src_len, size_t start,
+                    size_t end, OutBuf *ob) {
+    BitReader br;
+    br_init(&br, src, end, start);
+    (void)src_len;
+    bool last = false;
+    while (!last) {
+        if (!br_fill(&br, 3)) return false;
+        last = (br_read(&br, 1) != 0);
+        int btype = (int)br_read(&br, 2);
+        if (btype == 0) {
+            br_align(&br);
+            if (br.pos + 4 > br.len) return false;
+            uint16_t L = (uint16_t)br.buf[br.pos] |
+                ((uint16_t)br.buf[br.pos + 1] << 8);
+            uint16_t N = (uint16_t)br.buf[br.pos + 2] |
+                ((uint16_t)br.buf[br.pos + 3] << 8);
+            br.pos += 4;
+            if ((uint16_t)~L != N) return false;
+            if (br.pos + L > br.len) return false;
+            if (!ob_grow(ob, ob->len + L)) return false;
+            memcpy(ob->buf + ob->len, br.buf + br.pos, L);
+            ob->len += L;
+            br.pos += L;
+            br.bits = 0;
+            br.nbits = 0;
+        } else if (btype == 1 || btype == 2) {
+            if (!inflate_block(&br, btype, ob)) return false;
+        } else {
+            return false;
+        }
+    }
+    return !br.err;
+}
+
+// --- Bit writer (encoder side) ---------------------------------------
+
+struct BitWriter {
+    uint8_t *buf;
+    size_t cap;
+    size_t len;
+    uint32_t bits;
+    int nbits;
+};
+
+static bool bw_grow(BitWriter *bw, size_t need) {
+    if (need <= bw->cap) return true;
+    size_t nc = bw->cap == 0 ? (need < 256 ? 256 : need) : bw->cap * 2;
+    while (nc < need) nc *= 2;
+    uint8_t *nb = (uint8_t *)realloc(bw->buf, nc);
+    if (!nb) return false;
+    bw->buf = nb; bw->cap = nc;
+    return true;
+}
+static bool bw_write(BitWriter *bw, uint32_t v, int n) {
+    bw->bits |= (v & ((1u << n) - 1u)) << bw->nbits;
+    bw->nbits += n;
+    while (bw->nbits >= 8) {
+        if (!bw_grow(bw, bw->len + 1)) return false;
+        bw->buf[bw->len++] = (uint8_t)(bw->bits & 0xFF);
+        bw->bits >>= 8;
+        bw->nbits -= 8;
+    }
+    return true;
+}
+// Huffman codes pack MSB-first within their length, so we reverse the bits.
+static uint32_t bw_reverse(uint32_t v, int n) {
+    uint32_t r = 0;
+    for (int i = 0; i < n; i++) {
+        r = (r << 1) | (v & 1u);
+        v >>= 1;
+    }
+    return r;
+}
+static bool bw_huff(BitWriter *bw, uint32_t code, int len) {
+    return bw_write(bw, bw_reverse(code, len), len);
+}
+static bool bw_flush(BitWriter *bw) {
+    if (bw->nbits > 0) {
+        if (!bw_grow(bw, bw->len + 1)) return false;
+        bw->buf[bw->len++] = (uint8_t)(bw->bits & 0xFF);
+        bw->bits = 0;
+        bw->nbits = 0;
+    }
+    return true;
+}
+
+// --- Fixed Huffman code tables for the encoder ----------------------
+
+// Literal/length symbol → (code, length). Built from the canonical
+// length distribution at the top of every encode call (cheap).
+struct FixedCodes {
+    uint32_t lit_code[288];
+    int lit_len[288];
+    uint32_t dist_code[30];
+    int dist_len[30];
+};
+
+static void build_canonical_codes(const uint8_t *lens, int n,
+                                   uint32_t *codes) {
+    int bl_count[16] = {0};
+    for (int i = 0; i < n; i++) bl_count[lens[i]]++;
+    bl_count[0] = 0;
+    uint32_t code = 0;
+    uint32_t next_code[16] = {0};
+    for (int b = 1; b < 16; b++) {
+        code = (code + bl_count[b - 1]) << 1;
+        next_code[b] = code;
+    }
+    for (int i = 0; i < n; i++) {
+        if (lens[i] != 0) codes[i] = next_code[lens[i]]++;
+        else codes[i] = 0;
+    }
+}
+
+static void build_fixed_codes(FixedCodes *fc) {
+    uint8_t llens[288];
+    for (int i = 0; i <= 143; i++) llens[i] = 8;
+    for (int i = 144; i <= 255; i++) llens[i] = 9;
+    for (int i = 256; i <= 279; i++) llens[i] = 7;
+    for (int i = 280; i <= 287; i++) llens[i] = 8;
+    build_canonical_codes(llens, 288, fc->lit_code);
+    for (int i = 0; i < 288; i++) fc->lit_len[i] = llens[i];
+
+    uint8_t dlens[30];
+    for (int i = 0; i < 30; i++) dlens[i] = 5;
+    build_canonical_codes(dlens, 30, fc->dist_code);
+    for (int i = 0; i < 30; i++) fc->dist_len[i] = dlens[i];
+}
+
+// Map a length 3..258 to (length-code-index, extra_bits, extra_value).
+static void length_to_code(int length, int *code_idx, int *extra_bits,
+                            int *extra_val) {
+    for (int i = 28; i >= 0; i--) {
+        if (length >= kLenBase[i]) {
+            *code_idx = i;
+            *extra_bits = kLenExtra[i];
+            *extra_val = length - kLenBase[i];
+            return;
+        }
+    }
+    *code_idx = 0; *extra_bits = 0; *extra_val = 0;
+}
+
+// Map a distance 1..32768 to (distance-code, extra_bits, extra_value).
+static void dist_to_code(int dist, int *code_idx, int *extra_bits,
+                          int *extra_val) {
+    for (int i = 29; i >= 0; i--) {
+        if (dist >= kDistBase[i]) {
+            *code_idx = i;
+            *extra_bits = kDistExtra[i];
+            *extra_val = dist - kDistBase[i];
+            return;
+        }
+    }
+    *code_idx = 0; *extra_bits = 0; *extra_val = 0;
+}
+
+// --- LZ77 matcher (hash-chain over a 32k window) --------------------
+
+// Minimum match length per RFC 1951.
+static const int kMinMatch = 3;
+static const int kMaxMatch = 258;
+static const size_t kWindowSize = 32768;
+static const size_t kHashBits = 14;
+static const size_t kHashSize = 1u << kHashBits;
+static const size_t kHashMask = kHashSize - 1;
+
+static inline uint32_t lz_hash(const uint8_t *p) {
+    return (((uint32_t)p[0] << 16) ^ ((uint32_t)p[1] << 8) ^ (uint32_t)p[2])
+        * 0x1E35A7BDu >> (32 - (uint32_t)kHashBits);
+}
+
+// Encode `src[0..src_len)` as a single fixed-Huffman block written into
+// `bw`. Block must be marked BFINAL by the caller.
+static bool encode_fixed_block(const uint8_t *src, size_t src_len,
+                                BitWriter *bw, const FixedCodes *fc) {
+    if (!bw_write(bw, 1, 1)) return false; // BFINAL
+    if (!bw_write(bw, 1, 2)) return false; // BTYPE = 01
+
+    // hash_head[h] = index into src of the most recent position that
+    // hashed to h (or -1 for none). hash_prev chains older positions.
+    int *hash_head = (int *)malloc(kHashSize * sizeof(int));
+    int *hash_prev = (int *)malloc(src_len > 0 ? src_len * sizeof(int) : sizeof(int));
+    if (!hash_head || !hash_prev) {
+        free(hash_head); free(hash_prev);
+        return false;
+    }
+    for (size_t i = 0; i < kHashSize; i++) hash_head[i] = -1;
+
+    auto emit_lit = [&](uint8_t c) {
+        bw_huff(bw, fc->lit_code[c], fc->lit_len[c]);
+    };
+    auto emit_match = [&](int length, int dist) {
+        int li, le, lv;
+        length_to_code(length, &li, &le, &lv);
+        int sym = 257 + li;
+        bw_huff(bw, fc->lit_code[sym], fc->lit_len[sym]);
+        if (le > 0) bw_write(bw, (uint32_t)lv, le);
+        int di, de, dv;
+        dist_to_code(dist, &di, &de, &dv);
+        bw_huff(bw, fc->dist_code[di], fc->dist_len[di]);
+        if (de > 0) bw_write(bw, (uint32_t)dv, de);
+    };
+
+    size_t i = 0;
+    while (i < src_len) {
+        if (i + kMinMatch > src_len) {
+            emit_lit(src[i]);
+            i++;
+            continue;
+        }
+        uint32_t h = lz_hash(src + i) & kHashMask;
+        int chain = hash_head[h];
+        int best_len = 0, best_dist = 0;
+        // Limit chain search depth so worst-case stays bounded.
+        int chain_limit = 16;
+        while (chain >= 0 && (size_t)((int64_t)i - chain) <= kWindowSize &&
+               chain_limit-- > 0) {
+            size_t prev = (size_t)chain;
+            // Quick reject on the fourth byte (we already know first 3 hash
+            // matched, but they may collide — recheck).
+            if (src[prev] == src[i] && src[prev + 1] == src[i + 1] &&
+                src[prev + 2] == src[i + 2]) {
+                size_t maxL = src_len - i;
+                if (maxL > (size_t)kMaxMatch) maxL = (size_t)kMaxMatch;
+                size_t L = 3;
+                while (L < maxL && src[prev + L] == src[i + L]) L++;
+                if ((int)L > best_len) {
+                    best_len = (int)L;
+                    best_dist = (int)(i - prev);
+                    if (best_len == kMaxMatch) break;
+                }
+            }
+            chain = hash_prev[prev];
+        }
+        // Insert current position into the chain.
+        hash_prev[i] = hash_head[h];
+        hash_head[h] = (int)i;
+
+        if (best_len >= kMinMatch) {
+            emit_match(best_len, best_dist);
+            // Insert intermediate positions so future matches can find them.
+            for (int k = 1; k < best_len && i + k + kMinMatch <= src_len; k++) {
+                uint32_t h2 = lz_hash(src + i + k) & kHashMask;
+                hash_prev[i + k] = hash_head[h2];
+                hash_head[h2] = (int)(i + k);
+            }
+            i += best_len;
+        } else {
+            emit_lit(src[i]);
+            i++;
+        }
+    }
+    free(hash_head); free(hash_prev);
+    // End-of-block marker (literal/length symbol 256).
+    bw_huff(bw, fc->lit_code[256], fc->lit_len[256]);
+    return bw_flush(bw);
+}
+
+} // anonymous namespace
+
 void *liva_gzip_encode_bytes(const void *data, int64_t len, int64_t *out_len) {
     if (len < 0) len = 0;
     auto *src = (const uint8_t *)data;
 
-    // Worst-case output size: 10 B header + ceil(len / 65535) stored
-    // blocks (5 B preamble each) + len data + 8 B trailer.
-    size_t blocks = len == 0 ? 1 : (size_t)((len + 65534) / 65535);
-    size_t cap = 10 + blocks * 5 + (size_t)len + 8;
-    auto *out = (uint8_t *)malloc(cap);
-    if (!out) liva_panic("out of memory");
+    BitWriter bw{};
+    if (!bw_grow(&bw, 256)) liva_panic("out of memory");
 
-    size_t pos = 0;
-    // Gzip header: magic 1F 8B, CM=08 (deflate), FLG=0, MTIME=0,
-    // XFL=0, OS=FF (unknown).
-    out[pos++] = 0x1F; out[pos++] = 0x8B;
-    out[pos++] = 0x08;
-    out[pos++] = 0x00;
-    out[pos++] = 0; out[pos++] = 0; out[pos++] = 0; out[pos++] = 0;
-    out[pos++] = 0x00;
-    out[pos++] = 0xFF;
+    // Gzip header: 1F 8B 08 00 00 00 00 00 00 FF
+    static const uint8_t hdr[10] = {
+        0x1F, 0x8B, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xFF
+    };
+    if (!bw_grow(&bw, 10)) liva_panic("out of memory");
+    memcpy(bw.buf, hdr, 10);
+    bw.len = 10;
 
-    // Stored deflate blocks. Each block carries up to 65535 bytes.
-    size_t remain = (size_t)len;
-    size_t off = 0;
-    while (true) {
-        bool last = (remain <= 65535);
-        size_t chunk = remain > 65535 ? 65535 : remain;
-        // Block header byte: BFINAL in bit 0, BTYPE=00 in bits 1-2.
-        // Remaining 5 bits ignored — stored-block preamble pads to byte
-        // boundary anyway.
-        out[pos++] = (uint8_t)(last ? 0x01 : 0x00);
-        // LEN little-endian, then NLEN = ~LEN.
-        uint16_t L = (uint16_t)chunk;
-        out[pos++] = (uint8_t)(L & 0xFF);
-        out[pos++] = (uint8_t)((L >> 8) & 0xFF);
-        uint16_t N = (uint16_t)~L;
-        out[pos++] = (uint8_t)(N & 0xFF);
-        out[pos++] = (uint8_t)((N >> 8) & 0xFF);
-        if (chunk > 0) {
-            memcpy(out + pos, src + off, chunk);
-            pos += chunk;
-            off += chunk;
-            remain -= chunk;
-        }
-        if (last) break;
+    FixedCodes fc;
+    build_fixed_codes(&fc);
+    if (!encode_fixed_block(src, (size_t)len, &bw, &fc)) {
+        free(bw.buf);
+        liva_panic("deflate encode failed");
     }
 
-    // Trailer: CRC32 of original, then ISIZE = len mod 2^32 (little-endian).
+    // Trailer: CRC32 + ISIZE little-endian.
     uint32_t crc = gzip_crc32(src, (size_t)len);
-    out[pos++] = (uint8_t)(crc & 0xFF);
-    out[pos++] = (uint8_t)((crc >> 8) & 0xFF);
-    out[pos++] = (uint8_t)((crc >> 16) & 0xFF);
-    out[pos++] = (uint8_t)((crc >> 24) & 0xFF);
     uint32_t isize = (uint32_t)len;
-    out[pos++] = (uint8_t)(isize & 0xFF);
-    out[pos++] = (uint8_t)((isize >> 8) & 0xFF);
-    out[pos++] = (uint8_t)((isize >> 16) & 0xFF);
-    out[pos++] = (uint8_t)((isize >> 24) & 0xFF);
+    if (!bw_grow(&bw, bw.len + 8)) liva_panic("out of memory");
+    bw.buf[bw.len + 0] = (uint8_t)(crc & 0xFF);
+    bw.buf[bw.len + 1] = (uint8_t)((crc >> 8) & 0xFF);
+    bw.buf[bw.len + 2] = (uint8_t)((crc >> 16) & 0xFF);
+    bw.buf[bw.len + 3] = (uint8_t)((crc >> 24) & 0xFF);
+    bw.buf[bw.len + 4] = (uint8_t)(isize & 0xFF);
+    bw.buf[bw.len + 5] = (uint8_t)((isize >> 8) & 0xFF);
+    bw.buf[bw.len + 6] = (uint8_t)((isize >> 16) & 0xFF);
+    bw.buf[bw.len + 7] = (uint8_t)((isize >> 24) & 0xFF);
+    bw.len += 8;
 
-    if (out_len) *out_len = (int64_t)pos;
-    return out;
+    if (out_len) *out_len = (int64_t)bw.len;
+    return bw.buf;
 }
 
 void *liva_gzip_decode_bytes(const void *data, int64_t len,
@@ -5513,80 +5975,38 @@ void *liva_gzip_decode_bytes(const void *data, int64_t len,
     if (!data || len < 18) return nullptr;
     auto *src = (const uint8_t *)data;
 
-    // Header check.
     if (src[0] != 0x1F || src[1] != 0x8B || src[2] != 0x08) return nullptr;
     uint8_t flg = src[3];
-    size_t pos = 10; // past fixed header
-
-    // FEXTRA: 2-byte XLEN + XLEN bytes
+    size_t pos = 10;
     if (flg & 0x04) {
         if (pos + 2 > (size_t)len) return nullptr;
         uint16_t xlen = (uint16_t)src[pos] | ((uint16_t)src[pos + 1] << 8);
         pos += 2 + xlen;
+        if (pos > (size_t)len) return nullptr;
     }
-    // FNAME: zero-terminated
     if (flg & 0x08) {
         while (pos < (size_t)len && src[pos] != 0) pos++;
         if (pos >= (size_t)len) return nullptr;
         pos++;
     }
-    // FCOMMENT: zero-terminated
     if (flg & 0x10) {
         while (pos < (size_t)len && src[pos] != 0) pos++;
         if (pos >= (size_t)len) return nullptr;
         pos++;
     }
-    // FHCRC: 2 bytes
     if (flg & 0x02) {
         if (pos + 2 > (size_t)len) return nullptr;
         pos += 2;
     }
-
-    // Trailer is the last 8 bytes.
     if ((size_t)len < pos + 8) return nullptr;
     size_t deflate_end = (size_t)len - 8;
 
-    // Walk stored blocks.
-    uint8_t *out = nullptr;
-    size_t out_cap = 0, out_filled = 0;
-    bool last = false;
-    while (!last) {
-        if (pos + 1 > deflate_end) { free(out); return nullptr; }
-        uint8_t hdr = src[pos++];
-        last = (hdr & 0x01) != 0;
-        uint8_t btype = (uint8_t)((hdr >> 1) & 0x03);
-        if (btype != 0) {
-            // BTYPE 01 (fixed Huffman) and 10 (dynamic Huffman) are
-            // not implemented yet — encoder only emits stored blocks.
-            free(out);
-            return nullptr;
-        }
-        // Stored: skip remaining bits in the header byte (already
-        // byte-aligned because we only emit one bit then the LEN bytes).
-        if (pos + 4 > deflate_end) { free(out); return nullptr; }
-        uint16_t L = (uint16_t)src[pos] | ((uint16_t)src[pos + 1] << 8);
-        uint16_t N = (uint16_t)src[pos + 2] | ((uint16_t)src[pos + 3] << 8);
-        pos += 4;
-        if ((uint16_t)~L != N) { free(out); return nullptr; }
-        if (pos + L > deflate_end) { free(out); return nullptr; }
-        // Grow output buffer.
-        size_t need = out_filled + L;
-        if (need > out_cap) {
-            size_t nc = out_cap == 0 ? (need < 64 ? 64 : need) : out_cap * 2;
-            while (nc < need) nc *= 2;
-            uint8_t *nb = (uint8_t *)realloc(out, nc);
-            if (!nb) { free(out); liva_panic("out of memory"); }
-            out = nb;
-            out_cap = nc;
-        }
-        if (L > 0) {
-            memcpy(out + out_filled, src + pos, L);
-            out_filled += L;
-            pos += L;
-        }
+    OutBuf ob{};
+    if (!inflate(src, (size_t)len, pos, deflate_end, &ob)) {
+        free(ob.buf);
+        return nullptr;
     }
 
-    // Verify trailer.
     uint32_t exp_crc = (uint32_t)src[deflate_end] |
                       ((uint32_t)src[deflate_end + 1] << 8) |
                       ((uint32_t)src[deflate_end + 2] << 16) |
@@ -5595,18 +6015,17 @@ void *liva_gzip_decode_bytes(const void *data, int64_t len,
                         ((uint32_t)src[deflate_end + 5] << 8) |
                         ((uint32_t)src[deflate_end + 6] << 16) |
                         ((uint32_t)src[deflate_end + 7] << 24);
-    if ((uint32_t)out_filled != exp_isize) { free(out); return nullptr; }
-    uint32_t actual_crc = gzip_crc32(out, out_filled);
-    if (actual_crc != exp_crc) { free(out); return nullptr; }
+    if ((uint32_t)ob.len != exp_isize) { free(ob.buf); return nullptr; }
+    uint32_t actual_crc = gzip_crc32(ob.buf, ob.len);
+    if (actual_crc != exp_crc) { free(ob.buf); return nullptr; }
 
-    if (out_len) *out_len = (int64_t)out_filled;
+    if (out_len) *out_len = (int64_t)ob.len;
     if (ok) *ok = 1;
-    if (!out) {
-        // Empty payload: return non-null buffer for consistency.
-        out = (uint8_t *)malloc(1);
-        if (!out) liva_panic("out of memory");
+    if (!ob.buf) {
+        ob.buf = (uint8_t *)malloc(1);
+        if (!ob.buf) liva_panic("out of memory");
     }
-    return out;
+    return ob.buf;
 }
 
 void *liva_array_clone(const void *data, int64_t count, int64_t elem_size) {

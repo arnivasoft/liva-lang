@@ -781,6 +781,32 @@ func main() {
 )--", "rejected\n");
 }
 
+TEST_F(SelfHostTest, GzipCompressesRedundantData) {
+    // 1000 identical bytes must compress to far less than 1000.
+    // Stored-only deflate would emit ~1005 bytes; fixed Huffman + LZ77
+    // should produce well under 100.
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    var data: [u8] = []
+    var i: i64 = 0 as i64
+    while i < 1000 as i64 {
+        data.push(65 as u8)
+        i = i + 1 as i64
+    }
+    let enc: [u8] = gzipEncode(data)
+    if enc.length < 100 as i64 { println("compressed") } else { println("not compressed") }
+    if let dec = gzipDecode(enc) {
+        println(dec.length)
+        println(dec[0 as i64] as i64)
+        println(dec[999 as i64] as i64)
+    } else {
+        println("decode failed")
+    }
+}
+)--", "compressed\n1000\n65\n65\n");
+}
+
 TEST_F(SelfHostTest, U8ByteArrayPreservesEmbeddedNul) {
     expectOutput(R"--(
 import std::crypto
