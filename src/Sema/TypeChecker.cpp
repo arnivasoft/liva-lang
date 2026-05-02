@@ -3581,6 +3581,20 @@ void TypeChecker::visitClosureExpr(ClosureExpr *node) {
 
     currentReturnType_ = prevReturn;
     scopes_.popScope();
+
+    // Build a FunctionTypeRepr matching the closure's signature so callers
+    // (e.g. method-level type-param inference) can unify against it.
+    std::vector<std::unique_ptr<TypeRepr>> paramTypes;
+    paramTypes.reserve(node->getParams().size());
+    for (auto &p : node->getParams()) {
+        paramTypes.push_back(p.type ? cloneTypeRepr(p.type.get())
+                                     : makePrimitiveType(TypeRepr::Kind::Inferred));
+    }
+    auto retClone = node->getReturnType()
+        ? cloneTypeRepr(node->getReturnType())
+        : makePrimitiveType(TypeRepr::Kind::Void);
+    node->setResolvedType(std::make_unique<FunctionTypeRepr>(
+        std::move(paramTypes), std::move(retClone)));
 }
 
 void TypeChecker::visitComptimeExpr(ComptimeExpr *node) {

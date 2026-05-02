@@ -59,6 +59,21 @@ impl Stream<T> {
         return result
     }
 
+    // Generic map: U is inferred from the closure's return type.
+    pub func map<U>(ref self, f: (T) -> U) -> [U] {
+        var result: [U] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: T = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+
+    // Type-pinned aliases kept for callers that prefer the explicit form
+    // (and to keep older modules using mapToInt / mapToString working).
     pub func mapToInt(ref self, f: (T) -> i64) -> [i64] {
         var result: [i64] = []
         var i: i64 = self.index

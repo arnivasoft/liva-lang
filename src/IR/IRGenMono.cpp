@@ -345,8 +345,16 @@ std::vector<const TypeRepr *> IRGen::inferStructTypeArgs(
 llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
                                            const FuncDecl *methodDecl,
                                            const std::string &mangledStructName,
-                                           const std::vector<const TypeRepr *> &typeArgs) {
+                                           const std::vector<const TypeRepr *> &typeArgs,
+                                           const std::vector<const TypeRepr *> &methodTypeArgs) {
     std::string mangledName = mangledStructName + "_" + methodDecl->getName();
+    // Append method-level type args to the mangled name so different
+    // U-instantiations get distinct functions.
+    for (const auto *arg : methodTypeArgs) {
+        mangledName += '_';
+        const char *fast = primitiveTypeName(arg->getKind());
+        mangledName += fast ? fast : arg->toString();
+    }
 
     // Cache check
     auto cacheIt = monomorphizedFuncs_.find(mangledName);
@@ -382,6 +390,11 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     const auto &typeParams = implDecl->getTypeParams();
     for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i) {
         currentTypeSubst_[typeParams[i]] = typeArgs[i];
+    }
+    // Method-level type params (U from `func map<U>`) bind on top.
+    const auto &methodParams = methodDecl->getTypeParams();
+    for (size_t i = 0; i < methodParams.size() && i < methodTypeArgs.size(); ++i) {
+        currentTypeSubst_[methodParams[i]] = methodTypeArgs[i];
     }
 
     // Build function type: self is pointer, rest are substituted.

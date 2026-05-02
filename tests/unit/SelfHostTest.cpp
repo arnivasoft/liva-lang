@@ -642,6 +642,40 @@ func main() {
 // embedded NUL bytes (which liva_hex_decode → strlen would have
 // truncated). Exercises strToBytes, bytesToStr, hexEncodeBytes,
 // hexDecodeBytes, base64UrlEncodeBytes, base64UrlDecodeBytes.
+// Method-level type parameters: `func map<U>(...)` inside an
+// `impl Stream<T>` block. Both the struct's T and the method's U are
+// inferred from arg types, mangled into the method's name
+// (Stream_string_map_i64), and substituted independently. Different
+// (T, U) instantiations produce distinct functions in the same program.
+TEST_F(SelfHostTest, GenericMethodTypeParamMap) {
+    expectOutput(R"--(
+import stream::stream
+func main() {
+    var arr: [string] = []
+    arr.push("a")
+    arr.push("bb")
+    arr.push("ccc")
+    let s = Stream<string>.from(arr)
+
+    // U = i64
+    let lens: [i64] = s.map(|w: string| -> i64 { return w.length })
+    for n in lens { println(n) }
+
+    // U = string (uppercase)
+    let upper: [string] = s.map(|w: string| -> string { return w.toUpper() })
+    for u in upper { println(u) }
+
+    // T = i64, U = string in the same program — separate monomorphization
+    var nums: [i64] = []
+    nums.push(10 as i64)
+    nums.push(20 as i64)
+    let ns = Stream<i64>.from(nums)
+    let strs: [string] = ns.map(|x: i64| -> string { return "x" })
+    for v in strs { println(v) }
+}
+)--", "1\n2\n3\nA\nBB\nCCC\nx\nx\n");
+}
+
 TEST_F(SelfHostTest, U8ByteArrayPreservesEmbeddedNul) {
     expectOutput(R"--(
 import std::crypto

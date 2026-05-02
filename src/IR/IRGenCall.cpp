@@ -1538,8 +1538,77 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                             structTypeName[baseName.size()] == '_') {
                             for (auto &m : implDecl->getMethods()) {
                                 if (m->getName() == methodName) {
+                                    // Method-level type-param inference for
+                                    // `func map<U>(...)`: walk param TypeReprs
+                                    // and arg resolved TypeReprs in parallel
+                                    // (just like the static-method path does
+                                    // for struct-level T's).
+                                    std::vector<const TypeRepr *> methodTypeArgs;
+                                    const auto &mtps = m->getTypeParams();
+                                    if (!mtps.empty()) {
+                                        std::unordered_set<std::string> tpSet(
+                                            mtps.begin(), mtps.end());
+                                        std::unordered_map<std::string,
+                                            const TypeRepr *> inferred;
+                                        std::function<void(const TypeRepr *,
+                                                            const TypeRepr *)> unify =
+                                            [&](const TypeRepr *p, const TypeRepr *a) {
+                                            if (!p || !a) return;
+                                            if (p->getKind() == TypeRepr::Kind::Named) {
+                                                auto *n = static_cast<
+                                                    const NamedTypeRepr *>(p);
+                                                if (tpSet.count(n->getName()) &&
+                                                    !inferred.count(n->getName())) {
+                                                    inferred[n->getName()] = a;
+                                                }
+                                                return;
+                                            }
+                                            if (p->getKind() == TypeRepr::Kind::Array &&
+                                                a->getKind() == TypeRepr::Kind::Array) {
+                                                unify(static_cast<const ArrayTypeRepr *>(p)->getElement(),
+                                                      static_cast<const ArrayTypeRepr *>(a)->getElement());
+                                                return;
+                                            }
+                                            if (p->getKind() == TypeRepr::Kind::Optional &&
+                                                a->getKind() == TypeRepr::Kind::Optional) {
+                                                unify(static_cast<const OptionalTypeRepr *>(p)->getInner(),
+                                                      static_cast<const OptionalTypeRepr *>(a)->getInner());
+                                                return;
+                                            }
+                                            if (p->getKind() == TypeRepr::Kind::Function &&
+                                                a->getKind() == TypeRepr::Kind::Function) {
+                                                auto *pf = static_cast<const FunctionTypeRepr *>(p);
+                                                auto *af = static_cast<const FunctionTypeRepr *>(a);
+                                                unify(pf->getReturnType(), af->getReturnType());
+                                                for (size_t k = 0;
+                                                     k < pf->getParams().size() &&
+                                                     k < af->getParams().size(); ++k) {
+                                                    unify(pf->getParams()[k].get(),
+                                                          af->getParams()[k].get());
+                                                }
+                                                return;
+                                            }
+                                        };
+                                        // Skip the implicit self parameter
+                                        // (no AST type for it).
+                                        size_t paramIdx = 0;
+                                        for (auto &p : m->getParams()) {
+                                            if (p.isSelf) continue;
+                                            if (paramIdx >= node->getArgs().size()) break;
+                                            unify(p.type.get(),
+                                                  node->getArgs()[paramIdx]->getResolvedType());
+                                            paramIdx++;
+                                        }
+                                        for (const auto &tp : mtps) {
+                                            auto inIt = inferred.find(tp);
+                                            if (inIt != inferred.end())
+                                                methodTypeArgs.push_back(inIt->second);
+                                        }
+                                    }
                                     callee = monomorphizeMethod(implDecl, m.get(),
-                                                                 structTypeName, staIt->second);
+                                                                 structTypeName,
+                                                                 staIt->second,
+                                                                 methodTypeArgs);
                                     break;
                                 }
                             }

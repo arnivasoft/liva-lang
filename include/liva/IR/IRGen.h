@@ -304,11 +304,15 @@ private:
     /// Struct type args for monomorphized structs: "Box_i32" -> [i32 TypeRepr*]
     std::unordered_map<std::string, std::vector<const TypeRepr *>> structTypeArgs_;
 
-    /// Monomorphize a method from a generic impl block
+    /// Monomorphize a method from a generic impl block. `structTypeArgs`
+    /// substitute the impl's struct-level params (T from `impl Stream<T>`),
+    /// `methodTypeArgs` the method's own type params (U from `func map<U>`).
+    /// Both contribute to the mangled function name.
     llvm::Function *monomorphizeMethod(const ImplDecl *implDecl,
                                         const FuncDecl *methodDecl,
                                         const std::string &mangledStructName,
-                                        const std::vector<const TypeRepr *> &typeArgs);
+                                        const std::vector<const TypeRepr *> &structTypeArgs,
+                                        const std::vector<const TypeRepr *> &methodTypeArgs = {});
 
     /// Lifetime management for inferred TypeRepr objects
     std::vector<std::unique_ptr<TypeRepr>> inferredTypes_;
