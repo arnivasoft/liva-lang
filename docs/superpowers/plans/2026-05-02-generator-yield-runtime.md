@@ -667,9 +667,29 @@ git commit -m "test: lock in generator runtime behavior (empty/bound/nested case
 
 ---
 
-## Self-Review Notes
+## Outcome (post-execution)
 
-- **Spec coverage:** All four user-stated requirements covered — (1) hello-coroutine reference = Task 4, (2) initial suspend = Task 7, (3) e2e runtime test = Tasks 1+3+8, (4) generator/async separation = Task 7. (Note: Task 4 inspects what CoroSplit *actually* did rather than building a separate hand-written IR, because the e2e harness is the authoritative ABI test — a hand-written reference is only worth building if Task 4 reveals CoroSplit didn't run, in which case Task 6 fixes it.)
-- **Placeholder scan:** Two intentional "match the project's actual API" notes (Task 5 Step 4, Task 7 Step 4) where the exact accessor name depends on what `Generator<T>` looks like post-construction. The reader should `grep` for the construction site cited in the plan and mirror it. This is *not* TBD — the construction site is named (`src/Sema/TypeChecker.cpp:2675`).
-- **Type consistency:** `currentIsGenerator_` (Task 7) is a new flag distinct from `currentIsAsync_` (existing) and `node->isGenerator()` (existing AST query). `Generator<T>` Sema type construction is referenced consistently across Tasks 5 and 7. `compileAndRun` signature (Task 1) is reused in Tasks 2, 3, 8.
-- **Risk:** Task 1 (test harness) is the longest and depends on the existing driver's compile-to-exe shape. If the driver doesn't expose a clean entry point, allow ~30 extra minutes for the small `Driver::compileToExe` refactor.
+The plan was followed with one major mid-stream pivot: **Task 7's original
+scope was largely deferred** because Task 4's IR-inspection finding revealed
+that a single missing `PresplitCoroutine` attribute was the root cause of
+both the async SEH crash and the generator codegen abort. Once Task 6
+landed that attribute, the test outcomes turned green and the originally
+planned Task 7 work — `currentIsGenerator_` flag, lazy initial suspend,
+generator/async ramp split — became YAGNI.
+
+What actually shipped from Task 7: only IRGen for-in dispatch over
+variable-bound generators (`let g = gen(); for x in g`), via a new
+`varGeneratorTypes_` map populated at `visitVarDecl`. This is a workaround
+for a Sema gap (`visitIdentifierExpr` strips generic type args) — see the
+TODO at the map's declaration in `include/liva/IR/IRGen.h`.
+
+Final test counts: 2246/2246 passing (was 2064 baseline). Zero XFAILs.
+
+Deferred to follow-up:
+- **`break`/`continue` from generator loops** — current tests only iterate
+  to exhaustion. The early-exit destruction path (`liva_coro_destroy` on
+  a still-suspended coroutine) is unverified.
+- **Generators across module boundaries** — untested whether
+  `PresplitCoroutine` attribute propagates correctly through IR import.
+- **Sema-side fix for IdentifierExpr generic type propagation** — would
+  let us delete `varGeneratorTypes_` entirely.

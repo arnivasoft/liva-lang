@@ -429,6 +429,23 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     }
 
     // === Phase 2 Coroutine Ramp Setup (for async/generator functions) ===
+    //
+    // INVARIANT: async and generators share an EAGER ramp.
+    // The body runs immediately on call, up to the first suspend point
+    // (first `yield` for generators, first `await` for async). For generators,
+    // this produces semantically lazy iteration "by accident" — the first
+    // `yield` in the body suspends with the first value already in the promise,
+    // so the for-in loop can read coro.promise without an initial coro.resume.
+    //
+    // DO NOT add a "lazy initial suspend" here without ALSO updating the
+    // for-in dispatch in IRGenStmt.cpp::visitForStmt to issue an initial
+    // coro.resume before the first coro.promise read. Touching either site
+    // alone will break every generator runtime test.
+    //
+    // See: PresplitCoroutine attribute below (CoroSplit gating);
+    //      IRGenStmt.cpp::visitForStmt (the consumer of this ramp);
+    //      docs/superpowers/plans/2026-05-02-generator-yield-runtime.md (Task 4
+    //      diagnosis + Task 6 outcome that established this invariant).
     if (node->isAsync() || node->isGenerator()) {
         // Mark this function as a presplit coroutine so the CoroSplit pass
         // will identify and split it. Without this attribute,
@@ -1607,6 +1624,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         }
 
         // Clear any stale generator-type entry for this name (in case of shadowing).
+        // Workaround: see TODO at varGeneratorTypes_ declaration in IRGen.h.
         varGeneratorTypes_.erase(node->getName());
 
         // Track Generator<T>-typed variables so visitForStmt can emit a

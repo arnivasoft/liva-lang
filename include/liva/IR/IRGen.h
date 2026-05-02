@@ -407,6 +407,13 @@ private:
     /// visitVarDecl when the init's resolved type is Generator<T>, so
     /// visitForStmt can emit the same coro.resume loop for `let g = gen(); for x in g`
     /// as it does for the direct `for x in gen()` form.
+    ///
+    // TODO(generator-runtime): remove varGeneratorTypes_ once Sema propagates
+    // Generator<T> through IdentifierExpr resolved types. Today,
+    // Sema::visitIdentifierExpr (TypeChecker.cpp:~1820) strips type args from
+    // generic types — so IRGen cannot read the iterable's static type
+    // directly for variable-bound generators. We mirror at VarDecl time as a
+    // workaround. See visitForStmt in IRGenStmt.cpp for the consumer.
     std::unordered_map<std::string, llvm::Type *> varGeneratorTypes_;
     bool currentIsAsync_ = false;
     llvm::Type *asyncDeclaredRetType_ = nullptr;
