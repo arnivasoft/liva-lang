@@ -761,7 +761,7 @@ clang output.ll -o output.exe
 6. ~~**where clause yok**~~ - COZULDU (M19)
 7. ~~**Associated types yok**~~ - COZULDU (TD3: protocol/impl associated types)
 8. ~~**IRGen.cpp tek monolitik dosya**~~ - COZULDU (TD1: 6 dosyaya bolundu)
-9. **Ayri derleme yok** - Modul sistemi inline (tek LLVM Module'e ekleme)
+9. ~~**Ayri derleme yok**~~ - COZULDU (I1: `--emit-obj` + `livac link` + per-file BuildCache/SemaCache, BuildCacheTest 48 + IncrementalBenchmarkTest 11)
 
 ---
 
@@ -822,7 +822,7 @@ clang output.ll -o output.exe
 
 | # | Ozellik | Aciklama | Karmasiklik |
 |---|---------|----------|-------------|
-| I1 | **Ayri Derleme** | Modul basina ayri LLVM Module / object file + linking | Yuksek |
+| I1 | **Ayri Derleme** | Modul basina ayri LLVM Module / object file + linking | Yuksek | [TAMAMLANDI] |
 | I2 | **Zengin Stdlib** | Daha kapsamli standart kutuphane (date/time, regex, networking) | Yuksek | [TAMAMLANDI] |
 | P1 | **Proje Manifest** | liva.toml konfigurasyonu, livac build/run/init alt-komutlari, coklu modul arama yollari | Orta | [TAMAMLANDI] |
 | S7 | **Cross-Platform** | findClang(), liva_init_args, libcurl HTTP, cmake cross-platform, build.sh | Orta | [TAMAMLANDI] |
