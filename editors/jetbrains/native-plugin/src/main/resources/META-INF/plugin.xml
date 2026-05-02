@@ -1,0 +1,54 @@
+<idea-plugin>
+    <id>com.liva.lang</id>
+    <name>Liva Language</name>
+    <vendor email="contact@liva-lang.org" url="https://liva-lang.org">Liva Language</vendor>
+
+    <description><![CDATA[
+        Native JetBrains IDE support for the Liva programming language.
+
+        <ul>
+            <li>File type recognition for <code>.liva</code></li>
+            <li>Lexer-based syntax highlighting (keywords, strings, numbers, comments,
+                lifetimes, doc comments, string interpolation)</li>
+            <li>Color settings page — every token category is customizable</li>
+            <li>Line (<code>//</code>) and block (<code>/* */</code>) commenter</li>
+            <li>Brace, bracket, and parenthesis matching</li>
+            <li>LSP client via <code>livac lsp</code> — completion, hover, go-to-definition,
+                find references, rename, code actions, diagnostics, inlay hints,
+                call hierarchy</li>
+        </ul>
+
+        Requires <code>livac</code> on PATH (or set the path in
+        <em>Settings → Languages &amp; Frameworks → Liva</em>).
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.platform.lsp</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+            name="Liva"
+            implementationClass="com.liva.lang.LivaFileType"
+            fieldName="INSTANCE"
+            language="Liva"
+            extensions="liva"/>
+
+        <lang.syntaxHighlighterFactory
+            language="Liva"
+            implementationClass="com.liva.lang.highlighter.LivaSyntaxHighlighterFactory"/>
+
+        <colorSettingsPage
+            implementation="com.liva.lang.highlighter.LivaColorSettingsPage"/>
+
+        <lang.commenter
+            language="Liva"
+            implementationClass="com.liva.lang.editor.LivaCommenter"/>
+
+        <lang.braceMatcher
+            language="Liva"
+            implementationClass="com.liva.lang.editor.LivaBraceMatcher"/>
+
+        <platform.lsp.serverSupportProvider
+            implementation="com.liva.lang.lsp.LivaLspServerSupportProvider"/>
+    </extensions>
+</idea-plugin>

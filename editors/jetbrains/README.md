@@ -2,6 +2,19 @@
 
 JetBrains IDE'leri (IntelliJ IDEA, CLion, PyCharm, vb.) için Liva dili desteği.
 
+İki yol var:
+
+1. **Native Plugin** (Önerilen, IDE 2024.2+) — Bu repo'daki
+   [`native-plugin/`](native-plugin/) altında derlenebilir Kotlin
+   plugin. Lexer-based syntax highlighting + LSP entegrasyonu +
+   commenter + brace matcher tek pakette. Build: `cd native-plugin
+   && ./gradlew buildPlugin`. Kurulum: oluşan `.zip`'i **Settings →
+   Plugins → ⚙ → Install Plugin from Disk** ile yükle.
+
+2. **TextMate Bundle + LSP4IJ** (Eski IDE'ler için) — Aşağıdaki
+   talimatları izle. Native plugin desteklenmeyen IDE versiyonları
+   için kalır.
+
 ## Syntax Highlighting
 
 ### TextMate Bundle
