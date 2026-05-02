@@ -508,6 +508,36 @@ int32_t liva_sqlite_changes(int64_t handle);
 /// Last error message on this connection (caller frees).
 char *liva_sqlite_errmsg(int64_t handle);
 
+// --- Prepared statements ---
+
+/// Compile SQL into a statement (1-indexed bind params: ?, ?1, :name).
+/// Returns opaque i64 handle (0 on failure).
+int64_t liva_sqlite_prepare(int64_t db, const char *sql);
+
+/// Bind a value to parameter `idx` (1-based). Returns 0 on success.
+int32_t liva_sqlite_bind_text(int64_t stmt, int32_t idx, const char *val);
+int32_t liva_sqlite_bind_int(int64_t stmt, int32_t idx, int64_t val);
+int32_t liva_sqlite_bind_double(int64_t stmt, int32_t idx, double val);
+int32_t liva_sqlite_bind_null(int64_t stmt, int32_t idx);
+
+/// Advance the statement: 1 = row available, 2 = done, 0 = error.
+int32_t liva_sqlite_step(int64_t stmt);
+
+/// Rewind so the same statement can be re-stepped (re-binds keep their values
+/// unless explicitly rebound). Returns 0 on success.
+int32_t liva_sqlite_reset(int64_t stmt);
+
+/// Number of result columns in the current row.
+int32_t liva_sqlite_column_count(int64_t stmt);
+
+/// Read a column from the current row. col is 0-based. Caller frees text.
+char *liva_sqlite_column_text(int64_t stmt, int32_t col);
+int64_t liva_sqlite_column_int(int64_t stmt, int32_t col);
+double  liva_sqlite_column_double(int64_t stmt, int32_t col);
+
+/// Release the statement.
+void liva_sqlite_finalize(int64_t stmt);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {

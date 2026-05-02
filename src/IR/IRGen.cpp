@@ -726,6 +726,54 @@ void IRGen::createRuntimeDecls() {
     auto *sqliteErrTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
     module_->getOrInsertFunction("liva_sqlite_errmsg", sqliteErrTy);
 
+    // --- Prepared statements ---
+    // sqlitePrepare(db, sql) -> i64
+    auto *sqlitePrepTy = llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_prepare", sqlitePrepTy);
+
+    // sqliteBindText(stmt, idx, val) -> i32
+    auto *sqliteBindTextTy = llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_bind_text", sqliteBindTextTy);
+
+    // sqliteBindInt(stmt, idx, val) -> i32
+    auto *sqliteBindIntTy = llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty, i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_bind_int", sqliteBindIntTy);
+
+    // sqliteBindDouble(stmt, idx, val) -> i32
+    auto *sqliteF64Ty = builder_->getDoubleTy();
+    auto *sqliteBindDblTy = llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty, sqliteF64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_bind_double", sqliteBindDblTy);
+
+    // sqliteBindNull(stmt, idx) -> i32
+    auto *sqliteBindNullTy = llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_bind_null", sqliteBindNullTy);
+
+    // sqliteStep(stmt) -> i32 (1=row, 2=done, 0=error)
+    auto *sqliteStepTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_step", sqliteStepTy);
+
+    // sqliteReset(stmt) -> i32
+    module_->getOrInsertFunction("liva_sqlite_reset", sqliteStepTy);
+
+    // sqliteColumnCount(stmt) -> i32
+    module_->getOrInsertFunction("liva_sqlite_column_count", sqliteStepTy);
+
+    // sqliteColumnText(stmt, col) -> char*
+    auto *sqliteColTextTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_column_text", sqliteColTextTy);
+
+    // sqliteColumnInt(stmt, col) -> i64
+    auto *sqliteColIntTy = llvm::FunctionType::get(i64Ty, {i64Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_column_int", sqliteColIntTy);
+
+    // sqliteColumnDouble(stmt, col) -> f64
+    auto *sqliteColDblTy = llvm::FunctionType::get(sqliteF64Ty, {i64Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_column_double", sqliteColDblTy);
+
+    // sqliteFinalize(stmt) -> void
+    auto *sqliteFinTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_finalize", sqliteFinTy);
+
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
     auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);

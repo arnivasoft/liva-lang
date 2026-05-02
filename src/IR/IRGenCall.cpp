@@ -3061,6 +3061,140 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return r;
     }
 
+    // sqlitePrepare(db, sql) -> i64
+    if (funcName == "sqlitePrepare" && node->getArgs().size() >= 2) {
+        auto *dbArg = visit(node->getArgs()[0].get());
+        auto *sqlArg = visit(node->getArgs()[1].get());
+        if (!dbArg || !sqlArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_prepare");
+        return builder_->CreateCall(fn, {dbArg, sqlArg}, "sqlite.prep");
+    }
+
+    // sqliteBindText(stmt, idx, val) -> bool
+    if (funcName == "sqliteBindText" && node->getArgs().size() >= 3) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *idxArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!stmtArg || !idxArg || !valArg) return nullptr;
+        if (idxArg->getType()->isIntegerTy(64))
+            idxArg = builder_->CreateTrunc(idxArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_bind_text");
+        auto *rc = builder_->CreateCall(fn, {stmtArg, idxArg, valArg}, "sqlite.bind.text.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.bind.text.ok");
+    }
+
+    // sqliteBindInt(stmt, idx, val) -> bool
+    if (funcName == "sqliteBindInt" && node->getArgs().size() >= 3) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *idxArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!stmtArg || !idxArg || !valArg) return nullptr;
+        if (idxArg->getType()->isIntegerTy(64))
+            idxArg = builder_->CreateTrunc(idxArg, builder_->getInt32Ty());
+        if (valArg->getType()->isIntegerTy(32))
+            valArg = builder_->CreateSExt(valArg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_sqlite_bind_int");
+        auto *rc = builder_->CreateCall(fn, {stmtArg, idxArg, valArg}, "sqlite.bind.int.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.bind.int.ok");
+    }
+
+    // sqliteBindDouble(stmt, idx, val) -> bool
+    if (funcName == "sqliteBindDouble" && node->getArgs().size() >= 3) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *idxArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!stmtArg || !idxArg || !valArg) return nullptr;
+        if (idxArg->getType()->isIntegerTy(64))
+            idxArg = builder_->CreateTrunc(idxArg, builder_->getInt32Ty());
+        if (valArg->getType()->isFloatTy())
+            valArg = builder_->CreateFPExt(valArg, builder_->getDoubleTy());
+        auto *fn = getOrPanic("liva_sqlite_bind_double");
+        auto *rc = builder_->CreateCall(fn, {stmtArg, idxArg, valArg}, "sqlite.bind.dbl.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.bind.dbl.ok");
+    }
+
+    // sqliteBindNull(stmt, idx) -> bool
+    if (funcName == "sqliteBindNull" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *idxArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !idxArg) return nullptr;
+        if (idxArg->getType()->isIntegerTy(64))
+            idxArg = builder_->CreateTrunc(idxArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_bind_null");
+        auto *rc = builder_->CreateCall(fn, {stmtArg, idxArg}, "sqlite.bind.null.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.bind.null.ok");
+    }
+
+    // sqliteStep(stmt) -> bool (true if row available)
+    if (funcName == "sqliteStep" && !node->getArgs().empty()) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        if (!stmtArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_step");
+        auto *rc = builder_->CreateCall(fn, {stmtArg}, "sqlite.step.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(1), "sqlite.step.row");
+    }
+
+    // sqliteReset(stmt) -> bool
+    if (funcName == "sqliteReset" && !node->getArgs().empty()) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        if (!stmtArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_reset");
+        auto *rc = builder_->CreateCall(fn, {stmtArg}, "sqlite.reset.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.reset.ok");
+    }
+
+    // sqliteColumnCount(stmt) -> i32
+    if (funcName == "sqliteColumnCount" && !node->getArgs().empty()) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        if (!stmtArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_column_count");
+        return builder_->CreateCall(fn, {stmtArg}, "sqlite.colcount");
+    }
+
+    // sqliteColumnText(stmt, col) -> string
+    if (funcName == "sqliteColumnText" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *colArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !colArg) return nullptr;
+        if (colArg->getType()->isIntegerTy(64))
+            colArg = builder_->CreateTrunc(colArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_column_text");
+        auto *r = builder_->CreateCall(fn, {stmtArg, colArg}, "sqlite.coltext");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // sqliteColumnInt(stmt, col) -> i64
+    if (funcName == "sqliteColumnInt" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *colArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !colArg) return nullptr;
+        if (colArg->getType()->isIntegerTy(64))
+            colArg = builder_->CreateTrunc(colArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_column_int");
+        return builder_->CreateCall(fn, {stmtArg, colArg}, "sqlite.colint");
+    }
+
+    // sqliteColumnDouble(stmt, col) -> f64
+    if (funcName == "sqliteColumnDouble" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *colArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !colArg) return nullptr;
+        if (colArg->getType()->isIntegerTy(64))
+            colArg = builder_->CreateTrunc(colArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_column_double");
+        return builder_->CreateCall(fn, {stmtArg, colArg}, "sqlite.coldbl");
+    }
+
+    // sqliteFinalize(stmt) -> void
+    if (funcName == "sqliteFinalize" && !node->getArgs().empty()) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        if (!stmtArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_finalize");
+        builder_->CreateCall(fn, {stmtArg});
+        return nullptr;
+    }
+
     // === Directory operations ===
     if (funcName == "dirList" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

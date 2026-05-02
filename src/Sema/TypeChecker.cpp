@@ -76,7 +76,12 @@ void TypeChecker::registerBuiltins() {
                         "wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen",
                         "sqliteOpen", "sqliteClose", "sqliteExec",
                         "sqliteQueryFirst", "sqliteQueryInt", "sqliteQueryColumn",
-                        "sqliteLastInsertRowid", "sqliteChanges", "sqliteErrmsg"}) {
+                        "sqliteLastInsertRowid", "sqliteChanges", "sqliteErrmsg",
+                        "sqlitePrepare", "sqliteBindText", "sqliteBindInt",
+                        "sqliteBindDouble", "sqliteBindNull",
+                        "sqliteStep", "sqliteReset", "sqliteColumnCount",
+                        "sqliteColumnText", "sqliteColumnInt", "sqliteColumnDouble",
+                        "sqliteFinalize"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2212,6 +2217,25 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI32Type());
         } else if (ident->getName() == "sqliteErrmsg") {
             node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "sqlitePrepare") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "sqliteBindText" ||
+                   ident->getName() == "sqliteBindInt" ||
+                   ident->getName() == "sqliteBindDouble" ||
+                   ident->getName() == "sqliteBindNull" ||
+                   ident->getName() == "sqliteStep" ||
+                   ident->getName() == "sqliteReset") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "sqliteColumnCount") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "sqliteColumnText") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "sqliteColumnInt") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "sqliteColumnDouble") {
+            node->setResolvedType(makeF64Type());
+        } else if (ident->getName() == "sqliteFinalize") {
+            // void
         // Stdlib: Directory operations
         } else if (ident->getName() == "dirList") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);

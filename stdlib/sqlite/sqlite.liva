@@ -8,6 +8,83 @@
 import std::sqlite
 
 // =============================================================
+// Stmt — a compiled SQL statement
+//
+// Declared first so SqliteDB.prepare can return Stmt? — the import
+// loader is single-pass over declarations and resolves struct names
+// in source order.
+//
+// Iterator-style usage:
+//   if let s = db.prepare("SELECT name FROM users WHERE age > ?") {
+//       var stmt = s
+//       stmt.bindInt(1, 18)
+//       while stmt.step() {
+//           println(stmt.columnText(0))
+//       }
+//       stmt.finalize()
+//   }
+//
+// Bind indices are 1-based. Column indices are 0-based — that asymmetry
+// matches the SQLite C API; trying to hide it would just trade one
+// surprise for another.
+// =============================================================
+
+pub struct Stmt {
+    var handle: i64
+}
+
+impl Stmt {
+    pub func bindText(ref self, idx: i32, val: String) -> bool {
+        return sqliteBindText(self.handle, idx, val)
+    }
+
+    pub func bindInt(ref self, idx: i32, val: i64) -> bool {
+        return sqliteBindInt(self.handle, idx, val)
+    }
+
+    pub func bindDouble(ref self, idx: i32, val: f64) -> bool {
+        return sqliteBindDouble(self.handle, idx, val)
+    }
+
+    pub func bindNull(ref self, idx: i32) -> bool {
+        return sqliteBindNull(self.handle, idx)
+    }
+
+    //Advance to the next row. Returns true if a row is available, false
+    //when the statement is done or hit an error.
+    pub func step(ref self) -> bool {
+        return sqliteStep(self.handle)
+    }
+
+    //Rewind the statement so it can be re-stepped. Bound parameters
+    //carry over until rebound.
+    pub func reset(ref self) -> bool {
+        return sqliteReset(self.handle)
+    }
+
+    pub func columnCount(ref self) -> i32 {
+        return sqliteColumnCount(self.handle)
+    }
+
+    pub func columnText(ref self, col: i32) -> String {
+        return sqliteColumnText(self.handle, col)
+    }
+
+    pub func columnInt(ref self, col: i32) -> i64 {
+        return sqliteColumnInt(self.handle, col)
+    }
+
+    pub func columnDouble(ref self, col: i32) -> f64 {
+        return sqliteColumnDouble(self.handle, col)
+    }
+
+    pub func finalize(mut self) {
+        sqliteFinalize(self.handle)
+        self.handle = 0 as i64
+    }
+}
+
+// =============================================================
 // SqliteDB — a single database connection
 //
 // Lifetime: SqliteDB.open() returns the only owner. Calling .close()
@@ -66,5 +143,14 @@ impl SqliteDB {
     pub func close(mut self) {
         sqliteClose(self.handle)
         self.handle = 0 as i64
+    }
+
+    //Compile a parameterised SQL statement. Use ?, ?N, or :name in the
+    //SQL and bind values via stmt.bindText / bindInt / bindDouble /
+    //bindNull (1-indexed). Returns nil if SQL fails to compile.
+    pub func prepare(ref self, sql: String) -> Stmt? {
+        let h: i64 = sqlitePrepare(self.handle, sql)
+        if h == 0 as i64 { return nil }
+        return Stmt { handle: h }
     }
 }

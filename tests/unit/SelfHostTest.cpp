@@ -822,6 +822,107 @@ func main() {
 )--", "true\n2\nAlice\nAlice\nBob\n");
 }
 
+TEST_F(SelfHostTest, SqlitePreparedBindAndIterate) {
+    // Prepared statement: insert three rows via parameter binding +
+    // re-use via reset, then SELECT with a bound predicate. Verifies
+    // bindText / bindInt, step iteration, and column accessors.
+    expectOutput(R"--(
+import sqlite::sqlite
+func main() {
+    if let d = SqliteDB.openMemory() {
+        var dd = d
+        dd.exec("CREATE TABLE u (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+
+        if let p = dd.prepare("INSERT INTO u (name, age) VALUES (?, ?)") {
+            var ins = p
+            ins.bindText(1, "Alice")
+            ins.bindInt(2, 30 as i64)
+            ins.step()
+            ins.reset()
+            ins.bindText(1, "Bob")
+            ins.bindInt(2, 17 as i64)
+            ins.step()
+            ins.reset()
+            ins.bindText(1, "Charlie")
+            ins.bindInt(2, 25 as i64)
+            ins.step()
+            ins.finalize()
+        }
+
+        if let p = dd.prepare("SELECT name, age FROM u WHERE age > ? ORDER BY age") {
+            var q = p
+            q.bindInt(1, 18 as i64)
+            while q.step() {
+                println(q.columnText(0))
+                println(q.columnInt(1))
+            }
+            q.finalize()
+        }
+        dd.close()
+    }
+}
+)--", "Charlie\n25\nAlice\n30\n");
+}
+
+TEST_F(SelfHostTest, SqlitePreparedSqlInjectionSafe) {
+    // bindText must escape the input, not interpolate it. A malicious
+    // value with a closing quote and a `--` comment must round-trip
+    // verbatim and never become part of the SQL.
+    expectOutput(R"--(
+import sqlite::sqlite
+func main() {
+    if let d = SqliteDB.openMemory() {
+        var dd = d
+        dd.exec("CREATE TABLE t (s TEXT)")
+        if let p = dd.prepare("INSERT INTO t (s) VALUES (?)") {
+            var ins = p
+            ins.bindText(1, "'; DROP TABLE t; --")
+            ins.step()
+            ins.finalize()
+        }
+        // Table must still exist and contain the literal string.
+        if let v = dd.queryString("SELECT s FROM t") {
+            println(v)
+        }
+        if let cnt = dd.queryInt("SELECT COUNT(*) FROM t") {
+            println(cnt)
+        }
+        dd.close()
+    }
+}
+)--", "'; DROP TABLE t; --\n1\n");
+}
+
+TEST_F(SelfHostTest, SqlitePreparedDoubleColumn) {
+    // bindDouble + columnDouble round-trip. Print the truncated integer
+    // part — Liva's float-formatting routines aren't part of this test.
+    expectOutput(R"--(
+import sqlite::sqlite
+func main() {
+    if let d = SqliteDB.openMemory() {
+        var dd = d
+        dd.exec("CREATE TABLE m (v REAL)")
+        if let p = dd.prepare("INSERT INTO m (v) VALUES (?)") {
+            var ins = p
+            ins.bindDouble(1, 3.14)
+            ins.step()
+            ins.finalize()
+        }
+        if let p = dd.prepare("SELECT v FROM m") {
+            var q = p
+            if q.step() {
+                let v = q.columnDouble(0)
+                let i = v as i64
+                println(i)
+            }
+            q.finalize()
+        }
+        dd.close()
+    }
+}
+)--", "3\n");
+}
+
 TEST_F(SelfHostTest, SqliteRejectsBadSql) {
     // exec() must return false when SQL fails to compile.
     expectOutput(R"--(
