@@ -428,6 +428,14 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     // === Phase 2 Coroutine Ramp Setup (for async/generator functions) ===
     if (node->isAsync() || node->isGenerator()) {
+        // Mark this function as a presplit coroutine so the CoroSplit pass
+        // will identify and split it. Without this attribute,
+        // Function::isPresplitCoroutine() returns false in CoroSplit and our
+        // coroutine intrinsics (coro.suspend, coro.end, coro.promise) survive
+        // into codegen, where DAG ISel cannot lower them and aborts with
+        // "Do not know how to promote this operator's operand!".
+        func->addFnAttr(llvm::Attribute::PresplitCoroutine);
+
         auto *i8Ty = builder_->getInt8Ty();
         auto *i32Ty = builder_->getInt32Ty();
         auto *i64Ty = builder_->getInt64Ty();

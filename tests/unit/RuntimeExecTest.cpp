@@ -119,15 +119,10 @@ TEST(RuntimeExecTest, HelloWorld_PrintsAndExitsZero) {
 }
 
 TEST(RuntimeExecTest, AsyncSimple_ReturnsAndPrints) {
-    // XFAIL baseline as of 2de5e40: in-process compile of async source crashes
-    // with Windows SEH access violation (0xc0000005) inside CompilerInstance::compile()
-    // — the harness aborts before producing an executable. This is a compile-time
-    // crash in the async/coroutine IRGen path, not a runtime failure of the
-    // produced binary. Captured before any generator-runtime work; do NOT fix here.
-    // Tasks 6/7 may incidentally repair the shared coroutine ramp; if so, remove
-    // this GTEST_SKIP and let the assertions below run.
-    GTEST_SKIP() << "XFAIL: compiler crash (SEH 0xc0000005) in async IRGen during in-process compile";
-
+    // Previously XFAIL'd (SEH 0xc0000005 during in-process compile) — fixed by
+    // setting the PresplitCoroutine attribute on async/generator funcs (Task 6),
+    // which lets CoroSplit identify and split them so coroutine intrinsics get
+    // lowered before reaching CodeGen.
     auto r = compileAndRun(R"(
         async func answer() -> i32 { return 42 }
         async func main() {
@@ -142,20 +137,12 @@ TEST(RuntimeExecTest, AsyncSimple_ReturnsAndPrints) {
 }
 
 TEST(RuntimeExecTest, Generator_CountToThree_Yields012) {
-    // XFAIL baseline as of f5f56f2: in-process compile aborts during LLVM
-    // CodeGen with `LLVM ERROR: Do not know how to promote this operator's
-    // operand!` — IR survives the verifier but trips SelectionDAG type
-    // legalization on a generator coroutine ramp operand (likely a
-    // token/promise-type mismatch in the yield/await/suspend lowering).
-    // Distinct from the AsyncSimple SEH 0xc0000005 crash (async fails earlier
-    // in IRGen itself); both share the coroutine ramp surface but the failure
-    // points differ. Task 6 is expected to repair ramp construction so valid
-    // legalizable IR is emitted; Task 7 may be needed if state-machine
-    // sequencing also contributes. Remove this GTEST_SKIP once those land.
-    GTEST_SKIP() << "XFAIL: codegen-abort — `LLVM ERROR: Do not know how to "
-                    "promote this operator's operand!` during DAG type "
-                    "legalization of generator coroutine ramp";
-
+    // Previously XFAIL'd (codegen abort: `LLVM ERROR: Do not know how to
+    // promote this operator's operand!` during DAG type legalization) — fixed
+    // by setting the PresplitCoroutine attribute on async/generator funcs
+    // (Task 6), which lets CoroSplit identify and split them so coroutine
+    // intrinsics (coro.suspend, coro.end, coro.promise) are lowered before
+    // reaching CodeGen.
     auto r = compileAndRun(R"(
         func countTo(n: i32) {
             var i: i32 = 0
