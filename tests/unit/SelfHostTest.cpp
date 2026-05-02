@@ -633,6 +633,35 @@ func main() {
 // emit garbage like "1528307457" because the printf format was "%d" but
 // the i1 vararg never got promoted to i32. Now: bool is run through
 // liva_bool_to_str ("true"/"false") and printed as %s.
+// Regression: hexDecode → base64UrlEncode round-trip on binary bytes
+// without embedded NUL. Exercises the full chain that the JWT signing
+// flow goes through and was broken in earlier sessions by a separate
+// Optional<string> UAF (now fixed in fc57aef). Lock in the current
+// behavior so a future regression here is caught immediately.
+TEST_F(SelfHostTest, HexDecodeBase64UrlBinaryRoundTrip) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    // 0xFB 0xFF — high bytes, no NUL → base64url "-_8"
+    let opt: string? = hexDecode("fbff")
+    if let s = opt {
+        println(base64UrlEncode(s))
+    }
+    // 0xAB 0xCD 0xEF → base64url "q83v"
+    let opt2: string? = hexDecode("abcdef")
+    if let s = opt2 {
+        println(base64UrlEncode(s))
+    }
+    // ASCII "Hello" via hex
+    let opt3: string? = hexDecode("48656c6c6f")
+    if let s = opt3 {
+        println(s)
+        println(base64UrlEncode(s))
+    }
+}
+)--", "-_8\nq83v\nHello\nSGVsbG8\n");
+}
+
 TEST_F(SelfHostTest, PrintBoolLiteralAndComparison) {
     expectOutput(R"--(
 func main() {
