@@ -294,15 +294,14 @@ TEST(RuntimeExecTest, Generator_NestedYieldInIf_Yields) {
 }
 
 TEST(RuntimeExecTest, Generator_VarShadowingAcrossFunctions_NoStaleType) {
-    // Regression: previously varGeneratorTypes_ was not scope-saved/restored
-    // across functions. After a()'s `let g = gen()` registered g as a
-    // generator, b()'s `var g: [i32] = ...` took the dyn-array fast path in
-    // visitVarDecl that returns BEFORE the shadowing-erase line — so the
-    // stale entry survived and `for x in g` in b() mis-dispatched as coroutine
+    // Regression: when `for x in g` is dispatched, the iterable's resolved
+    // Sema type must reflect g's actual binding in the current function — a
+    // generator in a(), a dyn-array in b() — not state leaked from elsewhere.
+    // Original failure: a stale IRGen mirror map entry survived across
+    // functions, causing b()'s `for x in g` to mis-dispatch as coroutine
     // iteration over an Array (silent miscompile: empty stdout, exit 0).
-    // The fix is the visitFuncDecl save/clear/restore of varGeneratorTypes_
-    // in IRGenDecl.cpp. Reverting both the function-entry clear AND the
-    // function-exit restore makes this test fail (verified locally).
+    // Now guarded by Sema's per-scope IdentifierExpr type resolution +
+    // IRGen's type-based dispatch in visitForStmt.
     auto r = compileAndRun(R"(
         func gen() {
             yield 1

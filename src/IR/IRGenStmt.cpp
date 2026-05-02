@@ -634,42 +634,20 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
     // the next yield. coro.done tells us when the coroutine has fallen off
     // the end and there are no more values.
     //
-    // Two iterable shapes reach this loop:
-    //   1. Direct call:     for x in gen()      — detected by callee name
-    //                                              in generatorFuncs_.
-    //   2. Variable-bound:  let g = gen(); for x in g
-    //                                            — detected by varGeneratorTypes_,
-    //                                              populated in visitVarDecl when
-    //                                              the init's resolved type is
-    //                                              Generator<T>.
+    // The iterable's resolved Sema type tells us if this is a generator —
+    // GenericTypeRepr with base "Generator" and one type arg — regardless of
+    // whether it was produced by a direct call (`for x in gen()`) or read
+    // from a variable (`let g = gen(); for x in g`). Visiting the iterable
+    // produces the LivaTask* handle wrapper either way.
     llvm::Value *genTask = nullptr;
     llvm::Type *genYieldType = nullptr;
-    if (node->getIterable()->getKind() == ASTNode::NodeKind::CallExpr) {
-        auto *callExpr = static_cast<CallExpr *>(
-            const_cast<Expr *>(node->getIterable()));
-        std::string genName;
-        if (callExpr->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
-            genName = static_cast<IdentifierExpr *>(callExpr->getCallee())->getName();
-        }
-        auto genIt = !genName.empty() ? generatorFuncs_.find(genName)
-                                      : generatorFuncs_.end();
-        if (genIt != generatorFuncs_.end()) {
-            genYieldType = genIt->second;
-            genTask = visit(callExpr);
+    if (auto *iterTy = node->getIterable()->getResolvedType();
+        iterTy && iterTy->getKind() == TypeRepr::Kind::Generic) {
+        auto *gt = static_cast<const GenericTypeRepr *>(iterTy);
+        if (gt->getBaseName() == "Generator" && gt->getTypeArgs().size() == 1) {
+            genYieldType = toLLVMType(gt->getTypeArgs()[0].get());
+            genTask = visit(const_cast<Expr *>(node->getIterable()));
             if (!genTask) return nullptr;
-        }
-    } else if (node->getIterable()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
-        auto *ident = static_cast<IdentifierExpr *>(
-            const_cast<Expr *>(node->getIterable()));
-        auto vgIt = varGeneratorTypes_.find(ident->getName());
-        if (vgIt != varGeneratorTypes_.end()) {
-            genYieldType = vgIt->second;
-            // Load the LivaTask* out of the variable's slot.
-            auto nvIt = namedValues_.find(ident->getName());
-            if (nvIt != namedValues_.end()) {
-                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                genTask = builder_->CreateLoad(ptrTy, nvIt->second, "gen.task");
-            }
         }
     }
 
