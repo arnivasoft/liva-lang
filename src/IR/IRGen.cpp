@@ -918,6 +918,17 @@ void IRGen::createRuntimeDecls() {
     // hexEncodeBytes(data, len) -> ptr
     module_->getOrInsertFunction("liva_hex_encode_bytes", bytesToStrTy);
     module_->getOrInsertFunction("liva_base64_url_encode_bytes", bytesToStrTy);
+    // gzipEncodeBytes(data, len, *out_len) -> ptr
+    auto *gzipEncTy = llvm::FunctionType::get(i8PtrTy,
+        {i8PtrTy, builder_->getInt64Ty(),
+         llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_gzip_encode_bytes", gzipEncTy);
+    // gzipDecodeBytes(data, len, *out_len, *ok) -> ptr
+    auto *gzipDecTy = llvm::FunctionType::get(i8PtrTy,
+        {i8PtrTy, builder_->getInt64Ty(),
+         llvm::PointerType::getUnqual(*context_),
+         llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_gzip_decode_bytes", gzipDecTy);
     // isoFormatUtc(ts: f64) -> ptr; isoParse(str, *ok) -> f64
     auto *isoFmtTy = llvm::FunctionType::get(i8PtrTy, {builder_->getDoubleTy()}, false);
     module_->getOrInsertFunction("liva_iso_format_utc", isoFmtTy);

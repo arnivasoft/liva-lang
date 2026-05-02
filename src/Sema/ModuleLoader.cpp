@@ -98,7 +98,8 @@ void ModuleLoader::registerBuiltinModules() {
          "base64UrlEncode", "base64UrlDecode",
          "strToBytes", "bytesToStr",
          "hexEncodeBytes", "hexDecodeBytes",
-         "base64UrlEncodeBytes", "base64UrlDecodeBytes"});
+         "base64UrlEncodeBytes", "base64UrlDecodeBytes",
+         "gzipEncode", "gzipDecode"});
 
     cache_["std::crypto"] = createBuiltinModule("std::crypto",
         {"sha256", "md5", "hmacSha256",

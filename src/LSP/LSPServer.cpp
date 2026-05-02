@@ -1201,6 +1201,7 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "strToBytes", "bytesToStr",
             "hexEncodeBytes", "hexDecodeBytes",
             "base64UrlEncodeBytes", "base64UrlDecodeBytes",
+            "gzipEncode", "gzipDecode",
             "jwtHS256Sig", "jwtHS512Sig",
             "constTimeEq",
             // TOML

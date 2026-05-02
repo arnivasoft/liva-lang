@@ -922,6 +922,20 @@ char *liva_base64_url_encode_bytes(const void *data, int64_t len);
 /// *ok = 1 on success, 0 on failure (returns nullptr in that case).
 void *liva_base64_url_decode_bytes(const char *data, int64_t *out_len, int8_t *ok);
 
+/// gzip-encode `len` bytes. Uses RFC 1952 framing around an RFC 1951
+/// stored-block deflate stream: header (10 B) + uncompressed blocks +
+/// CRC32 + ISIZE trailer (8 B). Output is valid gzip, accepted by any
+/// conformant decoder, but never reduces size — real compression is a
+/// future addition. Caller frees.
+void *liva_gzip_encode_bytes(const void *data, int64_t len, int64_t *out_len);
+
+/// gzip-decode `len` bytes. Handles all three deflate block types
+/// (stored, fixed Huffman, dynamic Huffman) and verifies the CRC32 +
+/// ISIZE trailer. *out_len = decoded byte count, *ok = 1 on success.
+/// Returns nullptr on failure.
+void *liva_gzip_decode_bytes(const void *data, int64_t len,
+                              int64_t *out_len, int8_t *ok);
+
 /// Format a Unix timestamp as RFC 3339 / ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SSZ")
 char *liva_iso_format_utc(double timestamp);
 

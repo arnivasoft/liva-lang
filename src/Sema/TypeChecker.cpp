@@ -152,7 +152,8 @@ void TypeChecker::registerBuiltins() {
                         "base64UrlEncode", "base64UrlDecode",
                         "strToBytes", "bytesToStr",
                         "hexEncodeBytes", "hexDecodeBytes",
-                        "base64UrlEncodeBytes", "base64UrlDecodeBytes"}) {
+                        "base64UrlEncodeBytes", "base64UrlDecodeBytes",
+                        "gzipEncode", "gzipDecode"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2291,6 +2292,13 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "hexDecodeBytes" ||
                    ident->getName() == "base64UrlDecodeBytes") {
             // [u8]?
+            auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
+            auto arr = std::make_unique<ArrayTypeRepr>(std::move(u8), -1);
+            node->setResolvedType(std::make_unique<OptionalTypeRepr>(std::move(arr)));
+        } else if (ident->getName() == "gzipEncode") {
+            auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
+            node->setResolvedType(std::make_unique<ArrayTypeRepr>(std::move(u8), -1));
+        } else if (ident->getName() == "gzipDecode") {
             auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
             auto arr = std::make_unique<ArrayTypeRepr>(std::move(u8), -1);
             node->setResolvedType(std::make_unique<OptionalTypeRepr>(std::move(arr)));

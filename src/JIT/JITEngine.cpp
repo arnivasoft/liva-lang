@@ -269,6 +269,8 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_hex_decode_bytes);
     REG(liva_base64_url_encode_bytes);
     REG(liva_base64_url_decode_bytes);
+    REG(liva_gzip_encode_bytes);
+    REG(liva_gzip_decode_bytes);
 
     // Mutex
     REG(liva_mutex_create);

@@ -5421,6 +5421,194 @@ void *liva_base64_url_decode_bytes(const char *data, int64_t *out_len, int8_t *o
     return buf;
 }
 
+// === gzip (RFC 1952) with stored-only deflate (RFC 1951 §3.2.4) ===
+//
+// gzipEncode wraps the input in valid gzip framing using "stored"
+// (uncompressed) deflate blocks — the output is accepted by any
+// conformant decoder but never shrinks (in fact grows by ~1% + 18 B).
+// Real Huffman-based compression is a future addition.
+//
+// gzipDecode currently handles the same shape it produces: stored
+// deflate blocks only. Encountering BTYPE=01 (fixed Huffman) or
+// BTYPE=10 (dynamic Huffman) in the input returns an error with
+// *ok=0 — full inflate is out of scope here.
+
+static uint32_t gzip_crc32(const uint8_t *data, size_t len) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++)
+            crc = (crc >> 1) ^ (0xEDB88320 & (-(int32_t)(crc & 1)));
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
+void *liva_gzip_encode_bytes(const void *data, int64_t len, int64_t *out_len) {
+    if (len < 0) len = 0;
+    auto *src = (const uint8_t *)data;
+
+    // Worst-case output size: 10 B header + ceil(len / 65535) stored
+    // blocks (5 B preamble each) + len data + 8 B trailer.
+    size_t blocks = len == 0 ? 1 : (size_t)((len + 65534) / 65535);
+    size_t cap = 10 + blocks * 5 + (size_t)len + 8;
+    auto *out = (uint8_t *)malloc(cap);
+    if (!out) liva_panic("out of memory");
+
+    size_t pos = 0;
+    // Gzip header: magic 1F 8B, CM=08 (deflate), FLG=0, MTIME=0,
+    // XFL=0, OS=FF (unknown).
+    out[pos++] = 0x1F; out[pos++] = 0x8B;
+    out[pos++] = 0x08;
+    out[pos++] = 0x00;
+    out[pos++] = 0; out[pos++] = 0; out[pos++] = 0; out[pos++] = 0;
+    out[pos++] = 0x00;
+    out[pos++] = 0xFF;
+
+    // Stored deflate blocks. Each block carries up to 65535 bytes.
+    size_t remain = (size_t)len;
+    size_t off = 0;
+    while (true) {
+        bool last = (remain <= 65535);
+        size_t chunk = remain > 65535 ? 65535 : remain;
+        // Block header byte: BFINAL in bit 0, BTYPE=00 in bits 1-2.
+        // Remaining 5 bits ignored — stored-block preamble pads to byte
+        // boundary anyway.
+        out[pos++] = (uint8_t)(last ? 0x01 : 0x00);
+        // LEN little-endian, then NLEN = ~LEN.
+        uint16_t L = (uint16_t)chunk;
+        out[pos++] = (uint8_t)(L & 0xFF);
+        out[pos++] = (uint8_t)((L >> 8) & 0xFF);
+        uint16_t N = (uint16_t)~L;
+        out[pos++] = (uint8_t)(N & 0xFF);
+        out[pos++] = (uint8_t)((N >> 8) & 0xFF);
+        if (chunk > 0) {
+            memcpy(out + pos, src + off, chunk);
+            pos += chunk;
+            off += chunk;
+            remain -= chunk;
+        }
+        if (last) break;
+    }
+
+    // Trailer: CRC32 of original, then ISIZE = len mod 2^32 (little-endian).
+    uint32_t crc = gzip_crc32(src, (size_t)len);
+    out[pos++] = (uint8_t)(crc & 0xFF);
+    out[pos++] = (uint8_t)((crc >> 8) & 0xFF);
+    out[pos++] = (uint8_t)((crc >> 16) & 0xFF);
+    out[pos++] = (uint8_t)((crc >> 24) & 0xFF);
+    uint32_t isize = (uint32_t)len;
+    out[pos++] = (uint8_t)(isize & 0xFF);
+    out[pos++] = (uint8_t)((isize >> 8) & 0xFF);
+    out[pos++] = (uint8_t)((isize >> 16) & 0xFF);
+    out[pos++] = (uint8_t)((isize >> 24) & 0xFF);
+
+    if (out_len) *out_len = (int64_t)pos;
+    return out;
+}
+
+void *liva_gzip_decode_bytes(const void *data, int64_t len,
+                              int64_t *out_len, int8_t *ok) {
+    if (ok) *ok = 0;
+    if (out_len) *out_len = 0;
+    if (!data || len < 18) return nullptr;
+    auto *src = (const uint8_t *)data;
+
+    // Header check.
+    if (src[0] != 0x1F || src[1] != 0x8B || src[2] != 0x08) return nullptr;
+    uint8_t flg = src[3];
+    size_t pos = 10; // past fixed header
+
+    // FEXTRA: 2-byte XLEN + XLEN bytes
+    if (flg & 0x04) {
+        if (pos + 2 > (size_t)len) return nullptr;
+        uint16_t xlen = (uint16_t)src[pos] | ((uint16_t)src[pos + 1] << 8);
+        pos += 2 + xlen;
+    }
+    // FNAME: zero-terminated
+    if (flg & 0x08) {
+        while (pos < (size_t)len && src[pos] != 0) pos++;
+        if (pos >= (size_t)len) return nullptr;
+        pos++;
+    }
+    // FCOMMENT: zero-terminated
+    if (flg & 0x10) {
+        while (pos < (size_t)len && src[pos] != 0) pos++;
+        if (pos >= (size_t)len) return nullptr;
+        pos++;
+    }
+    // FHCRC: 2 bytes
+    if (flg & 0x02) {
+        if (pos + 2 > (size_t)len) return nullptr;
+        pos += 2;
+    }
+
+    // Trailer is the last 8 bytes.
+    if ((size_t)len < pos + 8) return nullptr;
+    size_t deflate_end = (size_t)len - 8;
+
+    // Walk stored blocks.
+    uint8_t *out = nullptr;
+    size_t out_cap = 0, out_filled = 0;
+    bool last = false;
+    while (!last) {
+        if (pos + 1 > deflate_end) { free(out); return nullptr; }
+        uint8_t hdr = src[pos++];
+        last = (hdr & 0x01) != 0;
+        uint8_t btype = (uint8_t)((hdr >> 1) & 0x03);
+        if (btype != 0) {
+            // BTYPE 01 (fixed Huffman) and 10 (dynamic Huffman) are
+            // not implemented yet — encoder only emits stored blocks.
+            free(out);
+            return nullptr;
+        }
+        // Stored: skip remaining bits in the header byte (already
+        // byte-aligned because we only emit one bit then the LEN bytes).
+        if (pos + 4 > deflate_end) { free(out); return nullptr; }
+        uint16_t L = (uint16_t)src[pos] | ((uint16_t)src[pos + 1] << 8);
+        uint16_t N = (uint16_t)src[pos + 2] | ((uint16_t)src[pos + 3] << 8);
+        pos += 4;
+        if ((uint16_t)~L != N) { free(out); return nullptr; }
+        if (pos + L > deflate_end) { free(out); return nullptr; }
+        // Grow output buffer.
+        size_t need = out_filled + L;
+        if (need > out_cap) {
+            size_t nc = out_cap == 0 ? (need < 64 ? 64 : need) : out_cap * 2;
+            while (nc < need) nc *= 2;
+            uint8_t *nb = (uint8_t *)realloc(out, nc);
+            if (!nb) { free(out); liva_panic("out of memory"); }
+            out = nb;
+            out_cap = nc;
+        }
+        if (L > 0) {
+            memcpy(out + out_filled, src + pos, L);
+            out_filled += L;
+            pos += L;
+        }
+    }
+
+    // Verify trailer.
+    uint32_t exp_crc = (uint32_t)src[deflate_end] |
+                      ((uint32_t)src[deflate_end + 1] << 8) |
+                      ((uint32_t)src[deflate_end + 2] << 16) |
+                      ((uint32_t)src[deflate_end + 3] << 24);
+    uint32_t exp_isize = (uint32_t)src[deflate_end + 4] |
+                        ((uint32_t)src[deflate_end + 5] << 8) |
+                        ((uint32_t)src[deflate_end + 6] << 16) |
+                        ((uint32_t)src[deflate_end + 7] << 24);
+    if ((uint32_t)out_filled != exp_isize) { free(out); return nullptr; }
+    uint32_t actual_crc = gzip_crc32(out, out_filled);
+    if (actual_crc != exp_crc) { free(out); return nullptr; }
+
+    if (out_len) *out_len = (int64_t)out_filled;
+    if (ok) *ok = 1;
+    if (!out) {
+        // Empty payload: return non-null buffer for consistency.
+        out = (uint8_t *)malloc(1);
+        if (!out) liva_panic("out of memory");
+    }
+    return out;
+}
+
 void *liva_array_clone(const void *data, int64_t count, int64_t elem_size) {
     // Always allocate at least an 8-element buffer so the resulting
     // DynArray can be pushed-into without an immediate realloc.

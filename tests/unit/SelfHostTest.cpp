@@ -725,6 +725,62 @@ func main() {
 )--", "1\n2\n3\nA\nBB\nCCC\nx\nx\n");
 }
 
+// gzip encode → decode round-trip. Encoder uses RFC 1951 stored
+// (uncompressed) blocks wrapped in valid RFC 1952 framing, so output
+// is parseable by any conformant gzip tool. Decoder currently handles
+// only stored blocks — fixed/dynamic Huffman is a future addition.
+TEST_F(SelfHostTest, GzipRoundTrip) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    let s: string = "Hello, gzip!"
+    let bytes: [u8] = strToBytes(s)
+    let encoded: [u8] = gzipEncode(bytes)
+    // Magic 1F 8B + CM=08 in the first three bytes of every gzip stream.
+    println(encoded[0 as i64] as i64)
+    println(encoded[1 as i64] as i64)
+    println(encoded[2 as i64] as i64)
+    if let decoded = gzipDecode(encoded) {
+        println(bytesToStr(decoded))
+    }
+}
+)--", "31\n-117\n8\nHello, gzip!\n");
+}
+
+TEST_F(SelfHostTest, GzipBinaryWithEmbeddedNul) {
+    // Same payload that broke the strlen-based path earlier:
+    // bytes { 0x00, 0xAB, 0xFF, 0x00 } survive the round trip because
+    // the gzip path tracks length explicitly through [u8] / *out_len.
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    var bin: [u8] = []
+    bin.push(0x00 as u8)
+    bin.push(0xAB as u8)
+    bin.push(0xFF as u8)
+    bin.push(0x00 as u8)
+    let enc: [u8] = gzipEncode(bin)
+    if let dec = gzipDecode(enc) {
+        println(dec.length)
+        for b in dec { println(b as i64) }
+    }
+}
+)--", "4\n0\n171\n255\n0\n");
+}
+
+TEST_F(SelfHostTest, GzipRejectsInvalidInput) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    var bad: [u8] = []
+    bad.push(0xFF as u8)
+    bad.push(0x00 as u8)
+    if let r = gzipDecode(bad) { println("never") }
+    else { println("rejected") }
+}
+)--", "rejected\n");
+}
+
 TEST_F(SelfHostTest, U8ByteArrayPreservesEmbeddedNul) {
     expectOutput(R"--(
 import std::crypto

@@ -4247,6 +4247,78 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return r;
     }
 
+    // gzipEncode(b: [u8]) -> [u8]
+    if (funcName == "gzipEncode" && !node->getArgs().empty()) {
+        auto *arr = visit(node->getArgs()[0].get());
+        if (!arr) return nullptr;
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "gz.enc.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *data = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(daTy, src, 0));
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1));
+        auto *outLenAlloca = createEntryBlockAlloca(funcCur, "gz.enc.olen",
+            builder_->getInt64Ty());
+        auto *encoded = builder_->CreateCall(getOrPanic("liva_gzip_encode_bytes"),
+            {data, len, outLenAlloca}, "gz.enc.data");
+        auto *outLen = builder_->CreateLoad(builder_->getInt64Ty(),
+            outLenAlloca, "gz.enc.olen.v");
+        // Build [u8] DynArray.
+        auto *daAlloca = createEntryBlockAlloca(funcCur, "gz.enc.da", daTy);
+        builder_->CreateStore(encoded,
+            builder_->CreateStructGEP(daTy, daAlloca, 0));
+        builder_->CreateStore(outLen,
+            builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(outLen,
+            builder_->CreateStructGEP(daTy, daAlloca, 2));
+        return builder_->CreateLoad(daTy, daAlloca, "gz.enc.val");
+    }
+
+    // gzipDecode(b: [u8]) -> [u8]?
+    if (funcName == "gzipDecode" && !node->getArgs().empty()) {
+        auto *arr = visit(node->getArgs()[0].get());
+        if (!arr) return nullptr;
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "gz.dec.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *data = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(daTy, src, 0));
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1));
+        auto *outLenAlloca = createEntryBlockAlloca(funcCur, "gz.dec.olen",
+            builder_->getInt64Ty());
+        auto *okAlloca = createEntryBlockAlloca(funcCur, "gz.dec.ok",
+            builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *decoded = builder_->CreateCall(getOrPanic("liva_gzip_decode_bytes"),
+            {data, len, outLenAlloca, okAlloca}, "gz.dec.data");
+        auto *outLen = builder_->CreateLoad(builder_->getInt64Ty(),
+            outLenAlloca, "gz.dec.olen.v");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "gz.dec.ok.v");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0));
+        // Build inner DynArray + wrap in Optional.
+        auto *daAlloca = createEntryBlockAlloca(funcCur, "gz.dec.da", daTy);
+        builder_->CreateStore(decoded,
+            builder_->CreateStructGEP(daTy, daAlloca, 0));
+        builder_->CreateStore(outLen,
+            builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(outLen,
+            builder_->CreateStructGEP(daTy, daAlloca, 2));
+        auto *daVal = builder_->CreateLoad(daTy, daAlloca, "gz.dec.da.val");
+        auto *optTy = getOptionalType(daTy);
+        auto *optAlloca = createEntryBlockAlloca(funcCur, "gz.dec.opt", optTy);
+        builder_->CreateStore(hasVal,
+            builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(daVal,
+            builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "gz.dec.opt.val");
+    }
+
     // hexDecodeBytes(s) -> [u8]?     base64UrlDecodeBytes(s) -> [u8]?
     if ((funcName == "hexDecodeBytes" || funcName == "base64UrlDecodeBytes") &&
         !node->getArgs().empty()) {
