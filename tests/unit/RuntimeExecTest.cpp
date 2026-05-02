@@ -378,8 +378,8 @@ TEST(RuntimeExecTest, Generator_ContinueSkips_ResumesCorrectly) {
 
 TEST(RuntimeExecTest, Generator_BreakOnVarBoundGenerator_DestroysCoro) {
     // Same as Generator_BreakEarly but with a variable-bound generator
-    // (Task 7's `let g = gen(); for x in g` path) — exercises the
-    // separate IRGenStmt branch that lives at lines 661-674.
+    // (`let g = gen(); for x in g`) — exercises the variable-bound
+    // iteration path through visitForStmt's resolved-type dispatch.
     auto r = compileAndRun(R"(
         func gen(n: i32) {
             var i: i32 = 0

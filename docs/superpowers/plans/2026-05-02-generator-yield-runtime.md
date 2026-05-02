@@ -683,13 +683,24 @@ variable-bound generators (`let g = gen(); for x in g`), via a new
 for a Sema gap (`visitIdentifierExpr` strips generic type args) — see the
 TODO at the map's declaration in `include/liva/IR/IRGen.h`.
 
-Final test counts: 2246/2246 passing (was 2064 baseline). Zero XFAILs.
+Final test counts (initial branch): 2246/2246 passing (was 2064 baseline). Zero XFAILs.
 
-Deferred to follow-up:
-- **`break`/`continue` from generator loops** — current tests only iterate
-  to exhaustion. The early-exit destruction path (`liva_coro_destroy` on
-  a still-suspended coroutine) is unverified.
-- **Generators across module boundaries** — untested whether
-  `PresplitCoroutine` attribute propagates correctly through IR import.
-- **Sema-side fix for IdentifierExpr generic type propagation** — would
-  let us delete `varGeneratorTypes_` entirely.
+### Update 2026-05-03: All deferred follow-ups landed
+
+Follow-up branch `generator-yield-followups` closed all three gaps:
+
+- **`break`/`continue` runtime behavior** locked in by 4 new tests
+  (commit `b34ad6e`). `liva_coro_destroy` correctly tears down still-
+  suspended coroutine frames; existing `loopStack_` wiring at
+  `IRGenStmt.cpp:711` handled this without code changes.
+- **Cross-module generator iteration** verified by `Generator_CrossModule_Iterates`
+  (commit `c24f7fd`). `PresplitCoroutine` attribute survives ModuleLoader
+  IR import unchanged.
+- **Sema-side fix landed** (commit `934ae10`): `visitIdentifierExpr` now
+  preserves generic type args via `cloneTypeRepr` (which itself was
+  silently dropping `Generic` and `Reference` payload — a latent bug
+  fixed in the same commit). The `varGeneratorTypes_` workaround was
+  removed entirely (commit `dc90e32`); IRGen for-in now dispatches
+  uniformly via the iterable's resolved Sema type. Net **−63 LoC**.
+
+Final test counts (followups): 2251/2251 passing.
