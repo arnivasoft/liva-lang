@@ -1603,6 +1603,20 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             }
         }
 
+        // Track Generator<T>-typed variables so visitForStmt can emit a
+        // coroutine-iteration loop for `let g = gen(); for x in g`.
+        // Mirrors the CallExpr-based path that consults generatorFuncs_.
+        if (node->getInit() && node->getInit()->getResolvedType()) {
+            auto *resolvedType = node->getInit()->getResolvedType();
+            if (resolvedType->getKind() == TypeRepr::Kind::Generic) {
+                auto *gt = static_cast<const GenericTypeRepr *>(resolvedType);
+                if (gt->getBaseName() == "Generator" && gt->getTypeArgs().size() == 1) {
+                    varGeneratorTypes_[node->getName()] =
+                        toLLVMType(gt->getTypeArgs()[0].get());
+                }
+            }
+        }
+
         // Register struct/enum type from init's resolved type or LLVM type
         // Always update (no guard) — handles same-name vars in different scopes
         {

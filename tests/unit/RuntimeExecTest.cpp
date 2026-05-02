@@ -162,4 +162,61 @@ TEST(RuntimeExecTest, Generator_CountToThree_Yields012) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, Generator_EmptyRange_NoOutput) {
+    auto r = compileAndRun(R"(
+        func gen(n: i32) {
+            var i: i32 = 0
+            while i < n {
+                yield i
+                i = i + 1
+            }
+        }
+        func main() {
+            for x in gen(0) {
+                println(x)
+            }
+        }
+    )", "gen_empty");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "");
+}
+
+TEST(RuntimeExecTest, Generator_BoundToVariable_Iterates) {
+    auto r = compileAndRun(R"(
+        func gen() {
+            yield 7
+            yield 8
+        }
+        func main() {
+            let g = gen()
+            for x in g {
+                println(x)
+            }
+        }
+    )", "gen_bound");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "7\n8\n");
+}
+
+TEST(RuntimeExecTest, Generator_NestedYieldInIf_Yields) {
+    auto r = compileAndRun(R"(
+        func gen(n: i32) {
+            var i: i32 = 0
+            while i < n {
+                if i % 2 == 0 {
+                    yield i
+                }
+                i = i + 1
+            }
+        }
+        func main() {
+            for x in gen(5) {
+                println(x)
+            }
+        }
+    )", "gen_nested");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "0\n2\n4\n");
+}
+
 #endif // LIVA_HAS_LLVM

@@ -401,6 +401,13 @@ private:
     /// generator-call iterable and emit a coro.resume / coro.done / coro.promise
     /// loop instead of the standard array iteration.
     std::unordered_map<std::string, llvm::Type *> generatorFuncs_;
+
+    /// Variables bound to a generator-call result (the LivaTask* handle wrapper).
+    /// Maps variable name → yielded element LLVM type. Populated during
+    /// visitVarDecl when the init's resolved type is Generator<T>, so
+    /// visitForStmt can emit the same coro.resume loop for `let g = gen(); for x in g`
+    /// as it does for the direct `for x in gen()` form.
+    std::unordered_map<std::string, llvm::Type *> varGeneratorTypes_;
     bool currentIsAsync_ = false;
     llvm::Type *asyncDeclaredRetType_ = nullptr;
 
