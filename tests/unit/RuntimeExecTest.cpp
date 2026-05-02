@@ -9,7 +9,7 @@
 // The harness uses the in-process CompilerInstance::compile() entry point —
 // the same code path that `livac` uses — so we are testing real driver
 // behavior, not a parallel reimplementation. The only thing we add is exec +
-// stdout capture via popen.
+// stdout capture via redirected std::system + file read.
 //
 // Only built when LIVA_HAS_LLVM is defined (Clang build with LLVM backend).
 
@@ -25,13 +25,9 @@
 #include <string>
 
 #ifdef _WIN32
-#define POPEN  _popen
-#define PCLOSE _pclose
 #define EXE_SUFFIX ".exe"
 #else
 #include <sys/wait.h>
-#define POPEN  popen
-#define PCLOSE pclose
 #define EXE_SUFFIX ""
 #endif
 
@@ -77,7 +73,9 @@ RunResult compileAndRun(const std::string &source, const std::string &test_name)
 
     if (!compiler.compile(exePath)) {
         cleanup();
-        return RunResult{-1, "<compile failed>"};
+        // Diagnostics from CompilerInstance went to stderr via the default
+        // DiagnosticsEngine print callback — scroll up in gtest output to see them.
+        return RunResult{-1, "<compile failed — see stderr above for diagnostics>"};
     }
 
     // Execute the produced binary. Redirect stderr -> stdout so any runtime
