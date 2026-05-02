@@ -168,7 +168,7 @@
 - **VS Code** — TextMate grammar (yield/lifetime literal pattern dahil), LSP client, DAP client, **Test Explorer**, .vsix extension
 - **Neovim** — syntax/ftdetect/indent/ftplugin, **tree-sitter grammar** (`editors/neovim/tree-sitter-liva/`), nvim-lspconfig + nvim-dap rehberi
 - **Emacs** — liva-mode.el major mode, eglot/lsp-mode/dap-mode rehberi
-- **JetBrains** — TextMate grammar, LSP4IJ plugin rehberi
+- **JetBrains** — Native plugin (IntelliJ Platform 2024.2+, Kotlin, lexer-based highlighter + 16 customizable token kategorisi + commenter/brace matcher + native LSP); eski IDE'ler için TextMate grammar + LSP4IJ rehberi
 - **Notepad++** — UDL XML syntax highlighting
 
 ### Optimizasyonlar ✅
@@ -213,7 +213,7 @@
 | Test Kapsamı | **9.5/10** | 2235 test, 24 test dosyası, kapsamlı kapsam |
 | Dokümantasyon | **8/10** | 6 ana + 3 ek rehber × 2 dil; yeni stdlib modül API-Reference güncellemesi gerekli |
 | CI/CD & DevOps | **8/10** | GitHub Actions (4 job) + code coverage; release artifact pipeline eksik |
-| IDE Ekosistemi | **8.5/10** | 5 editör + tree-sitter; native JetBrains plugin yok |
+| IDE Ekosistemi | **9/10** | 5 editör + tree-sitter + native JetBrains plugin (2024.2+ LSP API) |
 | **Genel** | **9.0/10** | **Production-Ready — Güçlü Release Candidate** |
 
 ---
