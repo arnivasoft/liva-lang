@@ -899,6 +899,25 @@ void IRGen::createRuntimeDecls() {
     auto *arrayCloneTy = llvm::FunctionType::get(i8PtrTy,
         {i8PtrTy, builder_->getInt64Ty(), builder_->getInt64Ty()}, false);
     module_->getOrInsertFunction("liva_array_clone", arrayCloneTy);
+
+    // === Bytes <-> String / hex / base64url with explicit byte length ===
+    // strToBytes(s, *out_len) -> ptr
+    auto *strToBytesTy = llvm::FunctionType::get(i8PtrTy,
+        {i8PtrTy, llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_str_to_bytes", strToBytesTy);
+    // bytesToStr(data, len) -> ptr
+    auto *bytesToStrTy = llvm::FunctionType::get(i8PtrTy,
+        {i8PtrTy, builder_->getInt64Ty()}, false);
+    module_->getOrInsertFunction("liva_bytes_to_str", bytesToStrTy);
+    // hexDecodeBytes(s, *out_len, *ok) -> ptr
+    auto *hexDecBytesTy = llvm::FunctionType::get(i8PtrTy,
+        {i8PtrTy, llvm::PointerType::getUnqual(*context_),
+         llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_hex_decode_bytes", hexDecBytesTy);
+    module_->getOrInsertFunction("liva_base64_url_decode_bytes", hexDecBytesTy);
+    // hexEncodeBytes(data, len) -> ptr
+    module_->getOrInsertFunction("liva_hex_encode_bytes", bytesToStrTy);
+    module_->getOrInsertFunction("liva_base64_url_encode_bytes", bytesToStrTy);
     // isoFormatUtc(ts: f64) -> ptr; isoParse(str, *ok) -> f64
     auto *isoFmtTy = llvm::FunctionType::get(i8PtrTy, {builder_->getDoubleTy()}, false);
     module_->getOrInsertFunction("liva_iso_format_utc", isoFmtTy);

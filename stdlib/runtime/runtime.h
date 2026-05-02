@@ -898,6 +898,30 @@ int8_t liva_const_time_eq(const char *a, const char *b);
 /// can also still be freed safely.
 void *liva_array_clone(const void *data, int64_t count, int64_t elem_size);
 
+/// Copy `s` into a fresh malloc'd byte buffer; `*out_len` receives the
+/// strlen byte count. Used to materialize `[u8]` from a Liva string.
+void *liva_str_to_bytes(const char *s, int64_t *out_len);
+
+/// Allocate a fresh null-terminated string holding the `len` bytes from
+/// `data`. Embedded NUL bytes survive in the buffer but Liva's strlen-based
+/// length will truncate at the first one — caller's responsibility.
+char *liva_bytes_to_str(const void *data, int64_t len);
+
+/// Decode a hex string into a fresh byte buffer; `*out_len` receives the
+/// byte count, *ok flags success. Unlike liva_hex_decode this lets the
+/// caller see embedded NUL bytes via the explicit length.
+void *liva_hex_decode_bytes(const char *data, int64_t *out_len, int8_t *ok);
+
+/// Encode `len` raw bytes as a lowercase hex string (caller frees).
+char *liva_hex_encode_bytes(const void *data, int64_t len);
+
+/// Encode `len` raw bytes as base64url (no padding); caller frees.
+char *liva_base64_url_encode_bytes(const void *data, int64_t len);
+
+/// Decode a base64url string into raw bytes. *out_len = byte count,
+/// *ok = 1 on success, 0 on failure (returns nullptr in that case).
+void *liva_base64_url_decode_bytes(const char *data, int64_t *out_len, int8_t *ok);
+
 /// Format a Unix timestamp as RFC 3339 / ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SSZ")
 char *liva_iso_format_utc(double timestamp);
 

@@ -952,7 +952,16 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     if (node->hasTypeAnnotation() && node->getType() &&
         node->getType()->getKind() == TypeRepr::Kind::Optional) {
         auto *optTypeRepr = static_cast<const OptionalTypeRepr *>(node->getType());
-        auto *innerLLVM = toLLVMType(optTypeRepr->getInner());
+        // Special-case: Optional<[T]> stores the DynArray struct value
+        // inline, not a ptr (toLLVMType maps Array→ptr by default).
+        llvm::Type *innerLLVM = nullptr;
+        if (optTypeRepr->getInner() &&
+            optTypeRepr->getInner()->getKind() == TypeRepr::Kind::Array) {
+            auto *arrInner = static_cast<const ArrayTypeRepr *>(optTypeRepr->getInner());
+            if (arrInner->isDynamic())
+                innerLLVM = getDynArrayStructTy();
+        }
+        if (!innerLLVM) innerLLVM = toLLVMType(optTypeRepr->getInner());
         auto *optStructTy = getOptionalType(innerLLVM);
         auto *alloca = createEntryBlockAlloca(func, node->getName(), optStructTy);
         auto *hasValPtr = builder_->CreateStructGEP(optStructTy, alloca, 0, "opt.hasval");

@@ -638,6 +638,61 @@ func main() {
 // flow goes through and was broken in earlier sessions by a separate
 // Optional<string> UAF (now fixed in fc57aef). Lock in the current
 // behavior so a future regression here is caught immediately.
+// [u8] byte-array path: explicit-length binary buffers that survive
+// embedded NUL bytes (which liva_hex_decode → strlen would have
+// truncated). Exercises strToBytes, bytesToStr, hexEncodeBytes,
+// hexDecodeBytes, base64UrlEncodeBytes, base64UrlDecodeBytes.
+TEST_F(SelfHostTest, U8ByteArrayPreservesEmbeddedNul) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    // 0x00 0xAB 0xFF — embedded NUL would truncate the strlen-based
+    // hexDecode result to length 0. The bytes path keeps all three.
+    let opt: [u8]? = hexDecodeBytes("00abff")
+    if let bytes = opt {
+        println(bytes.length)
+        for b in bytes { println(b as i64) }
+        println(hexEncodeBytes(bytes))
+        println(base64UrlEncodeBytes(bytes))
+    }
+    if let bad = hexDecodeBytes("zz") {
+        println("never")
+    } else {
+        println("rejected")
+    }
+}
+)--", "3\n0\n171\n255\n00abff\nAKv_\nrejected\n");
+}
+
+TEST_F(SelfHostTest, U8ArrayBasicOps) {
+    // Regression for the [u8] allocation overflow false-positive:
+    // `(int64_t)(SIZE_MAX / elem_size)` wrapped to -1 for elem_size 1.
+    expectOutput(R"--(
+func main() {
+    var arr: [u8] = []
+    arr.push(0 as u8)
+    arr.push(255 as u8)
+    arr.push(127 as u8)
+    println(arr.length)
+    for b in arr { println(b as i64) }
+}
+)--", "3\n0\n255\n127\n");
+}
+
+TEST_F(SelfHostTest, StrToBytesRoundTrip) {
+    expectOutput(R"--(
+import std::crypto
+func main() {
+    let s: string = "Hi"
+    let bytes: [u8] = strToBytes(s)
+    println(bytes.length)
+    println(bytes[0 as i64] as i64)
+    println(bytes[1 as i64] as i64)
+    println(bytesToStr(bytes))
+}
+)--", "2\n72\n105\nHi\n");
+}
+
 TEST_F(SelfHostTest, HexDecodeBase64UrlBinaryRoundTrip) {
     expectOutput(R"--(
 import std::crypto

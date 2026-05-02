@@ -1000,10 +1000,14 @@ void *liva_array_new(int64_t elem_size, int64_t capacity) {
         if (!ptr) liva_panic("out of memory");
         return ptr;
     }
-    // Overflow check
-    if (capacity > (int64_t)(SIZE_MAX / (size_t)elem_size))
+    // Overflow check — work in unsigned size_t. The previous version
+    // cast `SIZE_MAX / elem_size` back to int64_t, which wraps to -1
+    // (and other negatives) for elem_size ≤ 2 since SIZE_MAX exceeds
+    // INT64_MAX. That made every [u8]/[i8]/[bool]/[i16]/[u16] array
+    // allocation panic with "array allocation overflow".
+    if ((size_t)capacity > SIZE_MAX / (size_t)elem_size)
         liva_panic("array allocation overflow");
-    size_t bytes = (size_t)(elem_size * capacity);
+    size_t bytes = (size_t)elem_size * (size_t)capacity;
     void *ptr = calloc(1, bytes);
     if (!ptr) liva_panic("out of memory");
     return ptr;
@@ -1017,10 +1021,12 @@ void liva_array_push(void **data_ptr, int64_t *len_ptr, int64_t *cap_ptr,
                       const void *elem, int64_t elem_size) {
     if (*len_ptr == *cap_ptr) {
         int64_t new_cap = *cap_ptr < 8 ? 8 : *cap_ptr * 2;
-        // Overflow check
-        if (new_cap > (int64_t)(SIZE_MAX / (size_t)elem_size))
+        // Compare in unsigned size_t — see liva_array_new for the
+        // signed-cast trap that bites elem_size ≤ 2.
+        if ((size_t)new_cap > SIZE_MAX / (size_t)elem_size)
             liva_panic("array push overflow");
-        void *new_data = realloc(*data_ptr, (size_t)(new_cap * elem_size));
+        void *new_data = realloc(*data_ptr,
+                                 (size_t)new_cap * (size_t)elem_size);
         if (!new_data) liva_panic("out of memory");
         *data_ptr = new_data;
         *cap_ptr = new_cap;
@@ -5300,11 +5306,126 @@ char *liva_jwt_hs512_sig(const char *secret, const char *data) {
     return b64u_encode_bytes(final_hash, 64);
 }
 
+void *liva_str_to_bytes(const char *s, int64_t *out_len) {
+    if (!s) {
+        if (out_len) *out_len = 0;
+        return malloc(1); // non-null empty buffer
+    }
+    size_t n = strlen(s);
+    void *buf = malloc(n > 0 ? n : 1);
+    if (!buf) liva_panic("out of memory");
+    if (n > 0) memcpy(buf, s, n);
+    if (out_len) *out_len = (int64_t)n;
+    return buf;
+}
+
+char *liva_bytes_to_str(const void *data, int64_t len) {
+    if (len < 0) len = 0;
+    char *out = (char *)malloc((size_t)len + 1);
+    if (!out) liva_panic("out of memory");
+    if (data && len > 0) memcpy(out, data, (size_t)len);
+    out[len] = '\0';
+    return out;
+}
+
+void *liva_hex_decode_bytes(const char *data, int64_t *out_len, int8_t *ok) {
+    if (ok) *ok = 0;
+    if (out_len) *out_len = 0;
+    if (!data) return nullptr;
+    size_t len = strlen(data);
+    if (len % 2 != 0) return nullptr;
+    size_t n = len / 2;
+    void *buf = malloc(n > 0 ? n : 1);
+    if (!buf) liva_panic("out of memory");
+    auto *out = (uint8_t *)buf;
+    for (size_t i = 0; i < n; i++) {
+        int hi = hex_char_val(data[i * 2]);
+        int lo = hex_char_val(data[i * 2 + 1]);
+        if (hi < 0 || lo < 0) { free(buf); return nullptr; }
+        out[i] = (uint8_t)((hi << 4) | lo);
+    }
+    if (out_len) *out_len = (int64_t)n;
+    if (ok) *ok = 1;
+    return buf;
+}
+
+char *liva_hex_encode_bytes(const void *data, int64_t len) {
+    if (len < 0) len = 0;
+    char *out = (char *)malloc((size_t)len * 2 + 1);
+    if (!out) liva_panic("out of memory");
+    static const char hex[] = "0123456789abcdef";
+    auto *bytes = (const uint8_t *)data;
+    for (int64_t i = 0; i < len; i++) {
+        out[i * 2]     = hex[(bytes[i] >> 4) & 0xF];
+        out[i * 2 + 1] = hex[bytes[i] & 0xF];
+    }
+    out[len * 2] = '\0';
+    return out;
+}
+
+char *liva_base64_url_encode_bytes(const void *data, int64_t len) {
+    if (len < 0) len = 0;
+    return b64u_encode_bytes((const uint8_t *)data, (size_t)len);
+}
+
+void *liva_base64_url_decode_bytes(const char *data, int64_t *out_len, int8_t *ok) {
+    if (ok) *ok = 0;
+    if (out_len) *out_len = 0;
+    if (!data) return nullptr;
+    char *as_str = liva_base64_url_decode(data);
+    if (!as_str) return nullptr;
+    // base64url_decode → standard decode → byte count = strlen of result
+    // BUT decoded bytes may contain NUL. Recompute via the explicit
+    // formula: pad input to multiple of 4, then 3 output bytes per group
+    // minus padding equivalents. Easier: decode directly here.
+    free(as_str);
+    size_t len = strlen(data);
+    size_t pad = (4 - (len % 4)) % 4;
+    char *padded = (char *)malloc(len + pad + 1);
+    if (!padded) liva_panic("out of memory");
+    for (size_t i = 0; i < len; i++) {
+        char c = data[i];
+        if (c == '-')      padded[i] = '+';
+        else if (c == '_') padded[i] = '/';
+        else               padded[i] = c;
+    }
+    for (size_t i = 0; i < pad; i++) padded[len + i] = '=';
+    padded[len + pad] = '\0';
+    size_t total = len + pad;
+    // Standard base64 decode with explicit byte count.
+    size_t out_bytes = total / 4 * 3;
+    if (total > 0 && padded[total - 1] == '=') out_bytes--;
+    if (total > 1 && padded[total - 2] == '=') out_bytes--;
+    void *buf = malloc(out_bytes > 0 ? out_bytes : 1);
+    if (!buf) { free(padded); liva_panic("out of memory"); }
+    auto *out = (uint8_t *)buf;
+    size_t j = 0;
+    for (size_t i = 0; i < total; i += 4) {
+        int a = b64_decode_char(padded[i]);
+        int b = b64_decode_char(padded[i + 1]);
+        int c = padded[i + 2] == '=' ? 0 : b64_decode_char(padded[i + 2]);
+        int d = padded[i + 3] == '=' ? 0 : b64_decode_char(padded[i + 3]);
+        if (a < 0 || b < 0 || c < 0 || d < 0) {
+            free(buf); free(padded);
+            return nullptr;
+        }
+        uint32_t triple = ((uint32_t)a << 18) | ((uint32_t)b << 12)
+                        | ((uint32_t)c << 6) | (uint32_t)d;
+        if (j < out_bytes) out[j++] = (uint8_t)((triple >> 16) & 0xFF);
+        if (j < out_bytes) out[j++] = (uint8_t)((triple >> 8) & 0xFF);
+        if (j < out_bytes) out[j++] = (uint8_t)(triple & 0xFF);
+    }
+    free(padded);
+    if (out_len) *out_len = (int64_t)out_bytes;
+    if (ok) *ok = 1;
+    return buf;
+}
+
 void *liva_array_clone(const void *data, int64_t count, int64_t elem_size) {
     // Always allocate at least an 8-element buffer so the resulting
     // DynArray can be pushed-into without an immediate realloc.
     int64_t cap = count > 8 ? count : 8;
-    if (cap > (int64_t)(SIZE_MAX / (size_t)elem_size))
+    if ((size_t)cap > SIZE_MAX / (size_t)elem_size)
         liva_panic("array clone overflow");
     void *new_data = malloc((size_t)cap * (size_t)elem_size);
     if (!new_data) liva_panic("out of memory");

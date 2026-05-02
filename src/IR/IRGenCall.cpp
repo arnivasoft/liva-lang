@@ -4088,6 +4088,124 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(arrStructTy, arrStruct, "strarr.val");
     }
 
+    // === Bytes <-> string / hex / base64url converters with explicit length ===
+
+    // strToBytes(s) -> [u8]
+    if (funcName == "strToBytes" && !node->getArgs().empty()) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(funcCur, "bytes.len",
+            builder_->getInt64Ty());
+        auto *dataPtr = builder_->CreateCall(getOrPanic("liva_str_to_bytes"),
+            {s, countAlloca}, "bytes.data");
+        auto *daTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(funcCur, "bytes.da", daTy);
+        builder_->CreateStore(dataPtr,
+            builder_->CreateStructGEP(daTy, daAlloca, 0));
+        auto *cnt = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "bytes.cnt");
+        builder_->CreateStore(cnt, builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(cnt, builder_->CreateStructGEP(daTy, daAlloca, 2));
+        return builder_->CreateLoad(daTy, daAlloca, "bytes.val");
+    }
+
+    // bytesToStr(b: [u8]) -> string. Pass DynArray by-value, runtime reads
+    // .data and .length explicitly.
+    if (funcName == "bytesToStr" && !node->getArgs().empty()) {
+        auto *arr = visit(node->getArgs()[0].get());
+        if (!arr) return nullptr;
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "b2s.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *data = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(daTy, src, 0), "b2s.data");
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1), "b2s.len");
+        auto *r = builder_->CreateCall(getOrPanic("liva_bytes_to_str"),
+            {data, len}, "b2s.str");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // hexEncodeBytes(b: [u8]) -> string
+    if (funcName == "hexEncodeBytes" && !node->getArgs().empty()) {
+        auto *arr = visit(node->getArgs()[0].get());
+        if (!arr) return nullptr;
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "hex.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *data = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(daTy, src, 0));
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1));
+        auto *r = builder_->CreateCall(getOrPanic("liva_hex_encode_bytes"),
+            {data, len}, "hex.enc");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // base64UrlEncodeBytes(b: [u8]) -> string
+    if (funcName == "base64UrlEncodeBytes" && !node->getArgs().empty()) {
+        auto *arr = visit(node->getArgs()[0].get());
+        if (!arr) return nullptr;
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "b64u.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *data = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(daTy, src, 0));
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1));
+        auto *r = builder_->CreateCall(getOrPanic("liva_base64_url_encode_bytes"),
+            {data, len}, "b64u.enc");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // hexDecodeBytes(s) -> [u8]?     base64UrlDecodeBytes(s) -> [u8]?
+    if ((funcName == "hexDecodeBytes" || funcName == "base64UrlDecodeBytes") &&
+        !node->getArgs().empty()) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(funcCur, "dec.len",
+            builder_->getInt64Ty());
+        auto *okAlloca = createEntryBlockAlloca(funcCur, "dec.ok",
+            builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *fn = getOrPanic(funcName == "hexDecodeBytes"
+                              ? "liva_hex_decode_bytes"
+                              : "liva_base64_url_decode_bytes");
+        auto *dataPtr = builder_->CreateCall(fn, {s, countAlloca, okAlloca},
+            "dec.data");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "dec.ok.v");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0), "dec.has");
+
+        // Build the inner DynArray value.
+        auto *daTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(funcCur, "dec.da", daTy);
+        builder_->CreateStore(dataPtr,
+            builder_->CreateStructGEP(daTy, daAlloca, 0));
+        auto *cnt = builder_->CreateLoad(builder_->getInt64Ty(), countAlloca, "dec.cnt");
+        builder_->CreateStore(cnt, builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(cnt, builder_->CreateStructGEP(daTy, daAlloca, 2));
+        auto *daVal = builder_->CreateLoad(daTy, daAlloca, "dec.da.val");
+
+        // Wrap in Optional<DynArray>.
+        auto *optTy = getOptionalType(daTy);
+        auto *optAlloca = createEntryBlockAlloca(funcCur, "dec.opt", optTy);
+        builder_->CreateStore(hasVal,
+            builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(daVal,
+            builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "dec.opt.val");
+    }
+
     // === Stdlib: UTF-8 helpers ===
 
     if (funcName == "strCharCount" && !node->getArgs().empty()) {

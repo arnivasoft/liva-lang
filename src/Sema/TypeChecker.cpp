@@ -149,7 +149,10 @@ void TypeChecker::registerBuiltins() {
     // Stdlib: Encoding/Compression
     for (auto &name : {"base64Encode", "base64Decode", "hexEncode",
                         "hexDecode", "urlEncode", "urlDecode", "crc32",
-                        "base64UrlEncode", "base64UrlDecode"}) {
+                        "base64UrlEncode", "base64UrlDecode",
+                        "strToBytes", "bytesToStr",
+                        "hexEncodeBytes", "hexDecodeBytes",
+                        "base64UrlEncodeBytes", "base64UrlDecodeBytes"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -1464,6 +1467,25 @@ void TypeChecker::visitIfLetStmt(IfLetStmt *node) {
     sym.isMutable = false;
     sym.declLoc = node->getStartLoc();
 
+    // Default: unwrap the Optional<T> source's inner T as the binding's
+    // type. This makes `b.length`, `b[i]`, member access, etc. work the
+    // same way they do for a let-bound `T`. Special cases below override
+    // (e.g. File-typed bindings).
+    if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        auto *optSym = scopes_.lookup(ident->getName());
+        if (optSym && optSym->type &&
+            optSym->type->getKind() == TypeRepr::Kind::Optional) {
+            auto *optTy = static_cast<const OptionalTypeRepr *>(optSym->type);
+            sym.type = optTy->getInner();
+        }
+    } else if (auto *resolved = node->getOptionalExpr()->getResolvedType()) {
+        if (resolved->getKind() == TypeRepr::Kind::Optional) {
+            auto *optTy = static_cast<const OptionalTypeRepr *>(resolved);
+            sym.type = optTy->getInner();
+        }
+    }
+
     // If unwrapping File.open() result, mark binding as File-typed
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
@@ -1474,7 +1496,6 @@ void TypeChecker::visitIfLetStmt(IfLetStmt *node) {
             if (optTy->getInner()->getKind() == TypeRepr::Kind::Named) {
                 auto *namedInner = static_cast<const NamedTypeRepr *>(optTy->getInner());
                 if (namedInner->getName() == "File") {
-                    sym.type = optTy->getInner();
                     fileVariables_.insert(node->getBindingName());
                 }
             }
@@ -2259,6 +2280,20 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "urlDecode" || ident->getName() == "base64UrlDecode") {
             auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
             node->setResolvedType(std::move(optType));
+        } else if (ident->getName() == "bytesToStr" ||
+                   ident->getName() == "hexEncodeBytes" ||
+                   ident->getName() == "base64UrlEncodeBytes") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "strToBytes") {
+            // [u8]
+            auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
+            node->setResolvedType(std::make_unique<ArrayTypeRepr>(std::move(u8), -1));
+        } else if (ident->getName() == "hexDecodeBytes" ||
+                   ident->getName() == "base64UrlDecodeBytes") {
+            // [u8]?
+            auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
+            auto arr = std::make_unique<ArrayTypeRepr>(std::move(u8), -1);
+            node->setResolvedType(std::make_unique<OptionalTypeRepr>(std::move(arr)));
         } else if (ident->getName() == "crc32") {
             node->setResolvedType(makeI64Type());
         // Stdlib: Crypto

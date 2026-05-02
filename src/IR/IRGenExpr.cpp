@@ -467,20 +467,39 @@ llvm::Value *IRGen::visitCastExpr(CastExpr *node) {
 
     auto *targetType = toLLVMType(node->getTargetType());
 
+    // Determine signedness from the source AST type. Unsigned source ints
+    // (u8/u16/u32/u64) widen with zero-extend; signed (i8/i16/i32/i64) and
+    // bool widen with sign-extend. Falls back to sign-extend for unknown
+    // sources to preserve the prior default behaviour.
+    auto *srcRepr = node->getExpr()->getResolvedType();
+    bool srcIsUnsigned = srcRepr && srcRepr->isUnsignedInteger();
+
     // Integer to integer
     if (val->getType()->isIntegerTy() && targetType->isIntegerTy()) {
-        if (val->getType()->getIntegerBitWidth() < targetType->getIntegerBitWidth())
-            return builder_->CreateSExt(val, targetType, "sext");
+        unsigned srcBits = val->getType()->getIntegerBitWidth();
+        unsigned dstBits = targetType->getIntegerBitWidth();
+        if (srcBits < dstBits) {
+            return srcIsUnsigned
+                ? builder_->CreateZExt(val, targetType, "zext")
+                : builder_->CreateSExt(val, targetType, "sext");
+        }
+        if (srcBits == dstBits) return val;
         return builder_->CreateTrunc(val, targetType, "trunc");
     }
 
     // Integer to float
     if (val->getType()->isIntegerTy() && targetType->isFloatingPointTy())
-        return builder_->CreateSIToFP(val, targetType, "sitofp");
+        return srcIsUnsigned
+            ? builder_->CreateUIToFP(val, targetType, "uitofp")
+            : builder_->CreateSIToFP(val, targetType, "sitofp");
 
-    // Float to integer
+    // Float to integer (signedness of dst from target type)
+    auto *dstRepr = node->getTargetType();
+    bool dstIsUnsigned = dstRepr && dstRepr->isUnsignedInteger();
     if (val->getType()->isFloatingPointTy() && targetType->isIntegerTy())
-        return builder_->CreateFPToSI(val, targetType, "fptosi");
+        return dstIsUnsigned
+            ? builder_->CreateFPToUI(val, targetType, "fptoui")
+            : builder_->CreateFPToSI(val, targetType, "fptosi");
 
     // Float to float
     if (val->getType()->isFloatingPointTy() && targetType->isFloatingPointTy()) {

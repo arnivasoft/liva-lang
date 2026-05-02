@@ -459,7 +459,53 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     builder_->CreateStore(unwrapped, bindAlloca);
     auto saved = namedValues_;
     auto savedFileTypes = varFileTypes_;
+    auto savedDynArrayTypes = varDynArrayTypes_;
     namedValues_[node->getBindingName()] = bindAlloca;
+    // If the optional inner is a DynArray (`if let b = someOpt: [T]?`),
+    // register the binding so `b.length`, `b[i]`, and for-iteration work
+    // the same way they do for a let-bound `[T]` variable. Element type
+    // comes from one of: the source variable's declared type (Sema),
+    // the source variable's varDynArrayTypes_ entry from a prior
+    // ownership transfer, or — for inline `if let b = call()` — the
+    // call's resolved type.
+    if (innerType == getDynArrayStructTy()) {
+        llvm::Type *elemLLVM = nullptr;
+        uint64_t elemSize = 0;
+        auto deriveFromArrayRepr = [&](const ArrayTypeRepr *arrRepr) {
+            if (!arrRepr || !arrRepr->isDynamic()) return;
+            elemLLVM = toLLVMType(arrRepr->getElement());
+            elemSize = module_->getDataLayout().getTypeAllocSize(elemLLVM);
+        };
+        if (auto *resolved = node->getOptionalExpr()->getResolvedType()) {
+            if (resolved->getKind() == TypeRepr::Kind::Optional) {
+                auto *optRepr = static_cast<const OptionalTypeRepr *>(resolved);
+                if (optRepr->getInner() &&
+                    optRepr->getInner()->getKind() == TypeRepr::Kind::Array) {
+                    deriveFromArrayRepr(static_cast<const ArrayTypeRepr *>(
+                        optRepr->getInner()));
+                }
+            } else if (resolved->getKind() == TypeRepr::Kind::Array) {
+                // Some sites resolve to the inner directly.
+                deriveFromArrayRepr(static_cast<const ArrayTypeRepr *>(resolved));
+            }
+        }
+        if (!elemLLVM &&
+            node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            // Fall back to varDynArrayTypes_ on the source variable.
+            auto *srcId = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+            auto daIt = varDynArrayTypes_.find(srcId->getName());
+            if (daIt != varDynArrayTypes_.end()) {
+                elemLLVM = daIt->second.elementType;
+                elemSize = daIt->second.elemSize;
+            }
+        }
+        if (elemLLVM) {
+            varDynArrayTypes_[node->getBindingName()] = {elemLLVM, elemSize};
+            // Borrowed from the Optional storage: skip cleanup to avoid
+            // double-freeing the buffer when the surrounding scope drops.
+            movedVars_.insert(node->getBindingName());
+        }
+    }
     // If the optional expression was File.open, the unwrapped value is a File ptr
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::CallExpr) {
         auto *callExpr = static_cast<CallExpr *>(node->getOptionalExpr());
@@ -483,6 +529,7 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     visit(node->getThenBody());
     namedValues_ = saved;
     varFileTypes_ = savedFileTypes;
+    varDynArrayTypes_ = savedDynArrayTypes;
     if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
 
     // Else
