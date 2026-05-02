@@ -474,7 +474,13 @@ int32_t liva_ws_close(int64_t handle, int32_t status, const char *reason);
 /// Returns 1 if the socket is still open, 0 otherwise.
 int32_t liva_ws_is_open(int64_t handle);
 
-// === SQLite (Windows: dynamic-loaded winsqlite3.dll; returns 0/null on platforms without support) ===
+// === SQLite (Windows: dynamic-loaded winsqlite3.dll; POSIX: link libsqlite3 when found) ===
+//
+// Cross-platform support layer:
+//   - Windows: runtime resolves winsqlite3.dll dynamically (no link dep).
+//   - Linux/macOS: CMake's find_package(SQLite3) wires libsqlite3 in
+//     and defines LIVA_HAS_POSIX_SQLITE; symbols bind directly.
+//   - Neither: every entry point fails closed (returns 0/null/false).
 
 /// Open or create a database. Path can be ":memory:" for an in-memory DB.
 /// Returns opaque i64 handle (0 on failure).

@@ -2616,17 +2616,27 @@ int32_t liva_ws_is_open(int64_t handle) {
     return ws->open ? 1 : 0;
 }
 
-// === SQLite (Windows: dynamic-loaded winsqlite3.dll; stub elsewhere) ===
+// === SQLite (Windows: dynamic-loaded winsqlite3.dll; POSIX: link libsqlite3) ===
 //
-// Windows 10+ ships winsqlite3.dll in System32. We pull it in via
+// Windows 10+ ships winsqlite3.dll in System32 — we pull it in via
 // LoadLibrary/GetProcAddress so the runtime has no link-time dependency
-// — the SQLite functions resolve to nullptr if the DLL is missing,
-// and every entry point treats that as "feature unavailable" (returns 0,
-// nullptr, or false). Linux/macOS have no system-wide SQLite analog;
-// landing those needs vendoring the amalgamation, which is left for
-// later.
+// there. On Linux/macOS, CMake's find_package(SQLite3) wires in
+// libsqlite3 when present and defines LIVA_HAS_POSIX_SQLITE; entries
+// then resolve to the directly-linked symbols.
+//
+// Either way the code below funnels everything through a SqliteApi
+// dispatch table. If neither path is available, every entry point
+// treats the call as "feature unavailable" (returns 0/nullptr/false).
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(LIVA_HAS_POSIX_SQLITE)
+#define LIVA_HAS_SQLITE 1
+#endif
+
+#ifdef LIVA_HAS_POSIX_SQLITE
+#include <sqlite3.h>
+#endif
+
+#ifdef LIVA_HAS_SQLITE
 namespace {
 
 // SQLite result codes used here.
@@ -2635,7 +2645,9 @@ constexpr int LIVA_SQLITE_ROW = 100;
 constexpr int LIVA_SQLITE_DONE = 101;
 
 struct SqliteApi {
+#ifdef _WIN32
     HMODULE dll = nullptr;
+#endif
 
     int  (*open)(const char *, void **) = nullptr;
     int  (*close)(void *) = nullptr;
@@ -2663,6 +2675,7 @@ static SqliteApi &sqlite_api() {
     static SqliteApi api;
     static std::once_flag flag;
     std::call_once(flag, [&]() {
+#ifdef _WIN32
         api.dll = LoadLibraryA("winsqlite3.dll");
         if (!api.dll) return;
         auto resolve = [&](const char *name) -> FARPROC {
@@ -2687,16 +2700,40 @@ static SqliteApi &sqlite_api() {
         api.changes = (decltype(api.changes))resolve("sqlite3_changes");
         api.errmsg = (decltype(api.errmsg))resolve("sqlite3_errmsg");
         api.free = (decltype(api.free))resolve("sqlite3_free");
+#elif defined(LIVA_HAS_POSIX_SQLITE)
+        // Direct binding to libsqlite3 — the SqliteApi pointer types
+        // use opaque void* in place of sqlite3*/sqlite3_stmt*; the
+        // ABI is identical, so reinterpret_cast through the fn type.
+        api.open = reinterpret_cast<decltype(api.open)>(&sqlite3_open);
+        api.close = reinterpret_cast<decltype(api.close)>(&sqlite3_close);
+        api.exec = reinterpret_cast<decltype(api.exec)>(&sqlite3_exec);
+        api.prepare_v2 = reinterpret_cast<decltype(api.prepare_v2)>(&sqlite3_prepare_v2);
+        api.step = reinterpret_cast<decltype(api.step)>(&sqlite3_step);
+        api.reset = reinterpret_cast<decltype(api.reset)>(&sqlite3_reset);
+        api.finalize = reinterpret_cast<decltype(api.finalize)>(&sqlite3_finalize);
+        api.column_count = reinterpret_cast<decltype(api.column_count)>(&sqlite3_column_count);
+        api.column_text = reinterpret_cast<decltype(api.column_text)>(&sqlite3_column_text);
+        api.column_int64 = reinterpret_cast<decltype(api.column_int64)>(&sqlite3_column_int64);
+        api.column_double = reinterpret_cast<decltype(api.column_double)>(&sqlite3_column_double);
+        api.bind_text = reinterpret_cast<decltype(api.bind_text)>(&sqlite3_bind_text);
+        api.bind_int64 = reinterpret_cast<decltype(api.bind_int64)>(&sqlite3_bind_int64);
+        api.bind_double = reinterpret_cast<decltype(api.bind_double)>(&sqlite3_bind_double);
+        api.bind_null = reinterpret_cast<decltype(api.bind_null)>(&sqlite3_bind_null);
+        api.last_insert_rowid = reinterpret_cast<decltype(api.last_insert_rowid)>(&sqlite3_last_insert_rowid);
+        api.changes = reinterpret_cast<decltype(api.changes)>(&sqlite3_changes);
+        api.errmsg = reinterpret_cast<decltype(api.errmsg)>(&sqlite3_errmsg);
+        api.free = reinterpret_cast<decltype(api.free)>(&sqlite3_free);
+#endif
     });
     return api;
 }
 
 } // namespace
-#endif
+#endif // LIVA_HAS_SQLITE
 
 int64_t liva_sqlite_open(const char *path) {
     if (!path) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.open) return 0;
     void *db = nullptr;
@@ -2713,7 +2750,7 @@ int64_t liva_sqlite_open(const char *path) {
 
 void liva_sqlite_close(int64_t handle) {
     if (!handle) return;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (api.close) api.close((void *)(uintptr_t)handle);
 #else
@@ -2723,7 +2760,7 @@ void liva_sqlite_close(int64_t handle) {
 
 int32_t liva_sqlite_exec(int64_t handle, const char *sql) {
     if (!handle || !sql) return -1;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.exec) return -1;
     char *errmsg = nullptr;
@@ -2741,7 +2778,7 @@ int32_t liva_sqlite_exec(int64_t handle, const char *sql) {
 // if the query produced no rows or failed.
 char *liva_sqlite_query_first(int64_t handle, const char *sql) {
     if (!handle || !sql) return nullptr;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.prepare_v2 || !api.step || !api.finalize || !api.column_text)
         return nullptr;
@@ -2769,7 +2806,7 @@ char *liva_sqlite_query_first(int64_t handle, const char *sql) {
 int64_t liva_sqlite_query_int(int64_t handle, const char *sql, int32_t *ok) {
     if (ok) *ok = 0;
     if (!handle || !sql) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.prepare_v2 || !api.step || !api.finalize || !api.column_int64)
         return 0;
@@ -2798,7 +2835,7 @@ int64_t liva_sqlite_query_int(int64_t handle, const char *sql, int32_t *ok) {
 // for richer iteration once that API lands.
 char *liva_sqlite_query_all_first_col(int64_t handle, const char *sql) {
     if (!handle || !sql) return nullptr;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.prepare_v2 || !api.step || !api.finalize || !api.column_text)
         return nullptr;
@@ -2831,7 +2868,7 @@ char *liva_sqlite_query_all_first_col(int64_t handle, const char *sql) {
 
 int64_t liva_sqlite_last_insert_rowid(int64_t handle) {
     if (!handle) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.last_insert_rowid) return 0;
     return (int64_t)api.last_insert_rowid((void *)(uintptr_t)handle);
@@ -2843,7 +2880,7 @@ int64_t liva_sqlite_last_insert_rowid(int64_t handle) {
 
 int32_t liva_sqlite_changes(int64_t handle) {
     if (!handle) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.changes) return 0;
     return (int32_t)api.changes((void *)(uintptr_t)handle);
@@ -2855,7 +2892,7 @@ int32_t liva_sqlite_changes(int64_t handle) {
 
 char *liva_sqlite_errmsg(int64_t handle) {
     if (!handle) return nullptr;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.errmsg) return nullptr;
     const char *m = api.errmsg((void *)(uintptr_t)handle);
@@ -2877,7 +2914,7 @@ char *liva_sqlite_errmsg(int64_t handle) {
 
 int64_t liva_sqlite_prepare(int64_t db, const char *sql) {
     if (!db || !sql) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.prepare_v2) return 0;
     void *stmt = nullptr;
@@ -2896,7 +2933,7 @@ int64_t liva_sqlite_prepare(int64_t db, const char *sql) {
 
 int32_t liva_sqlite_bind_text(int64_t stmt, int32_t idx, const char *val) {
     if (!stmt) return -1;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.bind_text) return -1;
     // SQLITE_TRANSIENT = (void(*)(void*))-1 — tells SQLite to copy the
@@ -2916,7 +2953,7 @@ int32_t liva_sqlite_bind_text(int64_t stmt, int32_t idx, const char *val) {
 
 int32_t liva_sqlite_bind_int(int64_t stmt, int32_t idx, int64_t val) {
     if (!stmt) return -1;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.bind_int64) return -1;
     int rc = api.bind_int64((void *)(uintptr_t)stmt, idx, (long long)val);
@@ -2931,7 +2968,7 @@ int32_t liva_sqlite_bind_int(int64_t stmt, int32_t idx, int64_t val) {
 
 int32_t liva_sqlite_bind_double(int64_t stmt, int32_t idx, double val) {
     if (!stmt) return -1;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.bind_double) return -1;
     int rc = api.bind_double((void *)(uintptr_t)stmt, idx, val);
@@ -2946,7 +2983,7 @@ int32_t liva_sqlite_bind_double(int64_t stmt, int32_t idx, double val) {
 
 int32_t liva_sqlite_bind_null(int64_t stmt, int32_t idx) {
     if (!stmt) return -1;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.bind_null) return -1;
     int rc = api.bind_null((void *)(uintptr_t)stmt, idx);
@@ -2961,7 +2998,7 @@ int32_t liva_sqlite_bind_null(int64_t stmt, int32_t idx) {
 // 1 = row, 2 = done, 0 = error
 int32_t liva_sqlite_step(int64_t stmt) {
     if (!stmt) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.step) return 0;
     int rc = api.step((void *)(uintptr_t)stmt);
@@ -2976,7 +3013,7 @@ int32_t liva_sqlite_step(int64_t stmt) {
 
 int32_t liva_sqlite_reset(int64_t stmt) {
     if (!stmt) return -1;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.reset) return -1;
     int rc = api.reset((void *)(uintptr_t)stmt);
@@ -2989,7 +3026,7 @@ int32_t liva_sqlite_reset(int64_t stmt) {
 
 int32_t liva_sqlite_column_count(int64_t stmt) {
     if (!stmt) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.column_count) return 0;
     return (int32_t)api.column_count((void *)(uintptr_t)stmt);
@@ -3001,7 +3038,7 @@ int32_t liva_sqlite_column_count(int64_t stmt) {
 
 char *liva_sqlite_column_text(int64_t stmt, int32_t col) {
     if (!stmt) return nullptr;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.column_text) return nullptr;
     const unsigned char *t = api.column_text((void *)(uintptr_t)stmt, col);
@@ -3015,7 +3052,7 @@ char *liva_sqlite_column_text(int64_t stmt, int32_t col) {
 
 int64_t liva_sqlite_column_int(int64_t stmt, int32_t col) {
     if (!stmt) return 0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.column_int64) return 0;
     return (int64_t)api.column_int64((void *)(uintptr_t)stmt, col);
@@ -3028,7 +3065,7 @@ int64_t liva_sqlite_column_int(int64_t stmt, int32_t col) {
 
 double liva_sqlite_column_double(int64_t stmt, int32_t col) {
     if (!stmt) return 0.0;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (!api.column_double) return 0.0;
     return api.column_double((void *)(uintptr_t)stmt, col);
@@ -3041,7 +3078,7 @@ double liva_sqlite_column_double(int64_t stmt, int32_t col) {
 
 void liva_sqlite_finalize(int64_t stmt) {
     if (!stmt) return;
-#ifdef _WIN32
+#ifdef LIVA_HAS_SQLITE
     auto &api = sqlite_api();
     if (api.finalize) api.finalize((void *)(uintptr_t)stmt);
 #else

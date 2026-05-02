@@ -134,6 +134,15 @@ if(LIVA_HAS_LLVM)
             target_compile_definitions(liva_runtime PRIVATE LIVA_HAS_CURL)
         endif()
     endif()
+    # On Linux/macOS, link libsqlite3 for embedded SQL support if available.
+    # Windows pulls winsqlite3.dll dynamically — no link-time dep there.
+    if(NOT WIN32)
+        find_package(SQLite3)
+        if(SQLite3_FOUND)
+            target_link_libraries(liva_runtime PRIVATE SQLite::SQLite3)
+            target_compile_definitions(liva_runtime PRIVATE LIVA_HAS_POSIX_SQLITE)
+        endif()
+    endif()
     # Also link libstdc++ on Linux for std::regex and std::string
     if(NOT WIN32 AND NOT APPLE)
         target_link_libraries(liva_runtime PRIVATE stdc++)
