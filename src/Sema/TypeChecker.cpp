@@ -1677,6 +1677,10 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                     sym.type = genType->getTypeArgs()[0].get();
                 } else if (genType->getBaseName() == "Set" && genType->getTypeArgs().size() >= 1) {
                     sym.type = genType->getTypeArgs()[0].get();
+                } else if (genType->getBaseName() == "Generator" && genType->getTypeArgs().size() >= 1) {
+                    // Generator<T>: bind loop var to T (yielded value type).
+                    // Mirrors the wrap site at TypeChecker.cpp ~line 2697.
+                    sym.type = genType->getTypeArgs()[0].get();
                 }
             }
             // Custom Iterator (Iter protocol): Named type → check conformance
@@ -2674,16 +2678,21 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         auto *genSym = scopes_.lookup(ident->getName());
         if (genSym && genSym->funcDecl && genSym->funcDecl->isGenerator()) {
             std::vector<std::unique_ptr<TypeRepr>> genArgs;
-            if (node->getResolvedType()) {
+            const TypeRepr *resolved = node->getResolvedType();
+            // Treat void-returning generators (no declared return type) the
+            // same as no resolved type: default the yielded element to i32.
+            // Without this, for-in over `func gen() { yield 42 }` would bind
+            // the loop var to void and fail to type-check the body.
+            if (resolved && !resolved->isVoid()) {
                 // Already wrapped (e.g., Task<T>) — unwrap and re-wrap as Generator<T>.
-                if (node->getResolvedType()->getKind() == TypeRepr::Kind::Generic) {
-                    auto *gt = static_cast<const GenericTypeRepr *>(node->getResolvedType());
+                if (resolved->getKind() == TypeRepr::Kind::Generic) {
+                    auto *gt = static_cast<const GenericTypeRepr *>(resolved);
                     if (gt->getBaseName() == "Task" && !gt->getTypeArgs().empty()) {
                         genArgs.push_back(cloneTypeRepr(gt->getTypeArgs()[0].get()));
                     }
                 }
                 if (genArgs.empty())
-                    genArgs.push_back(cloneTypeRepr(node->getResolvedType()));
+                    genArgs.push_back(cloneTypeRepr(resolved));
             } else {
                 genArgs.push_back(makeI32Type());
             }

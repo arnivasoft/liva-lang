@@ -9436,6 +9436,54 @@ TEST_F(SemaTest, Generator_CallReturnsGeneratorType) {
         << "generator call must produce a non-void Generator<T> type";
 }
 
+TEST_F(SemaTest, Generator_ForInBindsLoopVarType) {
+    // for-in over Generator<T> must bind the loop var to T (the yielded
+    // value type), so the loop body can use `x` as that type.
+    auto result = check(R"--(
+        func gen() { yield 42 }
+        func main() {
+            for x in gen() {
+                let y: i32 = x
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors())
+        << "Sema rejected for-in over Generator<i32>; first error: "
+        << (result.diag.getDiagnostics().empty()
+                ? "none"
+                : result.diag.getDiagnostics().front().message);
+}
+
+TEST_F(SemaTest, Generator_ForInRejectsWrongTypeUse) {
+    // Loop var bound by Generator<T> dispatch must carry T's type — so
+    // assigning it to an incompatible type must produce a Sema error.
+    auto result = check(R"--(
+        func gen() { yield 42 }
+        func main() {
+            for x in gen() {
+                let y: string = x
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors())
+        << "loop var x should be bound to i32, so `let y: string = x` must error";
+}
+
+TEST_F(SemaTest, Generator_ForInTupleDestructuringRejected) {
+    // Generator<T> always yields a single value; tuple destructuring
+    // `for (a, b) in gen()` should remain a Sema error (no special case).
+    auto result = check(R"--(
+        func gen() { yield 42 }
+        func main() {
+            for (a, b) in gen() {
+                let _ = a
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors())
+        << "tuple destructuring over Generator<T> should error";
+}
+
 // ============================================================
 // Const Generics (B1)
 // ============================================================
