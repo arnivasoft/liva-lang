@@ -118,4 +118,27 @@ TEST(RuntimeExecTest, HelloWorld_PrintsAndExitsZero) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, AsyncSimple_ReturnsAndPrints) {
+    // XFAIL baseline as of 2de5e40: in-process compile of async source crashes
+    // with Windows SEH access violation (0xc0000005) inside CompilerInstance::compile()
+    // — the harness aborts before producing an executable. This is a compile-time
+    // crash in the async/coroutine IRGen path, not a runtime failure of the
+    // produced binary. Captured before any generator-runtime work; do NOT fix here.
+    // Tasks 6/7 may incidentally repair the shared coroutine ramp; if so, remove
+    // this GTEST_SKIP and let the assertions below run.
+    GTEST_SKIP() << "XFAIL: compiler crash (SEH 0xc0000005) in async IRGen during in-process compile";
+
+    auto r = compileAndRun(R"(
+        async func answer() -> i32 { return 42 }
+        async func main() {
+            let a: i32 = await answer()
+            println("got:")
+            println(a)
+        }
+    )", "async_simple");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("42"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
