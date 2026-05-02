@@ -27,6 +27,16 @@ Tüm standart kütüphane modülleri için eksiksiz referans. "Yerleşik" olarak
 19. [Path](#19-path)
 20. [Testing](#20-testing)
 21. [UI](#21-ui)
+22. [HTTP Client](#22-http-client-httphttp)
+23. [Sync Primitives](#23-sync-primitives-syncsync)
+24. [Dosya Sistemi](#24-dosya-sistemi-fsfs)
+25. [Regex (OOP)](#25-regex-regexregex)
+26. [Ağ (OOP)](#26-ag-netnet)
+27. [SQLite](#27-sqlite-sqlitesqlite)
+28. [WebSocket](#28-websocket-websocketwebsocket)
+29. [JWT](#29-jwt-jwtjwt)
+30. [TOML](#30-toml-tomltoml)
+31. [Encoding](#31-encoding-encodingencoding)
 
 ---
 
@@ -845,4 +855,214 @@ let req2 = Request.post("https://api.example.com", "data")
 
 ---
 
-*Bu API referansi, 26 module sahip Liva standart kutuphanesinin 1.0.0 surumunu kapsar.*
+## 27. SQLite (sqlite::sqlite)
+
+Gömülü SQL veritabanı. Windows 10+ üzerinde runtime `winsqlite3.dll`'i
+dinamik olarak yükler; sistem SQLite'ı bulunmayan platformlarda her
+giriş noktası sessizce başarısız olur (`open` → `nil`, `exec` →
+`false`, sorgular → `nil`/boş).
+
+```liva
+import sqlite::sqlite
+
+if let d = SqliteDB.openMemory() {
+    var db = d
+    db.exec("CREATE TABLE u (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+
+    // Parametre bağlamalı prepared statement (1 tabanlı indeks).
+    if let p = db.prepare("INSERT INTO u (name, age) VALUES (?, ?)") {
+        var ins = p
+        ins.bindText(1, "Alice")
+        ins.bindInt(2, 30 as i64)
+        ins.step()
+        ins.finalize()
+    }
+
+    // Satırları döngüyle gez (kolon indeksleri 0 tabanlı).
+    if let p = db.prepare("SELECT name, age FROM u WHERE age > ?") {
+        var q = p
+        q.bindInt(1, 18 as i64)
+        while q.step() {
+            println(q.columnText(0))
+            println(q.columnInt(1))
+        }
+        q.finalize()
+    }
+    db.close()
+}
+```
+
+### Yapılar
+
+| Yapı | Metotlar | Açıklama |
+|------|----------|----------|
+| `SqliteDB` | `open`, `openMemory`, `exec`, `queryString`, `queryInt`, `queryColumn`, `prepare`, `lastInsertId`, `changes`, `errorMessage`, `close` | Tek veritabanı bağlantısı (`":memory:"` veya dosya yolu) |
+| `Stmt` | `bindText`, `bindInt`, `bindDouble`, `bindNull`, `step`, `reset`, `columnCount`, `columnText`, `columnInt`, `columnDouble`, `finalize` | Parametre bağlamalı, satır iterasyonlu derlenmiş SQL ifadesi |
+
+`step()` satır varsa `true`, ifade tamamlandığında ya da hata
+oluştuğunda `false` döner. Bind indeksleri **1 tabanlı**, kolon
+indeksleri **0 tabanlı** (SQLite C API ile aynı). `bindText` içeride
+`SQLITE_TRANSIENT` kullanır; SQLite girdiyi kopyalar — Liva string'i
+hareket etse veya serbest bırakılsa da prepared statement bozulmaz.
+Bu sayede `'; DROP TABLE; --` içeren değerler bile güvenle
+saklanabilir.
+
+---
+
+## 28. WebSocket (websocket::websocket)
+
+Windows üzerinde `WinHTTP` ile çalışan WebSocket istemcisi; URL'ler
+`ws://` veya `wss://` şemasıyla başlar. WinHTTP bulunmayan
+platformlarda her çağrı `nil`/`false` döner.
+
+```liva
+import websocket::websocket
+
+if let s = WebSocket.connect("wss://echo.example.com/socket") {
+    var ws = s
+    ws.send("merhaba")
+    if let yanit = ws.recv() {
+        println(yanit)
+    }
+    ws.close()
+}
+```
+
+### Yapılar
+
+| Yapı | Metotlar | Açıklama |
+|------|----------|----------|
+| `WebSocket` | `connect`, `send`, `recv`, `isOpen`, `close`, `closeWith` | UTF-8 metin çerçeveleri taşıyan tek WebSocket bağlantısı |
+
+`recv()` parçalı mesajları otomatik olarak birleştirir; karşı taraf
+bağlantıyı kapatınca `nil` döner. `close()` standart 1000 kapatma
+kodunu gönderir; `closeWith(kod, sebep)` özel kod ve sebep
+göndermenize izin verir.
+
+---
+
+## 29. JWT (jwt::jwt)
+
+HMAC-SHA256 (HS256) ve HMAC-SHA512 (HS512) ile imzalanan JSON Web
+Token'lar. Doğrulama, runtime `constTimeEq` kullanarak sabit zamanda
+HMAC karşılaştırması yapar.
+
+```liva
+import jwt::jwt
+
+let token = Jwt.signHS256("gizli-anahtar", "{\"user\":\"alice\",\"exp\":1700000000}")
+println(token.toString())
+
+if let payload = Jwt.verifyHS256(token.toString(), "gizli-anahtar") {
+    println(payload)
+} else {
+    println("imza geçersiz")
+}
+```
+
+### Yapılar
+
+| Yapı | Metotlar | Açıklama |
+|------|----------|----------|
+| `Jwt` | `signHS256`, `signHS512`, `toString`, `verifyHS256`, `verifyHS512` | header.payload.signature parçalı imzalı JWT token |
+
+`Jwt` sarıcısı kullanmadan da çalışmak isteyenler için
+`jwtBuildHS256`, `jwtBuildHS512`, `jwtVerifyHS256`, `jwtVerifyHS512`
+serbest fonksiyonları da export edilir. Doğrulama başarıda payload
+JSON'unu, başarısız imza/yapıda `nil` döner.
+
+---
+
+## 30. TOML (toml::toml)
+
+TOML 1.0 ayrıştırıcı, isteğe bağlı erişim metotlarıyla. Sorgular
+bölüm + anahtar üzerinden yapılır.
+
+```liva
+import toml::toml
+
+let doc = TomlDocument.parse("[server]\nhost = \"localhost\"\nport = 8080")
+if doc.isValid() {
+    if let host = doc.getString("server", "host") {
+        println(host)
+    }
+    if let port = doc.getInt("server", "port") {
+        println(port)
+    }
+    if doc.hasKey("server", "tls") {
+        if let tls = doc.getBool("server", "tls") {
+            println(tls)
+        }
+    }
+}
+```
+
+### Yapılar
+
+| Yapı | Metotlar | Açıklama |
+|------|----------|----------|
+| `TomlDocument` | `parse`, `isValid`, `getString`, `getInt`, `getBool`, `hasKey`, `free` | Ayrıştırılmış TOML belgesi |
+
+Bir bölümden değer okumak için `getString` / `getInt` / `getBool`
+kullanın. Eksik bölüm/anahtar `nil` döner. Paket yöneticisi
+`liva.toml` için bu modülü kullanır.
+
+---
+
+## 31. Encoding (encoding::encoding)
+
+Metin kodlamaları (Base64, Base64URL, Hex, URL percent-encoding) ve
+RFC 1952 gzip sıkıştırma. Encoder LZ77 + sabit Huffman bloğu ile
+çalışır.
+
+```liva
+import encoding::encoding
+
+let b64 = toBase64("merhaba")
+let geri = fromBase64(b64)
+
+let url = toUrl("merhaba dünya & arkadaşlar")
+let cz = fromUrl(url)
+
+let hex = toHex("Hi")
+let bin = fromHex(hex)
+
+let urlGuvenli = toBase64Url("subjects?")
+
+// Runtime built-in'leri ile gzip / gunzip
+let bytes: [u8] = strToBytes("hello hello hello hello hello")
+let gz: [u8] = gzipEncode(bytes)
+if let plain = gzipDecode(gz) {
+    println(bytesToStr(plain))
+}
+```
+
+### Yapılar
+
+| Yapı | Metotlar | Açıklama |
+|------|----------|----------|
+| `Base64` | `encode`, `fromEncoded`, `decode`, `toString` | Base64 (RFC 4648) sarıcı |
+| `Base64Url` | `encode`, `fromEncoded`, `decode`, `toString` | URL güvenli Base64 (padding'siz) |
+| `Hex` | `encode`, `fromEncoded`, `decode`, `toString` | Küçük harf hex |
+| `Url` | `encode`, `fromEncoded`, `decode`, `toString` | URL percent-encoding |
+
+### Serbest fonksiyonlar
+
+| Fonksiyon | Dönüş | Açıklama |
+|-----------|-------|----------|
+| `toBase64`, `fromBase64` | `String` / `String?` | Base64 turlama |
+| `toBase64Url`, `fromBase64Url` | `String` / `String?` | Base64URL (padding'siz) — JWT tarafından kullanılır |
+| `toHex`, `fromHex` | `String` / `String?` | Hex turlama |
+| `toUrl`, `fromUrl` | `String` / `String?` | Percent-encoding turlama |
+| `checksum` | `i64` | CRC32 |
+| `gzipEncode(data: [u8]) -> [u8]` | `[u8]` | LZ77 + sabit Huffman ile RFC 1952 gzip |
+| `gzipDecode(data: [u8]) -> [u8]?` | `[u8]?` | gunzip; stored, sabit ve dinamik Huffman bloklarını destekler; bozuk girdide nil |
+
+Gömülü NUL byte'ı içeren ikili veri için `[u8]` (byte dizisi)
+varyantlarını kullanın: `hexEncodeBytes` / `hexDecodeBytes` /
+`base64UrlEncodeBytes` / `base64UrlDecodeBytes` / `strToBytes` /
+`bytesToStr`. String tabanlı encoder'lar ilk NUL'da kesilir.
+
+---
+
+*Bu API referansı, 31 modüle sahip Liva standart kütüphanesinin 0.3.0 sürümünü kapsar.*

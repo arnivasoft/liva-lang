@@ -32,6 +32,11 @@ Complete reference for all standard library modules. Functions listed as "built-
 24. [File System](#24-file-system-fsfs)
 25. [Regex (OOP)](#25-regex-regexregex)
 26. [Networking (OOP)](#26-networking-netnet)
+27. [SQLite](#27-sqlite-sqlitesqlite)
+28. [WebSocket](#28-websocket-websocketwebsocket)
+29. [JWT](#29-jwt-jwtjwt)
+30. [TOML](#30-toml-tomltoml)
+31. [Encoding](#31-encoding-encodingencoding)
 
 ---
 
@@ -874,4 +879,213 @@ let req2 = Request.post("https://api.example.com", "data")
 
 ---
 
-*This API reference covers the Liva standard library as of version 0.3.0 with 26 modules. The library is under active development.*
+## 27. SQLite (sqlite::sqlite)
+
+Embedded SQL database. On Windows 10+ the runtime dynamically loads
+`winsqlite3.dll`; on platforms without a system SQLite, every entry
+point fails closed (`open` returns `nil`, `exec` returns `false`,
+queries return `nil`/empty).
+
+```liva
+import sqlite::sqlite
+
+if let d = SqliteDB.openMemory() {
+    var db = d
+    db.exec("CREATE TABLE u (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+
+    // Prepared statement with parameter binding (1-indexed).
+    if let p = db.prepare("INSERT INTO u (name, age) VALUES (?, ?)") {
+        var ins = p
+        ins.bindText(1, "Alice")
+        ins.bindInt(2, 30 as i64)
+        ins.step()
+        ins.finalize()
+    }
+
+    // Iterate result rows (column indices are 0-based).
+    if let p = db.prepare("SELECT name, age FROM u WHERE age > ?") {
+        var q = p
+        q.bindInt(1, 18 as i64)
+        while q.step() {
+            println(q.columnText(0))
+            println(q.columnInt(1))
+        }
+        q.finalize()
+    }
+    db.close()
+}
+```
+
+### Structs
+
+| Struct | Methods | Description |
+|--------|---------|-------------|
+| `SqliteDB` | `open`, `openMemory`, `exec`, `queryString`, `queryInt`, `queryColumn`, `prepare`, `lastInsertId`, `changes`, `errorMessage`, `close` | A single database connection (use `":memory:"` or a file path) |
+| `Stmt` | `bindText`, `bindInt`, `bindDouble`, `bindNull`, `step`, `reset`, `columnCount`, `columnText`, `columnInt`, `columnDouble`, `finalize` | Compiled SQL statement with parameter binding and row iteration |
+
+`step()` returns `true` if a row is available, `false` once the
+statement is done or hit an error. Bind indices are **1-based**;
+column indices are **0-based** (matching the SQLite C API).
+`bindText` uses `SQLITE_TRANSIENT` internally, so SQLite copies the
+input — Liva strings can move or be freed without breaking the
+prepared statement. This makes prepared statements safe against SQL
+injection even with values containing `'; DROP TABLE; --`.
+
+---
+
+## 28. WebSocket (websocket::websocket)
+
+WebSocket client backed by `WinHTTP` on Windows; URLs use the `ws://`
+or `wss://` scheme. Stub on platforms without WinHTTP (every call
+short-circuits to nil/false).
+
+```liva
+import websocket::websocket
+
+if let s = WebSocket.connect("wss://echo.example.com/socket") {
+    var ws = s
+    ws.send("hello")
+    if let reply = ws.recv() {
+        println(reply)
+    }
+    ws.close()
+}
+```
+
+### Structs
+
+| Struct | Methods | Description |
+|--------|---------|-------------|
+| `WebSocket` | `connect`, `send`, `recv`, `isOpen`, `close`, `closeWith` | Single WebSocket connection (UTF-8 text frames) |
+
+`recv()` automatically reassembles fragmented messages until a final
+UTF-8 or binary frame arrives; it returns `nil` when the peer closes
+the connection. `close()` sends close code 1000; `closeWith(code,
+reason)` lets you send a custom code and reason.
+
+---
+
+## 29. JWT (jwt::jwt)
+
+JSON Web Tokens with HMAC-SHA256 (HS256) and HMAC-SHA512 (HS512).
+Verify uses constant-time HMAC comparison via runtime `constTimeEq`.
+
+```liva
+import jwt::jwt
+
+let token = Jwt.signHS256("my-secret", "{\"user\":\"alice\",\"exp\":1700000000}")
+println(token.toString())
+
+if let payload = Jwt.verifyHS256(token.toString(), "my-secret") {
+    println(payload)
+} else {
+    println("invalid signature")
+}
+```
+
+### Structs
+
+| Struct | Methods | Description |
+|--------|---------|-------------|
+| `Jwt` | `signHS256`, `signHS512`, `toString`, `verifyHS256`, `verifyHS512` | Signed JWT token with header.payload.signature segments |
+
+The free functions `jwtBuildHS256`, `jwtBuildHS512`, `jwtVerifyHS256`,
+`jwtVerifyHS512` are also exported for use without the `Jwt` wrapper.
+Verify returns the decoded payload JSON on success, `nil` on
+signature/structure failure.
+
+---
+
+## 30. TOML (toml::toml)
+
+TOML 1.0 parser with optional accessors. Returns a document that you
+query by section and key.
+
+```liva
+import toml::toml
+
+let doc = TomlDocument.parse("[server]\nhost = \"localhost\"\nport = 8080")
+if doc.isValid() {
+    if let host = doc.getString("server", "host") {
+        println(host)
+    }
+    if let port = doc.getInt("server", "port") {
+        println(port)
+    }
+    if doc.hasKey("server", "tls") {
+        if let tls = doc.getBool("server", "tls") {
+            println(tls)
+        }
+    }
+}
+```
+
+### Structs
+
+| Struct | Methods | Description |
+|--------|---------|-------------|
+| `TomlDocument` | `parse`, `isValid`, `getString`, `getInt`, `getBool`, `hasKey`, `free` | Parsed TOML document |
+
+Use `getString` / `getInt` / `getBool` to read values from a section.
+A missing section/key returns `nil`. The package manager itself uses
+this module for `liva.toml`.
+
+---
+
+## 31. Encoding (encoding::encoding)
+
+Text encodings (Base64, Base64URL, Hex, URL percent-encoding) and
+RFC 1952 gzip compression with the encoder running LZ77 + a fixed
+Huffman block.
+
+```liva
+import encoding::encoding
+
+let b64 = toBase64("hello")
+let back = fromBase64(b64)
+
+let url = toUrl("hello world & friends")
+let dec = fromUrl(url)
+
+let hex = toHex("Hi")
+let bin = fromHex(hex)
+
+let urlSafe = toBase64Url("subjects?")
+
+// gzip / gunzip via runtime built-ins
+let bytes: [u8] = strToBytes("hello hello hello hello hello")
+let gz: [u8] = gzipEncode(bytes)
+if let plain = gzipDecode(gz) {
+    println(bytesToStr(plain))
+}
+```
+
+### Structs
+
+| Struct | Methods | Description |
+|--------|---------|-------------|
+| `Base64` | `encode`, `fromEncoded`, `decode`, `toString` | Base64 (RFC 4648) wrapper |
+| `Base64Url` | `encode`, `fromEncoded`, `decode`, `toString` | URL-safe Base64 (no padding) |
+| `Hex` | `encode`, `fromEncoded`, `decode`, `toString` | Lowercase hex |
+| `Url` | `encode`, `fromEncoded`, `decode`, `toString` | URL percent-encoding |
+
+### Free functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `toBase64`, `fromBase64` | `String` / `String?` | Base64 round-trip |
+| `toBase64Url`, `fromBase64Url` | `String` / `String?` | Base64URL (no padding) — used by JWT |
+| `toHex`, `fromHex` | `String` / `String?` | Hex round-trip |
+| `toUrl`, `fromUrl` | `String` / `String?` | Percent-encoding round-trip |
+| `checksum` | `i64` | CRC32 |
+| `gzipEncode(data: [u8]) -> [u8]` | `[u8]` | RFC 1952 gzip with LZ77 + fixed Huffman |
+| `gzipDecode(data: [u8]) -> [u8]?` | `[u8]?` | gunzip; supports stored, fixed, and dynamic Huffman blocks; nil on bad input |
+
+For binary data with embedded NUL bytes, use the `[u8]` (byte array)
+variants: `hexEncodeBytes` / `hexDecodeBytes` /
+`base64UrlEncodeBytes` / `base64UrlDecodeBytes` / `strToBytes` /
+`bytesToStr`. The string-based encoders truncate at the first NUL.
+
+---
+
+*This API reference covers the Liva standard library as of version 0.3.0 with 31 modules. The library is under active development.*
