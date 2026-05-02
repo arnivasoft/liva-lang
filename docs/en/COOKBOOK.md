@@ -945,4 +945,203 @@ extension Point {
 
 ---
 
+## 20. SQLite: Prepared Statements
+
+Use prepared statements with parameter binding for safe, repeatable
+queries. Bind indices are 1-based, column indices are 0-based.
+
+```liva
+import sqlite::sqlite
+
+func main() {
+    if let d = SqliteDB.openMemory() {
+        var db = d
+        db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+
+        // Re-use one prepared INSERT for several rows.
+        if let p = db.prepare("INSERT INTO users (name, age) VALUES (?, ?)") {
+            var ins = p
+            for pair in [("Alice", 30), ("Bob", 17), ("Charlie", 25)] {
+                ins.bindText(1, pair.0)
+                ins.bindInt(2, pair.1 as i64)
+                ins.step()
+                ins.reset()
+            }
+            ins.finalize()
+        }
+
+        // SELECT with a bound parameter — never interpolate user input
+        // into SQL strings. Even `'; DROP TABLE users; --` round-trips
+        // as a literal value when bound through bindText.
+        if let p = db.prepare("SELECT name, age FROM users WHERE age > ? ORDER BY age") {
+            var q = p
+            q.bindInt(1, 18 as i64)
+            while q.step() {
+                println("\(q.columnText(0)): \(q.columnInt(1))")
+            }
+            q.finalize()
+        }
+        db.close()
+    }
+}
+```
+
+**Key points:**
+- `prepare` returns `Stmt?` — `nil` if SQL fails to compile
+- `step()` returns `true` while rows are available, `false` when done
+- `reset()` rewinds for re-execution; bound parameters carry over
+- `bindText` uses `SQLITE_TRANSIENT` so SQLite copies the input
+
+---
+
+## 21. WebSocket: Real-Time Echo
+
+Connect to a WebSocket server and exchange UTF-8 text frames.
+
+```liva
+import websocket::websocket
+
+func main() {
+    if let s = WebSocket.connect("wss://echo.websocket.org") {
+        var ws = s
+        if !ws.send("hello from liva") {
+            println("send failed")
+            ws.close()
+            return
+        }
+        if let reply = ws.recv() {
+            println("server said: \(reply)")
+        }
+        ws.close()
+    } else {
+        println("connect failed")
+    }
+}
+```
+
+**Key points:**
+- URLs use `ws://` (port 80) or `wss://` (port 443)
+- `recv()` reassembles fragmented frames automatically
+- `recv()` returns `nil` when the peer closes the connection
+- `closeWith(code, reason)` lets you send a custom close code
+
+---
+
+## 22. JWT: Sign and Verify
+
+Issue and verify HMAC-signed tokens. Verification uses constant-time
+HMAC comparison.
+
+```liva
+import jwt::jwt
+
+func main() {
+    let secret = "my-shared-secret"
+    let payload = "{\"sub\":\"alice\",\"role\":\"admin\",\"exp\":1700000000}"
+
+    // Sign with HS256
+    let token = Jwt.signHS256(secret, payload)
+    println(token.toString())
+
+    // Verify and recover the payload
+    if let verified = Jwt.verifyHS256(token.toString(), secret) {
+        println("payload: \(verified)")
+    } else {
+        println("invalid token")
+    }
+
+    // Tamper detection: a wrong secret rejects the token
+    if let _ = Jwt.verifyHS256(token.toString(), "wrong-secret") {
+        println("never")
+    } else {
+        println("rejected as expected")
+    }
+}
+```
+
+**Key points:**
+- HS256 uses SHA-256, HS512 uses SHA-512
+- Signature segment is Base64URL-encoded (no padding)
+- Verify returns the payload JSON on success, `nil` on bad signature
+- Compare with `constTimeEq` to avoid timing attacks (built-in)
+
+---
+
+## 23. TOML: Configuration File
+
+Parse a configuration file and read typed values.
+
+```liva
+import toml::toml
+import std::io
+
+func main() {
+    let text = readFile("config.toml")
+    let doc = TomlDocument.parse(text)
+
+    if !doc.isValid() {
+        println("invalid TOML")
+        return
+    }
+
+    let host = doc.getString("server", "host") ?? "localhost"
+    let port = doc.getInt("server", "port") ?? 8080 as i64
+    let debug = doc.getBool("server", "debug") ?? false
+
+    println("listening on \(host):\(port) (debug=\(debug))")
+}
+```
+
+`config.toml`:
+```toml
+[server]
+host = "0.0.0.0"
+port = 9000
+debug = true
+```
+
+**Key points:**
+- `getString` / `getInt` / `getBool` return `Optional<T>` — use `??` for defaults
+- `hasKey(section, key)` checks presence without reading the value
+- Used internally by the package manager for `liva.toml`
+
+---
+
+## 24. Gzip: Compress and Decompress
+
+Round-trip binary data through gzip. The encoder uses LZ77 + a fixed
+Huffman block; the decoder accepts all three deflate block types.
+
+```liva
+import std::compress
+
+func main() {
+    let original = "hello hello hello hello hello world world world"
+    let bytes: [u8] = strToBytes(original)
+
+    // Encode (RFC 1952 gzip with LZ77 + fixed Huffman)
+    let gz: [u8] = gzipEncode(bytes)
+    println("\(bytes.length) bytes -> \(gz.length) bytes")
+
+    // Decode (handles stored, fixed, and dynamic Huffman blocks)
+    if let plain = gzipDecode(gz) {
+        let recovered = bytesToStr(plain)
+        if recovered == original {
+            println("round-trip OK")
+        }
+    } else {
+        println("decode failed — not valid gzip")
+    }
+}
+```
+
+**Key points:**
+- Inputs and outputs are `[u8]` byte arrays — use `strToBytes` /
+  `bytesToStr` to convert from/to `String`
+- `gzipDecode` returns `Optional<[u8]>` — `nil` for malformed input
+- The encoder gets meaningful compression on redundant data
+  (1000 identical bytes compresses to <100 bytes)
+
+---
+
 *This cookbook covers common patterns in Liva as of version 1.0.0. For a complete language reference, see [LANGUAGE-REFERENCE.md](LANGUAGE-REFERENCE.md). For the standard library API, see [API-REFERENCE.md](API-REFERENCE.md).*

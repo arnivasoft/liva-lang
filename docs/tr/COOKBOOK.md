@@ -863,4 +863,204 @@ extension Point {
 
 ---
 
+## 20. SQLite: Prepared Statements
+
+Parametre bağlamalı, tekrar kullanılabilir sorgular için prepared
+statement kullanın. Bind indeksleri 1 tabanlı, kolon indeksleri 0
+tabanlıdır.
+
+```liva
+import sqlite::sqlite
+
+func main() {
+    if let d = SqliteDB.openMemory() {
+        var db = d
+        db.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+
+        // Tek prepared INSERT'ü birden fazla satır için yeniden kullan.
+        if let p = db.prepare("INSERT INTO users (name, age) VALUES (?, ?)") {
+            var ins = p
+            for pair in [("Alice", 30), ("Bob", 17), ("Charlie", 25)] {
+                ins.bindText(1, pair.0)
+                ins.bindInt(2, pair.1 as i64)
+                ins.step()
+                ins.reset()
+            }
+            ins.finalize()
+        }
+
+        // Kullanıcı girdisini ASLA SQL string'e gömmeyin —
+        // `'; DROP TABLE users; --` bile bindText üzerinden geçtiğinde
+        // sadece düz değer olarak saklanır.
+        if let p = db.prepare("SELECT name, age FROM users WHERE age > ? ORDER BY age") {
+            var q = p
+            q.bindInt(1, 18 as i64)
+            while q.step() {
+                println("\(q.columnText(0)): \(q.columnInt(1))")
+            }
+            q.finalize()
+        }
+        db.close()
+    }
+}
+```
+
+**Önemli noktalar:**
+- `prepare` `Stmt?` döner — SQL derlenmezse `nil`
+- `step()` satır varsa `true`, ifade tamamlandığında `false`
+- `reset()` ifadeyi başa sarar; bound parametreler taşınır
+- `bindText` içeride `SQLITE_TRANSIENT` kullanır (SQLite kopyalar)
+
+---
+
+## 21. WebSocket: Gerçek Zamanlı Echo
+
+Bir WebSocket sunucusuna bağlan ve UTF-8 metin çerçevesi alıp gönder.
+
+```liva
+import websocket::websocket
+
+func main() {
+    if let s = WebSocket.connect("wss://echo.websocket.org") {
+        var ws = s
+        if !ws.send("liva'dan merhaba") {
+            println("gönderim başarısız")
+            ws.close()
+            return
+        }
+        if let yanit = ws.recv() {
+            println("sunucu: \(yanit)")
+        }
+        ws.close()
+    } else {
+        println("bağlantı başarısız")
+    }
+}
+```
+
+**Önemli noktalar:**
+- URL'ler `ws://` (port 80) veya `wss://` (port 443) kullanır
+- `recv()` parçalı çerçeveleri otomatik birleştirir
+- Karşı taraf bağlantıyı kapattığında `recv()` `nil` döner
+- `closeWith(kod, sebep)` özel kapatma kodu gönderir
+
+---
+
+## 22. JWT: İmzala ve Doğrula
+
+HMAC ile imzalanan token'ları yayınla ve doğrula. Doğrulama,
+HMAC'i sabit zamanda karşılaştırır.
+
+```liva
+import jwt::jwt
+
+func main() {
+    let secret = "paylasilan-gizli-anahtar"
+    let payload = "{\"sub\":\"alice\",\"role\":\"admin\",\"exp\":1700000000}"
+
+    // HS256 ile imzala
+    let token = Jwt.signHS256(secret, payload)
+    println(token.toString())
+
+    // Doğrula ve payload'u geri al
+    if let dogrulanmis = Jwt.verifyHS256(token.toString(), secret) {
+        println("payload: \(dogrulanmis)")
+    } else {
+        println("token geçersiz")
+    }
+
+    // Kurcalama tespiti: yanlış secret token'ı reddeder
+    if let _ = Jwt.verifyHS256(token.toString(), "yanlis-secret") {
+        println("asla")
+    } else {
+        println("beklendiği gibi reddedildi")
+    }
+}
+```
+
+**Önemli noktalar:**
+- HS256 SHA-256, HS512 SHA-512 kullanır
+- İmza segmenti Base64URL ile kodlanır (padding yok)
+- Doğrulama başarıda payload JSON'u, başarısız imzada `nil` döner
+- Zamanlama saldırılarına karşı `constTimeEq` ile karşılaştırma yapılır
+
+---
+
+## 23. TOML: Yapılandırma Dosyası
+
+Yapılandırma dosyasını ayrıştır ve değerleri tipli olarak oku.
+
+```liva
+import toml::toml
+import std::io
+
+func main() {
+    let metin = readFile("config.toml")
+    let doc = TomlDocument.parse(metin)
+
+    if !doc.isValid() {
+        println("geçersiz TOML")
+        return
+    }
+
+    let host = doc.getString("server", "host") ?? "localhost"
+    let port = doc.getInt("server", "port") ?? 8080 as i64
+    let debug = doc.getBool("server", "debug") ?? false
+
+    println("dinleniyor \(host):\(port) (debug=\(debug))")
+}
+```
+
+`config.toml`:
+```toml
+[server]
+host = "0.0.0.0"
+port = 9000
+debug = true
+```
+
+**Önemli noktalar:**
+- `getString` / `getInt` / `getBool` `Optional<T>` döner — varsayılan için `??`
+- `hasKey(section, key)` değer okumadan varlık kontrolü yapar
+- `liva.toml` için paket yöneticisi tarafından kullanılır
+
+---
+
+## 24. Gzip: Sıkıştır ve Aç
+
+İkili veriyi gzip'le turla. Encoder LZ77 + sabit Huffman bloğu;
+decoder her üç deflate blok tipini de kabul eder.
+
+```liva
+import std::compress
+
+func main() {
+    let original = "hello hello hello hello hello world world world"
+    let bytes: [u8] = strToBytes(original)
+
+    // Sıkıştır (LZ77 + sabit Huffman ile RFC 1952 gzip)
+    let gz: [u8] = gzipEncode(bytes)
+    println("\(bytes.length) bayt -> \(gz.length) bayt")
+
+    // Aç (stored, fixed ve dynamic Huffman bloklarını destekler)
+    if let plain = gzipDecode(gz) {
+        let recovered = bytesToStr(plain)
+        if recovered == original {
+            println("turlama tamam")
+        }
+    } else {
+        println("açma başarısız — geçerli gzip değil")
+    }
+}
+```
+
+**Önemli noktalar:**
+- Girdi/çıktı `[u8]` byte dizisi — `String` ↔ `[u8]` için
+  `strToBytes` / `bytesToStr` kullanın
+- `gzipDecode` `Optional<[u8]>` döner — bozuk girdide `nil`
+- Encoder tekrar eden veride anlamlı sıkıştırma sağlar
+  (1000 aynı bayt <100 bayta sıkışır)
+
+---
+
 *Bu yemek kitabi, 1.0.0 surumu itibariyla Liva'daki yaygin kaliplari kapsar.*
