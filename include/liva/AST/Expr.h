@@ -226,6 +226,16 @@ public:
     const std::string &getMember() const { return member_; }
     bool isOptionalChain() const { return isOptionalChain_; }
 
+    /// Explicit type args at the method call site:
+    ///   s.map::<i64>(...)   or   s.map<i64>(...)
+    /// Empty when inference is used.
+    void setTypeArgs(std::vector<std::unique_ptr<TypeRepr>> args) {
+        typeArgs_ = std::move(args);
+    }
+    const std::vector<std::unique_ptr<TypeRepr>> &getTypeArgs() const {
+        return typeArgs_;
+    }
+
     static bool classof(const ASTNode *node) {
         return node->getKind() == NodeKind::MemberExpr;
     }
@@ -234,6 +244,7 @@ private:
     std::unique_ptr<Expr> object_;
     std::string member_;
     bool isOptionalChain_;
+    std::vector<std::unique_ptr<TypeRepr>> typeArgs_;
 };
 
 /// Index expression: arr[i]

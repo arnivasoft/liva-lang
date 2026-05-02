@@ -1538,14 +1538,25 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                             structTypeName[baseName.size()] == '_') {
                             for (auto &m : implDecl->getMethods()) {
                                 if (m->getName() == methodName) {
-                                    // Method-level type-param inference for
-                                    // `func map<U>(...)`: walk param TypeReprs
-                                    // and arg resolved TypeReprs in parallel
-                                    // (just like the static-method path does
-                                    // for struct-level T's).
+                                    // Explicit method type args at the call
+                                    // site (`s.map::<i64>(...)` or
+                                    // `s.map<i64>(...)`) take priority over
+                                    // inference. Pulled from the MemberExpr
+                                    // that names the method.
                                     std::vector<const TypeRepr *> methodTypeArgs;
                                     const auto &mtps = m->getTypeParams();
-                                    if (!mtps.empty()) {
+                                    if (auto *callExpr = node) {
+                                        if (callExpr->getCallee()->getKind() ==
+                                            ASTNode::NodeKind::MemberExpr) {
+                                            auto *me = static_cast<const MemberExpr *>(
+                                                callExpr->getCallee());
+                                            if (!me->getTypeArgs().empty()) {
+                                                for (auto &ta : me->getTypeArgs())
+                                                    methodTypeArgs.push_back(ta.get());
+                                            }
+                                        }
+                                    }
+                                    if (methodTypeArgs.empty() && !mtps.empty()) {
                                         std::unordered_set<std::string> tpSet(
                                             mtps.begin(), mtps.end());
                                         std::unordered_map<std::string,

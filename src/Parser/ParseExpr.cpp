@@ -565,8 +565,74 @@ std::unique_ptr<Expr> Parser::parseMemberExpr(std::unique_ptr<Expr> object,
 
     auto member = expect(TokenKind::identifier);
 
-    return std::make_unique<MemberExpr>(std::move(object), std::string(member.getText()),
-                                        rangeFrom(startLoc), isOptionalChain);
+    auto memberExpr = std::make_unique<MemberExpr>(
+        std::move(object), std::string(member.getText()),
+        rangeFrom(startLoc), isOptionalChain);
+
+    // Explicit method type args at the call site:
+    //   s.map::<i64>(...) — turbofish, unambiguous
+    //   s.map<i64>(...)   — plain, disambiguated by lookahead just like
+    //                       `Stream<T>{...}` at the primary level.
+    if (check(TokenKind::coloncolon) && peek().is(TokenKind::less)) {
+        advance(); // ::
+        advance(); // <
+        std::vector<std::unique_ptr<TypeRepr>> typeArgs;
+        if (!check(TokenKind::greater)) {
+            do {
+                auto ty = parseType();
+                if (!ty) return nullptr;
+                typeArgs.push_back(std::move(ty));
+            } while (match(TokenKind::comma));
+        }
+        expect(TokenKind::greater);
+        memberExpr->setTypeArgs(std::move(typeArgs));
+    } else if (check(TokenKind::less)) {
+        // Try plain `<...>` only if the matching `>` is followed by `(` —
+        // method calls with explicit type args. Otherwise it's a comparison.
+        auto savedLex = lexer_.saveState();
+        Token savedCur = current_;
+        advance(); // <
+        int depth = 1;
+        bool ok = false;
+        while (!check(TokenKind::eof)) {
+            if (check(TokenKind::less)) {
+                depth++;
+            } else if (check(TokenKind::greater)) {
+                if (--depth == 0) { ok = true; break; }
+            } else if (check(TokenKind::semicolon) ||
+                       check(TokenKind::l_brace) ||
+                       check(TokenKind::r_brace) ||
+                       check(TokenKind::r_paren) ||
+                       check(TokenKind::r_bracket)) {
+                break;
+            }
+            advance();
+        }
+        if (ok) {
+            advance(); // >
+            bool isCall = check(TokenKind::l_paren);
+            lexer_.restoreState(savedLex);
+            current_ = savedCur;
+            if (isCall) {
+                advance(); // <
+                std::vector<std::unique_ptr<TypeRepr>> typeArgs;
+                if (!check(TokenKind::greater)) {
+                    do {
+                        auto ty = parseType();
+                        if (!ty) return nullptr;
+                        typeArgs.push_back(std::move(ty));
+                    } while (match(TokenKind::comma));
+                }
+                expect(TokenKind::greater);
+                memberExpr->setTypeArgs(std::move(typeArgs));
+            }
+        } else {
+            lexer_.restoreState(savedLex);
+            current_ = savedCur;
+        }
+    }
+
+    return memberExpr;
 }
 
 std::unique_ptr<Expr> Parser::parseIndexExpr(std::unique_ptr<Expr> base) {

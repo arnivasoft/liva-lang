@@ -647,6 +647,55 @@ func main() {
 // inferred from arg types, mangled into the method's name
 // (Stream_string_map_i64), and substituted independently. Different
 // (T, U) instantiations produce distinct functions in the same program.
+// Explicit method type args at the call site, both forms:
+//   s.map::<U>(...)  — turbofish, unambiguous
+//   s.map<U>(...)    — plain, disambiguated by lookahead (only commits
+//                      when the closing `>` is followed by `(`)
+// Inference still kicks in when no args are given.
+TEST_F(SelfHostTest, ExplicitMethodTypeArgsAtCallSite) {
+    expectOutput(R"--(
+pub struct Stream<T> {
+    var source: [T]
+    var index: i64
+}
+impl Stream<T> {
+    pub func from(arr: [T]) -> Stream<T> {
+        return Stream<T> { source: arr, index: 0 as i64 }
+    }
+    pub func map<U>(ref self, f: (T) -> U) -> [U] {
+        var result: [U] = []
+        var i: i64 = self.index
+        let n: i64 = self.source.length
+        while i < n {
+            let v: T = self.source[i]
+            result.push(f(v))
+            i = i + (1 as i64)
+        }
+        return result
+    }
+}
+
+func main() {
+    var arr: [string] = []
+    arr.push("a")
+    arr.push("bb")
+    let s = Stream<string>.from(arr)
+    let l1: [i64] = s.map::<i64>(|w: string| -> i64 { return w.length })
+    for n in l1 { println(n) }
+    let l2: [i64] = s.map<i64>(|w: string| -> i64 { return w.length })
+    for n in l2 { println(n) }
+
+    // Inference still works
+    let l3: [i64] = s.map(|w: string| -> i64 { return w.length })
+    for n in l3 { println(n) }
+
+    // Comparison after member access must still parse
+    let p: i64 = 5 as i64
+    if p < (10 as i64) { println("less") }
+}
+)--", "1\n2\n1\n2\n1\n2\nless\n");
+}
+
 TEST_F(SelfHostTest, GenericMethodTypeParamMap) {
     expectOutput(R"--(
 import stream::stream
