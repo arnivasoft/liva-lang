@@ -361,6 +361,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldVarFileTypes = varFileTypes_;
     auto oldVarFileOptionalTypes = varFileOptionalTypes_;
     auto oldVarTupleTypes = varTupleTypes_;
+    auto oldVarGeneratorTypes = varGeneratorTypes_;
     auto oldMovedVars = movedVars_;
     auto oldHeapStringVars = heapStringVars_;
     auto oldHeapOptionalStringVars = heapOptionalStringVars_;
@@ -404,6 +405,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varFileTypes_.clear();
     varFileOptionalTypes_.clear();
     varTupleTypes_.clear();
+    varGeneratorTypes_.clear();
     movedVars_.clear();
     heapStringVars_.clear();
     heapOptionalStringVars_.clear();
@@ -685,6 +687,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     varFileTypes_ = oldVarFileTypes;
     varFileOptionalTypes_ = oldVarFileOptionalTypes;
     varTupleTypes_ = oldVarTupleTypes;
+    varGeneratorTypes_ = oldVarGeneratorTypes;
     movedVars_ = oldMovedVars;
     heapStringVars_ = oldHeapStringVars;
     heapOptionalStringVars_ = oldHeapOptionalStringVars;
@@ -1603,6 +1606,9 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             }
         }
 
+        // Clear any stale generator-type entry for this name (in case of shadowing).
+        varGeneratorTypes_.erase(node->getName());
+
         // Track Generator<T>-typed variables so visitForStmt can emit a
         // coroutine-iteration loop for `let g = gen(); for x in g`.
         // Mirrors the CallExpr-based path that consults generatorFuncs_.
@@ -1829,6 +1835,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarProtocolTypes = varProtocolTypes_;
         auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
         auto oldVarResultTypes = varResultTypes_;
+        auto oldVarGeneratorTypes = varGeneratorTypes_;
         auto *oldFuncRI = currentFuncResultInfo_;
         auto *oldFuncOptInner = currentFuncOptionalInner_;
         auto oldMovedVars = movedVars_;
@@ -1849,6 +1856,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varConcreteProtocolTypes_.clear();
         varResultTypes_.clear();
         varFileTypes_.clear();
+        varGeneratorTypes_.clear();
         currentFuncResultInfo_ = nullptr;
         currentFuncOptionalInner_ = nullptr;
         movedVars_.clear();
@@ -1973,6 +1981,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         varProtocolTypes_ = oldVarProtocolTypes;
         varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
         varResultTypes_ = oldVarResultTypes;
+        varGeneratorTypes_ = oldVarGeneratorTypes;
         currentFuncResultInfo_ = oldFuncRI;
         currentFuncOptionalInner_ = oldFuncOptInner;
         movedVars_ = oldMovedVars;
@@ -2051,6 +2060,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto oldVarProtocolTypes = varProtocolTypes_;
                 auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
                 auto oldVarResultTypes = varResultTypes_;
+                auto oldVarGeneratorTypes = varGeneratorTypes_;
                 auto *oldFuncRI = currentFuncResultInfo_;
                 auto *oldFuncOptInner2 = currentFuncOptionalInner_;
                 auto oldMovedVars2 = movedVars_;
@@ -2070,6 +2080,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varConcreteProtocolTypes_.clear();
                 varResultTypes_.clear();
                 varFileTypes_.clear();
+                varGeneratorTypes_.clear();
                 currentFuncResultInfo_ = nullptr;
                 currentFuncOptionalInner_ = nullptr;
                 movedVars_.clear();
@@ -2133,6 +2144,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 varProtocolTypes_ = oldVarProtocolTypes;
                 varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
                 varResultTypes_ = oldVarResultTypes;
+                varGeneratorTypes_ = oldVarGeneratorTypes;
                 currentFuncResultInfo_ = oldFuncRI;
                 currentFuncOptionalInner_ = oldFuncOptInner2;
                 movedVars_ = oldMovedVars2;

@@ -219,4 +219,28 @@ TEST(RuntimeExecTest, Generator_NestedYieldInIf_Yields) {
     EXPECT_EQ(r.stdout_output, "0\n2\n4\n");
 }
 
+TEST(RuntimeExecTest, Generator_VarShadowingAcrossFunctions_NoStaleType) {
+    auto r = compileAndRun(R"(
+        func gen() {
+            yield 1
+        }
+        func a() {
+            let g = gen()
+            for x in g {
+                println(x)
+            }
+        }
+        func b() {
+            let g = 42
+            println(g)
+        }
+        func main() {
+            a()
+            b()
+        }
+    )", "gen_shadow");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n42\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
