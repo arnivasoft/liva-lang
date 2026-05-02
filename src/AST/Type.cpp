@@ -239,6 +239,19 @@ std::unique_ptr<TypeRepr> cloneTypeRepr(const TypeRepr *type) {
         auto *a = static_cast<const AssociatedTypeRepr *>(type);
         return makeAssociatedType(a->getBaseName(), a->getAssocTypeName());
     }
+    case TypeRepr::Kind::Reference: {
+        auto *r = static_cast<const ReferenceTypeRepr *>(type);
+        auto cloned = std::make_unique<ReferenceTypeRepr>(cloneTypeRepr(r->getInner()), r->isMutable());
+        if (r->hasLifetime()) cloned->setLifetime(r->getLifetime());
+        return cloned;
+    }
+    case TypeRepr::Kind::Generic: {
+        auto *g = static_cast<const GenericTypeRepr *>(type);
+        std::vector<std::unique_ptr<TypeRepr>> args;
+        for (auto &a : g->getTypeArgs())
+            args.push_back(cloneTypeRepr(a.get()));
+        return std::make_unique<GenericTypeRepr>(g->getBaseName(), std::move(args));
+    }
     default:
         return makePrimitiveType(type->getKind());
     }

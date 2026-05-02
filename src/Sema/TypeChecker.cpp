@@ -1817,7 +1817,8 @@ void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
                    sym->type->getKind() == TypeRepr::Kind::Array ||
                    sym->type->getKind() == TypeRepr::Kind::Function ||
                    sym->type->getKind() == TypeRepr::Kind::Result ||
-                   sym->type->getKind() == TypeRepr::Kind::Reference) {
+                   sym->type->getKind() == TypeRepr::Kind::Reference ||
+                   sym->type->getKind() == TypeRepr::Kind::Generic) {
             node->setResolvedType(cloneTypeRepr(sym->type));
         } else {
             node->setResolvedType(makePrimitiveType(sym->type->getKind()));
