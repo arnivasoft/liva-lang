@@ -200,9 +200,6 @@ private:
     /// Resolve a MemberExpr to a DynArray field GEP if it is a struct.dynArrayField
     std::optional<MemberDynArrayInfo> resolveMemberDynArray(MemberExpr *memberExpr);
 
-    /// Named values in current scope
-    std::unordered_map<std::string, llvm::AllocaInst *> namedValues_;
-
     /// Struct type layouts
     std::unordered_map<std::string, llvm::StructType *> structTypes_;
 
@@ -212,34 +209,25 @@ private:
     /// Struct field TypeRepr* (struct name -> field TypeReprs for DynArray detection)
     std::unordered_map<std::string, std::vector<const TypeRepr *>> structFieldTypeReprs_;
 
-    /// Variable to struct type name mapping
-    std::unordered_map<std::string, std::string> varStructTypes_;
-
     /// Enum case tag values: enumName -> {caseName -> tag}
     std::unordered_map<std::string, std::unordered_map<std::string, int>> enumCases_;
-
-    /// Variable to enum type name mapping
-    std::unordered_map<std::string, std::string> varEnumTypes_;
 
     /// Array variable tracking
     struct ArrayInfo {
         llvm::Type *elementType;
         uint64_t size;
     };
-    std::unordered_map<std::string, ArrayInfo> varArrayTypes_;
 
     /// Dynamic array variable tracking
     struct DynArrayInfo {
         llvm::Type *elementType;
         uint64_t elemSize;
     };
-    std::unordered_map<std::string, DynArrayInfo> varDynArrayTypes_;
 
     /// Tuple variable tracking
     struct TupleInfo {
         std::vector<llvm::Type *> elementTypes;
     };
-    std::unordered_map<std::string, TupleInfo> varTupleTypes_;
 
     /// Map variable tracking
     struct MapInfo {
@@ -249,7 +237,6 @@ private:
         uint64_t valSize;
         int8_t keyKind;  // 0=bytes, 1=string
     };
-    std::unordered_map<std::string, MapInfo> varMapTypes_;
 
     /// Set variable tracking
     struct SetInfo {
@@ -257,7 +244,112 @@ private:
         uint64_t elemSize;
         int8_t keyKind;
     };
-    std::unordered_map<std::string, SetInfo> varSetTypes_;
+
+    /// Result type support
+    struct ResultInfo { llvm::Type *okType; llvm::Type *errType; };
+
+    /// Scope-bound IRGen state. Snapshotted/restored at scope boundaries
+    /// (closures, monomorphization, if-let, etc.) via VarStateGuard.
+    /// Fields here are migrated incrementally from previously top-level
+    /// IRGen members; access is via `vars_.<name>`.
+    struct VarState {
+        /// Named values in current scope
+        std::unordered_map<std::string, llvm::AllocaInst *> namedValues;
+
+        /// Variable to struct type name mapping
+        std::unordered_map<std::string, std::string> varStructTypes;
+
+        /// Variable to enum type name mapping
+        std::unordered_map<std::string, std::string> varEnumTypes;
+
+        /// Array variable tracking
+        std::unordered_map<std::string, ArrayInfo> varArrayTypes;
+
+        /// Dynamic array variable tracking
+        std::unordered_map<std::string, DynArrayInfo> varDynArrayTypes;
+
+        /// Tuple variable tracking
+        std::unordered_map<std::string, TupleInfo> varTupleTypes;
+
+        /// Map variable tracking
+        std::unordered_map<std::string, MapInfo> varMapTypes;
+
+        /// Set variable tracking
+        std::unordered_map<std::string, SetInfo> varSetTypes;
+
+        /// Track which variables are optional and their inner LLVM type
+        std::unordered_map<std::string, llvm::Type *> varOptionalTypes;
+
+        /// Track which variables are references and their inner LLVM type
+        std::unordered_map<std::string, llvm::Type *> varRefTypes;
+
+        /// Track File-typed variables (opaque ptr = FILE*)
+        std::set<std::string> varFileTypes;
+
+        /// Track Optional<File> variables (for if-let unwrap → varFileTypes)
+        std::set<std::string> varFileOptionalTypes;
+
+        /// Variable to class type name mapping
+        std::unordered_map<std::string, std::string> varClassTypes;
+
+        /// Track variables that have been moved (passed by value to functions)
+        std::set<std::string> movedVars;
+
+        /// Heap-allocated string temps in current statement (freed after statement)
+        std::vector<llvm::Value *> tempStrings;
+
+        /// String variables holding heap-allocated memory (freed at scope exit)
+        std::set<std::string> heapStringVars;
+
+        /// Optional<string> variables that own their inner heap string. Cleaned
+        /// up at scope exit by checking the hasVal flag and freeing only the
+        /// inner ptr when set. Populated when an Optional-returning builtin
+        /// (hexDecode, base64UrlDecode, tomlGetString, ...) is bound to a let.
+        std::set<std::string> heapOptionalStringVars;
+
+        /// Result type tracking per variable
+        std::unordered_map<std::string, ResultInfo> varResultTypes;
+
+        /// Current function's Result info (active when emitting a function body)
+        ResultInfo *currentFuncResultInfo = nullptr;
+
+        /// Function-typed variable tracking (for indirect calls)
+        std::unordered_map<std::string, llvm::FunctionType *> varFuncTypes;
+
+        /// Variables that are protocol trait objects: varName → protocolName
+        std::unordered_map<std::string, std::string> varProtocolTypes;
+
+        /// Concrete type behind dyn Protocol vars (let bindings only)
+        std::unordered_map<std::string, std::string> varConcreteProtocolTypes;
+
+        /// DynArray vars with dyn Protocol elements: arrayVarName → protocolName
+        std::unordered_map<std::string, std::string> varDynArrayProtocol;
+    };
+
+    VarState vars_;
+
+    /// RAII guard that snapshots `vars_` on construction and restores it on
+    /// destruction. Replaces the manual `auto saved = vars_.X; ...; vars_.X = saved;`
+    /// idiom used at scope boundaries (closures, monomorphization, if/while-let).
+    /// Access the previous snapshot via `guard.saved()` when partial restore is
+    /// needed (e.g. captured-variable lookup in closures).
+    class VarStateGuard {
+        IRGen *gen_;
+        VarState saved_;
+    public:
+        explicit VarStateGuard(IRGen *g) : gen_(g), saved_(g->vars_) {}
+        ~VarStateGuard() { gen_->vars_ = std::move(saved_); }
+        VarStateGuard(const VarStateGuard &) = delete;
+        VarStateGuard &operator=(const VarStateGuard &) = delete;
+        VarStateGuard(VarStateGuard &&) = delete;
+        VarStateGuard &operator=(VarStateGuard &&) = delete;
+
+        const VarState &saved() const { return saved_; }
+    };
+
+    /// Snapshot current `vars_`; the returned guard restores it on scope exit.
+    /// Mandatory-RVO ensures no copy/move of the guard occurs at the call site.
+    [[nodiscard]] VarStateGuard pushVarState() { return VarStateGuard(this); }
 
     /// Map/Set LLVM struct type: { ptr, i64, i64 }
     llvm::StructType *mapStructTy_ = nullptr;
@@ -417,27 +509,6 @@ private:
     void declareCoroutineIntrinsics();
     void declareAsyncRuntimeFuncs();
 
-    /// Track which variables are optional and their inner LLVM type
-    std::unordered_map<std::string, llvm::Type *> varOptionalTypes_;
-
-    /// Track which variables are references and their inner LLVM type
-    std::unordered_map<std::string, llvm::Type *> varRefTypes_;
-
-    /// Track variables that have been moved (passed by value to functions)
-    std::set<std::string> movedVars_;
-
-    /// Heap-allocated string temps in current statement (freed after statement)
-    std::vector<llvm::Value *> tempStrings_;
-
-    /// String variables holding heap-allocated memory (freed at scope exit)
-    std::set<std::string> heapStringVars_;
-
-    /// Optional<string> variables that own their inner heap string. Cleaned
-    /// up at scope exit by checking the hasVal flag and freeing only the
-    /// inner ptr when set. Populated when an Optional-returning builtin
-    /// (hexDecode, base64UrlDecode, tomlGetString, ...) is bound to a let.
-    std::set<std::string> heapOptionalStringVars_;
-
     /// Helper: emit free for all temp strings and clear list
     void emitTempStringCleanup();
 
@@ -472,11 +543,6 @@ private:
     /// If the field at `idx` in `structName` is a string, wrap `val` with liva_str_dup
     llvm::Value *dupIfStringField(const std::string &structName, int idx, llvm::Value *val);
 
-    /// Track File-typed variables (opaque ptr = FILE*)
-    std::set<std::string> varFileTypes_;
-
-    /// Track Optional<File> variables (for if-let unwrap → varFileTypes_)
-    std::set<std::string> varFileOptionalTypes_;
 
     /// Optional return type support — non-null when the current function returns T?
     llvm::Type *currentFuncOptionalInner_ = nullptr;
@@ -485,18 +551,12 @@ private:
     bool currentIsClassInit_ = false;
 
     /// Result type support
-    struct ResultInfo { llvm::Type *okType; llvm::Type *errType; };
-    std::unordered_map<std::string, ResultInfo> varResultTypes_;
     std::map<std::pair<llvm::Type *, llvm::Type *>, llvm::StructType *> resultTypes_;
-    ResultInfo *currentFuncResultInfo_ = nullptr;
     ResultInfo currentFuncResultInfoStorage_;
 
     llvm::StructType *getResultType(llvm::Type *okType, llvm::Type *errType);
     llvm::Value *emitResultOk(llvm::Type *okType, llvm::Type *errType, llvm::Value *value);
     llvm::Value *emitResultErr(llvm::Type *okType, llvm::Type *errType, llvm::Value *value);
-
-    /// Function-typed variable tracking (for indirect calls)
-    std::unordered_map<std::string, llvm::FunctionType *> varFuncTypes_;
 
     /// Function-typed struct field tracking: structName -> {fieldName -> FunctionType*}
     std::unordered_map<std::string,
@@ -532,21 +592,11 @@ private:
     /// Protocol conformances: protocolName → [typeName...]
     std::unordered_map<std::string, std::vector<std::string>> protocolConformances_;
 
-    /// Track which variables are protocol trait objects: varName → protocolName
-    std::unordered_map<std::string, std::string> varProtocolTypes_;
-
-    /// Concrete type behind dyn Protocol vars for devirtualization (let bindings only)
-    std::unordered_map<std::string, std::string> varConcreteProtocolTypes_;
-
-    /// Track DynArray vars with dyn Protocol elements: arrayVarName → protocolName
-    std::unordered_map<std::string, std::string> varDynArrayProtocol_;
-
     /// Class support
     std::unordered_map<std::string, llvm::StructType *> classTypes_;
     std::unordered_map<std::string, std::vector<std::string>> classFieldNames_;
     std::unordered_map<std::string, std::vector<const TypeRepr *>> classFieldTypeReprs_;
     std::unordered_map<std::string, std::string> classParent_;
-    std::unordered_map<std::string, std::string> varClassTypes_;
     std::set<std::string> classNames_;
     std::unordered_map<std::string, std::vector<std::string>> classVtableMethods_;
     std::unordered_map<std::string, llvm::GlobalVariable *> classVtables_;

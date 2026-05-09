@@ -19,23 +19,23 @@ llvm::Value *IRGen::visitBlockStmt(BlockStmt *node) {
 }
 
 void IRGen::emitTempStringCleanup() {
-    if (tempStrings_.empty()) return;
+    if (vars_.tempStrings.empty()) return;
     auto *freeFn = module_->getFunction("free");
     if (!freeFn) return;
-    for (auto *val : tempStrings_) {
+    for (auto *val : vars_.tempStrings) {
         builder_->CreateCall(freeFn, {val});
     }
-    tempStrings_.clear();
+    vars_.tempStrings.clear();
 }
 
 void IRGen::emitScopeCleanup() {
     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
     // Free DynArrays
-    for (auto &[name, info] : varDynArrayTypes_) {
-        if (movedVars_.count(name)) continue;
-        auto it = namedValues_.find(name);
-        if (it == namedValues_.end()) continue;
+    for (auto &[name, info] : vars_.varDynArrayTypes) {
+        if (vars_.movedVars.count(name)) continue;
+        auto it = vars_.namedValues.find(name);
+        if (it == vars_.namedValues.end()) continue;
         auto *structAlloca = it->second;
         auto *dataGEP = builder_->CreateStructGEP(getDynArrayStructTy(), structAlloca, 0,
                                                    name + ".data.drop");
@@ -44,10 +44,10 @@ void IRGen::emitScopeCleanup() {
     }
 
     // Free Maps
-    for (auto &[name, info] : varMapTypes_) {
-        if (movedVars_.count(name)) continue;
-        auto it = namedValues_.find(name);
-        if (it == namedValues_.end()) continue;
+    for (auto &[name, info] : vars_.varMapTypes) {
+        if (vars_.movedVars.count(name)) continue;
+        auto it = vars_.namedValues.find(name);
+        if (it == vars_.namedValues.end()) continue;
         auto *structAlloca = it->second;
         auto *entriesGEP = builder_->CreateStructGEP(getMapStructTy(), structAlloca, 0,
                                                       name + ".entries.drop");
@@ -56,10 +56,10 @@ void IRGen::emitScopeCleanup() {
     }
 
     // Free Sets
-    for (auto &[name, info] : varSetTypes_) {
-        if (movedVars_.count(name)) continue;
-        auto it = namedValues_.find(name);
-        if (it == namedValues_.end()) continue;
+    for (auto &[name, info] : vars_.varSetTypes) {
+        if (vars_.movedVars.count(name)) continue;
+        auto it = vars_.namedValues.find(name);
+        if (it == vars_.namedValues.end()) continue;
         auto *structAlloca = it->second;
         auto *entriesGEP = builder_->CreateStructGEP(getMapStructTy(), structAlloca, 0,
                                                       name + ".entries.drop");
@@ -69,12 +69,12 @@ void IRGen::emitScopeCleanup() {
 
     // Call drop() for struct variables implementing Drop protocol,
     // or auto-cleanup heap fields for structs without Drop
-    for (auto &[name, structTypeName] : varStructTypes_) {
+    for (auto &[name, structTypeName] : vars_.varStructTypes) {
         if (name == "self") continue; // self is borrowed (ref/ref mut), not owned
-        if (movedVars_.count(name)) continue;
+        if (vars_.movedVars.count(name)) continue;
         if (dropImplementors_.count(structTypeName)) {
-            auto it = namedValues_.find(name);
-            if (it == namedValues_.end()) continue;
+            auto it = vars_.namedValues.find(name);
+            if (it == vars_.namedValues.end()) continue;
 
             std::string dropFnName = structTypeName + "_drop";
             auto *dropFn = module_->getFunction(dropFnName);
@@ -88,11 +88,11 @@ void IRGen::emitScopeCleanup() {
     }
 
     // Call deinit for class instances (virtual dispatch through vtable)
-    for (auto &[name, clsTypeName] : varClassTypes_) {
+    for (auto &[name, clsTypeName] : vars_.varClassTypes) {
         if (name == "self") continue; // self is not owned by current scope
-        if (movedVars_.count(name)) continue;
-        auto it = namedValues_.find(name);
-        if (it == namedValues_.end()) continue;
+        if (vars_.movedVars.count(name)) continue;
+        auto it = vars_.namedValues.find(name);
+        if (it == vars_.namedValues.end()) continue;
 
         auto ctIt = classTypes_.find(clsTypeName);
         if (ctIt == classTypes_.end()) continue;
@@ -124,20 +124,20 @@ void IRGen::emitScopeCleanup() {
     // Free heap-allocated string variables
     auto *freeFn = module_->getFunction("free");
     if (freeFn) {
-        for (auto &name : heapStringVars_) {
-            if (movedVars_.count(name)) continue;
-            auto it = namedValues_.find(name);
-            if (it == namedValues_.end()) continue;
+        for (auto &name : vars_.heapStringVars) {
+            if (vars_.movedVars.count(name)) continue;
+            auto it = vars_.namedValues.find(name);
+            if (it == vars_.namedValues.end()) continue;
             auto *strPtr = builder_->CreateLoad(ptrTy, it->second, name + ".str.drop");
             builder_->CreateCall(freeFn, {strPtr});
         }
         // Conditionally free Optional<string> inner ptrs (only if hasVal).
-        for (auto &name : heapOptionalStringVars_) {
-            if (movedVars_.count(name)) continue;
-            auto it = namedValues_.find(name);
-            if (it == namedValues_.end()) continue;
-            auto optIt = varOptionalTypes_.find(name);
-            if (optIt == varOptionalTypes_.end()) continue;
+        for (auto &name : vars_.heapOptionalStringVars) {
+            if (vars_.movedVars.count(name)) continue;
+            auto it = vars_.namedValues.find(name);
+            if (it == vars_.namedValues.end()) continue;
+            auto optIt = vars_.varOptionalTypes.find(name);
+            if (optIt == vars_.varOptionalTypes.end()) continue;
             auto *innerTy = optIt->second;
             auto *optTy = getOptionalType(innerTy);
             auto *func = builder_->GetInsertBlock()->getParent();
@@ -173,8 +173,8 @@ void IRGen::emitStructFieldCleanup(const std::string &varName,
     if (fnIt == structFieldNames_.end()) return;
     auto stIt = structTypes_.find(structTypeName);
     if (stIt == structTypes_.end()) return;
-    auto namedIt = namedValues_.find(varName);
-    if (namedIt == namedValues_.end()) return;
+    auto namedIt = vars_.namedValues.find(varName);
+    if (namedIt == vars_.namedValues.end()) return;
 
     auto *structAlloca = namedIt->second;
     auto *structTy = stIt->second;
@@ -299,29 +299,29 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
         auto *val = visit(node->getValue());
 
         // Protect return value from cleanup
-        // If returning a temp string, remove from tempStrings_
-        auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
-        if (tIt != tempStrings_.end()) tempStrings_.erase(tIt);
-        // If returning a heap string variable, remove from heapStringVars_
+        // If returning a temp string, remove from vars_.tempStrings
+        auto tIt = std::find(vars_.tempStrings.begin(), vars_.tempStrings.end(), val);
+        if (tIt != vars_.tempStrings.end()) vars_.tempStrings.erase(tIt);
+        // If returning a heap string variable, remove from vars_.heapStringVars
         // Same for Optional<string> variables that own their inner pointer.
         // Same for DynArray variables: returning the struct hands ownership
         // to the caller, so we must NOT free its backing buffer here.
-        // We piggyback on movedVars_ which emitScopeCleanup already honours
-        // to skip both heapStringVars_ and varDynArrayTypes_/varMapTypes_.
+        // We piggyback on vars_.movedVars which emitScopeCleanup already honours
+        // to skip both vars_.heapStringVars and vars_.varDynArrayTypes/vars_.varMapTypes.
         if (node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *retIdent = static_cast<IdentifierExpr *>(node->getValue());
-            heapStringVars_.erase(retIdent->getName());
-            heapOptionalStringVars_.erase(retIdent->getName());
-            movedVars_.insert(retIdent->getName());
+            vars_.heapStringVars.erase(retIdent->getName());
+            vars_.heapOptionalStringVars.erase(retIdent->getName());
+            vars_.movedVars.insert(retIdent->getName());
         }
         // When the return expression wraps a temp string in Optional<string>
         // (e.g. `return jsonGet(...)`), the raw pointer is still in
-        // tempStrings_ but is now logically owned by the Optional we return.
+        // vars_.tempStrings but is now logically owned by the Optional we return.
         // Clear the list to avoid emitting `free(raw)` *after* our ret in the
         // surrounding visitBlockStmt's per-statement cleanup pass.
         if (currentFuncOptionalInner_ && val &&
             val->getType() == getOptionalType(currentFuncOptionalInner_)) {
-            tempStrings_.clear();
+            vars_.tempStrings.clear();
         }
 
         // Free remaining tracked temp strings BEFORE the terminator. Otherwise
@@ -407,12 +407,12 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     llvm::Type *innerType = nullptr;
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
-        auto it = namedValues_.find(ident->getName());
-        if (it != namedValues_.end()) optAlloca = it->second;
-        auto optIt = varOptionalTypes_.find(ident->getName());
-        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+        auto it = vars_.namedValues.find(ident->getName());
+        if (it != vars_.namedValues.end()) optAlloca = it->second;
+        auto optIt = vars_.varOptionalTypes.find(ident->getName());
+        if (optIt != vars_.varOptionalTypes.end()) innerType = optIt->second;
     }
-    // Try to recover innerType from the alloca's struct type when varOptionalTypes_ miss
+    // Try to recover innerType from the alloca's struct type when vars_.varOptionalTypes miss
     if (optAlloca && !innerType) {
         auto *allocTy = optAlloca->getAllocatedType();
         if (allocTy->isStructTy()) {
@@ -457,15 +457,15 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     auto *unwrapped = builder_->CreateLoad(innerType, valPtr, "iflet.val");
     auto *bindAlloca = createEntryBlockAlloca(func, node->getBindingName(), innerType);
     builder_->CreateStore(unwrapped, bindAlloca);
-    auto saved = namedValues_;
-    auto savedFileTypes = varFileTypes_;
-    auto savedDynArrayTypes = varDynArrayTypes_;
-    namedValues_[node->getBindingName()] = bindAlloca;
+    auto saved = vars_.namedValues;
+    auto savedFileTypes = vars_.varFileTypes;
+    auto savedDynArrayTypes = vars_.varDynArrayTypes;
+    vars_.namedValues[node->getBindingName()] = bindAlloca;
     // If the optional inner is a DynArray (`if let b = someOpt: [T]?`),
     // register the binding so `b.length`, `b[i]`, and for-iteration work
     // the same way they do for a let-bound `[T]` variable. Element type
     // comes from one of: the source variable's declared type (Sema),
-    // the source variable's varDynArrayTypes_ entry from a prior
+    // the source variable's vars_.varDynArrayTypes entry from a prior
     // ownership transfer, or — for inline `if let b = call()` — the
     // call's resolved type.
     if (innerType == getDynArrayStructTy()) {
@@ -491,19 +491,19 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         }
         if (!elemLLVM &&
             node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
-            // Fall back to varDynArrayTypes_ on the source variable.
+            // Fall back to vars_.varDynArrayTypes on the source variable.
             auto *srcId = static_cast<IdentifierExpr *>(node->getOptionalExpr());
-            auto daIt = varDynArrayTypes_.find(srcId->getName());
-            if (daIt != varDynArrayTypes_.end()) {
+            auto daIt = vars_.varDynArrayTypes.find(srcId->getName());
+            if (daIt != vars_.varDynArrayTypes.end()) {
                 elemLLVM = daIt->second.elementType;
                 elemSize = daIt->second.elemSize;
             }
         }
         if (elemLLVM) {
-            varDynArrayTypes_[node->getBindingName()] = {elemLLVM, elemSize};
+            vars_.varDynArrayTypes[node->getBindingName()] = {elemLLVM, elemSize};
             // Borrowed from the Optional storage: skip cleanup to avoid
             // double-freeing the buffer when the surrounding scope drops.
-            movedVars_.insert(node->getBindingName());
+            vars_.movedVars.insert(node->getBindingName());
         }
     }
     // If the optional expression was File.open, the unwrapped value is a File ptr
@@ -514,7 +514,7 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
             if (me->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
                 auto *id = static_cast<IdentifierExpr *>(me->getObject());
                 if (id->getName() == "File" && me->getMember() == "open") {
-                    varFileTypes_.insert(node->getBindingName());
+                    vars_.varFileTypes.insert(node->getBindingName());
                 }
             }
         }
@@ -522,14 +522,14 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     // Also check if the optional source was a File-optional variable
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
-        if (varFileOptionalTypes_.count(ident->getName())) {
-            varFileTypes_.insert(node->getBindingName());
+        if (vars_.varFileOptionalTypes.count(ident->getName())) {
+            vars_.varFileTypes.insert(node->getBindingName());
         }
     }
     visit(node->getThenBody());
-    namedValues_ = saved;
-    varFileTypes_ = savedFileTypes;
-    varDynArrayTypes_ = savedDynArrayTypes;
+    vars_.namedValues = saved;
+    vars_.varFileTypes = savedFileTypes;
+    vars_.varDynArrayTypes = savedDynArrayTypes;
     if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
 
     // Else
@@ -549,10 +549,10 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
     llvm::Type *innerType = nullptr;
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
-        auto it = namedValues_.find(ident->getName());
-        if (it != namedValues_.end()) optAlloca = it->second;
-        auto optIt = varOptionalTypes_.find(ident->getName());
-        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+        auto it = vars_.namedValues.find(ident->getName());
+        if (it != vars_.namedValues.end()) optAlloca = it->second;
+        auto optIt = vars_.varOptionalTypes.find(ident->getName());
+        if (optIt != vars_.varOptionalTypes.end()) innerType = optIt->second;
     }
     if (!optAlloca || !innerType) {
         diag_.report(node->getStartLoc(), DiagID::err_irgen_while_let_not_optional);
@@ -581,12 +581,12 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
     auto *bindAlloca = createEntryBlockAlloca(func, node->getBindingName(), innerType);
     builder_->CreateStore(unwrapped, bindAlloca);
 
-    auto saved = namedValues_;
-    namedValues_[node->getBindingName()] = bindAlloca;
+    auto saved = vars_.namedValues;
+    vars_.namedValues[node->getBindingName()] = bindAlloca;
     loopStack_.push_back({exitBB, condBB});
     visit(node->getBody());
     loopStack_.pop_back();
-    namedValues_ = saved;
+    vars_.namedValues = saved;
     if (!builder_->GetInsertBlock()->getTerminator())
         builder_->CreateBr(condBB);
 
@@ -658,7 +658,7 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
         // Loop variable lives outside the loop body.
         auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), genYieldType);
-        namedValues_[node->getVarName()] = loopVar;
+        vars_.namedValues[node->getVarName()] = loopVar;
 
         auto *condBB  = llvm::BasicBlock::Create(*context_, "gen.cond", func);
         auto *bodyBB  = llvm::BasicBlock::Create(*context_, "gen.body", func);
@@ -723,7 +723,7 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         auto *loopVar = createEntryBlockAlloca(func, node->getVarName(),
                                                 builder_->getInt32Ty());
         builder_->CreateStore(startVal, loopVar);
-        namedValues_[node->getVarName()] = loopVar;
+        vars_.namedValues[node->getVarName()] = loopVar;
 
         // Create basic blocks
         auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
@@ -770,11 +770,11 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         const std::string &iterName = ident->getName();
 
         // === DynArray iteration: for item in arr ===
-        auto daIt = varDynArrayTypes_.find(iterName);
-        if (daIt != varDynArrayTypes_.end()) {
+        auto daIt = vars_.varDynArrayTypes.find(iterName);
+        if (daIt != vars_.varDynArrayTypes.end()) {
             auto *elemType = daIt->second.elementType;
             auto *structTy = getDynArrayStructTy();
-            auto *arrAlloca = namedValues_[iterName];
+            auto *arrAlloca = vars_.namedValues[iterName];
 
             // Load data pointer and length
             auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0, "da.data.ptr");
@@ -788,12 +788,12 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
             // Loop variable
             auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
-            namedValues_[node->getVarName()] = loopVar;
+            vars_.namedValues[node->getVarName()] = loopVar;
 
             // If iterating [dyn Protocol], register loop var for dyn dispatch
-            auto dapIt = varDynArrayProtocol_.find(iterName);
-            if (dapIt != varDynArrayProtocol_.end()) {
-                varProtocolTypes_[node->getVarName()] = dapIt->second;
+            auto dapIt = vars_.varDynArrayProtocol.find(iterName);
+            if (dapIt != vars_.varDynArrayProtocol.end()) {
+                vars_.varProtocolTypes[node->getVarName()] = dapIt->second;
             }
 
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
@@ -833,12 +833,12 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         }
 
         // === Map iteration ===
-        auto mapIt = varMapTypes_.find(iterName);
-        if (mapIt != varMapTypes_.end()) {
+        auto mapIt = vars_.varMapTypes.find(iterName);
+        if (mapIt != vars_.varMapTypes.end()) {
 
             auto &info = mapIt->second;
             auto *structTy = getMapStructTy();
-            auto *mapAlloca = namedValues_[iterName];
+            auto *mapAlloca = vars_.namedValues[iterName];
 
             int64_t stride = 9 + (int64_t)info.keySize + (int64_t)info.valSize;
 
@@ -854,12 +854,12 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
             // Loop variable(s)
             auto *keyVar = createEntryBlockAlloca(func, node->getVarName(), info.keyType);
-            namedValues_[node->getVarName()] = keyVar;
+            vars_.namedValues[node->getVarName()] = keyVar;
 
             llvm::AllocaInst *valVar = nullptr;
             if (node->hasTuplePattern()) {
                 valVar = createEntryBlockAlloca(func, node->getVarName2(), info.valType);
-                namedValues_[node->getVarName2()] = valVar;
+                vars_.namedValues[node->getVarName2()] = valVar;
             }
 
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
@@ -916,11 +916,11 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         }
 
         // === Set iteration: for item in set ===
-        auto setIt = varSetTypes_.find(iterName);
-        if (setIt != varSetTypes_.end()) {
+        auto setIt = vars_.varSetTypes.find(iterName);
+        if (setIt != vars_.varSetTypes.end()) {
             auto &info = setIt->second;
             auto *structTy = getMapStructTy();  // Set uses same struct as Map
-            auto *setAlloca = namedValues_[iterName];
+            auto *setAlloca = vars_.namedValues[iterName];
 
             int64_t stride = 9 + (int64_t)info.elemSize;  // val_size=0
 
@@ -936,7 +936,7 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
             // Loop variable
             auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), info.elemType);
-            namedValues_[node->getVarName()] = loopVar;
+            vars_.namedValues[node->getVarName()] = loopVar;
 
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
             auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
@@ -985,12 +985,12 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         }
 
         // === Custom Iterator (Iter protocol) iteration ===
-        auto structIt = varStructTypes_.find(iterName);
-        if (structIt != varStructTypes_.end()) {
+        auto structIt = vars_.varStructTypes.find(iterName);
+        if (structIt != vars_.varStructTypes.end()) {
             std::string nextFn = structIt->second + "_next";
             auto *nextFunc = module_->getFunction(nextFn);
             if (nextFunc) {
-                auto *iterAlloca = namedValues_[iterName];
+                auto *iterAlloca = vars_.namedValues[iterName];
 
                 // next() returns Optional<T> = {i1, T}
                 auto *retType = nextFunc->getReturnType();
@@ -998,7 +998,7 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
                 auto *elemType = optStructTy->getElementType(1);
 
                 auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
-                namedValues_[node->getVarName()] = loopVar;
+                vars_.namedValues[node->getVarName()] = loopVar;
 
                 auto *condBB = llvm::BasicBlock::Create(*context_, "iter.cond", func);
                 auto *bodyBB = llvm::BasicBlock::Create(*context_, "iter.body", func);
@@ -1048,7 +1048,7 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             builder_->CreateStore(builder_->getInt64(0), idxVar);
 
             auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
-            namedValues_[node->getVarName()] = loopVar;
+            vars_.namedValues[node->getVarName()] = loopVar;
 
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
             auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);

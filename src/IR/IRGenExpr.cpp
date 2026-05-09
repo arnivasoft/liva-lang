@@ -35,10 +35,10 @@ llvm::Value *IRGen::visitUnwrapExpr(UnwrapExpr *node) {
     llvm::Type *innerType = nullptr;
     if (node->getOperand()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getOperand());
-        auto it = namedValues_.find(ident->getName());
-        if (it != namedValues_.end()) optAlloca = it->second;
-        auto optIt = varOptionalTypes_.find(ident->getName());
-        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+        auto it = vars_.namedValues.find(ident->getName());
+        if (it != vars_.namedValues.end()) optAlloca = it->second;
+        auto optIt = vars_.varOptionalTypes.find(ident->getName());
+        if (optIt != vars_.varOptionalTypes.end()) innerType = optIt->second;
     }
     if (!optAlloca || !innerType)
         return visit(node->getOperand());
@@ -70,11 +70,11 @@ llvm::Value *IRGen::visitIdentifierExpr(IdentifierExpr *node) {
         return constIt->second;
     }
 
-    auto it = namedValues_.find(node->getName());
-    if (it != namedValues_.end()) {
+    auto it = vars_.namedValues.find(node->getName());
+    if (it != vars_.namedValues.end()) {
         // Reference variable: double indirection (load ptr, then load through ptr)
-        auto refIt = varRefTypes_.find(node->getName());
-        if (refIt != varRefTypes_.end()) {
+        auto refIt = vars_.varRefTypes.find(node->getName());
+        if (refIt != vars_.varRefTypes.end()) {
             auto *ptr = builder_->CreateLoad(
                 llvm::PointerType::getUnqual(*context_), it->second, node->getName() + ".ptr");
             return builder_->CreateLoad(refIt->second, ptr, node->getName());
@@ -268,10 +268,10 @@ llvm::Value *IRGen::emitNilCoalesce(BinaryExpr *node) {
     llvm::Type *innerType = nullptr;
     if (node->getLHS()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getLHS());
-        auto it = namedValues_.find(ident->getName());
-        if (it != namedValues_.end()) optAlloca = it->second;
-        auto optIt = varOptionalTypes_.find(ident->getName());
-        if (optIt != varOptionalTypes_.end()) innerType = optIt->second;
+        auto it = vars_.namedValues.find(ident->getName());
+        if (it != vars_.namedValues.end()) optAlloca = it->second;
+        auto optIt = vars_.varOptionalTypes.find(ident->getName());
+        if (optIt != vars_.varOptionalTypes.end()) innerType = optIt->second;
     }
     // Handle optional chain result: p?.x ?? default
     if (!optAlloca || !innerType) {
@@ -350,13 +350,13 @@ llvm::Value *IRGen::emitOptionalChainMember(MemberExpr *node) {
     }
 
     auto *ident = static_cast<IdentifierExpr *>(node->getObject());
-    auto optIt = varOptionalTypes_.find(ident->getName());
-    if (optIt == varOptionalTypes_.end()) {
+    auto optIt = vars_.varOptionalTypes.find(ident->getName());
+    if (optIt == vars_.varOptionalTypes.end()) {
         diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
     }
-    auto nvIt = namedValues_.find(ident->getName());
-    if (nvIt == namedValues_.end()) {
+    auto nvIt = vars_.namedValues.find(ident->getName());
+    if (nvIt == vars_.namedValues.end()) {
         diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
     }
@@ -365,8 +365,8 @@ llvm::Value *IRGen::emitOptionalChainMember(MemberExpr *node) {
     auto *innerType = optIt->second; // The struct type inside Optional
 
     // Find the struct type name for field lookup
-    auto stIt = varStructTypes_.find(ident->getName());
-    if (stIt == varStructTypes_.end()) {
+    auto stIt = vars_.varStructTypes.find(ident->getName());
+    if (stIt == vars_.varStructTypes.end()) {
         diag_.report(node->getStartLoc(), DiagID::err_irgen_optional_chain_failed, node->getMember());
         return nullptr;
     }
@@ -802,33 +802,13 @@ static std::vector<CapturedVar> collectFreeVars(
 }
 
 llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
-    // Save outer scope state
+    // Save outer scope state: vars_ snapshotted via RAII; non-VarState bits explicit.
     auto savedBlock = builder_->GetInsertBlock();
     auto savedDebugLoc = builder_->getCurrentDebugLocation();
-    auto savedValues = namedValues_;
-    auto savedStructTypes2 = varStructTypes_;
-    auto savedEnumTypes2 = varEnumTypes_;
-    auto savedArrayTypes2 = varArrayTypes_;
-    auto savedDynArrayTypes2 = varDynArrayTypes_;
-    auto savedDynArrayProtocol2 = varDynArrayProtocol_;
-    auto savedMapTypes2 = varMapTypes_;
-    auto savedSetTypes2 = varSetTypes_;
-    auto savedOptionalTypes2 = varOptionalTypes_;
-    auto savedFuncTypes2 = varFuncTypes_;
-    auto savedProtocolTypes2 = varProtocolTypes_;
-    auto savedConcreteProtocolTypes2 = varConcreteProtocolTypes_;
-    auto savedResultTypes2 = varResultTypes_;
-    auto savedFileTypes2 = varFileTypes_;
-    auto savedFileOptTypes2 = varFileOptionalTypes_;
-    auto savedTupleTypes2 = varTupleTypes_;
-    auto savedRefTypes2 = varRefTypes_;
-    auto savedMovedVars2 = movedVars_;
-    auto *savedFuncRI2 = currentFuncResultInfo_;
-    auto savedHeapStringVars2 = heapStringVars_;
-    auto savedTempStrings2 = tempStrings_;
+    auto guard = pushVarState();
 
     // --- Capture analysis ---
-    auto captured = collectFreeVars(node, namedValues_);
+    auto captured = collectFreeVars(node, vars_.namedValues);
 
     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
@@ -842,7 +822,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
             if (cap.byRef) {
                 envFields.push_back(ptrTy);  // pointer to outer alloca
             } else {
-                auto *alloca = namedValues_[cap.name];
+                auto *alloca = vars_.namedValues[cap.name];
                 envFields.push_back(alloca->getAllocatedType());
             }
         }
@@ -854,7 +834,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
 
         // Copy captured values / pointers into env struct
         for (unsigned i = 0; i < captured.size(); ++i) {
-            auto *srcAlloca = namedValues_[captured[i].name];
+            auto *srcAlloca = vars_.namedValues[captured[i].name];
             auto *gep = builder_->CreateStructGEP(envStructTy, envAlloca, i,
                                                   "env." + captured[i].name);
             if (captured[i].byRef) {
@@ -902,25 +882,9 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     builder_->SetInsertPoint(entry);
     // Reset debug location to avoid outer scope leaking into closure
     builder_->SetCurrentDebugLocation(llvm::DebugLoc());
-    namedValues_.clear();
-    varStructTypes_.clear();
-    varEnumTypes_.clear();
-    varArrayTypes_.clear();
-    varDynArrayTypes_.clear();
-    varDynArrayProtocol_.clear();
-    varMapTypes_.clear();
-    varSetTypes_.clear();
-    varOptionalTypes_.clear();
-    varFuncTypes_.clear();
-    varProtocolTypes_.clear();
-    varConcreteProtocolTypes_.clear();
-    varResultTypes_.clear();
-    varFileTypes_.clear();
-    varFileOptionalTypes_.clear();
-    varTupleTypes_.clear();
-    varRefTypes_.clear();
-    movedVars_.clear();
-    currentFuncResultInfo_ = nullptr;
+    // Closure body runs in a fresh scope; outer state is held in `guard.saved()`
+    // for partial restore of captured-variable type metadata below.
+    vars_ = VarState{};
 
     // Extract captured values from env
     auto argIt = func->arg_begin();
@@ -935,36 +899,37 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
                                                   "env." + captured[i].name);
 
             if (captured[i].byRef) {
-                // By-ref: load ptr from env, create alloca holding ptr, register in varRefTypes_
+                // By-ref: load ptr from env, create alloca holding ptr, register in vars_.varRefTypes
                 auto *outerPtr = builder_->CreateLoad(ptrTy, gep,
                                                       captured[i].name + ".ref");
                 auto *ptrAlloca = createEntryBlockAlloca(func, captured[i].name, ptrTy);
                 builder_->CreateStore(outerPtr, ptrAlloca);
-                namedValues_[captured[i].name] = ptrAlloca;
-                // Get outer variable's type for varRefTypes_
-                auto *outerAlloca = savedValues[captured[i].name];
-                varRefTypes_[captured[i].name] = outerAlloca->getAllocatedType();
+                vars_.namedValues[captured[i].name] = ptrAlloca;
+                // Get outer variable's type for vars_.varRefTypes
+                auto *outerAlloca = guard.saved().namedValues.at(captured[i].name);
+                vars_.varRefTypes[captured[i].name] = outerAlloca->getAllocatedType();
             } else {
                 // By-value: load value from env, store in local alloca
                 auto *val = builder_->CreateLoad(fieldTy, gep, captured[i].name + ".env");
                 auto *alloca = createEntryBlockAlloca(func, captured[i].name, fieldTy);
                 builder_->CreateStore(val, alloca);
-                namedValues_[captured[i].name] = alloca;
+                vars_.namedValues[captured[i].name] = alloca;
             }
 
-            // Restore type tracking for captured variables
-            auto stIt = savedStructTypes2.find(captured[i].name);
-            if (stIt != savedStructTypes2.end())
-                varStructTypes_[captured[i].name] = stIt->second;
-            auto enIt = savedEnumTypes2.find(captured[i].name);
-            if (enIt != savedEnumTypes2.end())
-                varEnumTypes_[captured[i].name] = enIt->second;
-            auto optIt = savedOptionalTypes2.find(captured[i].name);
-            if (optIt != savedOptionalTypes2.end())
-                varOptionalTypes_[captured[i].name] = optIt->second;
-            auto fnIt = savedFuncTypes2.find(captured[i].name);
-            if (fnIt != savedFuncTypes2.end())
-                varFuncTypes_[captured[i].name] = fnIt->second;
+            // Restore type tracking for captured variables from outer snapshot
+            const auto &outer = guard.saved();
+            auto stIt = outer.varStructTypes.find(captured[i].name);
+            if (stIt != outer.varStructTypes.end())
+                vars_.varStructTypes[captured[i].name] = stIt->second;
+            auto enIt = outer.varEnumTypes.find(captured[i].name);
+            if (enIt != outer.varEnumTypes.end())
+                vars_.varEnumTypes[captured[i].name] = enIt->second;
+            auto optIt = outer.varOptionalTypes.find(captured[i].name);
+            if (optIt != outer.varOptionalTypes.end())
+                vars_.varOptionalTypes[captured[i].name] = optIt->second;
+            auto fnIt = outer.varFuncTypes.find(captured[i].name);
+            if (fnIt != outer.varFuncTypes.end())
+                vars_.varFuncTypes[captured[i].name] = fnIt->second;
         }
     }
 
@@ -975,7 +940,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
         argIt->setName(param.name);
         auto *alloca = createEntryBlockAlloca(func, param.name, argIt->getType());
         builder_->CreateStore(&*argIt, alloca);
-        namedValues_[param.name] = alloca;
+        vars_.namedValues[param.name] = alloca;
     }
 
     // Generate body
@@ -988,27 +953,7 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
     // --- Restore outer scope and build closure object ---
     builder_->SetInsertPoint(savedBlock);
     builder_->SetCurrentDebugLocation(savedDebugLoc);
-    namedValues_ = savedValues;
-    varStructTypes_ = savedStructTypes2;
-    varEnumTypes_ = savedEnumTypes2;
-    varArrayTypes_ = savedArrayTypes2;
-    varDynArrayTypes_ = savedDynArrayTypes2;
-    varDynArrayProtocol_ = savedDynArrayProtocol2;
-    varMapTypes_ = savedMapTypes2;
-    varSetTypes_ = savedSetTypes2;
-    varOptionalTypes_ = savedOptionalTypes2;
-    varFuncTypes_ = savedFuncTypes2;
-    varProtocolTypes_ = savedProtocolTypes2;
-    varConcreteProtocolTypes_ = savedConcreteProtocolTypes2;
-    varResultTypes_ = savedResultTypes2;
-    varFileTypes_ = savedFileTypes2;
-    varFileOptionalTypes_ = savedFileOptTypes2;
-    varTupleTypes_ = savedTupleTypes2;
-    varRefTypes_ = savedRefTypes2;
-    movedVars_ = savedMovedVars2;
-    currentFuncResultInfo_ = savedFuncRI2;
-    heapStringVars_ = savedHeapStringVars2;
-    tempStrings_ = savedTempStrings2;
+    // vars_ restored automatically by `guard` dtor when this function returns.
 
     // Build closure object: { func_ptr, env_ptr }
     auto *closureObjTy = getClosureObjTy();
@@ -1073,14 +1018,14 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
     // Class subscript: obj[i] → ClassName_subscript(obj, i)
     if (node->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *baseIdent = static_cast<const IdentifierExpr *>(node->getBase());
-        auto cvIt = varClassTypes_.find(baseIdent->getName());
-        if (cvIt != varClassTypes_.end()) {
+        auto cvIt = vars_.varClassTypes.find(baseIdent->getName());
+        if (cvIt != vars_.varClassTypes.end()) {
             std::string subName = cvIt->second + "_subscript";
             auto *subFn = module_->getFunction(subName);
             if (subFn) {
                 auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                auto nvIt = namedValues_.find(baseIdent->getName());
-                if (nvIt != namedValues_.end()) {
+                auto nvIt = vars_.namedValues.find(baseIdent->getName());
+                if (nvIt != vars_.namedValues.end()) {
                     auto *selfVal = nvIt->second;
                     llvm::Value *selfLoaded = selfVal;
                     if (selfVal->getAllocatedType()->isPointerTy()) {
@@ -1137,10 +1082,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         auto *sliceLen = builder_->CreateSub(endVal, startVal, "slice.len");
 
         // String slicing: s[1..3] -> liva_str_substring(s, start, end-start)
-        auto daIt = varDynArrayTypes_.find(ident->getName());
-        if (daIt == varDynArrayTypes_.end() && varArrayTypes_.find(ident->getName()) == varArrayTypes_.end()) {
-            auto allocaIt = namedValues_.find(ident->getName());
-            if (allocaIt == namedValues_.end()) {
+        auto daIt = vars_.varDynArrayTypes.find(ident->getName());
+        if (daIt == vars_.varDynArrayTypes.end() && vars_.varArrayTypes.find(ident->getName()) == vars_.varArrayTypes.end()) {
+            auto allocaIt = vars_.namedValues.find(ident->getName());
+            if (allocaIt == vars_.namedValues.end()) {
                 diag_.report(node->getStartLoc(), DiagID::err_irgen_subscript_failed, ident->getName());
                 return nullptr;
             }
@@ -1157,9 +1102,9 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         }
 
         // DynArray slicing: arr[1..3] -> new DynArray with copied elements
-        if (daIt != varDynArrayTypes_.end()) {
-            auto allocaIt = namedValues_.find(ident->getName());
-            if (allocaIt == namedValues_.end()) {
+        if (daIt != vars_.varDynArrayTypes.end()) {
+            auto allocaIt = vars_.namedValues.find(ident->getName());
+            if (allocaIt == vars_.namedValues.end()) {
                 diag_.report(node->getStartLoc(), DiagID::err_irgen_subscript_failed, ident->getName());
                 return nullptr;
             }
@@ -1206,10 +1151,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
     if (!indexVal) return nullptr;
 
     // Dynamic array index: arr[i]
-    auto daIt = varDynArrayTypes_.find(ident->getName());
-    if (daIt != varDynArrayTypes_.end()) {
-        auto allocaIt = namedValues_.find(ident->getName());
-        if (allocaIt == namedValues_.end()) {
+    auto daIt = vars_.varDynArrayTypes.find(ident->getName());
+    if (daIt != vars_.varDynArrayTypes.end()) {
+        auto allocaIt = vars_.namedValues.find(ident->getName());
+        if (allocaIt == vars_.namedValues.end()) {
             diag_.report(node->getStartLoc(), DiagID::err_irgen_subscript_failed, ident->getName());
             return nullptr;
         }
@@ -1226,10 +1171,10 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         return builder_->CreateLoad(daIt->second.elementType, elemPtr, "darr.val");
     }
 
-    auto arrIt = varArrayTypes_.find(ident->getName());
-    if (arrIt != varArrayTypes_.end()) {
-        auto allocaIt = namedValues_.find(ident->getName());
-        if (allocaIt == namedValues_.end()) return nullptr;
+    auto arrIt = vars_.varArrayTypes.find(ident->getName());
+    if (arrIt != vars_.varArrayTypes.end()) {
+        auto allocaIt = vars_.namedValues.find(ident->getName());
+        if (allocaIt == vars_.namedValues.end()) return nullptr;
         auto *alloca = allocaIt->second;
         auto *elemType = arrIt->second.elementType;
         auto *arrayType = alloca->getAllocatedType();
@@ -1243,8 +1188,8 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
     }
 
     // String indexing: s[i] -> liva_str_substring(s, i, 1)
-    auto allocaIt = namedValues_.find(ident->getName());
-    if (allocaIt != namedValues_.end()) {
+    auto allocaIt = vars_.namedValues.find(ident->getName());
+    if (allocaIt != vars_.namedValues.end()) {
         auto *ptrTy = llvm::PointerType::getUnqual(*context_);
         auto *strVal = builder_->CreateLoad(ptrTy, allocaIt->second, "str.ptr");
         if (indexVal->getType()->isIntegerTy(32))
@@ -1272,7 +1217,7 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
 }
 
 llvm::Value *IRGen::visitTryExpr(TryExpr *node) {
-    if (!currentFuncResultInfo_) {
+    if (!vars_.currentFuncResultInfo) {
         // If not in a Result-returning function, just evaluate the operand
         return visit(node->getOperand());
     }
@@ -1282,7 +1227,7 @@ llvm::Value *IRGen::visitTryExpr(TryExpr *node) {
     if (!resultVal) return nullptr;
 
     // Store to a temp alloca to extract tag
-    auto *resTy = getResultType(currentFuncResultInfo_->okType, currentFuncResultInfo_->errType);
+    auto *resTy = getResultType(vars_.currentFuncResultInfo->okType, vars_.currentFuncResultInfo->errType);
     auto *func = builder_->GetInsertBlock()->getParent();
     auto *tmpAlloca = createEntryBlockAlloca(func, "try.tmp", resTy);
     builder_->CreateStore(resultVal, tmpAlloca);
@@ -1298,15 +1243,15 @@ llvm::Value *IRGen::visitTryExpr(TryExpr *node) {
     // Error path: propagate the Err by returning it
     builder_->SetInsertPoint(errBB);
     auto *errPayloadPtr = builder_->CreateStructGEP(resTy, tmpAlloca, 1, "try.err.payload");
-    auto *errVal = builder_->CreateLoad(currentFuncResultInfo_->errType, errPayloadPtr, "try.err.val");
-    auto *errResult = emitResultErr(currentFuncResultInfo_->okType,
-                                     currentFuncResultInfo_->errType, errVal);
+    auto *errVal = builder_->CreateLoad(vars_.currentFuncResultInfo->errType, errPayloadPtr, "try.err.val");
+    auto *errResult = emitResultErr(vars_.currentFuncResultInfo->okType,
+                                     vars_.currentFuncResultInfo->errType, errVal);
     builder_->CreateRet(errResult);
 
     // Ok path: extract the Ok value and continue
     builder_->SetInsertPoint(okBB);
     auto *okPayloadPtr = builder_->CreateStructGEP(resTy, tmpAlloca, 1, "try.ok.payload");
-    return builder_->CreateLoad(currentFuncResultInfo_->okType, okPayloadPtr, "try.ok.val");
+    return builder_->CreateLoad(vars_.currentFuncResultInfo->okType, okPayloadPtr, "try.ok.val");
 }
 
 llvm::Value *IRGen::visitTernaryExpr(TernaryExpr *node) {
@@ -1347,11 +1292,11 @@ llvm::Value *IRGen::visitTernaryExpr(TernaryExpr *node) {
 llvm::Value *IRGen::visitRefExpr(RefExpr *node) {
     // ref x → return address of x (the alloca pointer)
     if (auto *ident = dynamic_cast<const IdentifierExpr *>(node->getExpr())) {
-        auto it = namedValues_.find(ident->getName());
-        if (it != namedValues_.end()) {
+        auto it = vars_.namedValues.find(ident->getName());
+        if (it != vars_.namedValues.end()) {
             // If x is itself a ref, load the pointer (pass-through)
-            auto refIt = varRefTypes_.find(ident->getName());
-            if (refIt != varRefTypes_.end()) {
+            auto refIt = vars_.varRefTypes.find(ident->getName());
+            if (refIt != vars_.varRefTypes.end()) {
                 return builder_->CreateLoad(
                     llvm::PointerType::getUnqual(*context_), it->second,
                     ident->getName() + ".ref");

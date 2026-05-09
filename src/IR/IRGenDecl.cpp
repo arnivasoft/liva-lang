@@ -344,28 +344,28 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     }
 
     // Save old named values and create new scope
-    auto oldNamedValues = namedValues_;
-    auto oldVarStructTypes = varStructTypes_;
-    auto oldVarEnumTypes = varEnumTypes_;
-    auto oldVarArrayTypes = varArrayTypes_;
-    auto oldVarDynArrayTypes = varDynArrayTypes_;
-    auto oldVarDynArrayProtocol = varDynArrayProtocol_;
-    auto oldVarMapTypes = varMapTypes_;
-    auto oldVarSetTypes = varSetTypes_;
-    auto oldVarOptionalTypes = varOptionalTypes_;
-    auto oldVarFuncTypes = varFuncTypes_;
-    auto oldVarProtocolTypes = varProtocolTypes_;
-    auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
-    auto oldVarResultTypes = varResultTypes_;
-    auto oldVarRefTypes = varRefTypes_;
-    auto oldVarFileTypes = varFileTypes_;
-    auto oldVarFileOptionalTypes = varFileOptionalTypes_;
-    auto oldVarTupleTypes = varTupleTypes_;
-    auto oldMovedVars = movedVars_;
-    auto oldHeapStringVars = heapStringVars_;
-    auto oldHeapOptionalStringVars = heapOptionalStringVars_;
-    auto oldTempStrings = tempStrings_;
-    auto *oldFuncResultInfo = currentFuncResultInfo_;
+    auto oldNamedValues = vars_.namedValues;
+    auto oldVarStructTypes = vars_.varStructTypes;
+    auto oldVarEnumTypes = vars_.varEnumTypes;
+    auto oldVarArrayTypes = vars_.varArrayTypes;
+    auto oldVarDynArrayTypes = vars_.varDynArrayTypes;
+    auto oldVarDynArrayProtocol = vars_.varDynArrayProtocol;
+    auto oldVarMapTypes = vars_.varMapTypes;
+    auto oldVarSetTypes = vars_.varSetTypes;
+    auto oldVarOptionalTypes = vars_.varOptionalTypes;
+    auto oldVarFuncTypes = vars_.varFuncTypes;
+    auto oldVarProtocolTypes = vars_.varProtocolTypes;
+    auto oldVarConcreteProtocolTypes = vars_.varConcreteProtocolTypes;
+    auto oldVarResultTypes = vars_.varResultTypes;
+    auto oldVarRefTypes = vars_.varRefTypes;
+    auto oldVarFileTypes = vars_.varFileTypes;
+    auto oldVarFileOptionalTypes = vars_.varFileOptionalTypes;
+    auto oldVarTupleTypes = vars_.varTupleTypes;
+    auto oldMovedVars = vars_.movedVars;
+    auto oldHeapStringVars = vars_.heapStringVars;
+    auto oldHeapOptionalStringVars = vars_.heapOptionalStringVars;
+    auto oldTempStrings = vars_.tempStrings;
+    auto *oldFuncResultInfo = vars_.currentFuncResultInfo;
     auto *oldFuncOptInner = currentFuncOptionalInner_;
     bool oldIsAsync = currentIsAsync_;
     auto *oldAsyncRetType = asyncDeclaredRetType_;
@@ -387,28 +387,28 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     currentCoroFinalBB_ = nullptr;
     currentCoroCleanupBB_ = nullptr;
     currentCoroSuspendBB_ = nullptr;
-    namedValues_.clear();
-    varStructTypes_.clear();
-    varEnumTypes_.clear();
-    varArrayTypes_.clear();
-    varDynArrayTypes_.clear();
-    varDynArrayProtocol_.clear();
-    varMapTypes_.clear();
-    varSetTypes_.clear();
-    varOptionalTypes_.clear();
-    varFuncTypes_.clear();
-    varProtocolTypes_.clear();
-    varConcreteProtocolTypes_.clear();
-    varResultTypes_.clear();
-    varRefTypes_.clear();
-    varFileTypes_.clear();
-    varFileOptionalTypes_.clear();
-    varTupleTypes_.clear();
-    movedVars_.clear();
-    heapStringVars_.clear();
-    heapOptionalStringVars_.clear();
-    tempStrings_.clear();
-    currentFuncResultInfo_ = nullptr;
+    vars_.namedValues.clear();
+    vars_.varStructTypes.clear();
+    vars_.varEnumTypes.clear();
+    vars_.varArrayTypes.clear();
+    vars_.varDynArrayTypes.clear();
+    vars_.varDynArrayProtocol.clear();
+    vars_.varMapTypes.clear();
+    vars_.varSetTypes.clear();
+    vars_.varOptionalTypes.clear();
+    vars_.varFuncTypes.clear();
+    vars_.varProtocolTypes.clear();
+    vars_.varConcreteProtocolTypes.clear();
+    vars_.varResultTypes.clear();
+    vars_.varRefTypes.clear();
+    vars_.varFileTypes.clear();
+    vars_.varFileOptionalTypes.clear();
+    vars_.varTupleTypes.clear();
+    vars_.movedVars.clear();
+    vars_.heapStringVars.clear();
+    vars_.heapOptionalStringVars.clear();
+    vars_.tempStrings.clear();
+    vars_.currentFuncResultInfo = nullptr;
     currentFuncOptionalInner_ = nullptr;
 
     // Track Optional return type for return-nil / return-value wrapping
@@ -423,7 +423,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         node->getReturnType()->getKind() == TypeRepr::Kind::Result) {
         auto *rt = static_cast<const ResultTypeRepr *>(node->getReturnType());
         currentFuncResultInfoStorage_ = {toLLVMType(rt->getOkType()), toLLVMType(rt->getErrType())};
-        currentFuncResultInfo_ = &currentFuncResultInfoStorage_;
+        vars_.currentFuncResultInfo = &currentFuncResultInfoStorage_;
     }
 
     // === Phase 2 Coroutine Ramp Setup (for async/generator functions) ===
@@ -530,7 +530,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         for (auto &arg : func->args()) {
             auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
             builder_->CreateStore(&arg, alloca);
-            namedValues_[std::string(arg.getName())] = alloca;
+            vars_.namedValues[std::string(arg.getName())] = alloca;
             // Register struct/enum-typed parameters for member access
             unsigned argIdx = arg.getArgNo();
             if (argIdx < node->getParams().size()) {
@@ -538,9 +538,9 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
                 if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
                     auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
                     if (structTypes_.count(named->getName()))
-                        varStructTypes_[pd.name] = named->getName();
+                        vars_.varStructTypes[pd.name] = named->getName();
                     else if (enumTypes_.count(named->getName()))
-                        varEnumTypes_[pd.name] = named->getName();
+                        vars_.varEnumTypes[pd.name] = named->getName();
                 }
             }
             if (diBuilder_) {
@@ -560,7 +560,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             auto *elemType = toLLVMType(param.type.get());
             auto &DL = module_->getDataLayout();
             uint64_t elemSize = DL.getTypeAllocSize(elemType);
-            varDynArrayTypes_[param.name] = {elemType, elemSize};
+            vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
         }
     }
 
@@ -573,21 +573,21 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
                 auto *elemType = toLLVMType(arrType->getElement());
                 auto &DL = module_->getDataLayout();
                 uint64_t elemSize = DL.getTypeAllocSize(elemType);
-                varDynArrayTypes_[param.name] = {elemType, elemSize};
+                vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
                 // Params are borrowed: the caller owns the backing buffer.
                 // Skip them in emitScopeCleanup to avoid double-free.
-                movedVars_.insert(param.name);
+                vars_.movedVars.insert(param.name);
                 // Track dyn Protocol element type
                 if (arrType->getElement() &&
                     arrType->getElement()->getKind() == TypeRepr::Kind::DynProtocol) {
                     auto *dynP = static_cast<const DynProtocolTypeRepr *>(arrType->getElement());
-                    varDynArrayProtocol_[param.name] = dynP->getProtocolName();
+                    vars_.varDynArrayProtocol[param.name] = dynP->getProtocolName();
                 }
             }
         }
     }
 
-    // Populate varRefTypes_ for ref parameters
+    // Populate vars_.varRefTypes for ref parameters
     for (auto &param : node->getParams()) {
         if (param.isRef && param.type) {
             llvm::Type *innerTy = toLLVMType(param.type.get());
@@ -595,11 +595,11 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
                 auto *refTy = static_cast<const ReferenceTypeRepr *>(param.type.get());
                 innerTy = toLLVMType(refTy->getInner());
             }
-            varRefTypes_[param.name] = innerTy;
+            vars_.varRefTypes[param.name] = innerTy;
         }
     }
 
-    // Populate varFuncTypes_ for function-typed parameters
+    // Populate vars_.varFuncTypes for function-typed parameters
     for (auto &param : node->getParams()) {
         if (param.type && param.type->getKind() == TypeRepr::Kind::Function) {
             auto *ftr = static_cast<const FunctionTypeRepr *>(param.type.get());
@@ -609,15 +609,15 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
                 fParamTypes.push_back(toLLVMType(p.get()));
             llvm::Type *fRetTy = ftr->getReturnType()
                 ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
-            varFuncTypes_[param.name] = llvm::FunctionType::get(fRetTy, fParamTypes, false);
+            vars_.varFuncTypes[param.name] = llvm::FunctionType::get(fRetTy, fParamTypes, false);
         }
     }
 
-    // Populate varProtocolTypes_ for dyn Protocol parameters
+    // Populate vars_.varProtocolTypes for dyn Protocol parameters
     for (auto &param : node->getParams()) {
         if (param.type && param.type->getKind() == TypeRepr::Kind::DynProtocol) {
             auto *dynType = static_cast<const DynProtocolTypeRepr *>(param.type.get());
-            varProtocolTypes_[param.name] = dynType->getProtocolName();
+            vars_.varProtocolTypes[param.name] = dynType->getProtocolName();
         }
     }
 
@@ -685,28 +685,28 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     }
 
     // Restore named values
-    namedValues_ = oldNamedValues;
-    varStructTypes_ = oldVarStructTypes;
-    varEnumTypes_ = oldVarEnumTypes;
-    varArrayTypes_ = oldVarArrayTypes;
-    varDynArrayTypes_ = oldVarDynArrayTypes;
-    varDynArrayProtocol_ = oldVarDynArrayProtocol;
-    varMapTypes_ = oldVarMapTypes;
-    varSetTypes_ = oldVarSetTypes;
-    varOptionalTypes_ = oldVarOptionalTypes;
-    varFuncTypes_ = oldVarFuncTypes;
-    varProtocolTypes_ = oldVarProtocolTypes;
-    varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
-    varResultTypes_ = oldVarResultTypes;
-    varRefTypes_ = oldVarRefTypes;
-    varFileTypes_ = oldVarFileTypes;
-    varFileOptionalTypes_ = oldVarFileOptionalTypes;
-    varTupleTypes_ = oldVarTupleTypes;
-    movedVars_ = oldMovedVars;
-    heapStringVars_ = oldHeapStringVars;
-    heapOptionalStringVars_ = oldHeapOptionalStringVars;
-    tempStrings_ = oldTempStrings;
-    currentFuncResultInfo_ = oldFuncResultInfo;
+    vars_.namedValues = oldNamedValues;
+    vars_.varStructTypes = oldVarStructTypes;
+    vars_.varEnumTypes = oldVarEnumTypes;
+    vars_.varArrayTypes = oldVarArrayTypes;
+    vars_.varDynArrayTypes = oldVarDynArrayTypes;
+    vars_.varDynArrayProtocol = oldVarDynArrayProtocol;
+    vars_.varMapTypes = oldVarMapTypes;
+    vars_.varSetTypes = oldVarSetTypes;
+    vars_.varOptionalTypes = oldVarOptionalTypes;
+    vars_.varFuncTypes = oldVarFuncTypes;
+    vars_.varProtocolTypes = oldVarProtocolTypes;
+    vars_.varConcreteProtocolTypes = oldVarConcreteProtocolTypes;
+    vars_.varResultTypes = oldVarResultTypes;
+    vars_.varRefTypes = oldVarRefTypes;
+    vars_.varFileTypes = oldVarFileTypes;
+    vars_.varFileOptionalTypes = oldVarFileOptionalTypes;
+    vars_.varTupleTypes = oldVarTupleTypes;
+    vars_.movedVars = oldMovedVars;
+    vars_.heapStringVars = oldHeapStringVars;
+    vars_.heapOptionalStringVars = oldHeapOptionalStringVars;
+    vars_.tempStrings = oldTempStrings;
+    vars_.currentFuncResultInfo = oldFuncResultInfo;
     currentFuncOptionalInner_ = oldFuncOptInner;
     currentIsAsync_ = oldIsAsync;
     asyncDeclaredRetType_ = oldAsyncRetType;
@@ -833,7 +833,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
             auto *elemAlloca = createEntryBlockAlloca(func, node->getDestructuredNames()[i], elemTy);
             builder_->CreateStore(val, elemAlloca);
-            namedValues_[node->getDestructuredNames()[i]] = elemAlloca;
+            vars_.namedValues[node->getDestructuredNames()[i]] = elemAlloca;
         }
         return tupleAlloca;
     }
@@ -854,11 +854,11 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
                 auto *ident = static_cast<IdentifierExpr *>(
                     const_cast<Expr *>(node->getInit()));
-                auto stIt = varStructTypes_.find(ident->getName());
-                if (stIt != varStructTypes_.end()) {
+                auto stIt = vars_.varStructTypes.find(ident->getName());
+                if (stIt != vars_.varStructTypes.end()) {
                     concreteType = stIt->second;
-                    auto nvIt = namedValues_.find(ident->getName());
-                    if (nvIt != namedValues_.end())
+                    auto nvIt = vars_.namedValues.find(ident->getName());
+                    if (nvIt != vars_.namedValues.end())
                         dataAlloca = nvIt->second;
                 }
             }
@@ -873,10 +873,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *vtableGEP = builder_->CreateStructGEP(traitTy, alloca, 1, "dyn.vtable");
                 builder_->CreateStore(vtable, vtableGEP);
 
-                namedValues_[node->getName()] = alloca;
-                varProtocolTypes_[node->getName()] = protocolName;
+                vars_.namedValues[node->getName()] = alloca;
+                vars_.varProtocolTypes[node->getName()] = protocolName;
                 if (!node->isMutable()) {
-                    varConcreteProtocolTypes_[node->getName()] = concreteType;
+                    vars_.varConcreteProtocolTypes[node->getName()] = concreteType;
                 }
                 return alloca;
             }
@@ -903,11 +903,11 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
                     auto *ident = static_cast<IdentifierExpr *>(
                         const_cast<Expr *>(node->getInit()));
-                    auto stIt = varStructTypes_.find(ident->getName());
-                    if (stIt != varStructTypes_.end()) {
+                    auto stIt = vars_.varStructTypes.find(ident->getName());
+                    if (stIt != vars_.varStructTypes.end()) {
                         concreteType = stIt->second;
-                        auto nvIt = namedValues_.find(ident->getName());
-                        if (nvIt != namedValues_.end())
+                        auto nvIt = vars_.namedValues.find(ident->getName());
+                        if (nvIt != vars_.namedValues.end())
                             dataAlloca = nvIt->second;
                     }
                 }
@@ -924,10 +924,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     auto *vtableGEP = builder_->CreateStructGEP(traitTy, alloca, 1, "trait.vtable");
                     builder_->CreateStore(vtable, vtableGEP);
 
-                    namedValues_[node->getName()] = alloca;
-                    varProtocolTypes_[node->getName()] = protocolName;
+                    vars_.namedValues[node->getName()] = alloca;
+                    vars_.varProtocolTypes[node->getName()] = protocolName;
                     if (!node->isMutable()) {
-                        varConcreteProtocolTypes_[node->getName()] = concreteType;
+                        vars_.varConcreteProtocolTypes[node->getName()] = concreteType;
                     }
                     return alloca;
                 }
@@ -945,17 +945,17 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         auto *alloca = createEntryBlockAlloca(func, node->getName(), resTy);
 
         if (node->hasInit()) {
-            // Temporarily set currentFuncResultInfo_ so emitResultOk/Err can be used from visitCallExpr
+            // Temporarily set vars_.currentFuncResultInfo so emitResultOk/Err can be used from visitCallExpr
             ResultInfo ri = {okLLVM, errLLVM};
-            auto *oldRI = currentFuncResultInfo_;
-            currentFuncResultInfo_ = &ri;
+            auto *oldRI = vars_.currentFuncResultInfo;
+            vars_.currentFuncResultInfo = &ri;
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
-            currentFuncResultInfo_ = oldRI;
+            vars_.currentFuncResultInfo = oldRI;
             if (initVal) builder_->CreateStore(initVal, alloca);
         }
 
-        namedValues_[node->getName()] = alloca;
-        varResultTypes_[node->getName()] = {okLLVM, errLLVM};
+        vars_.namedValues[node->getName()] = alloca;
+        vars_.varResultTypes[node->getName()] = {okLLVM, errLLVM};
         return alloca;
     }
 
@@ -973,9 +973,9 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     auto *alloca = createEntryBlockAlloca(func, node->getName(), optTy);
                     auto *initVal = visit(const_cast<Expr *>(node->getInit()));
                     if (initVal) builder_->CreateStore(initVal, alloca);
-                    namedValues_[node->getName()] = alloca;
-                    varOptionalTypes_[node->getName()] = ptrTy;
-                    varFileOptionalTypes_.insert(node->getName());
+                    vars_.namedValues[node->getName()] = alloca;
+                    vars_.varOptionalTypes[node->getName()] = ptrTy;
+                    vars_.varFileOptionalTypes.insert(node->getName());
                     return alloca;
                 }
             }
@@ -1006,41 +1006,41 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             builder_->CreateStore(builder_->getFalse(), hasValPtr);
             builder_->CreateStore(llvm::Constant::getNullValue(innerLLVM), valPtr);
         } else if (node->hasInit()) {
-            // Snapshot tempStrings_ to detect inner-string ownership transfer
+            // Snapshot vars_.tempStrings to detect inner-string ownership transfer
             // for Optional<string>-returning builtins (hexDecode, tomlGetString,
             // base64UrlDecode, isoParse, ...). Their codegen calls
             // trackStringTemp on the inner ptr; without ownership transfer the
             // raw ptr is freed at the end of this statement, leaving the var
             // holding a dangling pointer.
-            size_t tempsBeforeInit = tempStrings_.size();
+            size_t tempsBeforeInit = vars_.tempStrings.size();
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal && initVal->getType() == optStructTy) {
                 // RHS is already an Optional<T> matching the declared type;
                 // store it as a single value rather than wrapping in Some(...)
                 builder_->CreateStore(initVal, alloca);
                 if (innerLLVM->isPointerTy() &&
-                    tempStrings_.size() > tempsBeforeInit) {
+                    vars_.tempStrings.size() > tempsBeforeInit) {
                     // Transfer ownership: drop the wrapping call's temp and
                     // mark this variable for conditional cleanup.
-                    tempStrings_.pop_back();
-                    heapOptionalStringVars_.insert(node->getName());
+                    vars_.tempStrings.pop_back();
+                    vars_.heapOptionalStringVars.insert(node->getName());
                 }
             } else {
                 // RHS is a plain T value → wrap as Some(value)
                 builder_->CreateStore(builder_->getTrue(), hasValPtr);
                 if (initVal) builder_->CreateStore(initVal, valPtr);
                 if (innerLLVM->isPointerTy() && initVal &&
-                    tempStrings_.size() > tempsBeforeInit) {
-                    tempStrings_.pop_back();
-                    heapOptionalStringVars_.insert(node->getName());
+                    vars_.tempStrings.size() > tempsBeforeInit) {
+                    vars_.tempStrings.pop_back();
+                    vars_.heapOptionalStringVars.insert(node->getName());
                 }
             }
         } else {
             builder_->CreateStore(builder_->getFalse(), hasValPtr);
             builder_->CreateStore(llvm::Constant::getNullValue(innerLLVM), valPtr);
         }
-        namedValues_[node->getName()] = alloca;
-        varOptionalTypes_[node->getName()] = innerLLVM;
+        vars_.namedValues[node->getName()] = alloca;
+        vars_.varOptionalTypes[node->getName()] = innerLLVM;
         if (diBuilder_) {
             auto *diTy = toDIType(optTypeRepr->getInner());
             emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
@@ -1048,7 +1048,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         // Register struct type name for optional chaining support
         if (optTypeRepr->getInner()->getKind() == TypeRepr::Kind::Named) {
             auto *namedInner = static_cast<const NamedTypeRepr *>(optTypeRepr->getInner());
-            varStructTypes_[node->getName()] = namedInner->getName();
+            vars_.varStructTypes[node->getName()] = namedInner->getName();
         }
         return alloca;
     }
@@ -1111,8 +1111,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 builder_->CreateStore(val, gep);
             }
 
-            namedValues_[node->getName()] = alloca;
-            varStructTypes_[node->getName()] = mangledName;
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varStructTypes[node->getName()] = mangledName;
             return alloca;
         }
 
@@ -1139,8 +1139,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 builder_->CreateStore(val, gep);
             }
 
-            namedValues_[node->getName()] = alloca;
-            varStructTypes_[node->getName()] = typeName;
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varStructTypes[node->getName()] = typeName;
             if (diBuilder_) {
                 auto *diTy = getOrCreateStructDIType(typeName);
                 emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
@@ -1162,8 +1162,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
                     auto *alloca = createEntryBlockAlloca(func, node->getName(), ptrTy);
                     builder_->CreateStore(initVal, alloca);
-                    namedValues_[node->getName()] = alloca;
-                    varClassTypes_[node->getName()] = ident->getName();
+                    vars_.namedValues[node->getName()] = alloca;
+                    vars_.varClassTypes[node->getName()] = ident->getName();
                     return alloca;
                 }
             }
@@ -1190,23 +1190,23 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                         auto *resultTy = initVal->getType();
                         auto *alloca = createEntryBlockAlloca(func, node->getName(), resultTy);
                         builder_->CreateStore(initVal, alloca);
-                        namedValues_[node->getName()] = alloca;
+                        vars_.namedValues[node->getName()] = alloca;
                         if (resultTy->isStructTy()) {
                             auto *st = llvm::cast<llvm::StructType>(resultTy);
                             if (st->getNumElements() == 2 &&
                                 st->getElementType(0)->isIntegerTy(1)) {
                                 // Optional<T>: register inner type for if-let
-                                varOptionalTypes_[node->getName()] = st->getElementType(1);
+                                vars_.varOptionalTypes[node->getName()] = st->getElementType(1);
                                 if (st->getElementType(1) == stIt->second) {
                                     // Optional chaining still wants the
                                     // underlying struct name available.
-                                    varStructTypes_[node->getName()] = ident->getName();
+                                    vars_.varStructTypes[node->getName()] = ident->getName();
                                 }
                             } else {
-                                varStructTypes_[node->getName()] = ident->getName();
+                                vars_.varStructTypes[node->getName()] = ident->getName();
                             }
                         } else {
-                            varStructTypes_[node->getName()] = ident->getName();
+                            vars_.varStructTypes[node->getName()] = ident->getName();
                         }
                         return alloca;
                     }
@@ -1231,8 +1231,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     auto *initVal = visit(const_cast<Expr *>(node->getInit()));
                     if (initVal)
                         builder_->CreateStore(initVal, alloca);
-                    namedValues_[node->getName()] = alloca;
-                    varEnumTypes_[node->getName()] = ident->getName();
+                    vars_.namedValues[node->getName()] = alloca;
+                    vars_.varEnumTypes[node->getName()] = ident->getName();
                     return alloca;
                 }
             }
@@ -1259,8 +1259,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                         // Store tag only
                         auto *tagPtr = builder_->CreateStructGEP(enumStructTy, alloca, 0, "tag.ptr");
                         builder_->CreateStore(builder_->getInt32(cIt->second), tagPtr);
-                        namedValues_[node->getName()] = alloca;
-                        varEnumTypes_[node->getName()] = ident->getName();
+                        vars_.namedValues[node->getName()] = alloca;
+                        vars_.varEnumTypes[node->getName()] = ident->getName();
                         return alloca;
                     }
                 }
@@ -1274,8 +1274,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *initVal = visit(const_cast<Expr *>(node->getInit()));
                 if (initVal)
                     builder_->CreateStore(initVal, alloca);
-                namedValues_[node->getName()] = alloca;
-                varEnumTypes_[node->getName()] = ident->getName();
+                vars_.namedValues[node->getName()] = alloca;
+                vars_.varEnumTypes[node->getName()] = ident->getName();
                 return alloca;
             }
         }
@@ -1318,12 +1318,12 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     // Box elements as trait objects for [dyn Protocol] arrays
                     if (isDynProtoElem && elem->getKind() == ASTNode::NodeKind::IdentifierExpr) {
                         auto *ident = static_cast<IdentifierExpr *>(elem.get());
-                        auto stIt = varStructTypes_.find(ident->getName());
-                        if (stIt != varStructTypes_.end()) {
+                        auto stIt = vars_.varStructTypes.find(ident->getName());
+                        if (stIt != vars_.varStructTypes.end()) {
                             auto *traitTy = getTraitObjectTy();
                             auto *traitAlloca = createEntryBlockAlloca(func, "dyn.arr.box", traitTy);
                             auto *dataGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 0, "dyn.data");
-                            builder_->CreateStore(namedValues_[ident->getName()], dataGEP);
+                            builder_->CreateStore(vars_.namedValues[ident->getName()], dataGEP);
                             auto *vtable = getOrCreateVtable(protoName, stIt->second);
                             auto *vtGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 1, "dyn.vtable");
                             builder_->CreateStore(vtable, vtGEP);
@@ -1360,11 +1360,11 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *capField = builder_->CreateStructGEP(structTy, alloca, 2, "arr.cap.ptr");
             builder_->CreateStore(builder_->getInt64(initCap), capField);
 
-            namedValues_[node->getName()] = alloca;
-            varDynArrayTypes_[node->getName()] = {elemType, elemSize};
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize};
             // Track dyn Protocol element type for for-in loop dispatch
             if (isDynProtoElem) {
-                varDynArrayProtocol_[node->getName()] = protoName;
+                vars_.varDynArrayProtocol[node->getName()] = protoName;
             }
             return alloca;
         }
@@ -1399,8 +1399,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *capField = builder_->CreateStructGEP(structTy, alloca, 2, "map.cap.ptr");
             builder_->CreateStore(builder_->getInt64(initCap), capField);
 
-            namedValues_[node->getName()] = alloca;
-            varMapTypes_[node->getName()] = {keyType, valType, keySize, valSize, keyKind};
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varMapTypes[node->getName()] = {keyType, valType, keySize, valSize, keyKind};
             return alloca;
         }
 
@@ -1427,8 +1427,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *capField = builder_->CreateStructGEP(structTy, alloca, 2, "set.cap.ptr");
             builder_->CreateStore(builder_->getInt64(initCap), capField);
 
-            namedValues_[node->getName()] = alloca;
-            varSetTypes_[node->getName()] = {elemType, elemSize, keyKind};
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varSetTypes[node->getName()] = {elemType, elemSize, keyKind};
             return alloca;
         }
     }
@@ -1455,8 +1455,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     arrayType, alloca, 0, i, "arr.elem." + std::to_string(i));
                 builder_->CreateStore(val, gep);
             }
-            namedValues_[node->getName()] = alloca;
-            varArrayTypes_[node->getName()] = {elemType, numElements};
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varArrayTypes[node->getName()] = {elemType, numElements};
             return alloca;
         }
     }
@@ -1479,8 +1479,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal) builder_->CreateStore(initVal, alloca);
         }
-        namedValues_[node->getName()] = alloca;
-        varFuncTypes_[node->getName()] = llvmFuncTy;
+        vars_.namedValues[node->getName()] = alloca;
+        vars_.varFuncTypes[node->getName()] = llvmFuncTy;
         return alloca;
     }
 
@@ -1492,11 +1492,11 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         auto *alloca = createEntryBlockAlloca(func, node->getName(), tupleTy);
         auto *initVal = visit(const_cast<Expr *>(node->getInit()));
         if (initVal) builder_->CreateStore(initVal, alloca);
-        namedValues_[node->getName()] = alloca;
+        vars_.namedValues[node->getName()] = alloca;
         TupleInfo ti;
         for (auto &e : tupleTypeRepr->getElements())
             ti.elementTypes.push_back(toLLVMType(e.get()));
-        varTupleTypes_[node->getName()] = ti;
+        vars_.varTupleTypes[node->getName()] = ti;
         return alloca;
     }
 
@@ -1510,11 +1510,11 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal) builder_->CreateStore(initVal, alloca);
         }
-        namedValues_[node->getName()] = alloca;
+        vars_.namedValues[node->getName()] = alloca;
         TupleInfo ti;
         for (auto &e : tupleTypeRepr->getElements())
             ti.elementTypes.push_back(toLLVMType(e.get()));
-        varTupleTypes_[node->getName()] = ti;
+        vars_.varTupleTypes[node->getName()] = ti;
         return alloca;
     }
 
@@ -1538,18 +1538,18 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal) builder_->CreateStore(initVal, alloca);
-            namedValues_[node->getName()] = alloca;
-            varDynArrayTypes_[node->getName()] = {elemType, elemSize};
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize};
             return alloca;
         }
     }
 
     // Fallback: visit init first to determine correct type for inferred vars
     if (node->hasInit()) {
-        // Snapshot tempStrings_ before init so we can identify any temp strings
+        // Snapshot vars_.tempStrings before init so we can identify any temp strings
         // produced by the init expression — needed for Optional<string>
         // ownership transfer below.
-        size_t tempsBeforeInit = tempStrings_.size();
+        size_t tempsBeforeInit = vars_.tempStrings.size();
         auto *initVal = visit(const_cast<Expr *>(node->getInit()));
         auto *type = toLLVMType(node->getType());
         // Use init value's type when annotation is absent/inferred (avoids i32 default)
@@ -1560,7 +1560,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
         if (initVal)
             builder_->CreateStore(initVal, alloca);
-        namedValues_[node->getName()] = alloca;
+        vars_.namedValues[node->getName()] = alloca;
         if (diBuilder_) {
             auto *diTy = toDIType(node->getType());
             emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
@@ -1579,8 +1579,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 // heap-allocated pointer so reassignments can free the old
                 // value uniformly. If init is a string literal (not tracked),
                 // dup it; otherwise transfer the temp's ownership.
-                auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), initVal);
-                if (tIt != tempStrings_.end()) {
+                auto tIt = std::find(vars_.tempStrings.begin(), vars_.tempStrings.end(), initVal);
+                if (tIt != vars_.tempStrings.end()) {
                     transferStringOwnership(initVal, node->getName());
                 } else if (node->isMutable()) {
                     // Literal or borrowed init — replace stored value with a
@@ -1588,7 +1588,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     auto *dup = builder_->CreateCall(getOrPanic("liva_str_dup"),
                                                      {initVal}, node->getName() + ".own");
                     builder_->CreateStore(dup, alloca);
-                    heapStringVars_.insert(node->getName());
+                    vars_.heapStringVars.insert(node->getName());
                 }
             }
         }
@@ -1598,7 +1598,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *structTy = llvm::cast<llvm::StructType>(initVal->getType());
             if (structTy->getNumElements() == 2 &&
                 structTy->getElementType(0)->isIntegerTy(1)) {
-                varOptionalTypes_[node->getName()] = structTy->getElementType(1);
+                vars_.varOptionalTypes[node->getName()] = structTy->getElementType(1);
 
                 // Optional<string> ownership transfer: builtins like hexDecode
                 // and tomlGetString call trackStringTemp on their inner pointer
@@ -1610,12 +1610,12 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 // ownership to the variable; emitScopeCleanup will free it
                 // conditionally (only when hasVal is true) at scope end.
                 if (structTy->getElementType(1)->isPointerTy() &&
-                    tempStrings_.size() > tempsBeforeInit) {
+                    vars_.tempStrings.size() > tempsBeforeInit) {
                     // Take the LAST entry — that's the wrapping call's result.
                     // Earlier temps in the same statement are unrelated nested
                     // calls and continue along the normal cleanup path.
-                    tempStrings_.pop_back();
-                    heapOptionalStringVars_.insert(node->getName());
+                    vars_.tempStrings.pop_back();
+                    vars_.heapOptionalStringVars.insert(node->getName());
                 }
             }
         }
@@ -1631,10 +1631,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                     auto *namedRepr = static_cast<const NamedTypeRepr *>(resolvedType);
                     const std::string &typeName = namedRepr->getName();
                     if (structTypes_.count(typeName)) {
-                        varStructTypes_[node->getName()] = typeName;
+                        vars_.varStructTypes[node->getName()] = typeName;
                         registered = true;
                     } else if (enumTypes_.count(typeName)) {
-                        varEnumTypes_[node->getName()] = typeName;
+                        vars_.varEnumTypes[node->getName()] = typeName;
                         registered = true;
                     }
                 }
@@ -1644,7 +1644,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *valTy = initVal->getType();
                 for (auto &[name, ty] : structTypes_) {
                     if (ty == valTy) {
-                        varStructTypes_[node->getName()] = name;
+                        vars_.varStructTypes[node->getName()] = name;
                         registered = true;
                         break;
                     }
@@ -1652,7 +1652,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 if (!registered) {
                     for (auto &[name, ty] : enumTypes_) {
                         if (ty == valTy) {
-                            varEnumTypes_[node->getName()] = name;
+                            vars_.varEnumTypes[node->getName()] = name;
                             registered = true;
                             break;
                         }
@@ -1665,9 +1665,9 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *namedRepr = static_cast<const NamedTypeRepr *>(node->getType());
                 const std::string &typeName = namedRepr->getName();
                 if (structTypes_.count(typeName))
-                    varStructTypes_[node->getName()] = typeName;
+                    vars_.varStructTypes[node->getName()] = typeName;
                 else if (enumTypes_.count(typeName))
-                    varEnumTypes_[node->getName()] = typeName;
+                    vars_.varEnumTypes[node->getName()] = typeName;
             }
         }
 
@@ -1676,7 +1676,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
     auto *type = toLLVMType(node->getType());
     auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
-    namedValues_[node->getName()] = alloca;
+    vars_.namedValues[node->getName()] = alloca;
     if (diBuilder_) {
         auto *diTy = toDIType(node->getType());
         emitLocalVarDebugInfo(node->getName(), alloca, diTy, node->getStartLoc());
@@ -1818,45 +1818,45 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         }
 
         // Save and clear scope
-        auto oldNamedValues = namedValues_;
-        auto oldVarStructTypes = varStructTypes_;
-        auto oldVarClassTypes = varClassTypes_;
-        auto oldVarEnumTypes = varEnumTypes_;
-        auto oldVarArrayTypes = varArrayTypes_;
-        auto oldVarDynArrayTypes = varDynArrayTypes_;
-        auto oldVarDynArrayProtocol = varDynArrayProtocol_;
-        auto oldVarMapTypes = varMapTypes_;
-        auto oldVarSetTypes = varSetTypes_;
-        auto oldVarOptionalTypes = varOptionalTypes_;
-        auto oldVarFuncTypes = varFuncTypes_;
-        auto oldVarProtocolTypes = varProtocolTypes_;
-        auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
-        auto oldVarResultTypes = varResultTypes_;
-        auto *oldFuncRI = currentFuncResultInfo_;
+        auto oldNamedValues = vars_.namedValues;
+        auto oldVarStructTypes = vars_.varStructTypes;
+        auto oldVarClassTypes = vars_.varClassTypes;
+        auto oldVarEnumTypes = vars_.varEnumTypes;
+        auto oldVarArrayTypes = vars_.varArrayTypes;
+        auto oldVarDynArrayTypes = vars_.varDynArrayTypes;
+        auto oldVarDynArrayProtocol = vars_.varDynArrayProtocol;
+        auto oldVarMapTypes = vars_.varMapTypes;
+        auto oldVarSetTypes = vars_.varSetTypes;
+        auto oldVarOptionalTypes = vars_.varOptionalTypes;
+        auto oldVarFuncTypes = vars_.varFuncTypes;
+        auto oldVarProtocolTypes = vars_.varProtocolTypes;
+        auto oldVarConcreteProtocolTypes = vars_.varConcreteProtocolTypes;
+        auto oldVarResultTypes = vars_.varResultTypes;
+        auto *oldFuncRI = vars_.currentFuncResultInfo;
         auto *oldFuncOptInner = currentFuncOptionalInner_;
-        auto oldMovedVars = movedVars_;
-        auto oldHeapStringVars = heapStringVars_;
-        auto oldTempStrings = tempStrings_;
-        namedValues_.clear();
-        varStructTypes_.clear();
-        varClassTypes_.clear();
-        varEnumTypes_.clear();
-        varArrayTypes_.clear();
-        varDynArrayTypes_.clear();
-        varDynArrayProtocol_.clear();
-        varMapTypes_.clear();
-        varSetTypes_.clear();
-        varOptionalTypes_.clear();
-        varFuncTypes_.clear();
-        varProtocolTypes_.clear();
-        varConcreteProtocolTypes_.clear();
-        varResultTypes_.clear();
-        varFileTypes_.clear();
-        currentFuncResultInfo_ = nullptr;
+        auto oldMovedVars = vars_.movedVars;
+        auto oldHeapStringVars = vars_.heapStringVars;
+        auto oldTempStrings = vars_.tempStrings;
+        vars_.namedValues.clear();
+        vars_.varStructTypes.clear();
+        vars_.varClassTypes.clear();
+        vars_.varEnumTypes.clear();
+        vars_.varArrayTypes.clear();
+        vars_.varDynArrayTypes.clear();
+        vars_.varDynArrayProtocol.clear();
+        vars_.varMapTypes.clear();
+        vars_.varSetTypes.clear();
+        vars_.varOptionalTypes.clear();
+        vars_.varFuncTypes.clear();
+        vars_.varProtocolTypes.clear();
+        vars_.varConcreteProtocolTypes.clear();
+        vars_.varResultTypes.clear();
+        vars_.varFileTypes.clear();
+        vars_.currentFuncResultInfo = nullptr;
         currentFuncOptionalInner_ = nullptr;
-        movedVars_.clear();
-        heapStringVars_.clear();
-        tempStrings_.clear();
+        vars_.movedVars.clear();
+        vars_.heapStringVars.clear();
+        vars_.tempStrings.clear();
 
         // Track Optional return type for methods
         if (method->getReturnType() &&
@@ -1871,16 +1871,16 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
             auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()),
                                                    arg.getType());
             builder_->CreateStore(&arg, alloca);
-            namedValues_[std::string(arg.getName())] = alloca;
+            vars_.namedValues[std::string(arg.getName())] = alloca;
             if (method->getParams()[i].isSelf) {
                 // Register self as struct, enum, or class type
                 auto etIt = enumTypes_.find(typeName);
                 if (etIt != enumTypes_.end()) {
-                    varEnumTypes_["self"] = typeName;
+                    vars_.varEnumTypes["self"] = typeName;
                 } else if (classTypes_.find(typeName) != classTypes_.end()) {
-                    varClassTypes_["self"] = typeName;
+                    vars_.varClassTypes["self"] = typeName;
                 } else {
-                    varStructTypes_["self"] = typeName;
+                    vars_.varStructTypes["self"] = typeName;
                 }
             } else {
                 // Register struct/enum-typed parameters for member access
@@ -1888,9 +1888,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
                     auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
                     if (structTypes_.count(named->getName()))
-                        varStructTypes_[pd.name] = named->getName();
+                        vars_.varStructTypes[pd.name] = named->getName();
                     else if (enumTypes_.count(named->getName()))
-                        varEnumTypes_[pd.name] = named->getName();
+                        vars_.varEnumTypes[pd.name] = named->getName();
                 }
             }
             if (diBuilder_) {
@@ -1910,13 +1910,13 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     auto *elemType = toLLVMType(arrType->getElement());
                     auto &DL = module_->getDataLayout();
                     uint64_t elemSize = DL.getTypeAllocSize(elemType);
-                    varDynArrayTypes_[param.name] = {elemType, elemSize};
+                    vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
                     // Borrowed: skip in cleanup (caller owns the buffer).
-                    movedVars_.insert(param.name);
+                    vars_.movedVars.insert(param.name);
                     if (arrType->getElement() &&
                         arrType->getElement()->getKind() == TypeRepr::Kind::DynProtocol) {
                         auto *dynP = static_cast<const DynProtocolTypeRepr *>(arrType->getElement());
-                        varDynArrayProtocol_[param.name] = dynP->getProtocolName();
+                        vars_.varDynArrayProtocol[param.name] = dynP->getProtocolName();
                     }
                 }
             }
@@ -1927,11 +1927,11 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
             if (!param.isSelf && param.type &&
                 param.type->getKind() == TypeRepr::Kind::DynProtocol) {
                 auto *dynType = static_cast<const DynProtocolTypeRepr *>(param.type.get());
-                varProtocolTypes_[param.name] = dynType->getProtocolName();
+                vars_.varProtocolTypes[param.name] = dynType->getProtocolName();
             }
         }
 
-        // Register function-typed method parameters in varFuncTypes_ so that
+        // Register function-typed method parameters in vars_.varFuncTypes so that
         // calls like `fn(x)` inside the method body resolve as indirect calls
         // through the closure object rather than as undefined function names.
         for (auto &param : method->getParams()) {
@@ -1944,7 +1944,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     fParamTypes.push_back(toLLVMType(p.get()));
                 llvm::Type *fRetTy = ftr->getReturnType()
                     ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
-                varFuncTypes_[param.name] =
+                vars_.varFuncTypes[param.name] =
                     llvm::FunctionType::get(fRetTy, fParamTypes, false);
             }
         }
@@ -1962,25 +1962,25 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         }
 
         // Restore scope
-        namedValues_ = oldNamedValues;
-        varStructTypes_ = oldVarStructTypes;
-        varClassTypes_ = oldVarClassTypes;
-        varEnumTypes_ = oldVarEnumTypes;
-        varArrayTypes_ = oldVarArrayTypes;
-        varDynArrayTypes_ = oldVarDynArrayTypes;
-        varDynArrayProtocol_ = oldVarDynArrayProtocol;
-        varMapTypes_ = oldVarMapTypes;
-        varSetTypes_ = oldVarSetTypes;
-        varOptionalTypes_ = oldVarOptionalTypes;
-        varFuncTypes_ = oldVarFuncTypes;
-        varProtocolTypes_ = oldVarProtocolTypes;
-        varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
-        varResultTypes_ = oldVarResultTypes;
-        currentFuncResultInfo_ = oldFuncRI;
+        vars_.namedValues = oldNamedValues;
+        vars_.varStructTypes = oldVarStructTypes;
+        vars_.varClassTypes = oldVarClassTypes;
+        vars_.varEnumTypes = oldVarEnumTypes;
+        vars_.varArrayTypes = oldVarArrayTypes;
+        vars_.varDynArrayTypes = oldVarDynArrayTypes;
+        vars_.varDynArrayProtocol = oldVarDynArrayProtocol;
+        vars_.varMapTypes = oldVarMapTypes;
+        vars_.varSetTypes = oldVarSetTypes;
+        vars_.varOptionalTypes = oldVarOptionalTypes;
+        vars_.varFuncTypes = oldVarFuncTypes;
+        vars_.varProtocolTypes = oldVarProtocolTypes;
+        vars_.varConcreteProtocolTypes = oldVarConcreteProtocolTypes;
+        vars_.varResultTypes = oldVarResultTypes;
+        vars_.currentFuncResultInfo = oldFuncRI;
         currentFuncOptionalInner_ = oldFuncOptInner;
-        movedVars_ = oldMovedVars;
-        heapStringVars_ = oldHeapStringVars;
-        tempStrings_ = oldTempStrings;
+        vars_.movedVars = oldMovedVars;
+        vars_.heapStringVars = oldHeapStringVars;
+        vars_.tempStrings = oldTempStrings;
     }
 
     // Generate default method implementations from protocol
@@ -2041,43 +2041,43 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
                 builder_->SetInsertPoint(entryBB);
 
-                auto oldNamedValues = namedValues_;
-                auto oldVarStructTypes = varStructTypes_;
-                auto oldVarEnumTypes = varEnumTypes_;
-                auto oldVarArrayTypes = varArrayTypes_;
-                auto oldVarDynArrayTypes = varDynArrayTypes_;
-                auto oldVarDynArrayProtocol = varDynArrayProtocol_;
-                auto oldVarMapTypes = varMapTypes_;
-                auto oldVarSetTypes = varSetTypes_;
-                auto oldVarOptionalTypes = varOptionalTypes_;
-                auto oldVarFuncTypes = varFuncTypes_;
-                auto oldVarProtocolTypes = varProtocolTypes_;
-                auto oldVarConcreteProtocolTypes = varConcreteProtocolTypes_;
-                auto oldVarResultTypes = varResultTypes_;
-                auto *oldFuncRI = currentFuncResultInfo_;
+                auto oldNamedValues = vars_.namedValues;
+                auto oldVarStructTypes = vars_.varStructTypes;
+                auto oldVarEnumTypes = vars_.varEnumTypes;
+                auto oldVarArrayTypes = vars_.varArrayTypes;
+                auto oldVarDynArrayTypes = vars_.varDynArrayTypes;
+                auto oldVarDynArrayProtocol = vars_.varDynArrayProtocol;
+                auto oldVarMapTypes = vars_.varMapTypes;
+                auto oldVarSetTypes = vars_.varSetTypes;
+                auto oldVarOptionalTypes = vars_.varOptionalTypes;
+                auto oldVarFuncTypes = vars_.varFuncTypes;
+                auto oldVarProtocolTypes = vars_.varProtocolTypes;
+                auto oldVarConcreteProtocolTypes = vars_.varConcreteProtocolTypes;
+                auto oldVarResultTypes = vars_.varResultTypes;
+                auto *oldFuncRI = vars_.currentFuncResultInfo;
                 auto *oldFuncOptInner2 = currentFuncOptionalInner_;
-                auto oldMovedVars2 = movedVars_;
-                auto oldHeapStringVars2 = heapStringVars_;
-                auto oldTempStrings2 = tempStrings_;
-                namedValues_.clear();
-                varStructTypes_.clear();
-                varEnumTypes_.clear();
-                varArrayTypes_.clear();
-                varDynArrayTypes_.clear();
-                varDynArrayProtocol_.clear();
-                varMapTypes_.clear();
-                varSetTypes_.clear();
-                varOptionalTypes_.clear();
-                varFuncTypes_.clear();
-                varProtocolTypes_.clear();
-                varConcreteProtocolTypes_.clear();
-                varResultTypes_.clear();
-                varFileTypes_.clear();
-                currentFuncResultInfo_ = nullptr;
+                auto oldMovedVars2 = vars_.movedVars;
+                auto oldHeapStringVars2 = vars_.heapStringVars;
+                auto oldTempStrings2 = vars_.tempStrings;
+                vars_.namedValues.clear();
+                vars_.varStructTypes.clear();
+                vars_.varEnumTypes.clear();
+                vars_.varArrayTypes.clear();
+                vars_.varDynArrayTypes.clear();
+                vars_.varDynArrayProtocol.clear();
+                vars_.varMapTypes.clear();
+                vars_.varSetTypes.clear();
+                vars_.varOptionalTypes.clear();
+                vars_.varFuncTypes.clear();
+                vars_.varProtocolTypes.clear();
+                vars_.varConcreteProtocolTypes.clear();
+                vars_.varResultTypes.clear();
+                vars_.varFileTypes.clear();
+                vars_.currentFuncResultInfo = nullptr;
                 currentFuncOptionalInner_ = nullptr;
-                movedVars_.clear();
-                heapStringVars_.clear();
-                tempStrings_.clear();
+                vars_.movedVars.clear();
+                vars_.heapStringVars.clear();
+                vars_.tempStrings.clear();
 
                 // Track Optional return type for protocol default methods
                 if (protoMethod->getReturnType() &&
@@ -2091,12 +2091,12 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()),
                                                            arg.getType());
                     builder_->CreateStore(&arg, alloca);
-                    namedValues_[std::string(arg.getName())] = alloca;
+                    vars_.namedValues[std::string(arg.getName())] = alloca;
                     if (protoMethod->getParams()[i].isSelf) {
                         if (classTypes_.find(typeName) != classTypes_.end()) {
-                            varClassTypes_["self"] = typeName;
+                            vars_.varClassTypes["self"] = typeName;
                         } else {
-                            varStructTypes_["self"] = typeName;
+                            vars_.varStructTypes["self"] = typeName;
                         }
                     } else {
                         // Register struct/enum-typed parameters for member access
@@ -2104,9 +2104,9 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                         if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
                             auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
                             if (structTypes_.count(named->getName()))
-                                varStructTypes_[pd.name] = named->getName();
+                                vars_.varStructTypes[pd.name] = named->getName();
                             else if (enumTypes_.count(named->getName()))
-                                varEnumTypes_[pd.name] = named->getName();
+                                vars_.varEnumTypes[pd.name] = named->getName();
                         }
                     }
                     ++i;
@@ -2123,24 +2123,24 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     }
                 }
 
-                namedValues_ = oldNamedValues;
-                varStructTypes_ = oldVarStructTypes;
-                varEnumTypes_ = oldVarEnumTypes;
-                varArrayTypes_ = oldVarArrayTypes;
-                varDynArrayTypes_ = oldVarDynArrayTypes;
-                varDynArrayProtocol_ = oldVarDynArrayProtocol;
-                varMapTypes_ = oldVarMapTypes;
-                varSetTypes_ = oldVarSetTypes;
-                varOptionalTypes_ = oldVarOptionalTypes;
-                varFuncTypes_ = oldVarFuncTypes;
-                varProtocolTypes_ = oldVarProtocolTypes;
-                varConcreteProtocolTypes_ = oldVarConcreteProtocolTypes;
-                varResultTypes_ = oldVarResultTypes;
-                currentFuncResultInfo_ = oldFuncRI;
+                vars_.namedValues = oldNamedValues;
+                vars_.varStructTypes = oldVarStructTypes;
+                vars_.varEnumTypes = oldVarEnumTypes;
+                vars_.varArrayTypes = oldVarArrayTypes;
+                vars_.varDynArrayTypes = oldVarDynArrayTypes;
+                vars_.varDynArrayProtocol = oldVarDynArrayProtocol;
+                vars_.varMapTypes = oldVarMapTypes;
+                vars_.varSetTypes = oldVarSetTypes;
+                vars_.varOptionalTypes = oldVarOptionalTypes;
+                vars_.varFuncTypes = oldVarFuncTypes;
+                vars_.varProtocolTypes = oldVarProtocolTypes;
+                vars_.varConcreteProtocolTypes = oldVarConcreteProtocolTypes;
+                vars_.varResultTypes = oldVarResultTypes;
+                vars_.currentFuncResultInfo = oldFuncRI;
                 currentFuncOptionalInner_ = oldFuncOptInner2;
-                movedVars_ = oldMovedVars2;
-                heapStringVars_ = oldHeapStringVars2;
-                tempStrings_ = oldTempStrings2;
+                vars_.movedVars = oldMovedVars2;
+                vars_.heapStringVars = oldHeapStringVars2;
+                vars_.tempStrings = oldTempStrings2;
             }
         }
     }
@@ -2392,17 +2392,15 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         builder_->SetInsertPoint(entryBB);
 
-        auto savedValues = namedValues_;
-        auto savedVarStructTypes = varStructTypes_;
-        auto savedVarClassTypes = varClassTypes_;
-        namedValues_.clear();
+        auto guard = pushVarState();
+        vars_ = VarState{};
 
         for (auto &arg : func->args()) {
             auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
             builder_->CreateStore(&arg, alloca);
-            namedValues_[std::string(arg.getName())] = alloca;
+            vars_.namedValues[std::string(arg.getName())] = alloca;
             if (std::string(arg.getName()) == "self") {
-                varClassTypes_["self"] = className;
+                vars_.varClassTypes["self"] = className;
             }
         }
 
@@ -2418,9 +2416,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             }
         }
 
-        namedValues_ = savedValues;
-        varStructTypes_ = savedVarStructTypes;
-        varClassTypes_ = savedVarClassTypes;
     }
 
     // Generate computed property getter/setter functions
@@ -2440,19 +2435,18 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
             builder_->SetInsertPoint(entryBB);
 
-            auto savedValues = namedValues_;
-            namedValues_.clear();
+            auto guard = pushVarState();
+            vars_ = VarState{};
             auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
             builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            namedValues_["self"] = selfAlloca;
-            varClassTypes_["self"] = className;
+            vars_.namedValues["self"] = selfAlloca;
+            vars_.varClassTypes["self"] = className;
 
             visit(const_cast<BlockStmt *>(field->getGetter()));
 
             if (!builder_->GetInsertBlock()->getTerminator()) {
                 builder_->CreateRet(llvm::Constant::getNullValue(retTy));
             }
-            namedValues_ = savedValues;
         }
 
         // Setter: ClassName_set_fieldName(self, newValue) → void
@@ -2471,24 +2465,23 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
             builder_->SetInsertPoint(entryBB);
 
-            auto savedValues = namedValues_;
-            namedValues_.clear();
+            auto guard = pushVarState();
+            vars_ = VarState{};
             auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
             builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            namedValues_["self"] = selfAlloca;
-            varClassTypes_["self"] = className;
+            vars_.namedValues["self"] = selfAlloca;
+            vars_.varClassTypes["self"] = className;
 
             auto setArgIt = func->arg_begin(); ++setArgIt;
             auto *nvAlloca = createEntryBlockAlloca(func, "newValue", valTy);
             builder_->CreateStore(&*setArgIt, nvAlloca);
-            namedValues_["newValue"] = nvAlloca;
+            vars_.namedValues["newValue"] = nvAlloca;
 
             visit(const_cast<BlockStmt *>(field->getSetter()));
 
             if (!builder_->GetInsertBlock()->getTerminator()) {
                 builder_->CreateRetVoid();
             }
-            namedValues_ = savedValues;
         }
     }
 
@@ -2512,22 +2505,21 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
 
             auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
             builder_->SetInsertPoint(entryBB);
-            auto savedValues = namedValues_;
-            namedValues_.clear();
+            auto guard = pushVarState();
+            vars_ = VarState{};
             auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
             builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            namedValues_["self"] = selfAlloca;
-            varClassTypes_["self"] = className;
+            vars_.namedValues["self"] = selfAlloca;
+            vars_.varClassTypes["self"] = className;
             auto wsIt = func->arg_begin(); ++wsIt;
             auto *nvAlloca = createEntryBlockAlloca(func, "newValue", valTy);
             builder_->CreateStore(&*wsIt, nvAlloca);
-            namedValues_["newValue"] = nvAlloca;
+            vars_.namedValues["newValue"] = nvAlloca;
 
             visit(const_cast<BlockStmt *>(field->getWillSet()));
             if (!builder_->GetInsertBlock()->getTerminator()) {
                 builder_->CreateRetVoid();
             }
-            namedValues_ = savedValues;
         }
 
         // didSet: ClassName_didSet_fieldName(self, oldValue) → void
@@ -2542,22 +2534,21 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
 
             auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
             builder_->SetInsertPoint(entryBB);
-            auto savedValues = namedValues_;
-            namedValues_.clear();
+            auto guard = pushVarState();
+            vars_ = VarState{};
             auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
             builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            namedValues_["self"] = selfAlloca;
-            varClassTypes_["self"] = className;
+            vars_.namedValues["self"] = selfAlloca;
+            vars_.varClassTypes["self"] = className;
             auto dsIt = func->arg_begin(); ++dsIt;
             auto *ovAlloca = createEntryBlockAlloca(func, "oldValue", valTy);
             builder_->CreateStore(&*dsIt, ovAlloca);
-            namedValues_["oldValue"] = ovAlloca;
+            vars_.namedValues["oldValue"] = ovAlloca;
 
             visit(const_cast<BlockStmt *>(field->getDidSet()));
             if (!builder_->GetInsertBlock()->getTerminator()) {
                 builder_->CreateRetVoid();
             }
-            namedValues_ = savedValues;
         }
     }
 
@@ -2594,13 +2585,13 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *loadBB = llvm::BasicBlock::Create(*context_, "lazy.load", func);
 
         builder_->SetInsertPoint(entryBB);
-        auto savedValues = namedValues_;
-        namedValues_.clear();
+        auto guard = pushVarState();
+        vars_ = VarState{};
 
         auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
         builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-        namedValues_["self"] = selfAlloca;
-        varClassTypes_["self"] = className;
+        vars_.namedValues["self"] = selfAlloca;
+        vars_.varClassTypes["self"] = className;
 
         auto *selfV = builder_->CreateLoad(ptrTy, selfAlloca, "self.v");
         auto *flagGEP = builder_->CreateStructGEP(classType, selfV, flagIdx + 1, "flag.gep");
@@ -2624,7 +2615,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *retVal = builder_->CreateLoad(fieldLLVMTy, fieldGEP2, "lazy.val");
         builder_->CreateRet(retVal);
 
-        namedValues_ = savedValues;
     }
 
     // Generate init(s): for each init (designated + convenience), create a separate function
@@ -2672,8 +2662,8 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", initFunc);
         builder_->SetInsertPoint(entryBB);
 
-        auto savedValues = namedValues_;
-        namedValues_.clear();
+        auto guard = pushVarState();
+        vars_ = VarState{};
 
         if (initDecl) {
             size_t argIdx = 0;
@@ -2683,7 +2673,7 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
                     auto *alloca = createEntryBlockAlloca(
                         initFunc, std::string(arg.getName()), arg.getType());
                     builder_->CreateStore(&arg, alloca);
-                    namedValues_[std::string(arg.getName())] = alloca;
+                    vars_.namedValues[std::string(arg.getName())] = alloca;
                 }
                 ++argIdx;
             }
@@ -2705,8 +2695,8 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         (void)vtableGEP;
         auto *selfAlloca = createEntryBlockAlloca(initFunc, "self", ptrTy);
         builder_->CreateStore(objPtr, selfAlloca);
-        namedValues_["self"] = selfAlloca;
-        varClassTypes_["self"] = className;
+        vars_.namedValues["self"] = selfAlloca;
+        vars_.varClassTypes["self"] = className;
 
         bool savedIsClassInit = currentIsClassInit_;
         currentIsClassInit_ = true;
@@ -2724,7 +2714,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             builder_->CreateStore(llvm::ConstantPointerNull::get(ptrTy), vtableGEP2);
             builder_->CreateRet(selfVal);
         }
-        namedValues_ = savedValues;
     }
 
     // Generate init_fields: uses designated (first) init's body, skips malloc
@@ -2759,16 +2748,16 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         builder_->SetInsertPoint(entryBB);
 
-        auto savedValues = namedValues_;
-        namedValues_.clear();
+        auto guard = pushVarState();
+        vars_ = VarState{};
 
         auto argIt = func->arg_begin();
         argIt->setName("self");
         auto *selfAlloca = createEntryBlockAlloca(
             func, "self", llvm::PointerType::getUnqual(*context_));
         builder_->CreateStore(&*argIt, selfAlloca);
-        namedValues_["self"] = selfAlloca;
-        varClassTypes_["self"] = className;
+        vars_.namedValues["self"] = selfAlloca;
+        vars_.varClassTypes["self"] = className;
         ++argIt;
 
         if (designatedInit) {
@@ -2777,7 +2766,7 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
                     argIt->setName(param.name);
                     auto *alloca = createEntryBlockAlloca(func, param.name, argIt->getType());
                     builder_->CreateStore(&*argIt, alloca);
-                    namedValues_[param.name] = alloca;
+                    vars_.namedValues[param.name] = alloca;
                     ++argIt;
                 }
             }
@@ -2791,7 +2780,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             builder_->CreateRetVoid();
         }
 
-        namedValues_ = savedValues;
     }
 
     // Generate deinit: ClassName_deinit(self) → void
@@ -2818,15 +2806,15 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         builder_->SetInsertPoint(entryBB);
 
-        auto savedValues = namedValues_;
-        namedValues_.clear();
+        auto guard = pushVarState();
+        vars_ = VarState{};
 
         auto &selfArg = *func->arg_begin();
         selfArg.setName("self");
         auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
         builder_->CreateStore(&selfArg, selfAlloca);
-        namedValues_["self"] = selfAlloca;
-        varClassTypes_["self"] = className;
+        vars_.namedValues["self"] = selfAlloca;
+        vars_.varClassTypes["self"] = className;
 
         // User deinit body
         auto *deinitDecl = node->getDeinit();
@@ -2859,7 +2847,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             builder_->CreateRetVoid();
         }
 
-        namedValues_ = savedValues;
     }
 
     // Create vtable global
@@ -2978,7 +2965,7 @@ llvm::Value *IRGen::visitTestDecl(TestDecl *node) {
     builder_->SetInsertPoint(entry);
 
     // Save/restore named values
-    auto savedNamedValues = namedValues_;
+    auto guard = pushVarState();
 
     if (node->getBody()) {
         for (auto &stmt : node->getBody()->getStatements()) {
@@ -2992,8 +2979,6 @@ llvm::Value *IRGen::visitTestDecl(TestDecl *node) {
     if (!builder_->GetInsertBlock()->getTerminator()) {
         builder_->CreateRetVoid();
     }
-
-    namedValues_ = savedNamedValues;
 
     // Restore insert point
     if (prevBB)

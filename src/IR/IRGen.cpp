@@ -1832,24 +1832,24 @@ llvm::AllocaInst *IRGen::createEntryBlockAlloca(llvm::Function *func,
 }
 
 void IRGen::trackStringTemp(llvm::Value *val) {
-    if (val) tempStrings_.push_back(val);
+    if (val) vars_.tempStrings.push_back(val);
 }
 
 void IRGen::transferStringOwnership(llvm::Value *val, const std::string &varName) {
     if (!val) return;
-    auto it = std::find(tempStrings_.begin(), tempStrings_.end(), val);
-    if (it != tempStrings_.end()) {
-        tempStrings_.erase(it);
-        heapStringVars_.insert(varName);
+    auto it = std::find(vars_.tempStrings.begin(), vars_.tempStrings.end(), val);
+    if (it != vars_.tempStrings.end()) {
+        vars_.tempStrings.erase(it);
+        vars_.heapStringVars.insert(varName);
     }
-    // If val is not in tempStrings_ (e.g., string literal), don't add to heapStringVars_
+    // If val is not in vars_.tempStrings (e.g., string literal), don't add to vars_.heapStringVars
 }
 
 void IRGen::removeFromTempStrings(llvm::Value *val) {
     if (!val) return;
-    auto it = std::find(tempStrings_.begin(), tempStrings_.end(), val);
-    if (it != tempStrings_.end())
-        tempStrings_.erase(it);
+    auto it = std::find(vars_.tempStrings.begin(), vars_.tempStrings.end(), val);
+    if (it != vars_.tempStrings.end())
+        vars_.tempStrings.erase(it);
 }
 
 bool IRGen::isStringTypeRepr(const TypeRepr *tr) {

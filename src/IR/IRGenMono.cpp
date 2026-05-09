@@ -49,30 +49,14 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
         return cacheIt->second;
     }
 
-    // Save state (move for O(1) swap)
+    // Save state: vars_ via RAII, type/const subst manually (not part of VarState)
     auto savedSubst = std::move(currentTypeSubst_);
     auto savedConstSubst = std::move(currentConstSubst_);
-    auto savedNamedValues = std::move(namedValues_);
-    auto savedVarStructTypes = std::move(varStructTypes_);
-    auto savedVarEnumTypes = std::move(varEnumTypes_);
-    auto savedVarArrayTypes = std::move(varArrayTypes_);
-    auto savedVarDynArrayTypes = std::move(varDynArrayTypes_);
-    auto savedVarDynArrayProtocol = std::move(varDynArrayProtocol_);
-    auto savedVarMapTypes = std::move(varMapTypes_);
-    auto savedVarSetTypes = std::move(varSetTypes_);
-    auto savedVarOptionalTypes = std::move(varOptionalTypes_);
-    auto savedVarFuncTypes = std::move(varFuncTypes_);
-    auto savedVarProtocolTypes = std::move(varProtocolTypes_);
-    auto savedVarConcreteProtocolTypes = std::move(varConcreteProtocolTypes_);
-    auto savedVarResultTypes = std::move(varResultTypes_);
-    auto *savedFuncRI = currentFuncResultInfo_;
+    auto guard = pushVarState();
+    vars_ = VarState{};
     auto *savedInsertPoint = builder_->GetInsertBlock();
-    auto savedMovedVars = std::move(movedVars_);
-    auto savedHeapStringVars = std::move(heapStringVars_);
-    auto savedTempStrings = std::move(tempStrings_);
 
     // Set up type substitution map: T -> i32, U -> f64, ...
-    // After move, containers are empty — no need for .clear()
     const auto &typeParams = funcDecl->getTypeParams();
     for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i) {
         currentTypeSubst_[typeParams[i]] = typeArgs[i];
@@ -122,17 +106,14 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     // Generate body
     auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
     builder_->SetInsertPoint(entryBB);
-    // After move, all containers are already empty
-    varFileTypes_.clear();
-    varFileOptionalTypes_.clear();
-    currentFuncResultInfo_ = nullptr;
+    // vars_ already default-constructed above; no clear needed.
 
     // Create parameter allocas
     idx = 0;
     for (auto &arg : func->args()) {
         auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
         builder_->CreateStore(&arg, alloca);
-        namedValues_[std::string(arg.getName())] = alloca;
+        vars_.namedValues[std::string(arg.getName())] = alloca;
         ++idx;
     }
 
@@ -152,26 +133,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     monomorphizedFuncs_[mangledName] = func;
     ++monoStats_.funcCount;
 
-    // Restore state (move back)
+    // Restore state: vars_ restored by guard dtor; type/const subst manually
     currentTypeSubst_ = std::move(savedSubst);
     currentConstSubst_ = std::move(savedConstSubst);
-    namedValues_ = std::move(savedNamedValues);
-    varStructTypes_ = std::move(savedVarStructTypes);
-    varEnumTypes_ = std::move(savedVarEnumTypes);
-    varArrayTypes_ = std::move(savedVarArrayTypes);
-    varDynArrayTypes_ = std::move(savedVarDynArrayTypes);
-    varDynArrayProtocol_ = std::move(savedVarDynArrayProtocol);
-    varMapTypes_ = std::move(savedVarMapTypes);
-    varSetTypes_ = std::move(savedVarSetTypes);
-    varOptionalTypes_ = std::move(savedVarOptionalTypes);
-    varFuncTypes_ = std::move(savedVarFuncTypes);
-    varProtocolTypes_ = std::move(savedVarProtocolTypes);
-    varConcreteProtocolTypes_ = std::move(savedVarConcreteProtocolTypes);
-    varResultTypes_ = std::move(savedVarResultTypes);
-    currentFuncResultInfo_ = savedFuncRI;
-    movedVars_ = std::move(savedMovedVars);
-    heapStringVars_ = std::move(savedHeapStringVars);
-    tempStrings_ = std::move(savedTempStrings);
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 
@@ -363,30 +327,14 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
         return cacheIt->second;
     }
 
-    // Save state (move for O(1) swap)
+    // Save state: vars_ via RAII, type/const subst manually (not part of VarState)
     auto savedSubst = std::move(currentTypeSubst_);
     auto savedConstSubst = std::move(currentConstSubst_);
-    auto savedNamedValues = std::move(namedValues_);
-    auto savedVarStructTypes = std::move(varStructTypes_);
-    auto savedVarEnumTypes = std::move(varEnumTypes_);
-    auto savedVarArrayTypes = std::move(varArrayTypes_);
-    auto savedVarDynArrayTypes = std::move(varDynArrayTypes_);
-    auto savedVarDynArrayProtocol2 = std::move(varDynArrayProtocol_);
-    auto savedVarMapTypes = std::move(varMapTypes_);
-    auto savedVarSetTypes = std::move(varSetTypes_);
-    auto savedVarOptionalTypes = std::move(varOptionalTypes_);
-    auto savedVarFuncTypes = std::move(varFuncTypes_);
-    auto savedVarProtocolTypes2 = std::move(varProtocolTypes_);
-    auto savedVarConcreteProtocolTypes2 = std::move(varConcreteProtocolTypes_);
-    auto savedVarResultTypes2 = std::move(varResultTypes_);
-    auto *savedFuncRI2 = currentFuncResultInfo_;
+    auto guard = pushVarState();
+    vars_ = VarState{};
     auto *savedInsertPoint = builder_->GetInsertBlock();
-    auto savedMovedVars2 = std::move(movedVars_);
-    auto savedHeapStringVars2 = std::move(heapStringVars_);
-    auto savedTempStrings2 = std::move(tempStrings_);
 
     // Set up type substitution from impl's type params
-    // After move, containers are empty — no need for .clear()
     const auto &typeParams = implDecl->getTypeParams();
     for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i) {
         currentTypeSubst_[typeParams[i]] = typeArgs[i];
@@ -448,24 +396,21 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     // Generate body
     auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
     builder_->SetInsertPoint(entryBB);
-    // After move, all containers are already empty
-    varFileTypes_.clear();
-    varFileOptionalTypes_.clear();
-    currentFuncResultInfo_ = nullptr;
+    // vars_ already default-constructed above; no clear needed.
 
     // Create parameter allocas
     idx = 0;
     for (auto &arg : func->args()) {
         auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
         builder_->CreateStore(&arg, alloca);
-        namedValues_[std::string(arg.getName())] = alloca;
+        vars_.namedValues[std::string(arg.getName())] = alloca;
         if (methodDecl->getParams()[idx].isSelf) {
-            varStructTypes_["self"] = mangledStructName;
+            vars_.varStructTypes["self"] = mangledStructName;
         }
         ++idx;
     }
 
-    // Register Function-typed method parameters in varFuncTypes_ so calls
+    // Register Function-typed method parameters in vars_.varFuncTypes so calls
     // like `pred(x)` inside the body resolve through the closure object
     // rather than as undefined function names. Mirrors visitImplDecl.
     for (auto &param : methodDecl->getParams()) {
@@ -478,7 +423,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
                 fParamTypes.push_back(toLLVMType(p.get()));
             llvm::Type *fRetTy = ftr->getReturnType()
                 ? toLLVMType(ftr->getReturnType()) : builder_->getVoidTy();
-            varFuncTypes_[param.name] =
+            vars_.varFuncTypes[param.name] =
                 llvm::FunctionType::get(fRetTy, fParamTypes, false);
         }
     }
@@ -492,8 +437,8 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
                 auto *elemType = toLLVMType(arrTy->getElement());
                 uint64_t elemSize = module_->getDataLayout()
                     .getTypeAllocSize(elemType);
-                varDynArrayTypes_[param.name] = {elemType, elemSize};
-                movedVars_.insert(param.name);
+                vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
+                vars_.movedVars.insert(param.name);
             }
         }
     }
@@ -514,26 +459,9 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     monomorphizedFuncs_[mangledName] = func;
     ++monoStats_.methodCount;
 
-    // Restore state (move back)
+    // Restore state: vars_ restored by guard dtor; type/const subst manually
     currentTypeSubst_ = std::move(savedSubst);
     currentConstSubst_ = std::move(savedConstSubst);
-    namedValues_ = std::move(savedNamedValues);
-    varStructTypes_ = std::move(savedVarStructTypes);
-    varEnumTypes_ = std::move(savedVarEnumTypes);
-    varArrayTypes_ = std::move(savedVarArrayTypes);
-    varDynArrayTypes_ = std::move(savedVarDynArrayTypes);
-    varDynArrayProtocol_ = std::move(savedVarDynArrayProtocol2);
-    varMapTypes_ = std::move(savedVarMapTypes);
-    varSetTypes_ = std::move(savedVarSetTypes);
-    varOptionalTypes_ = std::move(savedVarOptionalTypes);
-    varFuncTypes_ = std::move(savedVarFuncTypes);
-    varProtocolTypes_ = std::move(savedVarProtocolTypes2);
-    varConcreteProtocolTypes_ = std::move(savedVarConcreteProtocolTypes2);
-    varResultTypes_ = std::move(savedVarResultTypes2);
-    currentFuncResultInfo_ = savedFuncRI2;
-    movedVars_ = std::move(savedMovedVars2);
-    heapStringVars_ = std::move(savedHeapStringVars2);
-    tempStrings_ = std::move(savedTempStrings2);
     if (savedInsertPoint)
         builder_->SetInsertPoint(savedInsertPoint);
 

@@ -17,8 +17,8 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
     const std::string &fieldName = memberExpr->getMember();
 
     // Find struct type name for the variable
-    auto stIt = varStructTypes_.find(objName);
-    if (stIt == varStructTypes_.end())
+    auto stIt = vars_.varStructTypes.find(objName);
+    if (stIt == vars_.varStructTypes.end())
         return std::nullopt;
     const std::string &structTypeName = stIt->second;
 
@@ -40,8 +40,8 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
         return std::nullopt;
 
     // It IS a DynArray field — compute GEP
-    auto allocaIt = namedValues_.find(objName);
-    if (allocaIt == namedValues_.end())
+    auto allocaIt = vars_.namedValues.find(objName);
+    if (allocaIt == vars_.namedValues.end())
         return std::nullopt;
 
     auto *objAlloca = allocaIt->second;
@@ -78,17 +78,17 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // Result.ok(val) / Result.err(val) constructor
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
-            if (ident->getName() == "Result" && currentFuncResultInfo_ &&
+            if (ident->getName() == "Result" && vars_.currentFuncResultInfo &&
                 (methodName == "ok" || methodName == "err")) {
                 if (!node->getArgs().empty()) {
                     auto *argVal = visit(node->getArgs()[0].get());
                     if (!argVal) return nullptr;
                     if (methodName == "ok")
-                        return emitResultOk(currentFuncResultInfo_->okType,
-                                            currentFuncResultInfo_->errType, argVal);
+                        return emitResultOk(vars_.currentFuncResultInfo->okType,
+                                            vars_.currentFuncResultInfo->errType, argVal);
                     else
-                        return emitResultErr(currentFuncResultInfo_->okType,
-                                             currentFuncResultInfo_->errType, argVal);
+                        return emitResultErr(vars_.currentFuncResultInfo->okType,
+                                             vars_.currentFuncResultInfo->errType, argVal);
                 }
                 return nullptr;
             }
@@ -98,10 +98,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
             if (methodName == "unwrap") {
-                auto rtIt = varResultTypes_.find(ident->getName());
-                if (rtIt != varResultTypes_.end()) {
-                    auto nvIt = namedValues_.find(ident->getName());
-                    if (nvIt == namedValues_.end()) return nullptr;
+                auto rtIt = vars_.varResultTypes.find(ident->getName());
+                if (rtIt != vars_.varResultTypes.end()) {
+                    auto nvIt = vars_.namedValues.find(ident->getName());
+                    if (nvIt == vars_.namedValues.end()) return nullptr;
                     auto *resAlloca = nvIt->second;
                     auto *resTy = getResultType(rtIt->second.okType, rtIt->second.errType);
                     auto *tagPtr = builder_->CreateStructGEP(resTy, resAlloca, 0, "unwrap.tag");
@@ -158,9 +158,9 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // File instance methods: file.readLine(), file.readAll(), file.write(), file.writeLine(), file.close()
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
-            if (varFileTypes_.count(ident->getName())) {
-                auto nvIt = namedValues_.find(ident->getName());
-                if (nvIt == namedValues_.end()) return nullptr;
+            if (vars_.varFileTypes.count(ident->getName())) {
+                auto nvIt = vars_.namedValues.find(ident->getName());
+                if (nvIt == vars_.namedValues.end()) return nullptr;
                 auto *ptrTy = llvm::PointerType::getUnqual(*context_);
                 auto *fp = builder_->CreateLoad(ptrTy, nvIt->second, "file.ptr");
 
@@ -356,10 +356,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // Dynamic array method: arr.push(val), arr.pop()
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
-            auto daIt = varDynArrayTypes_.find(ident->getName());
-            if (daIt != varDynArrayTypes_.end()) {
-                auto allocaIt = namedValues_.find(ident->getName());
-                if (allocaIt == namedValues_.end()) return nullptr;
+            auto daIt = vars_.varDynArrayTypes.find(ident->getName());
+            if (daIt != vars_.varDynArrayTypes.end()) {
+                auto allocaIt = vars_.namedValues.find(ident->getName());
+                if (allocaIt == vars_.namedValues.end()) return nullptr;
                 auto *arrAlloca = allocaIt->second;
                 auto *structTy = getDynArrayStructTy();
 
@@ -369,7 +369,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     // [string].push: take an owned copy. Otherwise the
                     // pushed pointer would alias either a tracked temp
                     // (freed at end of the producing statement) or a
-                    // heapStringVars_ slot (freed on the next reassign of
+                    // vars_.heapStringVars slot (freed on the next reassign of
                     // that variable), which leaves the array holding a
                     // dangling pointer.
                     bool elemIsString = false;
@@ -772,10 +772,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // Map method: m.insert(k,v), m.get(k), m.contains(k), m.remove(k)
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
-            auto mapIt = varMapTypes_.find(ident->getName());
-            if (mapIt != varMapTypes_.end()) {
-                auto allocaIt = namedValues_.find(ident->getName());
-                if (allocaIt == namedValues_.end()) return nullptr;
+            auto mapIt = vars_.varMapTypes.find(ident->getName());
+            if (mapIt != vars_.varMapTypes.end()) {
+                auto allocaIt = vars_.namedValues.find(ident->getName());
+                if (allocaIt == vars_.namedValues.end()) return nullptr;
                 auto *mapAlloca = allocaIt->second;
                 auto *structTy = getMapStructTy();
                 auto &info = mapIt->second;
@@ -910,10 +910,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // Set method: s.insert(e), s.contains(e), s.remove(e)
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
-            auto setIt = varSetTypes_.find(ident->getName());
-            if (setIt != varSetTypes_.end()) {
-                auto allocaIt = namedValues_.find(ident->getName());
-                if (allocaIt == namedValues_.end()) return nullptr;
+            auto setIt = vars_.varSetTypes.find(ident->getName());
+            if (setIt != vars_.varSetTypes.end()) {
+                auto allocaIt = vars_.namedValues.find(ident->getName());
+                if (allocaIt == vars_.namedValues.end()) return nullptr;
                 auto *setAlloca = allocaIt->second;
                 auto *structTy = getMapStructTy();
                 auto &info = setIt->second;
@@ -990,20 +990,20 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // Dynamic dispatch for protocol trait objects: obj.method(args)
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
-            auto ptIt = varProtocolTypes_.find(ident->getName());
-            if (ptIt != varProtocolTypes_.end()) {
+            auto ptIt = vars_.varProtocolTypes.find(ident->getName());
+            if (ptIt != vars_.varProtocolTypes.end()) {
                 const std::string &protocolName = ptIt->second;
 
                 // Devirtualization: direct call if concrete type is statically known
-                auto devirtIt = varConcreteProtocolTypes_.find(ident->getName());
-                if (devirtIt != varConcreteProtocolTypes_.end()) {
+                auto devirtIt = vars_.varConcreteProtocolTypes.find(ident->getName());
+                if (devirtIt != vars_.varConcreteProtocolTypes.end()) {
                     const std::string &concreteType = devirtIt->second;
                     std::string directFnName = concreteType + "_" + methodName;
                     auto *directFn = module_->getFunction(directFnName);
                     if (directFn) {
                         auto *traitTy = getTraitObjectTy();
-                        auto nvIt = namedValues_.find(ident->getName());
-                        if (nvIt != namedValues_.end()) {
+                        auto nvIt = vars_.namedValues.find(ident->getName());
+                        if (nvIt != vars_.namedValues.end()) {
                             auto *ptrTy = llvm::PointerType::getUnqual(*context_);
                             auto *dataGEP = builder_->CreateStructGEP(traitTy, nvIt->second, 0);
                             auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "devirt.data");
@@ -1028,8 +1028,8 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     if (idxIt != miIt->second.end()) {
                         int methodIdx = idxIt->second;
                         auto *traitTy = getTraitObjectTy();
-                        auto nvIt = namedValues_.find(ident->getName());
-                        if (nvIt != namedValues_.end()) {
+                        auto nvIt = vars_.namedValues.find(ident->getName());
+                        if (nvIt != vars_.namedValues.end()) {
                             auto *traitAlloca = nvIt->second;
 
                             // Load data pointer
@@ -1093,16 +1093,16 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
             objName = ident->getName();
-            auto it = namedValues_.find(objName);
-            if (it != namedValues_.end())
+            auto it = vars_.namedValues.find(objName);
+            if (it != vars_.namedValues.end())
                 objAlloca = it->second;
-            auto stIt = varStructTypes_.find(objName);
-            if (stIt != varStructTypes_.end())
+            auto stIt = vars_.varStructTypes.find(objName);
+            if (stIt != vars_.varStructTypes.end())
                 structTypeName = stIt->second;
             // Also check enum types for enum method calls
             if (structTypeName.empty()) {
-                auto enIt = varEnumTypes_.find(objName);
-                if (enIt != varEnumTypes_.end())
+                auto enIt = vars_.varEnumTypes.find(objName);
+                if (enIt != vars_.varEnumTypes.end())
                     structTypeName = enIt->second;
             }
 
@@ -1126,8 +1126,8 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
 
             // Class instance method call (virtual dispatch)
-            auto clsIt = varClassTypes_.find(objName);
-            if (clsIt != varClassTypes_.end()) {
+            auto clsIt = vars_.varClassTypes.find(objName);
+            if (clsIt != vars_.varClassTypes.end()) {
                 const std::string &clsTypeName = clsIt->second;
                 auto miIt = classMethodIndices_.find(clsTypeName);
                 if (miIt != classMethodIndices_.end()) {
@@ -1219,8 +1219,8 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 std::string initFields = currentClassContext_ + "_init_fields";
                 auto *fn = module_->getFunction(initFields);
                 if (fn) {
-                    auto selfIt = namedValues_.find("self");
-                    if (selfIt != namedValues_.end()) {
+                    auto selfIt = vars_.namedValues.find("self");
+                    if (selfIt != vars_.namedValues.end()) {
                         auto *ptrTy = llvm::PointerType::getUnqual(*context_);
                         auto *selfVal = builder_->CreateLoad(ptrTy, selfIt->second, "self.ptr");
                         std::vector<llvm::Value *> args;
@@ -1245,8 +1245,8 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                         std::string parentInitFields = pit->second + "_init_fields";
                         auto *parentFn = module_->getFunction(parentInitFields);
                         if (parentFn) {
-                            auto selfIt = namedValues_.find("self");
-                            if (selfIt != namedValues_.end()) {
+                            auto selfIt = vars_.namedValues.find("self");
+                            if (selfIt != vars_.namedValues.end()) {
                                 auto *ptrTy = llvm::PointerType::getUnqual(*context_);
                                 auto *selfVal = builder_->CreateLoad(
                                     ptrTy, selfIt->second, "self.ptr");
@@ -1266,8 +1266,8 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                         std::string parentMethod = pit->second + "_" + methodName;
                         auto *parentFn = module_->getFunction(parentMethod);
                         if (parentFn) {
-                            auto selfIt = namedValues_.find("self");
-                            if (selfIt != namedValues_.end()) {
+                            auto selfIt = vars_.namedValues.find("self");
+                            if (selfIt != vars_.namedValues.end()) {
                                 auto *ptrTy = llvm::PointerType::getUnqual(*context_);
                                 auto *selfVal = builder_->CreateLoad(
                                     ptrTy, selfIt->second, "self.ptr");
@@ -1307,10 +1307,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 auto *rootIdent = static_cast<IdentifierExpr *>(current);
                 std::string rootName = rootIdent->getName();
 
-                auto rootValIt = namedValues_.find(rootName);
-                auto rootStIt = varStructTypes_.find(rootName);
+                auto rootValIt = vars_.namedValues.find(rootName);
+                auto rootStIt = vars_.varStructTypes.find(rootName);
 
-                if (rootValIt != namedValues_.end() && rootStIt != varStructTypes_.end()) {
+                if (rootValIt != vars_.namedValues.end() && rootStIt != vars_.varStructTypes.end()) {
                     llvm::AllocaInst *rootAlloca = rootValIt->second;
                     std::string curStructType = rootStIt->second;
 
@@ -5264,10 +5264,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     }
 
     // Check for indirect call through function-typed variable (closure object)
-    auto funcIt = varFuncTypes_.find(funcName);
-    if (funcIt != varFuncTypes_.end()) {
-        auto namedIt = namedValues_.find(funcName);
-        if (namedIt != namedValues_.end()) {
+    auto funcIt = vars_.varFuncTypes.find(funcName);
+    if (funcIt != vars_.varFuncTypes.end()) {
+        auto namedIt = vars_.namedValues.find(funcName);
+        if (namedIt != vars_.namedValues.end()) {
             auto *closureObjTy = getClosureObjTy();
             auto *ptrTy = llvm::PointerType::getUnqual(*context_);
             // Extract func_ptr and env_ptr from closure object
@@ -5462,11 +5462,11 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     if (i < node->getArgs().size() &&
                         node->getArgs()[i]->getKind() == ASTNode::NodeKind::IdentifierExpr) {
                         auto *ident = static_cast<IdentifierExpr *>(node->getArgs()[i].get());
-                        auto stIt = varStructTypes_.find(ident->getName());
-                        if (stIt != varStructTypes_.end()) {
+                        auto stIt = vars_.varStructTypes.find(ident->getName());
+                        if (stIt != vars_.varStructTypes.end()) {
                             concreteType = stIt->second;
-                            auto nvIt = namedValues_.find(ident->getName());
-                            if (nvIt != namedValues_.end())
+                            auto nvIt = vars_.namedValues.find(ident->getName());
+                            if (nvIt != vars_.namedValues.end())
                                 dataAlloca = nvIt->second;
                         }
                     }
@@ -5526,11 +5526,11 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
             objName = ident->getName();
-            auto it = namedValues_.find(objName);
-            if (it != namedValues_.end())
+            auto it = vars_.namedValues.find(objName);
+            if (it != vars_.namedValues.end())
                 objAlloca = it->second;
-            auto stIt = varStructTypes_.find(objName);
-            if (stIt != varStructTypes_.end())
+            auto stIt = vars_.varStructTypes.find(objName);
+            if (stIt != vars_.varStructTypes.end())
                 structTypeName = stIt->second;
         }
 
@@ -5546,8 +5546,8 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
 
         // Computed property setter: obj.computedField = val → call setter
         if (objAlloca && !objName.empty()) {
-            auto clsIt2 = varClassTypes_.find(objName);
-            if (clsIt2 != varClassTypes_.end()) {
+            auto clsIt2 = vars_.varClassTypes.find(objName);
+            if (clsIt2 != vars_.varClassTypes.end()) {
                 auto cpIt = classComputedFields_.find(clsIt2->second);
                 if (cpIt != classComputedFields_.end() && cpIt->second.count(memberExpr->getMember())) {
                     std::string setterName = clsIt2->second + "_set_" + memberExpr->getMember();
@@ -5567,8 +5567,8 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
 
         // Class field assignment: obj.field = val (or self.field = val)
         if (objAlloca && !objName.empty()) {
-            auto clsIt = varClassTypes_.find(objName);
-            if (clsIt != varClassTypes_.end()) {
+            auto clsIt = vars_.varClassTypes.find(objName);
+            if (clsIt != vars_.varClassTypes.end()) {
                 const std::string &clsTypeName = clsIt->second;
                 auto ctIt = classTypes_.find(clsTypeName);
                 if (ctIt != classTypes_.end()) {
@@ -5595,7 +5595,7 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                             std::string compositeKey = objName + "." + memberExpr->getMember();
                             if (node->getOp() == AssignExpr::Op::Assign &&
                                 val->getType()->isPointerTy() &&
-                                heapStringVars_.count(compositeKey)) {
+                                vars_.heapStringVars.count(compositeKey)) {
                                 auto *freeFn = module_->getFunction("free");
                                 if (freeFn) {
                                     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
@@ -5698,14 +5698,14 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
             auto *ident = static_cast<const IdentifierExpr *>(indexExpr->getBase());
 
             // Class subscript setter: obj[i] = val → ClassName_subscript_set(self, i, val)
-            auto cvIt = varClassTypes_.find(ident->getName());
-            if (cvIt != varClassTypes_.end()) {
+            auto cvIt = vars_.varClassTypes.find(ident->getName());
+            if (cvIt != vars_.varClassTypes.end()) {
                 std::string setName = cvIt->second + "_subscript_set";
                 auto *setFn = module_->getFunction(setName);
                 if (setFn) {
                     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                    auto nvIt = namedValues_.find(ident->getName());
-                    if (nvIt != namedValues_.end()) {
+                    auto nvIt = vars_.namedValues.find(ident->getName());
+                    if (nvIt != vars_.namedValues.end()) {
                         auto *selfAlloca = nvIt->second;
                         llvm::Value *selfLoaded = selfAlloca;
                         if (selfAlloca->getAllocatedType()->isPointerTy()) {
@@ -5721,10 +5721,10 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
             }
 
             // Dynamic array index assign: arr[i] = val
-            auto daIt = varDynArrayTypes_.find(ident->getName());
-            if (daIt != varDynArrayTypes_.end()) {
-                auto allocaIt = namedValues_.find(ident->getName());
-                if (allocaIt != namedValues_.end()) {
+            auto daIt = vars_.varDynArrayTypes.find(ident->getName());
+            if (daIt != vars_.varDynArrayTypes.end()) {
+                auto allocaIt = vars_.namedValues.find(ident->getName());
+                if (allocaIt != vars_.namedValues.end()) {
                     auto *arrAlloca = allocaIt->second;
                     auto *structTy = getDynArrayStructTy();
                     auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
@@ -5746,9 +5746,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                 return val;
             }
 
-            auto arrIt = varArrayTypes_.find(ident->getName());
-            auto allocaIt = namedValues_.find(ident->getName());
-            if (arrIt != varArrayTypes_.end() && allocaIt != namedValues_.end()) {
+            auto arrIt = vars_.varArrayTypes.find(ident->getName());
+            auto allocaIt = vars_.namedValues.find(ident->getName());
+            if (arrIt != vars_.varArrayTypes.end() && allocaIt != vars_.namedValues.end()) {
                 auto *alloca = allocaIt->second;
                 auto *arrayType = alloca->getAllocatedType();
                 auto *indexVal = visit(const_cast<Expr *>(indexExpr->getIndex()));
@@ -5770,11 +5770,11 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
 
     if (node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getTarget());
-        auto it = namedValues_.find(ident->getName());
+        auto it = vars_.namedValues.find(ident->getName());
 
         // Handle optional variable assignment: x = 42, x = nil
-        auto optIt = varOptionalTypes_.find(ident->getName());
-        if (optIt != varOptionalTypes_.end() && it != namedValues_.end()) {
+        auto optIt = vars_.varOptionalTypes.find(ident->getName());
+        if (optIt != vars_.varOptionalTypes.end() && it != vars_.namedValues.end()) {
             bool isNil = (node->getValue()->getKind() == ASTNode::NodeKind::NilLiteralExpr);
             auto *optStructTy = getOptionalType(optIt->second);
             auto *hasValPtr = builder_->CreateStructGEP(optStructTy, it->second, 0);
@@ -5790,8 +5790,8 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
         }
 
         // Handle ref mut assignment: store through pointer
-        auto refIt = varRefTypes_.find(ident->getName());
-        if (refIt != varRefTypes_.end() && it != namedValues_.end()) {
+        auto refIt = vars_.varRefTypes.find(ident->getName());
+        if (refIt != vars_.varRefTypes.end() && it != vars_.namedValues.end()) {
             auto *ptr = builder_->CreateLoad(
                 llvm::PointerType::getUnqual(*context_), it->second,
                 ident->getName() + ".ptr");
@@ -5821,7 +5821,7 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
             return val;
         }
 
-        if (it != namedValues_.end()) {
+        if (it != vars_.namedValues.end()) {
             // Handle compound assignment
             if (node->getOp() != AssignExpr::Op::Assign) {
                 auto *current = builder_->CreateLoad(it->second->getAllocatedType(),
@@ -5849,31 +5849,31 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
 
             // Free old heap string before reassignment
             if (node->getOp() == AssignExpr::Op::Assign &&
-                heapStringVars_.count(ident->getName())) {
+                vars_.heapStringVars.count(ident->getName())) {
                 auto *freeFn = module_->getFunction("free");
                 if (freeFn) {
                     auto *old = builder_->CreateLoad(
                         llvm::PointerType::getUnqual(*context_), it->second, "old.str");
                     builder_->CreateCall(freeFn, {old});
                 }
-                // Transfer ownership from tempStrings_ if applicable.
+                // Transfer ownership from vars_.tempStrings if applicable.
                 // Storing a literal (Constant ptr) into a heap-tracked string
                 // var: dup it first so the slot keeps holding heap memory.
                 // Otherwise the next reassignment's free(old) would free a
                 // string literal (heap corruption) and intervening reads
                 // would alias the global.
-                auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
-                if (tIt != tempStrings_.end()) {
-                    tempStrings_.erase(tIt);
-                    // keep in heapStringVars_
+                auto tIt = std::find(vars_.tempStrings.begin(), vars_.tempStrings.end(), val);
+                if (tIt != vars_.tempStrings.end()) {
+                    vars_.tempStrings.erase(tIt);
+                    // keep in vars_.heapStringVars
                 } else if (val && val->getType()->isPointerTy() &&
                            llvm::isa<llvm::Constant>(val) &&
                            it->second->getAllocatedType()->isPointerTy()) {
                     val = builder_->CreateCall(getOrPanic("liva_str_dup"),
                                                 {val}, ident->getName() + ".own");
-                    // current still in heapStringVars_
+                    // current still in vars_.heapStringVars
                 } else {
-                    heapStringVars_.erase(ident->getName());
+                    vars_.heapStringVars.erase(ident->getName());
                 }
             } else if (node->getOp() == AssignExpr::Op::Assign &&
                        val && val->getType()->isPointerTy() &&
@@ -5883,10 +5883,10 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                 // `var s: string = ""; s = strToUpper(x)`). Without this,
                 // statement-end cleanup frees the temp while the variable
                 // still references it → use-after-free on the next read.
-                auto tIt = std::find(tempStrings_.begin(), tempStrings_.end(), val);
-                if (tIt != tempStrings_.end()) {
-                    tempStrings_.erase(tIt);
-                    heapStringVars_.insert(ident->getName());
+                auto tIt = std::find(vars_.tempStrings.begin(), vars_.tempStrings.end(), val);
+                if (tIt != vars_.tempStrings.end()) {
+                    vars_.tempStrings.erase(tIt);
+                    vars_.heapStringVars.insert(ident->getName());
                 }
             }
 
@@ -5906,8 +5906,8 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
     // Tuple element access: pair.0, pair.1
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
-        auto tupleIt = varTupleTypes_.find(ident->getName());
-        if (tupleIt != varTupleTypes_.end()) {
+        auto tupleIt = vars_.varTupleTypes.find(ident->getName());
+        if (tupleIt != vars_.varTupleTypes.end()) {
             const auto &member = node->getMember();
             bool isNumeric = !member.empty();
             for (char c : member) {
@@ -5915,7 +5915,7 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
             }
             if (isNumeric) {
                 unsigned idx = (unsigned)strtol(member.c_str(), nullptr, 10);
-                auto *baseAlloca = namedValues_[ident->getName()];
+                auto *baseAlloca = vars_.namedValues[ident->getName()];
                 auto &ti = tupleIt->second;
                 auto *tupleTy = llvm::StructType::get(*context_, ti.elementTypes);
                 auto *gep = builder_->CreateStructGEP(tupleTy, baseAlloca, idx);
@@ -5947,10 +5947,10 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
     // Dynamic array properties: arr.length, arr.capacity, arr.isEmpty
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
-        auto daIt = varDynArrayTypes_.find(ident->getName());
-        if (daIt != varDynArrayTypes_.end()) {
-            auto allocaIt = namedValues_.find(ident->getName());
-            if (allocaIt != namedValues_.end()) {
+        auto daIt = vars_.varDynArrayTypes.find(ident->getName());
+        if (daIt != vars_.varDynArrayTypes.end()) {
+            auto allocaIt = vars_.namedValues.find(ident->getName());
+            if (allocaIt != vars_.namedValues.end()) {
                 auto *arrAlloca = allocaIt->second;
                 auto *structTy = getDynArrayStructTy();
 
@@ -5998,10 +5998,10 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
     // Map/Set properties: m.size, m.isEmpty
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
-        auto mapIt = varMapTypes_.find(ident->getName());
-        if (mapIt != varMapTypes_.end()) {
-            auto allocaIt = namedValues_.find(ident->getName());
-            if (allocaIt != namedValues_.end()) {
+        auto mapIt = vars_.varMapTypes.find(ident->getName());
+        if (mapIt != vars_.varMapTypes.end()) {
+            auto allocaIt = vars_.namedValues.find(ident->getName());
+            if (allocaIt != vars_.namedValues.end()) {
                 auto *mapAlloca = allocaIt->second;
                 auto *structTy = getMapStructTy();
                 if (node->getMember() == "size") {
@@ -6015,10 +6015,10 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
                 }
             }
         }
-        auto setIt = varSetTypes_.find(ident->getName());
-        if (setIt != varSetTypes_.end()) {
-            auto allocaIt = namedValues_.find(ident->getName());
-            if (allocaIt != namedValues_.end()) {
+        auto setIt = vars_.varSetTypes.find(ident->getName());
+        if (setIt != vars_.varSetTypes.end()) {
+            auto allocaIt = vars_.namedValues.find(ident->getName());
+            if (allocaIt != vars_.namedValues.end()) {
                 auto *setAlloca = allocaIt->second;
                 auto *structTy = getMapStructTy();
                 if (node->getMember() == "size") {
@@ -6037,10 +6037,10 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
     // Result properties: r.isOk, r.isErr
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
-        auto rtIt = varResultTypes_.find(ident->getName());
-        if (rtIt != varResultTypes_.end()) {
-            auto nvIt = namedValues_.find(ident->getName());
-            if (nvIt != namedValues_.end()) {
+        auto rtIt = vars_.varResultTypes.find(ident->getName());
+        if (rtIt != vars_.varResultTypes.end()) {
+            auto nvIt = vars_.namedValues.find(ident->getName());
+            if (nvIt != vars_.namedValues.end()) {
                 auto *resTy = getResultType(rtIt->second.okType, rtIt->second.errType);
                 auto *tagPtr = builder_->CreateStructGEP(resTy, nvIt->second, 0, "res.tag");
                 auto *tag = builder_->CreateLoad(builder_->getInt32Ty(), tagPtr, "res.tag.val");
@@ -6074,11 +6074,11 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
     if (node->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getObject());
         objName = ident->getName();
-        auto it = namedValues_.find(objName);
-        if (it != namedValues_.end())
+        auto it = vars_.namedValues.find(objName);
+        if (it != vars_.namedValues.end())
             objAlloca = it->second;
-        auto stIt = varStructTypes_.find(objName);
-        if (stIt != varStructTypes_.end())
+        auto stIt = vars_.varStructTypes.find(objName);
+        if (stIt != vars_.varStructTypes.end())
             structTypeName = stIt->second;
     }
 
@@ -6094,8 +6094,8 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
 
     // Lazy field access: obj.lazyField → call ClassName_lazy_<field>(self)
     if (objAlloca && !objName.empty()) {
-        auto clsIt3 = varClassTypes_.find(objName);
-        if (clsIt3 != varClassTypes_.end()) {
+        auto clsIt3 = vars_.varClassTypes.find(objName);
+        if (clsIt3 != vars_.varClassTypes.end()) {
             auto lazyIt = classLazyFields_.find(clsIt3->second);
             if (lazyIt != classLazyFields_.end() && lazyIt->second.count(node->getMember())) {
                 std::string accName = clsIt3->second + "_lazy_" + node->getMember();
@@ -6114,8 +6114,8 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
 
     // Computed property getter: obj.computedField → call getter function
     if (objAlloca && !objName.empty()) {
-        auto clsIt2 = varClassTypes_.find(objName);
-        if (clsIt2 != varClassTypes_.end()) {
+        auto clsIt2 = vars_.varClassTypes.find(objName);
+        if (clsIt2 != vars_.varClassTypes.end()) {
             auto cpIt = classComputedFields_.find(clsIt2->second);
             if (cpIt != classComputedFields_.end() && cpIt->second.count(node->getMember())) {
                 std::string getterName = clsIt2->second + "_get_" + node->getMember();
@@ -6134,8 +6134,8 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
 
     // Class field access: obj.field where obj is a class instance
     if (objAlloca && !objName.empty()) {
-        auto clsIt = varClassTypes_.find(objName);
-        if (clsIt != varClassTypes_.end()) {
+        auto clsIt = vars_.varClassTypes.find(objName);
+        if (clsIt != vars_.varClassTypes.end()) {
             const std::string &clsTypeName = clsIt->second;
             auto ctIt = classTypes_.find(clsTypeName);
             if (ctIt != classTypes_.end()) {
@@ -6182,7 +6182,7 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
                     if (idx >= 0) {
                         llvm::Value *basePtr = nullptr;
                         if (objAlloca) {
-                            // Local var with alloca but not in varStructTypes_
+                            // Local var with alloca but not in vars_.varStructTypes
                             basePtr = objAlloca;
                             if (objAlloca->getAllocatedType()->isPointerTy()) {
                                 basePtr = builder_->CreateLoad(
@@ -6374,13 +6374,13 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     if (node->getSubject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<const IdentifierExpr *>(node->getSubject());
         subjectVarName = ident->getName();
-        auto it = varEnumTypes_.find(subjectVarName);
-        if (it != varEnumTypes_.end())
+        auto it = vars_.varEnumTypes.find(subjectVarName);
+        if (it != vars_.varEnumTypes.end())
             enumTypeName = it->second;
 
         // Check for Result type match
-        auto rtIt = varResultTypes_.find(subjectVarName);
-        if (rtIt != varResultTypes_.end()) {
+        auto rtIt = vars_.varResultTypes.find(subjectVarName);
+        if (rtIt != vars_.varResultTypes.end()) {
             isResultMatch = true;
             enumTypeName = "Result";
             // Set up temporary enum infrastructure for Result
@@ -6389,7 +6389,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             enumTypes_["Result"] = resTy;
             enumCasePayloads_["Result"]["Ok"] = {rtIt->second.okType};
             enumCasePayloads_["Result"]["Err"] = {rtIt->second.errType};
-            varEnumTypes_[subjectVarName] = "Result";
+            vars_.varEnumTypes[subjectVarName] = "Result";
         }
     }
 
@@ -6402,8 +6402,8 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
 
     if (isPayloadEnum) {
         // Payload enum: load tag from struct field 0
-        auto nIt = namedValues_.find(subjectVarName);
-        if (nIt == namedValues_.end()) {
+        auto nIt = vars_.namedValues.find(subjectVarName);
+        if (nIt == vars_.namedValues.end()) {
             diag_.report(node->getStartLoc(), DiagID::err_irgen_match_subject_failed, subjectVarName);
             return nullptr;
         }
@@ -6481,7 +6481,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         builder_->SetInsertPoint(info.bb);
 
         // Save named values for binding scope
-        auto savedNamedValues = namedValues_;
+        auto guard = pushVarState();
 
         // Extract bindings for payload enum arms
         if (isPayloadEnum && !info.pat.bindings.empty() && subjectAlloca) {
@@ -6506,7 +6506,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                     auto *bindAlloca = createEntryBlockAlloca(func, info.pat.bindings[b],
                                                                payloadTypes[b]);
                     builder_->CreateStore(val, bindAlloca);
-                    namedValues_[info.pat.bindings[b]] = bindAlloca;
+                    vars_.namedValues[info.pat.bindings[b]] = bindAlloca;
                 }
                 offset += dl.getTypeAllocSize(payloadTypes[b]);
             }
@@ -6519,7 +6519,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                     auto *bindAlloca = createEntryBlockAlloca(func, bindName,
                                                                tagVal->getType());
                     builder_->CreateStore(tagVal, bindAlloca);
-                    namedValues_[bindName] = bindAlloca;
+                    vars_.namedValues[bindName] = bindAlloca;
                 }
             }
         }
@@ -6549,8 +6549,6 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             armResults.push_back({armVal, incomingBB});
         }
 
-        // Restore named values
-        namedValues_ = savedNamedValues;
     }
 
     builder_->SetInsertPoint(mergeBB);
@@ -6579,7 +6577,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         enumCases_.erase("Result");
         enumTypes_.erase("Result");
         enumCasePayloads_.erase("Result");
-        varEnumTypes_.erase(subjectVarName);
+        vars_.varEnumTypes.erase(subjectVarName);
     }
 
     return phi;
@@ -6737,7 +6735,7 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
                             auto *val = builder_->CreateLoad(innerPayloadTypes[b], innerFieldPtr, nested.bindings[b]);
                             auto *bindAlloca = createEntryBlockAlloca(func, nested.bindings[b], innerPayloadTypes[b]);
                             builder_->CreateStore(val, bindAlloca);
-                            namedValues_[nested.bindings[b]] = bindAlloca;
+                            vars_.namedValues[nested.bindings[b]] = bindAlloca;
                         }
                         offset += dl.getTypeAllocSize(innerPayloadTypes[b]);
                     }
