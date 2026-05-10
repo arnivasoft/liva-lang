@@ -91,6 +91,11 @@ DIAG(err_for_await_outside_async,   error, "'for await' can only be used inside 
 DIAG(err_yield_outside_generator,   error, "'yield' can only be used inside a generator function")
 DIAG(err_undeclared_lifetime,       error, "lifetime '%0' is not declared as a lifetime parameter")
 
+// === Sema - Iterator Protocol ===
+DIAG(err_for_in_not_iterable,       error,   "type '%0' is not iterable; conform to 'Iterator' or use a built-in iterable")
+DIAG(err_for_await_not_async_iterable, error, "type '%0' is not an async iterable; conform to 'AsyncIterator'")
+DIAG(err_iterator_next_signature,   error,   "'Iterator.next' must be 'mut func next() -> Item?'; got '%0'")
+
 // === Sema - Variadic ===
 DIAG(err_variadic_not_last,          error,   "variadic parameter '%0' must be the last parameter")
 DIAG(err_multiple_variadic,          error,   "function cannot have more than one variadic parameter")
