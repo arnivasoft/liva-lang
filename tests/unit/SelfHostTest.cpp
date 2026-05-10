@@ -2279,4 +2279,24 @@ TEST_F(SelfHostTest, AsyncFileReadNonExistent) {
     EXPECT_EQ(content, nullptr);
 }
 
+TEST_F(SelfHostTest, CustomIteratorCountdown) {
+    expectOutput(R"--(
+protocol Iterator {
+    func next(mut self) -> i32?
+}
+struct Counter { var n: i32 }
+impl Counter: Iterator {
+    func next(mut self) -> i32? {
+        if self.n <= 0 { return nil }
+        self.n = self.n - 1
+        return self.n + 1
+    }
+}
+func main() {
+    var c = Counter { n: 3 }
+    for x in c { println(x) }
+}
+)--", "3\n2\n1\n");
+}
+
 #endif // LIVA_HAS_LLVM

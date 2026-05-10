@@ -984,11 +984,38 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             return nullptr;
         }
 
-        // === Custom Iterator (Iter protocol) iteration ===
+        // === Custom Iterator protocol iteration ===
+        // Dispatch for-in via protocol-method lookup rather than hardcoded name
+        // mangling. Works for any struct that declares `impl T: Iterator`.
         auto structIt = vars_.varStructTypes.find(iterName);
         if (structIt != vars_.varStructTypes.end()) {
-            std::string nextFn = structIt->second + "_next";
-            auto *nextFunc = module_->getFunction(nextFn);
+            const std::string &concreteType = structIt->second;
+
+            // Verify conformance via protocol registry and resolve method name.
+            // protocolMethodNames_["Iterator"][0] is the first (and only) method
+            // of the Iterator protocol ("next"), obtained from the protocol decl
+            // rather than hardcoded as "_next".
+            llvm::Function *nextFunc = nullptr;
+            auto pcIt = protocolConformances_.find("Iterator");
+            auto pmIt = protocolMethodNames_.find("Iterator");
+            if (pcIt != protocolConformances_.end() && pmIt != protocolMethodNames_.end()
+                    && !pmIt->second.empty()) {
+                // Confirm this concrete type actually conforms to Iterator.
+                auto &conformers = pcIt->second;
+                bool conforms = (std::find(conformers.begin(), conformers.end(),
+                                           concreteType) != conformers.end());
+                if (conforms) {
+                    // Devirtualize: dispatch directly to the concrete method.
+                    const std::string &methodName = pmIt->second[0]; // "next"
+                    std::string mangledName = concreteType + "_" + methodName;
+                    nextFunc = module_->getFunction(mangledName);
+                }
+            }
+            // Fallback: legacy direct lookup (handles local-only Iterator impls
+            // that were compiled before the protocol decl was visited).
+            if (!nextFunc)
+                nextFunc = module_->getFunction(concreteType + "_next");
+
             if (nextFunc) {
                 auto *iterAlloca = vars_.namedValues[iterName];
 
@@ -1006,7 +1033,8 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
                 builder_->CreateBr(condBB);
 
-                // Condition: call next(), check hasValue
+                // Condition: call next() via devirtualized protocol dispatch,
+                // then check the Optional hasValue flag.
                 builder_->SetInsertPoint(condBB);
                 auto *optVal = builder_->CreateCall(nextFunc, {iterAlloca}, "iter.next");
                 auto *hasVal = builder_->CreateExtractValue(optVal, {0}, "iter.has");
