@@ -2299,4 +2299,21 @@ func main() {
 )--", "3\n2\n1\n");
 }
 
+TEST_F(SelfHostTest, CustomIteratorEmpty) {
+    expectOutput(R"--(
+protocol Iterator {
+    func next(mut self) -> i32?
+}
+struct Empty { var dummy: i32 }
+impl Empty: Iterator {
+    func next(mut self) -> i32? { return nil }
+}
+func main() {
+    var e = Empty { dummy: 0 }
+    for x in e { println("never") }
+    println("done")
+}
+)--", "done\n");
+}
+
 #endif // LIVA_HAS_LLVM
