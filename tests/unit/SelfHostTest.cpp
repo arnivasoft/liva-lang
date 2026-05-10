@@ -2316,4 +2316,29 @@ func main() {
 )--", "done\n");
 }
 
+TEST_F(SelfHostTest, GenericSumOverIterator) {
+    expectOutput(R"--(
+protocol Iterator {
+    func next(mut self) -> i32?
+}
+struct Counter { var n: i32 }
+impl Counter: Iterator {
+    func next(mut self) -> i32? {
+        if self.n <= 0 { return nil }
+        self.n = self.n - 1
+        return self.n + 1
+    }
+}
+func sum<I>(iter: I) -> i32 where I: Iterator, I.Item == i32 {
+    var total: i32 = 0
+    var it = iter
+    while let x = it.next() { total = total + x }
+    return total
+}
+func main() {
+    println(sum(Counter { n: 4 }))
+}
+)--", "10\n");
+}
+
 #endif // LIVA_HAS_LLVM

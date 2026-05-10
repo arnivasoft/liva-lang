@@ -547,6 +547,7 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
     // Becomes: loop { check hasVal; if false -> exit; unwrap; body; continue }
     llvm::AllocaInst *optAlloca = nullptr;
     llvm::Type *innerType = nullptr;
+
     if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
         auto it = vars_.namedValues.find(ident->getName());
@@ -554,22 +555,45 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
         auto optIt = vars_.varOptionalTypes.find(ident->getName());
         if (optIt != vars_.varOptionalTypes.end()) innerType = optIt->second;
     }
-    if (!optAlloca || !innerType) {
-        diag_.report(node->getStartLoc(), DiagID::err_irgen_while_let_not_optional);
-        return nullptr;
-    }
 
     auto *func = builder_->GetInsertBlock()->getParent();
-    auto *optStructTy = getOptionalType(innerType);
 
+    // For arbitrary expressions (e.g. `while let x = it.next()`): the call must
+    // be evaluated on every iteration (to advance the iterator).  We emit the call
+    // inside condBB, allocating a tmp slot on first visit using createEntryBlockAlloca
+    // (which inserts at the function entry block regardless of current insert point).
+    // The alloca pointer is captured into optAlloca so bodyBB can GEP into it.
     auto *condBB = llvm::BasicBlock::Create(*context_, "whilelet.cond", func);
     auto *bodyBB = llvm::BasicBlock::Create(*context_, "whilelet.body", func);
     auto *exitBB = llvm::BasicBlock::Create(*context_, "whilelet.exit", func);
 
     builder_->CreateBr(condBB);
 
-    // Cond: check hasVal
+    // Cond: (re-)evaluate expression if it is a call, then check hasVal.
     builder_->SetInsertPoint(condBB);
+    if (!optAlloca || !innerType) {
+        // Emit the call here (inside condBB) — this runs on every loop iteration,
+        // correctly advancing the iterator each time.
+        auto *callVal = visit(node->getOptionalExpr());
+        if (callVal) {
+            auto *structTy = llvm::dyn_cast<llvm::StructType>(callVal->getType());
+            if (structTy && structTy->getNumElements() == 2 &&
+                structTy->getElementType(0)->isIntegerTy(1)) {
+                innerType = structTy->getElementType(1);
+                // createEntryBlockAlloca inserts at the function entry block — fine
+                // even though builder_ is currently pointing at condBB.
+                optAlloca = createEntryBlockAlloca(func, "whilelet.opt.tmp", structTy);
+                builder_->CreateStore(callVal, optAlloca);
+            }
+        }
+    }
+
+    if (!optAlloca || !innerType) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_while_let_not_optional);
+        return nullptr;
+    }
+
+    auto *optStructTy = getOptionalType(innerType);
     auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
     auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "whilelet.hasval");
     builder_->CreateCondBr(hasVal, bodyBB, exitBB);

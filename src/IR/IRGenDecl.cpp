@@ -1552,8 +1552,13 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         size_t tempsBeforeInit = vars_.tempStrings.size();
         auto *initVal = visit(const_cast<Expr *>(node->getInit()));
         auto *type = toLLVMType(node->getType());
-        // Use init value's type when annotation is absent/inferred (avoids i32 default)
-        if (initVal && type == builder_->getInt32Ty() &&
+        // Use init value's type when annotation is absent/inferred.
+        // Covers two cases:
+        //   1. Annotation says i32 but init has a richer type (struct copy, etc.)
+        //   2. No annotation at all → toLLVMType(nullptr) returns voidTy, which
+        //      is unusable as an alloca type — substitute the init value's type.
+        if (initVal && !initVal->getType()->isVoidTy() &&
+            (type == builder_->getInt32Ty() || type->isVoidTy()) &&
             initVal->getType() != builder_->getInt32Ty()) {
             type = initVal->getType();
         }

@@ -108,12 +108,36 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     builder_->SetInsertPoint(entryBB);
     // vars_ already default-constructed above; no clear needed.
 
-    // Create parameter allocas
+    // Create parameter allocas.
+    // For parameters whose type was substituted from a generic type param
+    // (e.g. `iter: I` with I → Counter), also register the concrete struct
+    // name in vars_.varStructTypes so method calls on those params dispatch
+    // correctly inside the monomorphized body (e.g. `iter.next()` → Counter_next).
     idx = 0;
     for (auto &arg : func->args()) {
         auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
         builder_->CreateStore(&arg, alloca);
         vars_.namedValues[std::string(arg.getName())] = alloca;
+        // If this param's declared type is a generic type param that maps to a
+        // concrete struct, register the struct name for method dispatch.
+        if (idx < funcDecl->getParams().size()) {
+            const auto &paramTypeRepr = funcDecl->getParams()[idx].type;
+            if (paramTypeRepr && paramTypeRepr->getKind() == TypeRepr::Kind::Named) {
+                auto *namedTR = static_cast<const NamedTypeRepr *>(paramTypeRepr.get());
+                auto substIt = currentTypeSubst_.find(namedTR->getName());
+                if (substIt != currentTypeSubst_.end()) {
+                    // The param's declared type is a type param — find the concrete name.
+                    const TypeRepr *concrete = substIt->second;
+                    if (concrete->getKind() == TypeRepr::Kind::Named) {
+                        const std::string &concreteName =
+                            static_cast<const NamedTypeRepr *>(concrete)->getName();
+                        if (structTypes_.count(concreteName)) {
+                            vars_.varStructTypes[std::string(arg.getName())] = concreteName;
+                        }
+                    }
+                }
+            }
+        }
         ++idx;
     }
 

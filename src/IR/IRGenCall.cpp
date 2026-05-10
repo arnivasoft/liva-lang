@@ -5332,6 +5332,17 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                             } else if (argTy->isPointerTy()) {
                                 inferredTypes_.push_back(makeStringType());
                                 inferredType = inferredTypes_.back().get();
+                            } else if (argTy->isStructTy()) {
+                                // Infer concrete struct type: look up LLVM struct
+                                // type against the known structTypes_ registry.
+                                for (auto &[sName, sTy] : structTypes_) {
+                                    if (sTy == argTy) {
+                                        inferredTypes_.push_back(
+                                            std::make_unique<NamedTypeRepr>(sName));
+                                        inferredType = inferredTypes_.back().get();
+                                        break;
+                                    }
+                                }
                             }
                             if (inferredType) inferred[tp] = inferredType;
                             break;
