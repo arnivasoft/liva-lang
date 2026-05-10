@@ -1,8 +1,8 @@
 # Liva Programlama Dili — Production Hazırlık Raporu
 
-**Tarih:** 2026-05-02
-**Test Durumu:** 2235/2235 geçiyor (%100)
-**Tamamlanan Milestone:** 95+
+**Tarih:** 2026-05-10
+**Test Durumu:** 2265/2265 geçiyor (%100)
+**Tamamlanan Milestone:** 96+
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Metrik | Değer |
 |--------|-------|
-| **Toplam Test** | **2235/2235 geçiyor** (%100) |
+| **Toplam Test** | **2265/2265 geçiyor** (%100) |
 | **Kaynak Kodu** | ~22,000+ satır (src + include) |
 | **Test Kodu** | ~32,000+ satır (24 test dosyası) |
 | **Runtime Kütüphanesi** | ~4,200+ satır |
@@ -105,6 +105,7 @@
 - **Enum discriminants** (`case OK = 200`)
 - **Turbofish syntax** (`func::<T>()`, `Stream<T>::from()`, `s.map::<i64>()`)
 - **Plain generic syntax** (`Stream<T>{}` ve `Stream<T>.from()` turbofish'siz)
+- **P1-9: Iterator/AsyncIterator Protocols** — `Iterator` + `AsyncIterator` core protocols, `Item` + `ItemAsync` associated types, hybrid dispatch for `for-in` (built-in iterables) and `for-await` (custom async iterables)
 
 ### Semantik Analiz ✅
 - **Tip Kontrolleri:** err_type_mismatch, err_return_type_mismatch, err_condition_not_bool, err_wrong_arg_count, err_void_variable, err_try_on_non_result, err_yield_outside_generator
@@ -218,11 +219,11 @@
 
 ---
 
-## 6. Son Sürümden Bu Yana Değişiklikler (2026-04-17 → 2026-05-02)
+## 6. Son Sürümden Bu Yana Değişiklikler (2026-04-17 → 2026-05-10)
 
-39 commit, +108 test (2127 → 2235), +9 stdlib modülü (21 → 30).
+55 commit, +138 test (2127 → 2265), +9 stdlib modülü (21 → 30).
 
-**Yeni dil özellikleri:** const generics, explicit lifetimes (`'a`), generators/yield, GATs, enum discriminants, class polish (static, computed properties, final, `is`, `as?`), method-level type parameters, turbofish ve plain generic syntax.
+**Yeni dil özellikleri:** const generics, explicit lifetimes (`'a`), generators/yield, GATs, enum discriminants, class polish (static, computed properties, final, `is`, `as?`), method-level type parameters, turbofish ve plain generic syntax, **Iterator/AsyncIterator protocols (P1-9)** with hybrid for-in/for-await dispatch.
 
 **Yeni stdlib modülleri:** `csv`, `errors`, `encoding` (URL/base64url/gzip), `fs`, `http`, `io`, `jwt`, `log`, `net`, `regex`, `sqlite` (prepared statements + Stmt iterator), `stream` (generic `Stream<T>`), `sync`, `toml`, `websocket`.
 
