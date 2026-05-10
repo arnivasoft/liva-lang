@@ -34,62 +34,50 @@ Mevcut `Map<K,V>` built-in hash-table; ordering garantisi yok. Liva'nın `Stack<
 
 ## Tasarım
 
-### 1. Runtime B-tree Implementation
+### 1. Runtime Ordered Map Implementation
 
-C++'da CLRS Bölüm 18 deseninde B-tree:
+C++'da ordered key/value map. **Implementasyon seçimi**: en pragmatik yaklaşım `std::map<K, V>` (C++ standart kütüphane, balanced BST — tipik olarak red-black tree, O(log n) ops, well-tested). Alternatif: hand-rolled B-tree (CLRS Bölüm 18, degree t=8). Spec her ikisini de kabul eder — implementer'ın çağrısı; semantik aynı.
 
-- **Degree (t):** 8 — her node 7..15 anahtar tutar, root için minimum 1
-- **Node layout:** dynamic alloc — `[num_keys: int32][is_leaf: int8][keys[15]: ?][values[15]: ?][children[16]: void*]`
-- **Generic K/V:** `key_size` ve `val_size` çalışma zamanında bilinir; runtime byte-level memcpy ile saklar
-- **Comparator dispatch:** `key_kind` enum
+**Type-specialized entry points** (generic typed-pointer FFI'dan kaçınmak için):
+
+- **i64-key family** (i64 anahtar, i64 değer):
   ```cpp
-  enum class BTreeKeyKind : int8_t {
-      I8 = 0, I16 = 1, I32 = 2, I64 = 3,
-      U8 = 4, U16 = 5, U32 = 6, U64 = 7,
-      String = 8,  // const char* (null-terminated, lexicographic strcmp)
-      Bytes = 9    // raw bytes via memcmp (caller responsibility)
-  };
+  extern "C" int64_t liva_btree_i64_new();
+  extern "C" void    liva_btree_i64_free(int64_t handle);
+  extern "C" void    liva_btree_i64_insert(int64_t handle, int64_t key, int64_t value);
+  // Returns INT64_MIN sentinel if key absent.
+  extern "C" int64_t liva_btree_i64_get(int64_t handle, int64_t key);
+  extern "C" int8_t  liva_btree_i64_contains(int64_t handle, int64_t key);
+  extern "C" int8_t  liva_btree_i64_remove(int64_t handle, int64_t key);
+  extern "C" int64_t liva_btree_i64_size(int64_t handle);
   ```
-  Her kind için tip-doğru `compare(const void*, const void*)` static fonksiyonu; B-tree dispatch'i bu pointer üzerinden.
 
-- **API (`extern "C"`):**
+- **string-key family** (string anahtar, i64 değer):
   ```cpp
-  // Create. Returns opaque handle as int64_t (caller stores in Liva i64).
-  // Owner must call liva_btree_free.
-  extern "C" int64_t liva_btree_new(int8_t key_kind, int64_t key_size, int64_t val_size);
-
-  // Destroy.
-  extern "C" void liva_btree_free(int64_t handle);
-
-  // Insert or update. Copies key_size bytes of key, val_size bytes of value.
-  extern "C" void liva_btree_insert(int64_t handle, const void *key, const void *value);
-
-  // Lookup. Returns pointer into internal storage (read-only) or nullptr.
-  extern "C" const void *liva_btree_get(int64_t handle, const void *key);
-
-  // Membership check.
-  extern "C" int8_t liva_btree_contains(int64_t handle, const void *key);
-
-  // Remove. Returns 1 if removed, 0 if not found.
-  extern "C" int8_t liva_btree_remove(int64_t handle, const void *key);
-
-  // Element count.
-  extern "C" int64_t liva_btree_size(int64_t handle);
+  extern "C" int64_t liva_btree_str_new();
+  extern "C" void    liva_btree_str_free(int64_t handle);
+  extern "C" void    liva_btree_str_insert(int64_t handle, const char *key, int64_t value);
+  extern "C" int64_t liva_btree_str_get(int64_t handle, const char *key);
+  extern "C" int8_t  liva_btree_str_contains(int64_t handle, const char *key);
+  extern "C" int8_t  liva_btree_str_remove(int64_t handle, const char *key);
+  extern "C" int64_t liva_btree_str_size(int64_t handle);
   ```
+
+- **Sentinel `INT64_MIN`**: `get` API'sı için "anahtar yok" işaretçisi. Stdlib wrapper bunu `nil` Optional'a dönüştürür. `INT64_MIN` Liva i64 değer olarak nadir olduğu için iyi bir sentinel; çakışma durumunda kullanıcı `contains` ile teyit eder.
 
 - **Memory model:**
-  - `liva_btree_new` `malloc`'lar `BTree` struct + initial root node; handle iade eder
-  - `liva_btree_free` rekürsif olarak tüm node'ları free eder
-  - Liva-side ownership: stdlib struct destructor'unda `liva_btree_free` çağrısı (deinit method'u veya manual `free()` method)
+  - `_new` heap'te `std::map` veya custom B-tree instance allocate eder; handle iade eder
+  - `_free` instance'ı `delete` eder
+  - Liva-side ownership: stdlib struct'ın manuel `free()` method'u (destructor desteği kapsam dışı)
 
-- **Yaklaşık LOC:** ~400-500 satır C++. Standart CLRS B-tree implementasyonu.
+- **Yaklaşık LOC:** ~150 LOC (std::map kullanırsa) veya ~400 LOC (hand-rolled B-tree).
 
 ### 2. Stdlib: `collections::btree`
 
 Yeni dosya: `stdlib/collections/btree.liva`
 
 ```liva
-// collections::btree — Ordered key/value maps backed by runtime B-tree.
+// collections::btree — Ordered key/value maps backed by runtime balanced BST.
 //
 // Current concrete types (P1-8 alt-spec 3):
 //   - BTreeMapI64I64: i64 keys, i64 values
@@ -97,13 +85,27 @@ Yeni dosya: `stdlib/collections/btree.liva`
 //
 // Generic BTreeMap<K, V> and BTreeSet are future-work (alt-spec 4).
 
-extern "C" func liva_btree_new(key_kind: i8, key_size: i64, val_size: i64) -> i64
-extern "C" func liva_btree_free(handle: i64)
-extern "C" func liva_btree_insert(handle: i64, key: &i8, value: &i8)
-extern "C" func liva_btree_get(handle: i64, key: &i8) -> &i8
-extern "C" func liva_btree_contains(handle: i64, key: &i8) -> i8
-extern "C" func liva_btree_remove(handle: i64, key: &i8) -> i8
-extern "C" func liva_btree_size(handle: i64) -> i64
+extern "C" {
+    func liva_btree_i64_new() -> i64
+    func liva_btree_i64_free(handle: i64)
+    func liva_btree_i64_insert(handle: i64, key: i64, value: i64)
+    func liva_btree_i64_get(handle: i64, key: i64) -> i64
+    func liva_btree_i64_contains(handle: i64, key: i64) -> i8
+    func liva_btree_i64_remove(handle: i64, key: i64) -> i8
+    func liva_btree_i64_size(handle: i64) -> i64
+
+    func liva_btree_str_new() -> i64
+    func liva_btree_str_free(handle: i64)
+    func liva_btree_str_insert(handle: i64, key: string, value: i64)
+    func liva_btree_str_get(handle: i64, key: string) -> i64
+    func liva_btree_str_contains(handle: i64, key: string) -> i8
+    func liva_btree_str_remove(handle: i64, key: string) -> i8
+    func liva_btree_str_size(handle: i64) -> i64
+}
+
+// Sentinel returned by `_get` runtime fn when key is absent. Liva i64
+// minimum value; chosen because actual user data rarely hits this.
+const BTREE_GET_MISSING: i64 = -9223372036854775808
 
 // ---------------------------------------------------------------------------
 // BTreeMapI64I64 — i64 keyed, i64 valued ordered map.
@@ -115,36 +117,29 @@ pub struct BTreeMapI64I64 {
 
 impl BTreeMapI64I64 {
     pub static func new() -> BTreeMapI64I64 {
-        // key_kind = 3 (I64), key_size = 8, val_size = 8
-        let h = liva_btree_new(3, 8, 8)
-        return BTreeMapI64I64 { handle: h }
+        return BTreeMapI64I64 { handle: liva_btree_i64_new() }
     }
 
     pub func insert(ref mut self, key: i64, value: i64) {
-        var k: i64 = key
-        var v: i64 = value
-        liva_btree_insert(self.handle, &k as &i8, &v as &i8)
+        liva_btree_i64_insert(self.handle, key, value)
     }
 
     pub func get(ref self, key: i64) -> i64? {
-        var k: i64 = key
-        let p = liva_btree_get(self.handle, &k as &i8)
-        if p == nil { return nil }
-        return *(p as &i64)
+        // Two-call protocol: contains-then-get; avoids sentinel ambiguity.
+        if liva_btree_i64_contains(self.handle, key) == 0 { return nil }
+        return liva_btree_i64_get(self.handle, key)
     }
 
     pub func contains(ref self, key: i64) -> bool {
-        var k: i64 = key
-        return liva_btree_contains(self.handle, &k as &i8) != 0
+        return liva_btree_i64_contains(self.handle, key) != 0
     }
 
     pub func remove(ref mut self, key: i64) -> bool {
-        var k: i64 = key
-        return liva_btree_remove(self.handle, &k as &i8) != 0
+        return liva_btree_i64_remove(self.handle, key) != 0
     }
 
     pub func size(ref self) -> i64 {
-        return liva_btree_size(self.handle)
+        return liva_btree_i64_size(self.handle)
     }
 
     pub func isEmpty(ref self) -> bool {
@@ -153,7 +148,7 @@ impl BTreeMapI64I64 {
 
     pub func free(ref mut self) {
         if self.handle != 0 {
-            liva_btree_free(self.handle)
+            liva_btree_i64_free(self.handle)
             self.handle = 0
         }
     }
@@ -169,36 +164,28 @@ pub struct BTreeMapStrI64 {
 
 impl BTreeMapStrI64 {
     pub static func new() -> BTreeMapStrI64 {
-        // key_kind = 8 (String), key_size = 8 (pointer size), val_size = 8
-        let h = liva_btree_new(8, 8, 8)
-        return BTreeMapStrI64 { handle: h }
+        return BTreeMapStrI64 { handle: liva_btree_str_new() }
     }
 
     pub func insert(ref mut self, key: string, value: i64) {
-        var k: string = key
-        var v: i64 = value
-        liva_btree_insert(self.handle, &k as &i8, &v as &i8)
+        liva_btree_str_insert(self.handle, key, value)
     }
 
     pub func get(ref self, key: string) -> i64? {
-        var k: string = key
-        let p = liva_btree_get(self.handle, &k as &i8)
-        if p == nil { return nil }
-        return *(p as &i64)
+        if liva_btree_str_contains(self.handle, key) == 0 { return nil }
+        return liva_btree_str_get(self.handle, key)
     }
 
     pub func contains(ref self, key: string) -> bool {
-        var k: string = key
-        return liva_btree_contains(self.handle, &k as &i8) != 0
+        return liva_btree_str_contains(self.handle, key) != 0
     }
 
     pub func remove(ref mut self, key: string) -> bool {
-        var k: string = key
-        return liva_btree_remove(self.handle, &k as &i8) != 0
+        return liva_btree_str_remove(self.handle, key) != 0
     }
 
     pub func size(ref self) -> i64 {
-        return liva_btree_size(self.handle)
+        return liva_btree_str_size(self.handle)
     }
 
     pub func isEmpty(ref self) -> bool {
@@ -207,7 +194,7 @@ impl BTreeMapStrI64 {
 
     pub func free(ref mut self) {
         if self.handle != 0 {
-            liva_btree_free(self.handle)
+            liva_btree_str_free(self.handle)
             self.handle = 0
         }
     }
@@ -215,10 +202,10 @@ impl BTreeMapStrI64 {
 ```
 
 **Notlar:**
-- `&i8` opaque pointer için kullanılan placeholder; Liva FFI'da raw pointer için doğru tipi (`&void` veya `RawPtr`) yoksa `&i8` cast'i ile gidilir. Mevcut stdlib FFI desenlerine bakılıp uyumlu hale getirilecek.
-- String için key_size = 8 = pointer size (runtime tarafında ilk 8 byte'ı `const char *` olarak okuyacak).
-- `free()` method'u manuel; Liva'nın destructor desteği varsa `deinit` kullanılır. (Mevcut sqlite wrapper'ına bakılır.)
-- Cast syntax (`as &i8`, `&i64`) Liva'da destekleniyor (sqlite wrapper kullanıyor).
+- `extern "C" { ... }` blok syntax'ı Liva FFI'da mevcut (örnek: `examples/ffi_demo.liva`).
+- Tip-spesifik runtime entry'leri generic pointer FFI gerektirmiyor — i64 ve string Liva primitif tipleri olarak doğrudan geçiyor.
+- `free()` manuel; Liva'nın `deinit` desteği varsa onu da ekle.
+- `BTREE_GET_MISSING` const şu an kullanılmıyor (`contains+get` two-call protocol tercih edildi); ileride lazım olabilir.
 
 ### 3. Diagnostics
 
