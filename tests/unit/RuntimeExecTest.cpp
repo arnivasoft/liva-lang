@@ -452,4 +452,44 @@ TEST(RuntimeExecTest, Generator_CrossModule_Iterates) {
     EXPECT_EQ(r.stdout_output, "100\n200\n300\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, HashI64StableValue) {
+    // Calling .hash() on the same i32 value twice must produce the same result.
+    // Exercises the liva_hash_i32 runtime wrapper end-to-end.
+    auto r = compileAndRun(R"(
+        func main() {
+            let x: i32 = 5
+            let h1 = x.hash()
+            let h2 = x.hash()
+            if h1 == h2 {
+                println("equal")
+            } else {
+                println("differ")
+            }
+        }
+    )", "hash_i64_stable");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("equal"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, HashStringDifferentInputs) {
+    // Two distinct string literals must produce different hash values
+    // (collision for "foo" vs "bar" would be a very bad hash function).
+    // Exercises the liva_hash_string runtime wrapper end-to-end.
+    auto r = compileAndRun(R"(
+        func main() {
+            let h1 = "foo".hash()
+            let h2 = "bar".hash()
+            if h1 == h2 {
+                println("collision")
+            } else {
+                println("different")
+            }
+        }
+    )", "hash_string_diff");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("different"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

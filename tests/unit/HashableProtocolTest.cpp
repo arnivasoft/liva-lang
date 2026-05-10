@@ -109,3 +109,39 @@ TEST_F(HashableProtocolTest, GenericConstraintAcceptsHashableConformer) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// ---------------------------------------------------------------------------
+// Built-in primitives (i32, string, bool, ...) conform to Hashable
+// implicitly. `where T: Hashable` accepts them in generic constraints.
+// ---------------------------------------------------------------------------
+TEST_F(HashableProtocolTest, BuiltinPrimitivesAreHashable) {
+    auto result = check(R"--(
+        protocol Hashable {
+            func hash() -> i64
+        }
+        func bucket<T>(k: T) -> i64 where T: Hashable {
+            return k.hash()
+        }
+        func main() {
+            let a = bucket(42)
+            let b = bucket("foo")
+            let c = bucket(true)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ---------------------------------------------------------------------------
+// Calling .hash() on a primitive resolves with i64 return type.
+// ---------------------------------------------------------------------------
+TEST_F(HashableProtocolTest, PrimitiveHashCallReturnsI64) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = 42
+            let h: i64 = x.hash()
+            let s = "abc"
+            let g: i64 = s.hash()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
