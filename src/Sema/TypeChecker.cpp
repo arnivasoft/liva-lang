@@ -260,6 +260,15 @@ void TypeChecker::registerBuiltins() {
         protocolConformances_["Iterator"].push_back(name);
     }
     protocolConformances_["AsyncIterator"].push_back("Generator");
+
+    // P1-8 alt-spec 2: built-in types conform to Hashable. The hash() method
+    // is dispatched at IRGen to runtime liva_hash_* functions; here we only
+    // register conformance so generic `where T: Hashable` accepts primitives.
+    for (const char *name : {"i8", "i16", "i32", "i64",
+                              "u8", "u16", "u32", "u64",
+                              "string", "bool", "Char"}) {
+        protocolConformances_["Hashable"].push_back(name);
+    }
 }
 
 // === "Did you mean?" suggestion helpers ===
@@ -2935,6 +2944,38 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             } else if (methodName == "split") {
                 auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType());
                 node->setResolvedType(std::move(arrType));
+            }
+        }
+
+        // P1-8 alt-spec 2: built-in `.hash()` on primitive receivers
+        // (i8/i16/i32/i64, u8/u16/u32/u64, string, bool, Char) resolves to i64.
+        // Actual call lowering happens at IRGen via runtime liva_hash_* wrappers.
+        if (methodName == "hash" && node->getArgs().empty() && !node->getResolvedType()) {
+            const TypeRepr *recvType = memberExpr->getObject()->getResolvedType();
+            // Fall back to the symbol's type for plain identifier receivers
+            // (some primitive-typed identifiers don't get resolvedType set).
+            if (!recvType &&
+                memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+                auto *sym = scopes_.lookup(ident->getName());
+                if (sym && sym->type) recvType = sym->type;
+            }
+            if (recvType) {
+                auto k = recvType->getKind();
+                bool isPrim = (k == TypeRepr::Kind::I8 || k == TypeRepr::Kind::I16 ||
+                               k == TypeRepr::Kind::I32 || k == TypeRepr::Kind::I64 ||
+                               k == TypeRepr::Kind::U8 || k == TypeRepr::Kind::U16 ||
+                               k == TypeRepr::Kind::U32 || k == TypeRepr::Kind::U64 ||
+                               k == TypeRepr::Kind::String ||
+                               k == TypeRepr::Kind::Bool);
+                // Char is represented as NamedTypeRepr("Char") (no dedicated Kind).
+                if (!isPrim && k == TypeRepr::Kind::Named) {
+                    auto *nt = static_cast<const NamedTypeRepr *>(recvType);
+                    if (nt->getName() == "Char") isPrim = true;
+                }
+                if (isPrim) {
+                    node->setResolvedType(makeI64Type());
+                }
             }
         }
     }
