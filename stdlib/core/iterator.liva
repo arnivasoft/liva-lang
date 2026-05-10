@@ -1,0 +1,23 @@
+/// Iterator protocol — produces a sequence of values, one at a time.
+///
+/// Conformers implement `next()`, which returns the next element or `nil`
+/// when the iterator is exhausted. After `nil` is returned, subsequent
+/// calls must continue to return `nil` (the iterator is "fused"). The
+/// fused contract is documented but not enforced by the compiler.
+pub protocol Iterator {
+    type Item
+
+    /// Advance the iterator and return the next element, or `nil` if done.
+    mut func next() -> Item?
+}
+
+/// AsyncIterator protocol — produces a sequence of values asynchronously.
+///
+/// Used with `for await x in source` inside `async` functions. Returns
+/// `nil` to signal end of stream.
+pub protocol AsyncIterator {
+    type Item
+
+    /// Asynchronously advance and return the next element, or `nil`.
+    mut func next() async -> Item?
+}
