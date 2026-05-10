@@ -16,6 +16,11 @@ liva_add_test(sema_test
 )
 target_link_libraries(sema_test PRIVATE liva_sema liva_parser)
 
+liva_add_test(iterator_protocol_test
+    unit/IteratorProtocolTest.cpp
+)
+target_link_libraries(iterator_protocol_test PRIVATE liva_sema liva_parser)
+
 liva_add_test(type_test
     unit/TypeTest.cpp
 )
