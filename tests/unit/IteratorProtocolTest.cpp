@@ -200,3 +200,34 @@ TEST_F(IteratorProtocolTest, CustomIteratorBodyArithmetic) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// ---------------------------------------------------------------------------
+// Generic function with `where I: Iterator, I.Item == i32` constraint:
+// the body's `it.next()` resolves against the protocol method, returning Item?,
+// and Item == i32 lets the body type-check.
+// ---------------------------------------------------------------------------
+TEST_F(IteratorProtocolTest, GenericIteratorConstraintWithItemEquality) {
+    auto result = check(R"--(
+        protocol Iterator {
+            func next(mut self) -> i32?
+        }
+        struct Counter { var n: i32 }
+        impl Counter: Iterator {
+            func next(mut self) -> i32? {
+                if self.n <= 0 { return nil }
+                self.n = self.n - 1
+                return self.n + 1
+            }
+        }
+        func sum<I>(iter: I) -> i32 where I: Iterator, I.Item == i32 {
+            var total: i32 = 0
+            var it = iter
+            while let x = it.next() { total = total + x }
+            return total
+        }
+        func main() {
+            let s = sum(Counter { n: 3 })
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
