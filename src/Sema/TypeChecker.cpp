@@ -248,6 +248,14 @@ void TypeChecker::registerBuiltins() {
         sym.kind = Symbol::Kind::Function;
         scopes_.declare(name, sym);
     }
+
+    // Built-in iterables conform to Iterator implicitly. IRGen continues to
+    // use hardcoded fast paths for these types; the conformance entry exists
+    // so that `where T: Iterator` accepts them in generic constraints.
+    for (const char *name : {"Range", "Array", "DynArray", "Map", "Set", "Generator"}) {
+        protocolConformances_["Iterator"].push_back(name);
+    }
+    protocolConformances_["AsyncIterator"].push_back("Generator");
 }
 
 // === "Did you mean?" suggestion helpers ===
