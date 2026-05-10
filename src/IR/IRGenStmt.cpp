@@ -1008,6 +1008,78 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             return nullptr;
         }
 
+        // === Custom AsyncIterator protocol iteration: for await x in asyncIter ===
+        // Handles `for await x in expr` where the iterable's concrete struct type
+        // conforms to the AsyncIterator protocol.  next() may be sync (returning
+        // Optional<T> directly) — the "await" semantics are at the caller level.
+        // This branch must come BEFORE the sync-Iterator branch so that types
+        // that implement AsyncIterator are dispatched here rather than falling
+        // through to the sync-Iterator fallback path.
+        if (node->isAwait()) {
+            auto asyncStructIt = vars_.varStructTypes.find(iterName);
+            if (asyncStructIt != vars_.varStructTypes.end()) {
+                const std::string &concreteType = asyncStructIt->second;
+
+                // Resolve next() via AsyncIterator protocol registry.
+                llvm::Function *nextFunc = nullptr;
+                auto pcIt = protocolConformances_.find("AsyncIterator");
+                auto pmIt = protocolMethodNames_.find("AsyncIterator");
+                if (pcIt != protocolConformances_.end() && pmIt != protocolMethodNames_.end()
+                        && !pmIt->second.empty()) {
+                    auto &conformers = pcIt->second;
+                    bool conforms = (std::find(conformers.begin(), conformers.end(),
+                                               concreteType) != conformers.end());
+                    if (conforms) {
+                        const std::string &methodName = pmIt->second[0]; // "next"
+                        std::string mangledName = concreteType + "_" + methodName;
+                        nextFunc = module_->getFunction(mangledName);
+                    }
+                }
+                // Fallback: direct lookup for types compiled before the
+                // protocol decl was visited.
+                if (!nextFunc)
+                    nextFunc = module_->getFunction(concreteType + "_next");
+
+                if (nextFunc) {
+                    auto *iterAlloca = vars_.namedValues[iterName];
+
+                    // next() returns Optional<T> = {i1, T}
+                    auto *retType = nextFunc->getReturnType();
+                    auto *optStructTy = llvm::cast<llvm::StructType>(retType);
+                    auto *elemType = optStructTy->getElementType(1);
+
+                    auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
+                    vars_.namedValues[node->getVarName()] = loopVar;
+
+                    auto *condBB = llvm::BasicBlock::Create(*context_, "forawait.cond", func);
+                    auto *bodyBB = llvm::BasicBlock::Create(*context_, "forawait.body", func);
+                    auto *exitBB = llvm::BasicBlock::Create(*context_, "forawait.exit", func);
+
+                    builder_->CreateBr(condBB);
+
+                    // Condition: call next() (devirtualized), check Optional hasValue.
+                    builder_->SetInsertPoint(condBB);
+                    auto *optVal = builder_->CreateCall(nextFunc, {iterAlloca}, "ai.next");
+                    auto *hasVal = builder_->CreateExtractValue(optVal, {0}, "ai.has");
+                    builder_->CreateCondBr(hasVal, bodyBB, exitBB);
+
+                    // Body: extract value, store to loop var.
+                    builder_->SetInsertPoint(bodyBB);
+                    auto *elemVal = builder_->CreateExtractValue(optVal, {1}, "ai.val");
+                    builder_->CreateStore(elemVal, loopVar);
+
+                    loopStack_.push_back({exitBB, condBB});
+                    visit(const_cast<ASTNode *>(node->getBody()));
+                    loopStack_.pop_back();
+                    if (!builder_->GetInsertBlock()->getTerminator())
+                        builder_->CreateBr(condBB);
+
+                    builder_->SetInsertPoint(exitBB);
+                    return nullptr;
+                }
+            }
+        }
+
         // === Custom Iterator protocol iteration ===
         // Dispatch for-in via protocol-method lookup rather than hardcoded name
         // mangling. Works for any struct that declares `impl T: Iterator`.

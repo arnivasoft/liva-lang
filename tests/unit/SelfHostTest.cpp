@@ -2341,4 +2341,24 @@ func main() {
 )--", "10\n");
 }
 
+TEST_F(SelfHostTest, ForAwaitOverAsyncIterator) {
+    expectOutput(R"--(
+protocol AsyncIterator {
+    func next(mut self) -> i32?
+}
+struct Pings { var left: i32 }
+impl Pings: AsyncIterator {
+    func next(mut self) -> i32? {
+        if self.left <= 0 { return nil }
+        self.left = self.left - 1
+        return self.left
+    }
+}
+async func main() {
+    var p = Pings { left: 3 }
+    for await x in p { println(x) }
+}
+)--", "2\n1\n0\n");
+}
+
 #endif // LIVA_HAS_LLVM
