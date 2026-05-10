@@ -1,8 +1,8 @@
 # Liva Programlama Dili — Production Hazırlık Raporu
 
 **Tarih:** 2026-05-10
-**Test Durumu:** 2265/2265 geçiyor (%100)
-**Tamamlanan Milestone:** 96+
+**Test Durumu:** 2270/2270 geçiyor (%100)
+**Tamamlanan Milestone:** 97+
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Metrik | Değer |
 |--------|-------|
-| **Toplam Test** | **2265/2265 geçiyor** (%100) |
+| **Toplam Test** | **2270/2270 geçiyor** (%100) |
 | **Kaynak Kodu** | ~22,000+ satır (src + include) |
 | **Test Kodu** | ~32,000+ satır (24 test dosyası) |
 | **Runtime Kütüphanesi** | ~4,200+ satır |
@@ -106,6 +106,7 @@
 - **Turbofish syntax** (`func::<T>()`, `Stream<T>::from()`, `s.map::<i64>()`)
 - **Plain generic syntax** (`Stream<T>{}` ve `Stream<T>.from()` turbofish'siz)
 - **P1-9: Iterator/AsyncIterator Protocols** — `Iterator` + `AsyncIterator` core protocols, `Item` + `ItemAsync` associated types, hybrid dispatch for `for-in` (built-in iterables) and `for-await` (custom async iterables)
+- **P1-8 (alt-spec 1): Hash family foundation** — `Stack<T>` ve `Queue<T>` stdlib koleksiyonları için synthetic `Iterator` conformance + `stdlib/core/hashable.liva` declaration (Hashable protocol). Generic constraint solving artık `Stack<i64>` gibi instantiation'ları base-name üzerinden tanır; integer literal otomatik widening (`return 0` herhangi bir integer dönüş tipinde).
 
 ### Semantik Analiz ✅
 - **Tip Kontrolleri:** err_type_mismatch, err_return_type_mismatch, err_condition_not_bool, err_wrong_arg_count, err_void_variable, err_try_on_non_result, err_yield_outside_generator
