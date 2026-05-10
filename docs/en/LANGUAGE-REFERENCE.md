@@ -1491,38 +1491,77 @@ let c = a + b   // Vec2 { x: 4.0, y: 6.0 }
 
 ## 22. Custom Iterators
 
-Implement the `Iterator` protocol to make a type iterable in `for-in` loops:
+### Iterator Protocol
+
+Implement the `Iterator` protocol to make a type usable with `for-in` loops:
 
 ```liva
 protocol Iterator {
     type Item
-    func next(ref mut self) -> Item?
+    func next(mut self) -> Item?
 }
 
 struct Counter {
-    var current: i32
-    var max: i32
+    var n: i32
 }
 
 impl Counter: Iterator {
     type Item = i32
 
-    func next(ref mut self) -> i32? {
-        if self.current >= self.max {
+    func next(mut self) -> i32? {
+        if self.n <= 0 {
             return nil
         }
-        let val = self.current
-        self.current = self.current + 1
-        return val
+        self.n = self.n - 1
+        return self.n + 1
     }
 }
 
-// Usage:
-var counter = Counter { current: 0, max: 5 }
-for value in counter {
-    println(value)    // prints 0, 1, 2, 3, 4
+var c = Counter { n: 3 }
+for x in c {
+    println(x)    // prints 3, 2, 1
 }
 ```
+
+### AsyncIterator Protocol
+
+For asynchronous iteration, implement `AsyncIterator`:
+
+```liva
+protocol AsyncIterator {
+    type Item
+    async func next(mut self) -> Item?
+}
+
+struct AsyncCounter {
+    var n: i32
+}
+
+impl AsyncCounter: AsyncIterator {
+    type Item = i32
+
+    async func next(mut self) -> i32? {
+        if self.n <= 0 {
+            return nil
+        }
+        self.n = self.n - 1
+        return self.n + 1
+    }
+}
+
+async func main() {
+    var c = AsyncCounter { n: 3 }
+    for await x in c {
+        println(x)    // prints 3, 2, 1
+    }
+}
+```
+
+### Desugaring
+
+`for x in expr` desugars to protocol method dispatch on `Iterator`. Built-in types (Range, Array, DynArray, Map, Set, Generator) have optimized fast paths.
+
+`for await x in expr` requires an async function context and desugars to protocol method dispatch on `AsyncIterator`, with automatic Optional unwrapping. Each `await` suspends the coroutine at the `next()` call.
 
 ---
 

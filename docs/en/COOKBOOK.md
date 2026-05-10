@@ -195,43 +195,59 @@ func main() {
 
 ## 4. Custom Iterator
 
-Implement the `Iterator` protocol to create iterable types.
+Conform to `Iterator` to make a type usable with `for-in`.
 
 ```liva
-struct FibonacciIterator {
-    var a: i32
-    var b: i32
-    var remaining: i32
+struct Counter {
+    var n: i32
 }
 
-impl FibonacciIterator {
-    func new(count: i32) -> FibonacciIterator {
-        return FibonacciIterator { a: 0, b: 1, remaining: count }
-    }
-}
-
-impl FibonacciIterator: Iterator {
+impl Counter: Iterator {
     type Item = i32
 
-    func next(ref mut self) -> i32? {
-        if self.remaining <= 0 {
+    func next(mut self) -> i32? {
+        if self.n <= 0 {
             return nil
         }
-        let current = self.a
-        let temp = self.b
-        self.b = self.a + self.b
-        self.a = temp
-        self.remaining = self.remaining - 1
-        return current
+        self.n = self.n - 1
+        return self.n + 1
     }
 }
 
 func main() {
-    var fib = FibonacciIterator.new(10)
-    for val in fib {
-        println(val)
+    var c = Counter { n: 3 }
+    for x in c {
+        println(x)
     }
-    // Output: 0 1 1 2 3 5 8 13 21 34
+    // Output: 3, 2, 1
+}
+```
+
+For async iteration, implement `AsyncIterator`:
+
+```liva
+struct AsyncCounter {
+    var n: i32
+}
+
+impl AsyncCounter: AsyncIterator {
+    type Item = i32
+
+    async func next(mut self) -> i32? {
+        if self.n <= 0 {
+            return nil
+        }
+        self.n = self.n - 1
+        return self.n + 1
+    }
+}
+
+async func main() {
+    var c = AsyncCounter { n: 3 }
+    for await x in c {
+        println(x)
+    }
+    // Output: 3, 2, 1
 }
 ```
 
