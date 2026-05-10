@@ -1342,6 +1342,20 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
                 }
             }
 
+            // AsyncIterator protocol: extract element type from next() -> T?
+            if (node->getProtocolName() == "AsyncIterator") {
+                for (auto &method : node->getMethods()) {
+                    if (method->getName() == "next") {
+                        auto *retType = method->getReturnType();
+                        if (retType && retType->getKind() == TypeRepr::Kind::Optional) {
+                            auto *optType = static_cast<const OptionalTypeRepr *>(retType);
+                            asyncIteratorItemTypes_[node->getTypeName()] = optType->getInner();
+                        }
+                        break;
+                    }
+                }
+            }
+
             // Drop protocol validation
             if (node->getProtocolName() == "Drop") {
                 bool validDrop = false;
@@ -1696,24 +1710,47 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                 auto *namedType = static_cast<const NamedTypeRepr *>(iterableType);
                 const std::string &typeName = namedType->getName();
                 bool foundConformance = false;
-                auto confIt = protocolConformances_.find("Iterator");
-                if (confIt != protocolConformances_.end()) {
-                    for (auto &t : confIt->second) {
-                        if (t == typeName) {
-                            foundConformance = true;
-                            auto elemIt = iteratorItemTypes_.find(typeName);
-                            if (elemIt != iteratorItemTypes_.end()) {
-                                sym.type = elemIt->second;
+
+                if (node->isAwait()) {
+                    // for-await: check AsyncIterator conformance
+                    auto asyncConfIt = protocolConformances_.find("AsyncIterator");
+                    if (asyncConfIt != protocolConformances_.end()) {
+                        for (auto &t : asyncConfIt->second) {
+                            if (t == typeName) {
+                                foundConformance = true;
+                                auto elemIt = asyncIteratorItemTypes_.find(typeName);
+                                if (elemIt != asyncIteratorItemTypes_.end()) {
+                                    sym.type = elemIt->second;
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
-                }
-                // Sync for-in over a named type that does not conform to Iterator
-                // is a type error. (for-await has its own AsyncIterator path — Task 9.)
-                if (!foundConformance && !node->isAwait()) {
-                    diag_.report(node->getStartLoc(),
-                                 DiagID::err_for_in_not_iterable, typeName);
+                    if (!foundConformance) {
+                        diag_.report(node->getStartLoc(),
+                                     DiagID::err_for_await_requires_async_iterator, typeName);
+                    }
+                } else {
+                    // for-in: check Iterator conformance
+                    auto confIt = protocolConformances_.find("Iterator");
+                    if (confIt != protocolConformances_.end()) {
+                        for (auto &t : confIt->second) {
+                            if (t == typeName) {
+                                foundConformance = true;
+                                auto elemIt = iteratorItemTypes_.find(typeName);
+                                if (elemIt != iteratorItemTypes_.end()) {
+                                    sym.type = elemIt->second;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    // Sync for-in over a named type that does not conform to Iterator
+                    // is a type error.
+                    if (!foundConformance) {
+                        diag_.report(node->getStartLoc(),
+                                     DiagID::err_for_in_not_iterable, typeName);
+                    }
                 }
             }
         }

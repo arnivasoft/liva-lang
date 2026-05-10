@@ -231,3 +231,48 @@ TEST_F(IteratorProtocolTest, GenericIteratorConstraintWithItemEquality) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// ---------------------------------------------------------------------------
+// Custom AsyncIterator conformer: `for await x in expr` resolves the element
+// type when the receiver type is in protocolConformances_["AsyncIterator"]
+// and asyncIteratorItemTypes_[T] is populated by visitImplDecl.
+// ---------------------------------------------------------------------------
+TEST_F(IteratorProtocolTest, ForAwaitOverAsyncIterator) {
+    auto result = check(R"--(
+        protocol AsyncIterator {
+            func next(mut self) -> i32?
+        }
+        struct Pings { var left: i32 }
+        impl Pings: AsyncIterator {
+            async func next(mut self) -> i32? {
+                if self.left <= 0 { return nil }
+                self.left = self.left - 1
+                return self.left
+            }
+        }
+        async func main() {
+            var p = Pings { left: 2 }
+            for await x in p {
+                let v: i32 = x
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ---------------------------------------------------------------------------
+// for-await over a non-AsyncIterator type emits err_for_await_requires_async_iterator.
+// ---------------------------------------------------------------------------
+TEST_F(IteratorProtocolTest, ForAwaitNonAsyncIterableEmitsDiagnostic) {
+    auto result = check(R"--(
+        struct Plain { var x: i32 }
+        async func main() {
+            var p = Plain { x: 1 }
+            for await x in p {
+                let v = x
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_for_await_requires_async_iterator));
+}
