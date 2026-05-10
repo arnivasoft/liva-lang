@@ -1327,7 +1327,7 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
                         auto *retType = method->getReturnType();
                         if (retType && retType->getKind() == TypeRepr::Kind::Optional) {
                             auto *optType = static_cast<const OptionalTypeRepr *>(retType);
-                            iteratorElementTypes_[node->getTypeName()] = optType->getInner();
+                            iteratorItemTypes_[node->getTypeName()] = optType->getInner();
                         }
                         break;
                     }
@@ -1691,8 +1691,8 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                 if (confIt != protocolConformances_.end()) {
                     for (auto &t : confIt->second) {
                         if (t == typeName) {
-                            auto elemIt = iteratorElementTypes_.find(typeName);
-                            if (elemIt != iteratorElementTypes_.end()) {
+                            auto elemIt = iteratorItemTypes_.find(typeName);
+                            if (elemIt != iteratorItemTypes_.end()) {
                                 sym.type = elemIt->second;
                             }
                             break;

@@ -149,8 +149,11 @@ private:
     /// GATs: param counts per associated type ("Proto::Item" → {lifetimeCount, typeCount})
     std::unordered_map<std::string, std::pair<int, int>> protocolGATParamCounts_;
 
-    /// Iterator element types: typeName → element TypeRepr*
-    std::unordered_map<std::string, const TypeRepr *> iteratorElementTypes_;
+    /// Iterator item types: typeName → item TypeRepr*
+    std::unordered_map<std::string, const TypeRepr *> iteratorItemTypes_;
+
+    /// Async iterator item types: typeName → item TypeRepr*
+    std::unordered_map<std::string, const TypeRepr *> asyncIteratorItemTypes_;
 
     /// File-typed variable tracking
     std::set<std::string> fileVariables_;
