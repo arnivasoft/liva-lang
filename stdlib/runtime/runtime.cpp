@@ -1119,6 +1119,34 @@ static uint64_t compute_hash(const void *key, int64_t key_size, int8_t key_kind)
     return fnv1a_bytes(key, key_size);
 }
 
+// === Hashable runtime entry points (P1-8 alt-spec 2) ===
+// All wrappers return int64_t (Liva i64). Signed return reflects the
+// language-level Hashable.hash() -> i64 signature; bit pattern is the
+// raw 64-bit FNV-1a result.
+
+extern "C" int64_t liva_hash_i64(int64_t value) {
+    return (int64_t)fnv1a_bytes(&value, sizeof(value));
+}
+
+extern "C" int64_t liva_hash_i32(int32_t value) {
+    int64_t widened = (int64_t)value;
+    return (int64_t)fnv1a_bytes(&widened, sizeof(widened));
+}
+
+extern "C" int64_t liva_hash_string(const char *str) {
+    if (!str) return 0;
+    return (int64_t)fnv1a_string(str);
+}
+
+extern "C" int64_t liva_hash_bool(int8_t value) {
+    uint8_t byte = value ? 1 : 0;
+    return (int64_t)fnv1a_bytes(&byte, 1);
+}
+
+extern "C" int64_t liva_hash_char(int32_t codepoint) {
+    return (int64_t)fnv1a_bytes(&codepoint, sizeof(codepoint));
+}
+
 static int keys_equal(const void *a, const void *b, int64_t key_size, int8_t key_kind) {
     if (key_kind == 1) {
         const char *sa = *(const char **)a;
