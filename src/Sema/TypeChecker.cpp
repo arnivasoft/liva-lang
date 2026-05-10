@@ -1321,7 +1321,7 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
             }
 
             // Iter protocol: extract element type from next() -> T?
-            if (node->getProtocolName() == "Iter") {
+            if (node->getProtocolName() == "Iterator") {
                 for (auto &method : node->getMethods()) {
                     if (method->getName() == "next") {
                         auto *retType = method->getReturnType();
@@ -1687,7 +1687,7 @@ void TypeChecker::visitForStmt(ForStmt *node) {
             else if (iterableType->getKind() == TypeRepr::Kind::Named) {
                 auto *namedType = static_cast<const NamedTypeRepr *>(iterableType);
                 const std::string &typeName = namedType->getName();
-                auto confIt = protocolConformances_.find("Iter");
+                auto confIt = protocolConformances_.find("Iterator");
                 if (confIt != protocolConformances_.end()) {
                     for (auto &t : confIt->second) {
                         if (t == typeName) {
