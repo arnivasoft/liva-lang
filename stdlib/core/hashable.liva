@@ -1,0 +1,14 @@
+/// Hashable protocol — types that can produce a stable 64-bit hash.
+///
+/// Hash family collections (HashMap, HashSet) use this protocol as a `where`
+/// constraint on key types. The contract:
+///   - Two values that compare equal (`a == b`) MUST produce the same hash.
+///   - Hash output is **not** guaranteed to be stable across compiler versions
+///     or processes — do not persist it.
+///
+/// Built-in types (`i32`, `i64`, `string`, `bool`, `Char`) will gain
+/// automatic conformance in a follow-up iteration; for now, user-defined
+/// types must implement `hash()` explicitly.
+pub protocol Hashable {
+    func hash() -> i64
+}
