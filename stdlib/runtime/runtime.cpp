@@ -16,6 +16,7 @@
 #include <regex>
 #include <thread>
 #include <string>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -1145,6 +1146,80 @@ extern "C" int64_t liva_hash_bool(int8_t value) {
 
 extern "C" int64_t liva_hash_char(int32_t codepoint) {
     return (int64_t)fnv1a_bytes(&codepoint, sizeof(codepoint));
+}
+
+// === BTreeMap runtime (P1-8 alt-spec 3) ===
+// Backed by std::map for ordered O(log n) semantics. Two type-specialized
+// families: i64 keys and string keys, both with i64 values.
+
+extern "C" int64_t liva_btree_i64_new() {
+    return reinterpret_cast<int64_t>(new std::map<int64_t, int64_t>());
+}
+
+extern "C" void liva_btree_i64_free(int64_t handle) {
+    delete reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+}
+
+extern "C" void liva_btree_i64_insert(int64_t handle, int64_t key, int64_t value) {
+    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+    (*m)[key] = value;
+}
+
+extern "C" int64_t liva_btree_i64_get(int64_t handle, int64_t key) {
+    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+    auto it = m->find(key);
+    if (it == m->end()) return INT64_MIN;
+    return it->second;
+}
+
+extern "C" int8_t liva_btree_i64_contains(int64_t handle, int64_t key) {
+    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+    return m->find(key) != m->end() ? 1 : 0;
+}
+
+extern "C" int8_t liva_btree_i64_remove(int64_t handle, int64_t key) {
+    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+    return m->erase(key) > 0 ? 1 : 0;
+}
+
+extern "C" int64_t liva_btree_i64_size(int64_t handle) {
+    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+    return static_cast<int64_t>(m->size());
+}
+
+extern "C" int64_t liva_btree_str_new() {
+    return reinterpret_cast<int64_t>(new std::map<std::string, int64_t>());
+}
+
+extern "C" void liva_btree_str_free(int64_t handle) {
+    delete reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+}
+
+extern "C" void liva_btree_str_insert(int64_t handle, const char *key, int64_t value) {
+    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+    (*m)[std::string(key ? key : "")] = value;
+}
+
+extern "C" int64_t liva_btree_str_get(int64_t handle, const char *key) {
+    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+    auto it = m->find(std::string(key ? key : ""));
+    if (it == m->end()) return INT64_MIN;
+    return it->second;
+}
+
+extern "C" int8_t liva_btree_str_contains(int64_t handle, const char *key) {
+    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+    return m->find(std::string(key ? key : "")) != m->end() ? 1 : 0;
+}
+
+extern "C" int8_t liva_btree_str_remove(int64_t handle, const char *key) {
+    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+    return m->erase(std::string(key ? key : "")) > 0 ? 1 : 0;
+}
+
+extern "C" int64_t liva_btree_str_size(int64_t handle) {
+    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+    return static_cast<int64_t>(m->size());
 }
 
 static int keys_equal(const void *a, const void *b, int64_t key_size, int8_t key_kind) {

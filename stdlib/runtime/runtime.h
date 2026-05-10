@@ -1043,4 +1043,21 @@ double liva_iso_parse(const char *str, int8_t *ok);
 /// Called on use-after-move (debug builds)
 [[noreturn]] void liva_use_after_move(const char *var_name);
 
+// === BTreeMap runtime (P1-8 alt-spec 3) ===
+int64_t liva_btree_i64_new();
+void    liva_btree_i64_free(int64_t handle);
+void    liva_btree_i64_insert(int64_t handle, int64_t key, int64_t value);
+int64_t liva_btree_i64_get(int64_t handle, int64_t key);
+int8_t  liva_btree_i64_contains(int64_t handle, int64_t key);
+int8_t  liva_btree_i64_remove(int64_t handle, int64_t key);
+int64_t liva_btree_i64_size(int64_t handle);
+
+int64_t liva_btree_str_new();
+void    liva_btree_str_free(int64_t handle);
+void    liva_btree_str_insert(int64_t handle, const char *key, int64_t value);
+int64_t liva_btree_str_get(int64_t handle, const char *key);
+int8_t  liva_btree_str_contains(int64_t handle, const char *key);
+int8_t  liva_btree_str_remove(int64_t handle, const char *key);
+int64_t liva_btree_str_size(int64_t handle);
+
 } // extern "C"
