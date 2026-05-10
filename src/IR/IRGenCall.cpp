@@ -1651,6 +1651,84 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 return builder_->CreateCall(callee, args, "mcalltmp");
             }
         }
+
+        // P1-8 alt-spec 2: built-in Hashable for primitive receivers.
+        // Fallback after struct/class method dispatch — if a user defines their
+        // own `hash()` method on a struct, that takes precedence; only the
+        // built-in primitive cases (i8/i16/i32/i64, u8/u16/u32/u64, string,
+        // bool, Char) reach here. Sema has already validated the receiver type
+        // and set this call's resolved type to i64; we mirror its primitive
+        // detection here to pick the right runtime entry point.
+        if (methodName == "hash" && node->getArgs().empty()) {
+            const TypeRepr *recvType = memberExpr->getObject()->getResolvedType();
+            if (recvType) {
+                auto k = recvType->getKind();
+                bool isChar = false;
+                if (k == TypeRepr::Kind::Named) {
+                    auto *nt = static_cast<const NamedTypeRepr *>(recvType);
+                    if (nt->getName() == "Char") isChar = true;
+                }
+                if (k == TypeRepr::Kind::String) {
+                    auto *recv = visit(memberExpr->getObject());
+                    if (!recv) return nullptr;
+                    auto *fn = getOrPanic("liva_hash_string");
+                    return builder_->CreateCall(fn, {recv}, "hash.str");
+                }
+                if (k == TypeRepr::Kind::Bool) {
+                    auto *recv = visit(memberExpr->getObject());
+                    if (!recv) return nullptr;
+                    auto *fn = getOrPanic("liva_hash_bool");
+                    auto *zextI8 = builder_->CreateZExt(recv,
+                        builder_->getInt8Ty(), "bool.zext");
+                    return builder_->CreateCall(fn, {zextI8}, "hash.bool");
+                }
+                if (isChar) {
+                    auto *recv = visit(memberExpr->getObject());
+                    if (!recv) return nullptr;
+                    // Char codepoints flow as i32; ensure type matches signature.
+                    if (recv->getType()->isIntegerTy() &&
+                        recv->getType()->getIntegerBitWidth() != 32) {
+                        unsigned bits = recv->getType()->getIntegerBitWidth();
+                        if (bits < 32)
+                            recv = builder_->CreateZExt(recv, builder_->getInt32Ty(), "char.zext");
+                        else
+                            recv = builder_->CreateTrunc(recv, builder_->getInt32Ty(), "char.trunc");
+                    }
+                    auto *fn = getOrPanic("liva_hash_char");
+                    return builder_->CreateCall(fn, {recv}, "hash.char");
+                }
+                if (k == TypeRepr::Kind::I8 || k == TypeRepr::Kind::I16 ||
+                    k == TypeRepr::Kind::I32 || k == TypeRepr::Kind::I64 ||
+                    k == TypeRepr::Kind::U8 || k == TypeRepr::Kind::U16 ||
+                    k == TypeRepr::Kind::U32 || k == TypeRepr::Kind::U64) {
+                    auto *recv = visit(memberExpr->getObject());
+                    if (!recv) return nullptr;
+                    if (!recv->getType()->isIntegerTy()) return nullptr;
+                    unsigned bits = recv->getType()->getIntegerBitWidth();
+                    if (bits == 32 && (k == TypeRepr::Kind::I32 || k == TypeRepr::Kind::U32)) {
+                        auto *fn = getOrPanic("liva_hash_i32");
+                        return builder_->CreateCall(fn, {recv}, "hash.i32");
+                    }
+                    // Widen/narrow to i64. Use sign-extend for signed kinds and
+                    // zero-extend for unsigned to preserve the unsigned value
+                    // when the kind is u8/u16/u32.
+                    llvm::Value *widened = recv;
+                    bool isSigned = (k == TypeRepr::Kind::I8 || k == TypeRepr::Kind::I16 ||
+                                     k == TypeRepr::Kind::I32 || k == TypeRepr::Kind::I64);
+                    if (bits < 64) {
+                        widened = isSigned
+                            ? builder_->CreateSExt(recv, builder_->getInt64Ty(), "int.sext")
+                            : builder_->CreateZExt(recv, builder_->getInt64Ty(), "int.zext");
+                    } else if (bits > 64) {
+                        widened = builder_->CreateTrunc(recv,
+                            builder_->getInt64Ty(), "int.trunc");
+                    }
+                    auto *fn = getOrPanic("liva_hash_i64");
+                    return builder_->CreateCall(fn, {widened}, "hash.i64");
+                }
+            }
+        }
+
         return nullptr;
     }
 

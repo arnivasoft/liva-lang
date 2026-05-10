@@ -530,6 +530,23 @@ void IRGen::createRuntimeDecls() {
     if (auto *f = llvm::dyn_cast<llvm::Function>(panicFn.getCallee()))
         f->addFnAttr(llvm::Attribute::NoReturn);
 
+    // P1-8 alt-spec 2: built-in Hashable. `expr.hash()` on primitive receivers
+    // (i8/i16/i32/i64/u8/u16/u32/u64/string/bool/Char) lowers to one of these.
+    auto *hashI64Ty = llvm::FunctionType::get(i64Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_hash_i64", hashI64Ty);
+
+    auto *hashI32Ty = llvm::FunctionType::get(i64Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_hash_i32", hashI32Ty);
+
+    auto *hashStringTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_hash_string", hashStringTy);
+
+    auto *hashBoolTy = llvm::FunctionType::get(i64Ty, {i8Ty}, false);
+    module_->getOrInsertFunction("liva_hash_bool", hashBoolTy);
+
+    auto *hashCharTy = llvm::FunctionType::get(i64Ty, {i32Ty}, false);
+    module_->getOrInsertFunction("liva_hash_char", hashCharTy);
+
     // liva_init_args(i32 argc, ptr argv) -> void
     auto *initArgsTy = llvm::FunctionType::get(builder_->getVoidTy(), {i32Ty, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_init_args", initArgsTy);
