@@ -1695,10 +1695,12 @@ void TypeChecker::visitForStmt(ForStmt *node) {
             else if (iterableType->getKind() == TypeRepr::Kind::Named) {
                 auto *namedType = static_cast<const NamedTypeRepr *>(iterableType);
                 const std::string &typeName = namedType->getName();
+                bool foundConformance = false;
                 auto confIt = protocolConformances_.find("Iterator");
                 if (confIt != protocolConformances_.end()) {
                     for (auto &t : confIt->second) {
                         if (t == typeName) {
+                            foundConformance = true;
                             auto elemIt = iteratorItemTypes_.find(typeName);
                             if (elemIt != iteratorItemTypes_.end()) {
                                 sym.type = elemIt->second;
@@ -1706,6 +1708,12 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                             break;
                         }
                     }
+                }
+                // Sync for-in over a named type that does not conform to Iterator
+                // is a type error. (for-await has its own AsyncIterator path — Task 9.)
+                if (!foundConformance && !node->isAwait()) {
+                    diag_.report(node->getStartLoc(),
+                                 DiagID::err_for_in_not_iterable, typeName);
                 }
             }
         }

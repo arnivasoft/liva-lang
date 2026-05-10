@@ -117,10 +117,9 @@ TEST_F(IteratorProtocolTest, CustomIteratorStringElement) {
 }
 
 // ---------------------------------------------------------------------------
-// No conformance: a plain struct in for-in should not produce errors
-// (same behaviour as pre-Task-6: unresolved element type is silently skipped).
+// No conformance: a plain struct in for-in must emit err_for_in_not_iterable.
 // ---------------------------------------------------------------------------
-TEST_F(IteratorProtocolTest, NonIteratorStructInForInNoError) {
+TEST_F(IteratorProtocolTest, NonIterableEmitsDiagnostic) {
     auto result = check(R"--(
         struct Plain {
             var x: i32
@@ -132,7 +131,8 @@ TEST_F(IteratorProtocolTest, NonIteratorStructInForInNoError) {
             }
         }
     )--");
-    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_for_in_not_iterable));
 }
 
 // ---------------------------------------------------------------------------

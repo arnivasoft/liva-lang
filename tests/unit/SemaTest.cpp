@@ -5139,14 +5139,14 @@ TEST_F(SemaTest, OperatorOverloadDivMod) {
 
 TEST_F(SemaTest, CustomIterBasicForIn) {
     auto result = check(R"--(
-        protocol Iter {
+        protocol Iterator {
             func next(mut self) -> i32?
         }
         struct Counter {
             var current: i32
             var max: i32
         }
-        impl Counter: Iter {
+        impl Counter: Iterator {
             func next(mut self) -> i32? {
                 if self.current < self.max {
                     let val = self.current
@@ -5168,13 +5168,13 @@ TEST_F(SemaTest, CustomIterBasicForIn) {
 
 TEST_F(SemaTest, CustomIterStringElement) {
     auto result = check(R"--(
-        protocol Iter {
+        protocol Iterator {
             func next(mut self) -> string?
         }
         struct Words {
             var index: i32
         }
-        impl Words: Iter {
+        impl Words: Iterator {
             func next(mut self) -> string? {
                 if self.index < 3 {
                     self.index = self.index + 1
@@ -5195,13 +5195,13 @@ TEST_F(SemaTest, CustomIterStringElement) {
 
 TEST_F(SemaTest, CustomIterF64Element) {
     auto result = check(R"--(
-        protocol Iter {
+        protocol Iterator {
             func next(mut self) -> f64?
         }
         struct Floats {
             var index: i32
         }
-        impl Floats: Iter {
+        impl Floats: Iterator {
             func next(mut self) -> f64? {
                 if self.index < 2 {
                     self.index = self.index + 1
@@ -5232,8 +5232,9 @@ TEST_F(SemaTest, CustomIterNoConformance) {
             }
         }
     )--");
-    // No Iter conformance — no element type set, but no hard error either
-    EXPECT_TRUE(result.passed);
+    // No Iterator conformance — must emit err_for_in_not_iterable.
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_for_in_not_iterable));
 }
 
 TEST_F(SemaTest, CustomIterProtocolDecl) {
@@ -5255,13 +5256,13 @@ TEST_F(SemaTest, CustomIterProtocolDecl) {
 
 TEST_F(SemaTest, CustomIterBodyTypeCheck) {
     auto result = check(R"--(
-        protocol Iter {
+        protocol Iterator {
             func next(mut self) -> i32?
         }
         struct Range5 {
             var i: i32
         }
-        impl Range5: Iter {
+        impl Range5: Iterator {
             func next(mut self) -> i32? {
                 if self.i < 5 {
                     let val = self.i
@@ -5283,14 +5284,14 @@ TEST_F(SemaTest, CustomIterBodyTypeCheck) {
 
 TEST_F(SemaTest, CustomIterMultipleTypes) {
     auto result = check(R"--(
-        protocol Iter {
+        protocol Iterator {
             func next(mut self) -> i32?
         }
         struct Counter {
             var current: i32
             var max: i32
         }
-        impl Counter: Iter {
+        impl Counter: Iterator {
             func next(mut self) -> i32? {
                 if self.current < self.max {
                     let val = self.current
@@ -5303,7 +5304,7 @@ TEST_F(SemaTest, CustomIterMultipleTypes) {
         struct Countdown {
             var n: i32
         }
-        impl Countdown: Iter {
+        impl Countdown: Iterator {
             func next(mut self) -> i32? {
                 if self.n > 0 {
                     self.n = self.n - 1
