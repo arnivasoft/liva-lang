@@ -5333,14 +5333,40 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                                 inferredTypes_.push_back(makeStringType());
                                 inferredType = inferredTypes_.back().get();
                             } else if (argTy->isStructTy()) {
+                                // DynArray [T]: infer as ArrayTypeRepr([T]) so that
+                                // the monomorphized body uses the built-in iteration path.
+                                if (argTy == getDynArrayStructTy() &&
+                                    i < node->getArgs().size()) {
+                                    // Recover element type from the argument variable name.
+                                    if (node->getArgs()[i]->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                                        auto *id = static_cast<const IdentifierExpr *>(node->getArgs()[i].get());
+                                        auto daIt = vars_.varDynArrayTypes.find(id->getName());
+                                        if (daIt != vars_.varDynArrayTypes.end()) {
+                                            // Build [elemType] TypeRepr from the LLVM element type.
+                                            // Map common LLVM types to TypeRepr primitives.
+                                            auto *et = daIt->second.elementType;
+                                            std::unique_ptr<TypeRepr> elemTR;
+                                            if (et->isIntegerTy(32))       elemTR = makeI32Type();
+                                            else if (et->isIntegerTy(64))  elemTR = makeI64Type();
+                                            else if (et->isDoubleTy())     elemTR = makeF64Type();
+                                            else if (et->isIntegerTy(1))   elemTR = makeBoolType();
+                                            else                           elemTR = makeI32Type(); // fallback
+                                            inferredTypes_.push_back(
+                                                std::make_unique<ArrayTypeRepr>(std::move(elemTR), -1));
+                                            inferredType = inferredTypes_.back().get();
+                                        }
+                                    }
+                                }
                                 // Infer concrete struct type: look up LLVM struct
                                 // type against the known structTypes_ registry.
-                                for (auto &[sName, sTy] : structTypes_) {
-                                    if (sTy == argTy) {
-                                        inferredTypes_.push_back(
-                                            std::make_unique<NamedTypeRepr>(sName));
-                                        inferredType = inferredTypes_.back().get();
-                                        break;
+                                if (!inferredType) {
+                                    for (auto &[sName, sTy] : structTypes_) {
+                                        if (sTy == argTy) {
+                                            inferredTypes_.push_back(
+                                                std::make_unique<NamedTypeRepr>(sName));
+                                            inferredType = inferredTypes_.back().get();
+                                            break;
+                                        }
                                     }
                                 }
                             }

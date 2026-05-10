@@ -202,6 +202,13 @@ private:
     std::set<std::string> usedSymbols_;
     std::vector<std::pair<std::string, SourceLocation>> currentFuncVars_;
     std::set<std::string> forLoopVars_;
+
+    /// Type-param bounds for the current generic function (paramName → [boundProtos])
+    std::unordered_map<std::string, std::vector<std::string>> currentTypeParamBounds_;
+
+    /// Helper: returns true if a concrete TypeRepr implicitly conforms to a built-in
+    /// iterable (DynArray / Array), used to accept [T] arguments in `where I: Iterator`.
+    static bool isDynArrayType(const TypeRepr *type);
 };
 
 } // namespace liva

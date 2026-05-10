@@ -478,6 +478,12 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     currentIsAsync_ = node->isAsync();
     currentIsGenerator_ = node->isGenerator();
 
+    // Save/restore type-param bounds for this (possibly generic) function
+    auto prevTypeParamBounds = std::move(currentTypeParamBounds_);
+    currentTypeParamBounds_.clear();
+    for (auto &[paramName, boundProtos] : node->getTypeParamBounds())
+        currentTypeParamBounds_[paramName] = boundProtos;
+
     // Auto-detect generator: if body contains yield, mark as generator
     if (!currentIsGenerator_ && node->hasBody()) {
         std::function<bool(const ASTNode *)> hasYield = [&](const ASTNode *n) -> bool {
@@ -696,6 +702,7 @@ void TypeChecker::visitFuncDecl(FuncDecl *node) {
     currentReturnType_ = nullptr;
     currentIsAsync_ = prevIsAsync;
     currentIsGenerator_ = prevIsGenerator;
+    currentTypeParamBounds_ = std::move(prevTypeParamBounds);
     scopes_.popScope();
 }
 
@@ -1731,7 +1738,8 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                                      DiagID::err_for_await_requires_async_iterator, typeName);
                     }
                 } else {
-                    // for-in: check Iterator conformance
+                    // for-in: check Iterator conformance.
+                    // (a) Concrete named type: look up in protocolConformances_.
                     auto confIt = protocolConformances_.find("Iterator");
                     if (confIt != protocolConformances_.end()) {
                         for (auto &t : confIt->second) {
@@ -1742,6 +1750,17 @@ void TypeChecker::visitForStmt(ForStmt *node) {
                                     sym.type = elemIt->second;
                                 }
                                 break;
+                            }
+                        }
+                    }
+                    // (b) Generic type param (e.g. `I` in `func sum<I>(iter: I) where I: Iterator`):
+                    // the name is a type parameter rather than a concrete conformer.
+                    // Accept it if the current function declared an Iterator bound for it.
+                    if (!foundConformance) {
+                        auto boundsIt = currentTypeParamBounds_.find(typeName);
+                        if (boundsIt != currentTypeParamBounds_.end()) {
+                            for (auto &bp : boundsIt->second) {
+                                if (bp == "Iterator") { foundConformance = true; break; }
                             }
                         }
                     }
@@ -2620,13 +2639,17 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                     for (auto &[pName, boundProtos] : bounds) {
                         auto bindIt = typeBindings.find(pName);
                         if (bindIt == typeBindings.end()) continue;
-                        std::string concreteName = typeToString(bindIt->second);
+                        const TypeRepr *concreteType = bindIt->second;
+                        std::string concreteName = typeToString(concreteType);
                         for (auto &boundProto : boundProtos) {
                             auto confIt = protocolConformances_.find(boundProto);
                             bool conforms = false;
                             if (confIt != protocolConformances_.end()) {
                                 for (const auto &t : confIt->second)
                                     if (t == concreteName) { conforms = true; break; }
+                                // [T] (DynArray) implicitly conforms to Iterator
+                                if (!conforms && boundProto == "Iterator" && isDynArrayType(concreteType))
+                                    conforms = true;
                             }
                             if (!conforms)
                                 diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);
@@ -3355,6 +3378,16 @@ std::string TypeChecker::typeToString(const TypeRepr *type) const {
     if (!type)
         return "<unknown>";
     return type->toString();
+}
+
+/*static*/ bool TypeChecker::isDynArrayType(const TypeRepr *type) {
+    if (!type) return false;
+    // [T] with no fixed size is a DynArray
+    if (type->getKind() == TypeRepr::Kind::Array) {
+        auto *a = static_cast<const ArrayTypeRepr *>(type);
+        return a->isDynamic();
+    }
+    return false;
 }
 
 const TypeRepr *TypeChecker::resolveAlias(const TypeRepr *type) const {

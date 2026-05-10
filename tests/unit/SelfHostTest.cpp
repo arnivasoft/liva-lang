@@ -2361,4 +2361,46 @@ async func main() {
 )--", "2\n1\n0\n");
 }
 
+TEST_F(SelfHostTest, NestedCustomIteration) {
+    expectOutput(R"--(
+protocol Iterator {
+    func next(mut self) -> i32?
+}
+struct Counter { var n: i32 }
+impl Counter: Iterator {
+    func next(mut self) -> i32? {
+        if self.n <= 0 { return nil }
+        self.n = self.n - 1
+        return self.n + 1
+    }
+}
+func main() {
+    var outer = Counter { n: 2 }
+    for x in outer {
+        var inner = Counter { n: 2 }
+        for y in inner {
+            println(x * 10 + y)
+        }
+    }
+}
+)--", "22\n21\n12\n11\n");
+}
+
+TEST_F(SelfHostTest, GenericSumWithBuiltinDynArray) {
+    expectOutput(R"--(
+protocol Iterator {
+    func next(mut self) -> i32?
+}
+func sum<I>(iter: I) -> i32 where I: Iterator, I.Item == i32 {
+    var total: i32 = 0
+    for x in iter { total = total + x }
+    return total
+}
+func main() {
+    let arr: [i32] = [1, 2, 3, 4]
+    println(sum(arr))
+}
+)--", "10\n");
+}
+
 #endif // LIVA_HAS_LLVM

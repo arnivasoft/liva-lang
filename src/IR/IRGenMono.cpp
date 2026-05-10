@@ -75,9 +75,27 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     }
 
     // Build function type with substituted types
+    // Helper: compute the LLVM type for a monomorphized parameter, using the
+    // same DynArray-struct promotion that visitFuncDecl uses for non-generic funcs.
+    auto monoParamType = [&](const TypeRepr *paramTypeRepr) -> llvm::Type * {
+        // If the declared type is a type param, substitute first.
+        const TypeRepr *effective = paramTypeRepr;
+        if (effective && effective->getKind() == TypeRepr::Kind::Named) {
+            auto *nr = static_cast<const NamedTypeRepr *>(effective);
+            auto sit = currentTypeSubst_.find(nr->getName());
+            if (sit != currentTypeSubst_.end()) effective = sit->second;
+        }
+        // Dynamic array [T] must be passed as the DynArray struct, not a raw ptr.
+        if (effective && effective->getKind() == TypeRepr::Kind::Array) {
+            auto *arr = static_cast<const ArrayTypeRepr *>(effective);
+            if (arr->isDynamic()) return getDynArrayStructTy();
+        }
+        return toLLVMType(paramTypeRepr);
+    };
+
     std::vector<llvm::Type *> paramTypes;
     for (auto &param : funcDecl->getParams()) {
-        paramTypes.push_back(toLLVMType(param.type.get()));
+        paramTypes.push_back(monoParamType(param.type.get()));
     }
     auto *returnType = toLLVMType(funcDecl->getReturnType());
     auto *funcType = llvm::FunctionType::get(returnType, paramTypes, false);
@@ -133,6 +151,19 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
                             static_cast<const NamedTypeRepr *>(concrete)->getName();
                         if (structTypes_.count(concreteName)) {
                             vars_.varStructTypes[std::string(arg.getName())] = concreteName;
+                        }
+                    }
+                    // If the concrete type is a dynamic array [T], register it for
+                    // DynArray iteration so visitForStmt emits the built-in path.
+                    else if (concrete->getKind() == TypeRepr::Kind::Array) {
+                        auto *arrTR = static_cast<const ArrayTypeRepr *>(concrete);
+                        if (arrTR->isDynamic()) {
+                            auto *elemType = toLLVMType(arrTR->getElement());
+                            auto &DL = module_->getDataLayout();
+                            uint64_t elemSize = DL.getTypeAllocSize(elemType);
+                            vars_.varDynArrayTypes[std::string(arg.getName())] = {elemType, elemSize};
+                            // Params borrowed from caller — skip cleanup to avoid double-free
+                            vars_.movedVars.insert(std::string(arg.getName()));
                         }
                     }
                 }
