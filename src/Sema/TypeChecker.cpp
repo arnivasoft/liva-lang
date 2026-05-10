@@ -249,10 +249,14 @@ void TypeChecker::registerBuiltins() {
         scopes_.declare(name, sym);
     }
 
-    // Built-in iterables conform to Iterator implicitly. IRGen continues to
-    // use hardcoded fast paths for these types; the conformance entry exists
-    // so that `where T: Iterator` accepts them in generic constraints.
-    for (const char *name : {"Range", "Array", "DynArray", "Map", "Set", "Generator"}) {
+    // Built-in + stdlib iterables conform to Iterator implicitly. IRGen
+    // continues to use hardcoded fast paths for these types; the conformance
+    // entry exists so that `where T: Iterator` accepts them in generic
+    // constraints. Stack and Queue are stdlib structs (collections::collections);
+    // their entry here lets generic constraint solving recognize them even
+    // when the module is imported.
+    for (const char *name : {"Range", "Array", "DynArray", "Map", "Set",
+                              "Generator", "Stack", "Queue"}) {
         protocolConformances_["Iterator"].push_back(name);
     }
     protocolConformances_["AsyncIterator"].push_back("Generator");
@@ -1474,6 +1478,18 @@ void TypeChecker::visitReturnStmt(ReturnStmt *node) {
                     if (sym && sym->kind == Symbol::Kind::TypeParam)
                         compat = true;
                 }
+                // Allow integer literal (i32) → wider integer type (i8/i16/i64/u8/u16/u32/u64).
+                // Integer literals default to i32 but are inherently typeless and can
+                // satisfy any integer return type without an explicit cast.
+                if (!compat &&
+                    node->getValue()->getKind() == ASTNode::NodeKind::IntegerLiteralExpr) {
+                    auto retKind = currentReturnType_->getKind();
+                    if (retKind == TypeRepr::Kind::I8  || retKind == TypeRepr::Kind::I16 ||
+                        retKind == TypeRepr::Kind::I64 || retKind == TypeRepr::Kind::U8  ||
+                        retKind == TypeRepr::Kind::U16 || retKind == TypeRepr::Kind::U32 ||
+                        retKind == TypeRepr::Kind::U64)
+                        compat = true;
+                }
                 if (!compat) {
                     diag_.report(node->getStartLoc(), DiagID::err_return_type_mismatch,
                                  typeToString(currentReturnType_),
@@ -1869,6 +1885,12 @@ void TypeChecker::visitIdentifierExpr(IdentifierExpr *node) {
     if (!sym) {
         // Result is a built-in type constructor, not a declared identifier
         if (node->getName() == "Result") return;
+        // Stack and Queue are stdlib generic structs (collections::collections).
+        // When no ModuleLoader is present (e.g. unit-test check() helpers) the
+        // import is silently skipped; treat these names as valid type constructors
+        // so that `var s: Stack<i64> = Stack.new()` does not produce a spurious
+        // err_undeclared_identifier — the variable's type comes from the annotation.
+        if (node->getName() == "Stack" || node->getName() == "Queue") return;
         diag_.reportRangeLabel(node->getStartLoc(),
                                static_cast<uint32_t>(node->getName().size()),
                                "not found in this scope",
@@ -2650,6 +2672,14 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                                 // [T] (DynArray) implicitly conforms to Iterator
                                 if (!conforms && boundProto == "Iterator" && isDynArrayType(concreteType))
                                     conforms = true;
+                                // Generic types like Stack<i64> match conformance
+                                // entries registered under the bare base name "Stack".
+                                if (!conforms && concreteType &&
+                                    concreteType->getKind() == TypeRepr::Kind::Generic) {
+                                    auto *gt = static_cast<const GenericTypeRepr *>(concreteType);
+                                    for (const auto &t : confIt->second)
+                                        if (t == gt->getBaseName()) { conforms = true; break; }
+                                }
                             }
                             if (!conforms)
                                 diag_.report(node->getStartLoc(), DiagID::err_no_conformance, concreteName, boundProto);

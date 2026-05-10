@@ -276,3 +276,45 @@ TEST_F(IteratorProtocolTest, ForAwaitNonAsyncIterableEmitsDiagnostic) {
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_for_await_requires_async_iterator));
 }
+
+// ---------------------------------------------------------------------------
+// Built-in stdlib Stack<T>: synthetic Iterator conformance for generic
+// constraints (`where I: Iterator`). No runtime iteration here — only
+// type-checker acceptance.
+// ---------------------------------------------------------------------------
+TEST_F(IteratorProtocolTest, StackConformsToIterator) {
+    auto result = check(R"--(
+        import collections::collections
+        protocol Iterator {
+            func next(mut self) -> i64?
+        }
+        func consume<I>(it: I) -> i64 where I: Iterator {
+            return 0
+        }
+        func main() {
+            var s: Stack<i64> = Stack.new()
+            let n = consume(s)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// ---------------------------------------------------------------------------
+// Built-in stdlib Queue<T>: same synthetic conformance, generic acceptance.
+// ---------------------------------------------------------------------------
+TEST_F(IteratorProtocolTest, QueueConformsToIterator) {
+    auto result = check(R"--(
+        import collections::collections
+        protocol Iterator {
+            func next(mut self) -> i64?
+        }
+        func consume<I>(it: I) -> i64 where I: Iterator {
+            return 0
+        }
+        func main() {
+            var q: Queue<i64> = Queue.new()
+            let n = consume(q)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
