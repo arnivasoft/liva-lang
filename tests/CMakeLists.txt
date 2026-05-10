@@ -21,6 +21,11 @@ liva_add_test(iterator_protocol_test
 )
 target_link_libraries(iterator_protocol_test PRIVATE liva_sema liva_parser)
 
+liva_add_test(hashable_protocol_test
+    unit/HashableProtocolTest.cpp
+)
+target_link_libraries(hashable_protocol_test PRIVATE liva_sema liva_parser)
+
 liva_add_test(type_test
     unit/TypeTest.cpp
 )
