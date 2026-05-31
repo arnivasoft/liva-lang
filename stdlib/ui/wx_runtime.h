@@ -26,7 +26,7 @@ void     liva_ui_window_show(int32_t handle, int32_t show);
 void     liva_ui_window_set_title(int32_t handle, const char *title);
 int32_t  liva_ui_window_get_width(int32_t handle);
 int32_t  liva_ui_window_get_height(int32_t handle);
-void     liva_ui_window_on_close(int32_t handle, void *func, void *env);
+void     liva_ui_window_on_close(int32_t handle, void *func, void *env, int32_t size);
 
 /* ── Widget creation ───────────────────────────────────────────── */
 int32_t  liva_ui_create_panel(int32_t parent);
@@ -67,11 +67,14 @@ int32_t  liva_ui_create_flex_grid_sizer(int32_t rows, int32_t cols, int32_t hgap
 void     liva_ui_sizer_add(int32_t sizer, int32_t widget, int32_t proportion, int32_t flags, int32_t border);
 void     liva_ui_set_sizer(int32_t parent, int32_t sizer);
 
-/* ── Events (closure callbacks) ────────────────────────────────── */
-void     liva_ui_on_click(int32_t handle, void *func, void *env);
-void     liva_ui_on_change(int32_t handle, void *func, void *env);
-void     liva_ui_on_select(int32_t handle, void *func, void *env);
-void     liva_ui_on_key(int32_t handle, void *func, void *env);
+/* ── Events (closure callbacks) — env + size for heap-owned envs ──── */
+void     liva_ui_on_click(int32_t handle, void *func, void *env, int32_t size);
+void     liva_ui_on_change(int32_t handle, void *func, void *env, int32_t size);
+void     liva_ui_on_select(int32_t handle, void *func, void *env, int32_t size);
+void     liva_ui_on_key(int32_t handle, void *func, void *env, int32_t size);
+
+/* ── Geometry ──────────────────────────────────────────────────────── */
+void     liva_ui_set_bounds(int32_t handle, int32_t x, int32_t y, int32_t w, int32_t h);
 
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
@@ -95,7 +98,7 @@ void         liva_ui_set_clipboard_text(const char *text);
 
 /* ── Canvas / custom drawing (wxPaintDC) ───────────────────────── */
 int32_t  liva_ui_create_canvas(int32_t parent);
-void     liva_ui_canvas_on_paint(int32_t handle, void *func, void *env);
+void     liva_ui_canvas_on_paint(int32_t handle, void *func, void *env, int32_t size);
 void     liva_ui_canvas_refresh(int32_t handle);
 void     liva_ui_dc_clear(int32_t dc, int32_t r, int32_t g, int32_t b);
 void     liva_ui_dc_draw_rect(int32_t dc, int32_t x, int32_t y, int32_t w, int32_t h,

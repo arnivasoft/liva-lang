@@ -64,10 +64,35 @@ static wxSizer *getSizer(int32_t h) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   Env ownership: heap-copy stack-allocated closure envs
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Widget handle -> heap-owned closure env pointers (freed on widget destroy)
+static std::unordered_map<int32_t, std::vector<void *>> g_widgetEnvs;
+
+// If size > 0, heap-copy the (stack) env and register it for free-on-destroy.
+// Returns the pointer the callback lambda should capture (heap copy or original).
+static void *ownEnv(int32_t widgetHandle, void *env, int32_t size) {
+    if (size <= 0 || env == nullptr) return env;   // non-literal / no-capture: keep as-is
+    void *heap = std::malloc(static_cast<size_t>(size));
+    std::memcpy(heap, env, static_cast<size_t>(size));
+    g_widgetEnvs[widgetHandle].push_back(heap);
+    return heap;
+}
+
+static void freeWidgetEnvs(int32_t widgetHandle) {
+    auto it = g_widgetEnvs.find(widgetHandle);
+    if (it == g_widgetEnvs.end()) return;
+    for (void *p : it->second) std::free(p);
+    g_widgetEnvs.erase(it);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    Liva callback wrapper
    ═══════════════════════════════════════════════════════════════════ */
 
 using LivaCallbackFn = void (*)(void *env, int32_t handle);
+using LivaKeyFn = void (*)(void *env, int32_t handle, int32_t keycode);
 
 struct LivaCallback {
     LivaCallbackFn func = nullptr;
@@ -255,11 +280,13 @@ int32_t liva_ui_window_get_height(int32_t handle) {
     return 0;
 }
 
-void liva_ui_window_on_close(int32_t handle, void *func, void *env) {
+void liva_ui_window_on_close(int32_t handle, void *func, void *env, int32_t size) {
     auto *f = getHandle<wxFrame>(handle);
     if (!f || !func) return;
-    LivaCallback cb{(LivaCallbackFn)func, env, handle};
-    f->Bind(wxEVT_CLOSE_WINDOW, [cb](wxCloseEvent &evt) {
+    void *owned = ownEnv(handle, env, size);
+    LivaCallback cb{(LivaCallbackFn)func, owned, handle};
+    f->Bind(wxEVT_CLOSE_WINDOW, [cb, handle](wxCloseEvent &evt) {
+        freeWidgetEnvs(handle);
         cb.invoke();
         evt.Skip();
     });
@@ -462,6 +489,7 @@ void liva_ui_set_tooltip(int32_t handle, const char *text) {
 }
 
 void liva_ui_destroy_widget(int32_t handle) {
+    freeWidgetEnvs(handle);
     auto *w = getHandle<wxWindow>(handle);
     if (!w) return;
     w->Destroy();
@@ -513,10 +541,11 @@ void liva_ui_set_sizer(int32_t parentH, int32_t sizerH) {
 
 /* ── Events ────────────────────────────────────────────────────── */
 
-void liva_ui_on_click(int32_t handle, void *func, void *env) {
+void liva_ui_on_click(int32_t handle, void *func, void *env, int32_t size) {
     auto *w = getHandle<wxWindow>(handle);
     if (!w || !func) return;
-    LivaCallback cb{(LivaCallbackFn)func, env, handle};
+    void *owned = ownEnv(handle, env, size);
+    LivaCallback cb{(LivaCallbackFn)func, owned, handle};
 
     if (dynamic_cast<wxButton *>(w)) {
         w->Bind(wxEVT_BUTTON, [cb](wxCommandEvent &) { cb.invoke(); });
@@ -527,10 +556,11 @@ void liva_ui_on_click(int32_t handle, void *func, void *env) {
     }
 }
 
-void liva_ui_on_change(int32_t handle, void *func, void *env) {
+void liva_ui_on_change(int32_t handle, void *func, void *env, int32_t size) {
     auto *w = getHandle<wxWindow>(handle);
     if (!w || !func) return;
-    LivaCallback cb{(LivaCallbackFn)func, env, handle};
+    void *owned = ownEnv(handle, env, size);
+    LivaCallback cb{(LivaCallbackFn)func, owned, handle};
 
     if (dynamic_cast<wxTextCtrl *>(w)) {
         w->Bind(wxEVT_TEXT, [cb](wxCommandEvent &) { cb.invoke(); });
@@ -541,10 +571,11 @@ void liva_ui_on_change(int32_t handle, void *func, void *env) {
     }
 }
 
-void liva_ui_on_select(int32_t handle, void *func, void *env) {
+void liva_ui_on_select(int32_t handle, void *func, void *env, int32_t size) {
     auto *w = getHandle<wxWindow>(handle);
     if (!w || !func) return;
-    LivaCallback cb{(LivaCallbackFn)func, env, handle};
+    void *owned = ownEnv(handle, env, size);
+    LivaCallback cb{(LivaCallbackFn)func, owned, handle};
 
     if (dynamic_cast<wxChoice *>(w)) {
         w->Bind(wxEVT_CHOICE, [cb](wxCommandEvent &) { cb.invoke(); });
@@ -557,12 +588,13 @@ void liva_ui_on_select(int32_t handle, void *func, void *env) {
     }
 }
 
-void liva_ui_on_key(int32_t handle, void *func, void *env) {
+void liva_ui_on_key(int32_t handle, void *func, void *env, int32_t size) {
     auto *w = getHandle<wxWindow>(handle);
     if (!w || !func) return;
-    LivaCallback cb{(LivaCallbackFn)func, env, handle};
-    w->Bind(wxEVT_KEY_DOWN, [cb](wxKeyEvent &evt) {
-        cb.invoke();
+    void *owned = ownEnv(handle, env, size);
+    auto fn = (LivaKeyFn)func;
+    w->Bind(wxEVT_KEY_DOWN, [fn, owned, handle](wxKeyEvent &evt) {
+        if (fn) fn(owned, handle, evt.GetKeyCode());
         evt.Skip();
     });
 }
@@ -686,10 +718,11 @@ int32_t liva_ui_create_canvas(int32_t parent) {
     return allocHandle(canvas);
 }
 
-void liva_ui_canvas_on_paint(int32_t handle, void *func, void *env) {
+void liva_ui_canvas_on_paint(int32_t handle, void *func, void *env, int32_t size) {
     auto *canvas = getHandle<LivaCanvas>(handle);
-    if (canvas && func)
-        canvas->SetPaintCallback((LivaPaintFn)func, env);
+    if (!canvas || !func) return;
+    void *owned = ownEnv(handle, env, size);
+    canvas->SetPaintCallback((LivaPaintFn)func, owned);
 }
 
 void liva_ui_canvas_refresh(int32_t handle) {
@@ -736,6 +769,13 @@ void liva_ui_dc_draw_circle(int32_t dcH, int32_t cx, int32_t cy, int32_t radius,
         dc->SetPen(*wxTRANSPARENT_PEN);
         dc->DrawCircle(cx, cy, radius);
     }
+}
+
+/* ── Geometry ──────────────────────────────────────────────────────── */
+
+void liva_ui_set_bounds(int32_t handle, int32_t x, int32_t y, int32_t w, int32_t h) {
+    if (auto *win = getHandle<wxWindow>(handle))
+        win->SetSize(x, y, w, h);
 }
 
 } // extern "C"
