@@ -1301,8 +1301,21 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             if (recvType->getKind() == TypeRepr::Kind::Named) {
                 auto *named = static_cast<const NamedTypeRepr *>(recvType);
                 if (classTypes_.count(named->getName())) {
-                    std::string foundClass =
-                        findClassMethodOwner(named->getName(), methodName);
+                    // Find the method owner by walking the inheritance chain
+                    // and looking for a mangled `Type_method` definition.
+                    std::string foundClass;
+                    {
+                        std::string tn = named->getName();
+                        for (int i = 0; i < 64 && !tn.empty(); ++i) {
+                            if (module_->getFunction(tn + "_" + methodName)) {
+                                foundClass = tn;
+                                break;
+                            }
+                            auto pit = classParent_.find(tn);
+                            if (pit == classParent_.end()) break;
+                            tn = pit->second;
+                        }
+                    }
                     if (!foundClass.empty()) {
                         std::string mangledName = foundClass + "_" + methodName;
                         if (auto *callee = module_->getFunction(mangledName)) {
