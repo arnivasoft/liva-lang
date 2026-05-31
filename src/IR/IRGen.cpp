@@ -1385,6 +1385,14 @@ void IRGen::createRuntimeDecls() {
     auto *uiSetSizeTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_set_size", uiSetSizeTy);
 
+    // set_bounds(i32 handle, i32 x, i32 y, i32 w, i32 h) -> void
+    {
+        llvm::Type *i32 = llvm::Type::getInt32Ty(*context_);
+        auto *fnTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*context_),
+                                             {i32, i32, i32, i32, i32}, false);
+        module_->getOrInsertFunction("liva_ui_set_bounds", fnTy);
+    }
+
     // set_font(i32 handle, i32 size, i32 bold) -> void
     auto *uiSetFontTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_set_font", uiSetFontTy);

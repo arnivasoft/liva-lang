@@ -192,7 +192,7 @@ void ModuleLoader::registerBuiltinModules() {
          // Widget properties
          "setText", "getText", "setValue", "getValue",
          "setEnabled", "setVisible", "setWidgetSize", "setWidgetFont",
-         "setBgColor", "setFgColor", "setTooltip", "destroyWidget",
+         "setBgColor", "setFgColor", "setTooltip", "destroyWidget", "setBounds",
          // Layout (sizers)
          "createVBoxSizer", "createHBoxSizer", "createGridSizer",
          "createFlexGridSizer", "sizerAdd", "setSizer",
@@ -275,7 +275,20 @@ std::string ModuleLoader::resolveFilePath(const std::vector<std::string> &path) 
 
 void ModuleLoader::collectExportedSymbols(TranslationUnit &tu, std::vector<Symbol> &out) {
     for (auto &decl : tu.getDeclarations()) {
-        if (auto *f = dynamic_cast<FuncDecl *>(decl.get())) {
+        // Re-export symbols from imported modules (transitive export)
+        if (auto *imp = dynamic_cast<ImportDecl *>(decl.get())) {
+            std::string modName;
+            for (size_t i = 0; i < imp->getPath().size(); ++i) {
+                if (i > 0) modName += "::";
+                modName += imp->getPath()[i];
+            }
+            auto cacheIt = cache_.find(modName);
+            if (cacheIt != cache_.end()) {
+                for (auto &sym : cacheIt->second->exportedSymbols) {
+                    out.push_back(sym);
+                }
+            }
+        } else if (auto *f = dynamic_cast<FuncDecl *>(decl.get())) {
             if (f->isPublic()) {
                 Symbol sym;
                 sym.name = f->getName();
@@ -309,6 +322,15 @@ void ModuleLoader::collectExportedSymbols(TranslationUnit &tu, std::vector<Symbo
                 sym.name = p->getName();
                 sym.kind = Symbol::Kind::ProtocolType;
                 sym.protocolDecl = p;
+                sym.isPublic = true;
+                out.push_back(sym);
+            }
+        } else if (auto *c = dynamic_cast<ClassDecl *>(decl.get())) {
+            if (c->isPublic()) {
+                Symbol sym;
+                sym.name = c->getName();
+                sym.kind = Symbol::Kind::ClassType;
+                sym.classDecl = c;
                 sym.isPublic = true;
                 out.push_back(sym);
             }

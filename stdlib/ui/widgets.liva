@@ -1,279 +1,158 @@
-// std::ui widgets — wxWidgets wrapper structs
+// std::ui widgets — VCL-style class hierarchy over wxWidgets
 // Import with: import ui::widgets
-
 import std::ui
+import ui::types
+
+// ── Control: taban sınıf (VCL TControl) ────────────────────────
+pub class Control {
+    var handle: i32
+    init(h: i32) { self.handle = h }
+
+    pub func setEnabled(b: bool) {
+        var v = 0
+        if b { v = 1 }
+        setEnabled(self.handle, v)
+    }
+    pub func setVisible(b: bool) {
+        var v = 0
+        if b { v = 1 }
+        setVisible(self.handle, v)
+    }
+    pub func setBounds(x: i32, y: i32, w: i32, h: i32) {
+        setBounds(self.handle, x, y, w, h)
+    }
+    pub func setSize(w: i32, h: i32) { setWidgetSize(self.handle, w, h) }
+    pub func setTooltip(t: string) { setTooltip(self.handle, t) }
+    pub func setFont(size: i32, bold: bool) {
+        var v = 0
+        if bold { v = 1 }
+        setWidgetFont(self.handle, size, v)
+    }
+    pub func setFgColor(r: i32, g: i32, b: i32) { setFgColor(self.handle, r, g, b) }
+    pub func setBgColor(r: i32, g: i32, b: i32) { setBgColor(self.handle, r, g, b) }
+
+    // Event metotları — gerçek gövde (non-literal fallback / Sema).
+    // IRGen, alıcı Control-türeviyse ve argüman closure LITERALI ise
+    // bu çağrıyı yakalayıp heap-env hızlı yoluna sapar (Task 3).
+    pub func onClick(cb: (i32) -> void) { onClick(self.handle, cb) }
+    pub func onChange(cb: (i32) -> void) { onChange(self.handle, cb) }
+    pub func onSelect(cb: (i32) -> void) { onSelect(self.handle, cb) }
+    pub func onKey(cb: (i32, i32) -> void) { onKey(self.handle, cb) }
+}
 
 // ── Window (wxFrame) ───────────────────────────────────────────
-
-pub struct Window {
-    var handle: i32
+pub class Window: Control {
+    init(w: i32, h: i32, title: string) { super.init(createWindow(w, h, title)) }
+    pub func show() { windowShow(self.handle, 1) }
+    pub func hide() { windowShow(self.handle, 0) }
+    pub func setTitle(title: string) { windowSetTitle(self.handle, title) }
+    pub func getWidth() -> i32 { return windowGetWidth(self.handle) }
+    pub func getHeight() -> i32 { return windowGetHeight(self.handle) }
+    pub func onClose(cb: (i32) -> void) { windowOnClose(self.handle, cb) }
+    pub func setSizerHandle(sizerH: i32) { setSizer(self.handle, sizerH) }
 }
 
-impl Window {
-    pub func new(w: i32, h: i32, title: string) -> Window {
-        return Window { handle: createWindow(w, h, title) }
+// ── Panel ──────────────────────────────────────────────────────
+pub class Panel: Control {
+    init(parent: Control) { super.init(createPanel(parent.handle)) }
+    pub func setSizerHandle(sizerH: i32) { setSizer(self.handle, sizerH) }
+}
+
+// ── Button ─────────────────────────────────────────────────────
+pub class Button: Control {
+    init(parent: Control, label: string) { super.init(createButton(parent.handle, label)) }
+    pub func setText(t: string) { setText(self.handle, t) }
+}
+
+// ── Label ──────────────────────────────────────────────────────
+pub class Label: Control {
+    init(parent: Control, text: string) { super.init(createLabel(parent.handle, text)) }
+    pub func setText(t: string) { setText(self.handle, t) }
+}
+
+// ── TextInput ──────────────────────────────────────────────────
+pub class TextInput: Control {
+    init(parent: Control, value: string) { super.init(createTextInput(parent.handle, value)) }
+    pub func getText() -> string { return getText(self.handle) }
+    pub func setText(t: string) { setText(self.handle, t) }
+}
+
+// ── Checkbox ───────────────────────────────────────────────────
+pub class Checkbox: Control {
+    init(parent: Control, label: string) { super.init(createCheckbox(parent.handle, label)) }
+    pub func getValue() -> i32 { return getValue(self.handle) }
+    pub func setValue(v: i32) { setValue(self.handle, v) }
+}
+
+// ── Slider ─────────────────────────────────────────────────────
+pub class Slider: Control {
+    init(parent: Control, minVal: i32, maxVal: i32, val: i32) {
+        super.init(createSlider(parent.handle, minVal, maxVal, val))
     }
-    pub func show(ref self) { windowShow(self.handle, 1) }
-    pub func hide(ref self) { windowShow(self.handle, 0) }
-    pub func setTitle(ref self, title: string) { windowSetTitle(self.handle, title) }
-    pub func getWidth(ref self) -> i32 { return windowGetWidth(self.handle) }
-    pub func getHeight(ref self) -> i32 { return windowGetHeight(self.handle) }
-    pub func onClose(ref self, cb: (i32) -> void) { windowOnClose(self.handle, cb) }
-    pub func setSizerHandle(ref self, sizerH: i32) { setSizer(self.handle, sizerH) }
+    pub func getValue() -> i32 { return getValue(self.handle) }
+    pub func setValue(v: i32) { setValue(self.handle, v) }
 }
 
-// ── Panel (wxPanel) ────────────────────────────────────────────
-
-pub struct Panel {
-    var handle: i32
+// ── ProgressBar ────────────────────────────────────────────────
+pub class ProgressBar: Control {
+    init(parent: Control, range: i32) { super.init(createProgressBar(parent.handle, range)) }
+    pub func getValue() -> i32 { return getValue(self.handle) }
+    pub func setValue(v: i32) { setValue(self.handle, v) }
 }
 
-impl Panel {
-    pub func new(parent: i32) -> Panel {
-        return Panel { handle: createPanel(parent) }
-    }
-    pub func setSizerHandle(ref self, sizerH: i32) { setSizer(self.handle, sizerH) }
-    pub func setBgColor(ref self, r: i32, g: i32, b: i32) { setBgColor(self.handle, r, g, b) }
+// ── RadioGroup ─────────────────────────────────────────────────
+pub class RadioGroup: Control {
+    init(parent: Control, choices: string) { super.init(createRadioGroup(parent.handle, choices)) }
+    pub func getSelection() -> i32 { return getValue(self.handle) }
 }
 
-// ── Button (wxButton) ──────────────────────────────────────────
-
-pub struct Button {
-    var handle: i32
+// ── Dropdown ───────────────────────────────────────────────────
+pub class Dropdown: Control {
+    init(parent: Control, choices: string) { super.init(createDropdown(parent.handle, choices)) }
+    pub func getSelection() -> i32 { return getValue(self.handle) }
 }
 
-impl Button {
-    pub func new(parent: i32, label: string) -> Button {
-        return Button { handle: createButton(parent, label) }
-    }
-    pub func onClick(ref self, cb: (i32) -> void) { onClick(self.handle, cb) }
-    pub func setText(ref self, text: string) { setText(self.handle, text) }
-    pub func setEnabled(ref self, enabled: i32) { setEnabled(self.handle, enabled) }
-    pub func setTooltip(ref self, text: string) { setTooltip(self.handle, text) }
+// ── TextArea ───────────────────────────────────────────────────
+pub class TextArea: Control {
+    init(parent: Control, value: string) { super.init(createTextArea(parent.handle, value)) }
+    pub func getText() -> string { return getText(self.handle) }
+    pub func setText(t: string) { setText(self.handle, t) }
 }
 
-// ── Label (wxStaticText) ───────────────────────────────────────
-
-pub struct Label {
-    var handle: i32
+// ── ListBox ────────────────────────────────────────────────────
+pub class ListBox: Control {
+    init(parent: Control) { super.init(createListBox(parent.handle)) }
+    pub func addItem(item: string) { listAddItem(self.handle, item) }
+    pub func clear() { listClear(self.handle) }
+    pub func getSelection() -> i32 { return listGetSelection(self.handle) }
 }
 
-impl Label {
-    pub func new(parent: i32, text: string) -> Label {
-        return Label { handle: createLabel(parent, text) }
-    }
-    pub func setText(ref self, text: string) { setText(self.handle, text) }
-    pub func setFont(ref self, size: i32, bold: i32) { setWidgetFont(self.handle, size, bold) }
-    pub func setFgColor(ref self, r: i32, g: i32, b: i32) { setFgColor(self.handle, r, g, b) }
+// ── TabView ────────────────────────────────────────────────────
+pub class TabView: Control {
+    init(parent: Control) { super.init(createTabView(parent.handle)) }
+    pub func addPage(page: Control, title: string) { tabAddPage(self.handle, page.handle, title) }
+    pub func getSelection() -> i32 { return tabGetSelection(self.handle) }
 }
 
-// ── TextInput (wxTextCtrl) ─────────────────────────────────────
-
-pub struct TextInput {
-    var handle: i32
+// ── ScrollView ─────────────────────────────────────────────────
+pub class ScrollView: Control {
+    init(parent: Control) { super.init(createScrollView(parent.handle)) }
+    pub func setSizerHandle(sizerH: i32) { setSizer(self.handle, sizerH) }
 }
 
-impl TextInput {
-    pub func new(parent: i32, value: string) -> TextInput {
-        return TextInput { handle: createTextInput(parent, value) }
-    }
-    pub func getText(ref self) -> string { return getText(self.handle) }
-    pub func setText(ref self, text: string) { setText(self.handle, text) }
-    pub func onChange(ref self, cb: (i32) -> void) { onChange(self.handle, cb) }
-    pub func setEnabled(ref self, enabled: i32) { setEnabled(self.handle, enabled) }
-    pub func setSize(ref self, w: i32, h: i32) { setWidgetSize(self.handle, w, h) }
+// ── ImageView ──────────────────────────────────────────────────
+pub class ImageView: Control {
+    init(parent: Control, path: string) { super.init(createImageView(parent.handle, path)) }
 }
 
-// ── Checkbox (wxCheckBox) ──────────────────────────────────────
-
-pub struct Checkbox {
-    var handle: i32
+// ── Divider ────────────────────────────────────────────────────
+pub class Divider: Control {
+    init(parent: Control) { super.init(createDivider(parent.handle)) }
 }
 
-impl Checkbox {
-    pub func new(parent: i32, label: string) -> Checkbox {
-        return Checkbox { handle: createCheckbox(parent, label) }
-    }
-    pub func getValue(ref self) -> i32 { return getValue(self.handle) }
-    pub func setValue(ref self, val: i32) { setValue(self.handle, val) }
-    pub func onClick(ref self, cb: (i32) -> void) { onClick(self.handle, cb) }
-    pub func onChange(ref self, cb: (i32) -> void) { onChange(self.handle, cb) }
-}
-
-// ── Slider (wxSlider) ──────────────────────────────────────────
-
-pub struct Slider {
-    var handle: i32
-}
-
-impl Slider {
-    pub func new(parent: i32, minVal: i32, maxVal: i32, val: i32) -> Slider {
-        return Slider { handle: createSlider(parent, minVal, maxVal, val) }
-    }
-    pub func getValue(ref self) -> i32 { return getValue(self.handle) }
-    pub func setValue(ref self, val: i32) { setValue(self.handle, val) }
-    pub func onChange(ref self, cb: (i32) -> void) { onChange(self.handle, cb) }
-}
-
-// ── ProgressBar (wxGauge) ──────────────────────────────────────
-
-pub struct ProgressBar {
-    var handle: i32
-}
-
-impl ProgressBar {
-    pub func new(parent: i32, range: i32) -> ProgressBar {
-        return ProgressBar { handle: createProgressBar(parent, range) }
-    }
-    pub func getValue(ref self) -> i32 { return getValue(self.handle) }
-    pub func setValue(ref self, val: i32) { setValue(self.handle, val) }
-}
-
-// ── RadioGroup (wxRadioBox) ────────────────────────────────────
-
-pub struct RadioGroup {
-    var handle: i32
-}
-
-impl RadioGroup {
-    pub func new(parent: i32, choices: string) -> RadioGroup {
-        return RadioGroup { handle: createRadioGroup(parent, choices) }
-    }
-    pub func getSelection(ref self) -> i32 { return getValue(self.handle) }
-    pub func onSelect(ref self, cb: (i32) -> void) { onSelect(self.handle, cb) }
-}
-
-// ── Dropdown (wxChoice) ────────────────────────────────────────
-
-pub struct Dropdown {
-    var handle: i32
-}
-
-impl Dropdown {
-    pub func new(parent: i32, choices: string) -> Dropdown {
-        return Dropdown { handle: createDropdown(parent, choices) }
-    }
-    pub func getSelection(ref self) -> i32 { return getValue(self.handle) }
-    pub func onSelect(ref self, cb: (i32) -> void) { onSelect(self.handle, cb) }
-}
-
-// ── TextArea (wxTextCtrl multiline) ────────────────────────────
-
-pub struct TextArea {
-    var handle: i32
-}
-
-impl TextArea {
-    pub func new(parent: i32, value: string) -> TextArea {
-        return TextArea { handle: createTextArea(parent, value) }
-    }
-    pub func getText(ref self) -> string { return getText(self.handle) }
-    pub func setText(ref self, text: string) { setText(self.handle, text) }
-    pub func onChange(ref self, cb: (i32) -> void) { onChange(self.handle, cb) }
-    pub func setSize(ref self, w: i32, h: i32) { setWidgetSize(self.handle, w, h) }
-}
-
-// ── ListBox (wxListBox) ────────────────────────────────────────
-
-pub struct ListBox {
-    var handle: i32
-}
-
-impl ListBox {
-    pub func new(parent: i32) -> ListBox {
-        return ListBox { handle: createListBox(parent) }
-    }
-    pub func addItem(ref self, item: string) { listAddItem(self.handle, item) }
-    pub func clear(ref self) { listClear(self.handle) }
-    pub func getSelection(ref self) -> i32 { return listGetSelection(self.handle) }
-    pub func onSelect(ref self, cb: (i32) -> void) { onSelect(self.handle, cb) }
-}
-
-// ── TabView (wxNotebook) ───────────────────────────────────────
-
-pub struct TabView {
-    var handle: i32
-}
-
-impl TabView {
-    pub func new(parent: i32) -> TabView {
-        return TabView { handle: createTabView(parent) }
-    }
-    pub func addPage(ref self, page: i32, title: string) { tabAddPage(self.handle, page, title) }
-    pub func getSelection(ref self) -> i32 { return tabGetSelection(self.handle) }
-    pub func onSelect(ref self, cb: (i32) -> void) { onSelect(self.handle, cb) }
-}
-
-// ── ScrollView (wxScrolledWindow) ──────────────────────────────
-
-pub struct ScrollView {
-    var handle: i32
-}
-
-impl ScrollView {
-    pub func new(parent: i32) -> ScrollView {
-        return ScrollView { handle: createScrollView(parent) }
-    }
-    pub func setSizerHandle(ref self, sizerH: i32) { setSizer(self.handle, sizerH) }
-}
-
-// ── ImageView (wxStaticBitmap) ─────────────────────────────────
-
-pub struct ImageView {
-    var handle: i32
-}
-
-impl ImageView {
-    pub func new(parent: i32, path: string) -> ImageView {
-        return ImageView { handle: createImageView(parent, path) }
-    }
-}
-
-// ── Divider (wxStaticLine) ─────────────────────────────────────
-
-pub struct Divider {
-    var handle: i32
-}
-
-impl Divider {
-    pub func new(parent: i32) -> Divider {
-        return Divider { handle: createDivider(parent) }
-    }
-}
-
-// ── Canvas (wxPanel + wxPaintDC) ───────────────────────────────
-
-pub struct Canvas {
-    var handle: i32
-}
-
-impl Canvas {
-    pub func new(parent: i32) -> Canvas {
-        return Canvas { handle: createCanvas(parent) }
-    }
-    pub func onPaint(ref self, cb: (i32) -> void) { canvasOnPaint(self.handle, cb) }
-    pub func refresh(ref self) { canvasRefresh(self.handle) }
-}
-
-// ── Sizer (layout wrapper) ────────────────────────────────────
-
-pub struct Sizer {
-    var handle: i32
-}
-
-impl Sizer {
-    pub func vbox() -> Sizer { return Sizer { handle: createVBoxSizer() } }
-    pub func hbox() -> Sizer { return Sizer { handle: createHBoxSizer() } }
-    pub func grid(rows: i32, cols: i32, hgap: i32, vgap: i32) -> Sizer {
-        return Sizer { handle: createGridSizer(rows, cols, hgap, vgap) }
-    }
-    pub func flexGrid(rows: i32, cols: i32, hgap: i32, vgap: i32) -> Sizer {
-        return Sizer { handle: createFlexGridSizer(rows, cols, hgap, vgap) }
-    }
-    pub func add(ref self, widget: i32, proportion: i32, flags: i32, border: i32) {
-        sizerAdd(self.handle, widget, proportion, flags, border)
-    }
-    pub func addSizer(ref self, childH: i32, proportion: i32, flags: i32, border: i32) {
-        sizerAdd(self.handle, childH, proportion, flags, border)
-    }
+// ── Canvas ─────────────────────────────────────────────────────
+pub class Canvas: Control {
+    init(parent: Control) { super.init(createCanvas(parent.handle)) }
+    pub func onPaint(cb: (i32) -> void) { canvasOnPaint(self.handle, cb) }
+    pub func refresh() { canvasRefresh(self.handle) }
 }

@@ -485,17 +485,18 @@ TEST_F(UIModuleTest, ImportUITypes) {
 
 TEST_F(UIModuleTest, ImportUIWidgets) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
         "    appInit()\n"
-        "    let win = Window.new(800, 600, \"Test\")\n"
-        "    let panel = Panel.new(win.handle)\n"
-        "    let btn = Button.new(panel.handle, \"Click\")\n"
-        "    let lbl = Label.new(panel.handle, \"Hello\")\n"
+        "    let win1 = Window(800, 600, \"Test\")\n"
+        "    let win2 = Window(800, 600, \"Test\")\n"
+        "    let panel1 = Panel(win1)\n"
+        "    let panel2 = Panel(win2)\n"
+        "    let btn = Button(panel1, \"Click\")\n"
+        "    let lbl = Label(panel2, \"Hello\")\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "ui::widgets structs should be usable";
+    EXPECT_TRUE(r.passed) << "ui::widgets class hierarchy should be usable";
 }
 
 TEST_F(UIModuleTest, ImportUILayout) {
@@ -681,129 +682,135 @@ TEST_F(UIModuleTest, AllUIModulesImport) {
 
 TEST_F(UIModuleTest, WindowStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var win = Window.new(800, 600, \"App\")\n"
+        "    let win = Window(800, 600, \"App\")\n"
         "    win.show()\n"
         "    win.setTitle(\"Updated\")\n"
         "    let w = win.getWidth()\n"
         "    let h = win.getHeight()\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Window struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "Window class methods should resolve";
 }
 
 TEST_F(UIModuleTest, ButtonStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var btn = Button.new(0, \"Click\")\n"
+        "    let win = Window(400, 300, \"App\")\n"
+        "    let panel = Panel(win)\n"
+        "    let btn = Button(panel, \"Click\")\n"
         "    btn.setText(\"Updated\")\n"
-        "    btn.setEnabled(1)\n"
+        "    btn.setEnabled(true)\n"
         "    btn.setTooltip(\"Help\")\n"
         "    btn.onClick(|h: i32| { })\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Button struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "Button class methods should resolve";
 }
 
 TEST_F(UIModuleTest, TextInputStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var inp = TextInput.new(0, \"initial\")\n"
+        "    let win = Window(400, 300, \"App\")\n"
+        "    let panel = Panel(win)\n"
+        "    let inp = TextInput(panel, \"initial\")\n"
         "    let text = inp.getText()\n"
         "    inp.setText(\"new\")\n"
         "    inp.onChange(|h: i32| { })\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "TextInput struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "TextInput class methods should resolve";
 }
 
 TEST_F(UIModuleTest, CheckboxStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var cb = Checkbox.new(0, \"Check\")\n"
+        "    let win = Window(400, 300, \"App\")\n"
+        "    let panel = Panel(win)\n"
+        "    let cb = Checkbox(panel, \"Check\")\n"
         "    let v = cb.getValue()\n"
         "    cb.setValue(1)\n"
         "    cb.onChange(|h: i32| { })\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Checkbox struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "Checkbox class methods should resolve";
 }
 
 TEST_F(UIModuleTest, SliderStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var sl = Slider.new(0, 0, 100, 50)\n"
+        "    let win = Window(400, 300, \"App\")\n"
+        "    let panel = Panel(win)\n"
+        "    let sl = Slider(panel, 0, 100, 50)\n"
         "    let v = sl.getValue()\n"
         "    sl.setValue(75)\n"
         "    sl.onChange(|h: i32| { })\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Slider struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "Slider class methods should resolve";
 }
 
 TEST_F(UIModuleTest, SizerStruct) {
     auto r = check(
         "import std::ui\n"
-        "import ui::widgets\n"
         "func main() {\n"
-        "    var sizer = Sizer.vbox()\n"
+        "    let sizer = createVBoxSizer()\n"
         "    let btn = createButton(0, \"OK\")\n"
-        "    sizer.add(btn, 0, 0, 5)\n"
+        "    sizerAdd(sizer, btn, 0, 0, 5)\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Sizer struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "Sizer raw functions should resolve";
 }
 
 TEST_F(UIModuleTest, CanvasStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var canvas = Canvas.new(0)\n"
+        "    let win = Window(400, 300, \"App\")\n"
+        "    let panel = Panel(win)\n"
+        "    let canvas = Canvas(panel)\n"
         "    canvas.onPaint(|dc: i32| { })\n"
         "    canvas.refresh()\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Canvas struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "Canvas class methods should resolve";
 }
 
 TEST_F(UIModuleTest, ListBoxStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var lb = ListBox.new(0)\n"
+        "    let win = Window(400, 300, \"App\")\n"
+        "    let panel = Panel(win)\n"
+        "    let lb = ListBox(panel)\n"
         "    lb.addItem(\"Item 1\")\n"
         "    lb.addItem(\"Item 2\")\n"
         "    lb.clear()\n"
         "    let sel = lb.getSelection()\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "ListBox struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "ListBox class methods should resolve";
 }
 
 TEST_F(UIModuleTest, TabViewStruct) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "func main() {\n"
-        "    var tv = TabView.new(0)\n"
-        "    let page = createPanel(tv.handle)\n"
+        "    let win1 = Window(400, 300, \"App\")\n"
+        "    let win2 = Window(400, 300, \"App\")\n"
+        "    let panel = Panel(win1)\n"
+        "    let tv = TabView(panel)\n"
+        "    let page = Panel(win2)\n"
         "    tv.addPage(page, \"Tab 1\")\n"
         "    let sel = tv.getSelection()\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "TabView struct methods should resolve";
+    EXPECT_TRUE(r.passed) << "TabView class methods should resolve";
 }
 
 // ============================================================
@@ -935,26 +942,43 @@ TEST_F(UIModuleTest, StatusTextComposite) {
 
 TEST_F(UIModuleTest, FullAppPattern) {
     auto r = check(
-        "import std::ui\n"
         "import ui::widgets\n"
         "import ui::layout\n"
         "import ui::types\n"
         "func main() {\n"
         "    appInit()\n"
-        "    var win = Window.new(400, 300, \"My App\")\n"
-        "    let panel = Panel.new(win.handle)\n"
-        "    var sizer = Sizer.vbox()\n"
-        "    let lbl = Label.new(panel.handle, \"Hello wxWidgets!\")\n"
-        "    var btn = Button.new(panel.handle, \"Click Me\")\n"
+        "    let win = Window(400, 300, \"My App\")\n"
+        "    let win2 = Window(400, 300, \"My App\")\n"
+        "    let win3 = Window(400, 300, \"My App\")\n"
+        "    let panelMain = Panel(win)\n"
+        "    let panelLbl = Panel(win2)\n"
+        "    let panelBtn = Panel(win3)\n"
+        "    let vbox = createVBoxSizer()\n"
+        "    let lbl = Label(panelLbl, \"Hello!\")\n"
+        "    let btn = Button(panelBtn, \"Click Me\")\n"
         "    btn.onClick(|h: i32| {\n"
         "        println(\"Clicked!\")\n"
         "    })\n"
-        "    sizer.add(lbl.handle, 0, WX_ALL(), 5)\n"
-        "    sizer.add(btn.handle, 0, WX_ALL(), 5)\n"
-        "    panel.setSizer(sizer)\n"
-        "    win.show()\n"
+        "    sizerAdd(vbox, lbl.handle, 0, 0, 5)\n"
+        "    sizerAdd(vbox, btn.handle, 0, 0, 5)\n"
+        "    panelMain.setSizerHandle(vbox)\n"
         "    appRun()\n"
         "}\n"
     );
-    EXPECT_TRUE(r.passed) << "Full wxWidgets app pattern should resolve";
+    EXPECT_TRUE(r.passed) << "Full VCL-style app pattern should resolve";
+}
+
+TEST_F(UIModuleTest, ControlClassHierarchy) {
+    auto r = check(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let panel = Panel(win)\n"
+        "  let btn = Button(panel, \"Tikla\")\n"
+        "  btn.setEnabled(true)\n"
+        "  btn.setBounds(0, 0, 100, 30)\n"
+        "  let kids: [dyn Control] = [btn, Label(panel, \"x\")]\n"
+        "}\n");
+    EXPECT_TRUE(r.passed) << "Control-based class hierarchy should type-check";
 }

@@ -4994,6 +4994,18 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
 
+    // setBounds(handle, x, y, w, h) -> void
+    if (funcName == "setBounds" && node->getArgs().size() >= 5) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *x = visit(node->getArgs()[1].get());
+        auto *y = visit(node->getArgs()[2].get());
+        auto *w = visit(node->getArgs()[3].get());
+        auto *h = visit(node->getArgs()[4].get());
+        if (!handle || !x || !y || !w || !h) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_bounds"), {handle, x, y, w, h});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+
     // setWidgetFont(handle, size, bold) -> void
     if (funcName == "setWidgetFont" && node->getArgs().size() >= 3) {
         auto *handle = visit(node->getArgs()[0].get());
