@@ -354,4 +354,66 @@ TEST(UICodegenExec, UiAnimationEasing) {
     EXPECT_NE(out.find("0.25"), std::string::npos) << "output was: " << out;
 }
 
+// ── Task 3: heap-owned callback envs for inline UI event closures ───────
+//
+// A closure LITERAL bound via widget.onClick(...) must pass a NON-ZERO env
+// size to liva_ui_on_click so the runtime heap-copies the captured env and
+// frees it on widget destroy. Otherwise a callback bound inside a helper that
+// returns the widget would dangle. (The runtime side is verified by the size
+// argument being non-zero; we assert on the emitted IR call.)
+
+// Pull the env-size (4th) argument of the first liva_ui_on_click call.
+static std::string firstOnClickCall(const std::string &ir) {
+    auto p = ir.find("call void @liva_ui_on_click(");
+    if (p == std::string::npos) return "";
+    auto end = ir.find(')', p);
+    return ir.substr(p, end == std::string::npos ? std::string::npos : end - p + 1);
+}
+
+TEST(UICodegenExec, InlineCallbackLiteralHeapOwnsEnv) {
+    // Closure captures `count` and `btn`, bound inline → env size must be > 0.
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func buildCounter(panel: Control) -> Button {\n"
+        "  var count = 0\n"
+        "  let btn = Button(panel, \"x\")\n"
+        "  btn.onClick(|_h: i32| { count = count + 1; btn.setText(\"y\") })\n"
+        "  return btn\n"
+        "}\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(200, 100, \"T\")\n"
+        "  let panel = Panel(win)\n"
+        "  let b = buildCounter(panel)\n"
+        "}\n",
+        "inline_cb_heap");
+    ASSERT_TRUE(emitsClean(ir));
+    std::string call = firstOnClickCall(ir);
+    ASSERT_FALSE(call.empty()) << "no liva_ui_on_click call in IR";
+    // Last arg is the env size; for a capturing inline literal it must not be 0.
+    EXPECT_EQ(call.find(", i32 0)"), std::string::npos)
+        << "expected non-zero env size, got: " << call;
+}
+
+TEST(UICodegenExec, NonLiteralCallbackUsesStackEnv) {
+    // Closure stored in a variable first → falls through to the ordinary
+    // method (stack env, size 0). Documents the Phase-1 limitation.
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(200, 100, \"T\")\n"
+        "  let b = Button(win, \"x\")\n"
+        "  var n = 0\n"
+        "  let cb = |_h: i32| { n = n + 1 }\n"
+        "  b.onClick(cb)\n"
+        "}\n",
+        "nonliteral_cb_stack");
+    ASSERT_TRUE(emitsClean(ir));
+    std::string call = firstOnClickCall(ir);
+    ASSERT_FALSE(call.empty()) << "no liva_ui_on_click call in IR";
+    EXPECT_NE(call.find(", i32 0)"), std::string::npos)
+        << "expected stack env (size 0), got: " << call;
+}
+
 #endif // LIVA_HAS_LLVM
