@@ -1,8 +1,8 @@
-// Theming System — Theme struct with semantic colors
+// Theming System — Theme with semantic colors
 // Import with: import ui::theme
-
 import std::ui
 import ui::types
+import ui::widgets
 
 pub struct Theme {
     var bgR: i32
@@ -38,12 +38,12 @@ impl Theme {
         }
     }
 
-    pub func applyToPanel(ref self, panelHandle: i32) {
-        setBgColor(panelHandle, self.bgR, self.bgG, self.bgB)
-        setFgColor(panelHandle, self.fgR, self.fgG, self.fgB)
+    pub func applyToPanel(ref self, c: Control) {
+        c.setBgColor(self.bgR, self.bgG, self.bgB)
+        c.setFgColor(self.fgR, self.fgG, self.fgB)
     }
 
-    pub func applyToWidget(ref self, widgetHandle: i32) {
-        setFgColor(widgetHandle, self.fgR, self.fgG, self.fgB)
+    pub func applyToWidget(ref self, c: Control) {
+        c.setFgColor(self.fgR, self.fgG, self.fgB)
     }
 }

@@ -233,4 +233,49 @@ TEST(UICodegenExec, ChainedClassMethodCall) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Task 4: helper modules compile against the class widget API ─────────
+//
+// theme/tooltip/listview/router/layout/composite were migrated to take
+// `Control` instances and store class-typed fields (exercising the chained
+// access fixes above). This guards the whole helper-module surface through
+// IRGen (Sema-only tests would miss codegen regressions).
+
+TEST(UICodegenExec, HelperModulesClassApi) {
+    auto ir = emitIR(
+        "import ui::theme\n"
+        "import ui::tooltip\n"
+        "import ui::listview\n"
+        "import ui::router\n"
+        "import ui::layout\n"
+        "import ui::composite\n"
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let panel = Panel(win)\n"
+        "  let th = Theme.dark()\n"
+        "  th.applyToPanel(panel)\n"
+        "  applyTooltip(panel, \"ip\")\n"
+        "  let lv = ListView(panel)\n"
+        "  lv.addItem(\"a\")\n"
+        "  println(lv.getSelection())\n"
+        "  let r = Router(panel)\n"
+        "  r.addPage(panel, \"P1\")\n"
+        "  println(r.getCurrentPage())\n"
+        "  let v = VStack.new()\n"
+        "  let b = Button(panel, \"x\")\n"
+        "  v.add(b, 0, 4)\n"
+        "  let ff = FormField(panel, \"Ad\", \"\")\n"
+        "  println(ff.getText())\n"
+        "  let bar = ButtonBar()\n"
+        "  let b2 = bar.addButton(panel, \"ok\", |_h: i32| { })\n"
+        "  b2.setText(\"done\")\n"
+        "  let st = StatusText(panel, \"ok\")\n"
+        "  st.setColor(255, 0, 0)\n"
+        "  panel.setSizerHandle(v.handle)\n"
+        "}\n",
+        "helper_modules_class_api");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM

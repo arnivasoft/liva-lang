@@ -1,8 +1,8 @@
-// Layout helpers — convenience functions for wxSizer-based layouts
+// Layout helpers — convenience wrappers over wxSizer
 // Import with: import ui::layout
-
 import std::ui
 import ui::types
+import ui::widgets
 
 // VStack — vertical layout using wxBoxSizer(VERTICAL)
 pub struct VStack {
@@ -13,14 +13,14 @@ impl VStack {
     pub func new() -> VStack {
         return VStack { handle: createVBoxSizer() }
     }
-    pub func add(ref self, widget: i32, proportion: i32, border: i32) {
-        sizerAdd(self.handle, widget, proportion, WX_EXPAND(), border)
+    pub func add(ref self, widget: Control, proportion: i32, border: i32) {
+        sizerAdd(self.handle, widget.handle, proportion, WX_EXPAND(), border)
     }
-    pub func addCentered(ref self, widget: i32, border: i32) {
-        sizerAdd(self.handle, widget, 0, WX_ALIGN_CENTER(), border)
+    pub func addCentered(ref self, widget: Control, border: i32) {
+        sizerAdd(self.handle, widget.handle, 0, WX_ALIGN_CENTER(), border)
     }
-    pub func addWithFlags(ref self, widget: i32, proportion: i32, flags: i32, border: i32) {
-        sizerAdd(self.handle, widget, proportion, flags, border)
+    pub func addWithFlags(ref self, widget: Control, proportion: i32, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget.handle, proportion, flags, border)
     }
 }
 
@@ -33,14 +33,14 @@ impl HStack {
     pub func new() -> HStack {
         return HStack { handle: createHBoxSizer() }
     }
-    pub func add(ref self, widget: i32, proportion: i32, border: i32) {
-        sizerAdd(self.handle, widget, proportion, WX_EXPAND(), border)
+    pub func add(ref self, widget: Control, proportion: i32, border: i32) {
+        sizerAdd(self.handle, widget.handle, proportion, WX_EXPAND(), border)
     }
-    pub func addCentered(ref self, widget: i32, border: i32) {
-        sizerAdd(self.handle, widget, 0, WX_ALIGN_CENTER(), border)
+    pub func addCentered(ref self, widget: Control, border: i32) {
+        sizerAdd(self.handle, widget.handle, 0, WX_ALIGN_CENTER(), border)
     }
-    pub func addWithFlags(ref self, widget: i32, proportion: i32, flags: i32, border: i32) {
-        sizerAdd(self.handle, widget, proportion, flags, border)
+    pub func addWithFlags(ref self, widget: Control, proportion: i32, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget.handle, proportion, flags, border)
     }
 }
 
@@ -53,8 +53,8 @@ impl Grid {
     pub func new(rows: i32, cols: i32, hgap: i32, vgap: i32) -> Grid {
         return Grid { handle: createGridSizer(rows, cols, hgap, vgap) }
     }
-    pub func add(ref self, widget: i32, flags: i32, border: i32) {
-        sizerAdd(self.handle, widget, 0, flags, border)
+    pub func add(ref self, widget: Control, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget.handle, 0, flags, border)
     }
 }
 
@@ -67,10 +67,10 @@ impl FlexGrid {
     pub func new(rows: i32, cols: i32, hgap: i32, vgap: i32) -> FlexGrid {
         return FlexGrid { handle: createFlexGridSizer(rows, cols, hgap, vgap) }
     }
-    pub func add(ref self, widget: i32, flags: i32, border: i32) {
-        sizerAdd(self.handle, widget, 0, flags, border)
+    pub func add(ref self, widget: Control, flags: i32, border: i32) {
+        sizerAdd(self.handle, widget.handle, 0, flags, border)
     }
-    pub func addExpand(ref self, widget: i32, border: i32) {
-        sizerAdd(self.handle, widget, 1, WX_EXPAND(), border)
+    pub func addExpand(ref self, widget: Control, border: i32) {
+        sizerAdd(self.handle, widget.handle, 1, WX_EXPAND(), border)
     }
 }
