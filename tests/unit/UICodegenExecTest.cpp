@@ -67,6 +67,49 @@ std::string emitIR(const std::string &source, const std::string &test_name) {
     return ir;
 }
 
+// Compile `source` to an executable via the built livac, run it, and return
+// captured stdout+stderr. Empty string on compile failure. Used for pure
+// (non-UI) stdlib code — ui::types, ui::animation — which does NOT import
+// std::ui and therefore links without wxWidgets. LIVA_BUILD_DIR is space-free.
+std::string compileAndRun(const std::string &source, const std::string &test_name) {
+    const std::string buildDir = LIVA_BUILD_DIR;
+    const std::string srcPath  = buildDir + "/_uicgr_" + test_name + ".liva";
+    const std::string exePath  = buildDir + "/_uicgr_" + test_name + EXE_SUFFIX;
+    const std::string outPath  = buildDir + "/_uicgr_" + test_name + ".out";
+    const std::string objPath  = exePath + ".o";
+    const std::string livac    = buildDir + "/livac" EXE_SUFFIX;
+
+    std::remove(exePath.c_str());
+    {
+        std::ofstream ofs(srcPath, std::ios::binary);
+        ofs << source;
+    }
+
+    // Build (unquoted, space-free paths; no redirection — avoids quote mangling).
+    std::string build = livac + " " + srcPath + " -o " + exePath;
+    (void)std::system(build.c_str());
+
+    std::string out;
+    {
+        std::ifstream exeCheck(exePath, std::ios::binary);
+        if (exeCheck.good()) {
+            exeCheck.close();
+            std::string run = exePath + " > " + outPath + " 2>&1";
+            (void)std::system(run.c_str());
+            std::ifstream ifs(outPath, std::ios::binary);
+            std::stringstream ss;
+            if (ifs.is_open()) ss << ifs.rdbuf();
+            out = ss.str();
+        }
+    }
+
+    std::remove(srcPath.c_str());
+    std::remove(exePath.c_str());
+    std::remove(outPath.c_str());
+    std::remove(objPath.c_str());
+    return out;
+}
+
 // livac emits valid IR (containing function definitions) only when IRGen
 // succeeds; on any Lexer/Parser/Sema/IRGen error it writes no usable .ll.
 ::testing::AssertionResult emitsClean(const std::string &ir) {
@@ -276,6 +319,39 @@ TEST(UICodegenExec, HelperModulesClassApi) {
         "}\n",
         "helper_modules_class_api");
     EXPECT_TRUE(emitsClean(ir));
+}
+
+// ── Task 6: pure-function stdlib runs headless (no wxWidgets) ───────────
+//
+// ui::types and ui::animation do not import std::ui, so they compile, link,
+// and run without wxWidgets. These compile-and-run tests verify the actual
+// computed values, complementing the IR-only tests above.
+
+TEST(UICodegenExec, UiTypesRectContains) {
+    auto out = compileAndRun(
+        "import ui::types\n"
+        "func main() {\n"
+        "  let rc = Rect.new(10, 10, 100, 50)\n"
+        "  if rc.contains(20, 20) { println(\"inside\") } else { println(\"nope\") }\n"
+        "  if rc.contains(200, 20) { println(\"wrong\") } else { println(\"outside\") }\n"
+        "}\n",
+        "types_rect_contains");
+    EXPECT_NE(out.find("inside"), std::string::npos) << "output was: " << out;
+    EXPECT_NE(out.find("outside"), std::string::npos) << "output was: " << out;
+    EXPECT_EQ(out.find("wrong"), std::string::npos) << "output was: " << out;
+}
+
+TEST(UICodegenExec, UiAnimationEasing) {
+    auto out = compileAndRun(
+        "import ui::animation\n"
+        "func main() {\n"
+        "  println(easeLinear(0.5))\n"
+        "  println(easeInQuad(0.5))\n"
+        "}\n",
+        "anim_easing");
+    // easeLinear(0.5) == 0.5, easeInQuad(0.5) == 0.25
+    EXPECT_NE(out.find("0.5"), std::string::npos) << "output was: " << out;
+    EXPECT_NE(out.find("0.25"), std::string::npos) << "output was: " << out;
 }
 
 #endif // LIVA_HAS_LLVM
