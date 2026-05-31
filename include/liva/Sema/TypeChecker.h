@@ -85,6 +85,17 @@ public:
     /// Access the macro expander
     MacroExpander &getMacroExpander() { return macroExpander_; }
 
+    /// Names of all classes known after the first pass — locally declared plus
+    /// those brought in via `import` (collected from the type scope). Used by
+    /// the ownership checker to treat classes as reference (Copy) types.
+    std::vector<std::string> getAllClassNames() const {
+        std::vector<std::string> out;
+        for (auto &kv : classDecls_)
+            out.push_back(kv.first);
+        scopes_.collectNames(Symbol::Kind::ClassType, out);
+        return out;
+    }
+
 private:
     /// Register built-in types and functions
     void registerBuiltins();

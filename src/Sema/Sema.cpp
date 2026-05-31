@@ -12,7 +12,11 @@ bool Sema::analyze(TranslationUnit &tu) {
     if (diag_.hasErrors())
         return false;
 
-    // Phase 2: Ownership checking
+    // Phase 2: Ownership checking — classes are reference types (Copy).
+    {
+        auto names = typeChecker_.getAllClassNames();
+        ownershipChecker_.setClassNames({names.begin(), names.end()});
+    }
     ownershipChecker_.check(tu);
     if (diag_.hasErrors())
         return false;

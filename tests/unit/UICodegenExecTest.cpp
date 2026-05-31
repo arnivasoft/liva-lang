@@ -146,4 +146,31 @@ TEST(UICodegenExec, ClassParamFieldAccessInMethod) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Task 2b: classes are reference (Copy) types in the ownership checker ─
+//
+// A class value passed by value must NOT be consumed/moved — passing it again
+// is fine (the VCL pattern: add many children to one parent panel). Before the
+// fix, the second use produced "use of moved value". Here Box stands in for a
+// widget parent; the parent is used as a constructor arg three times.
+
+TEST(UICodegenExec, ClassValueIsCopyNotMoved) {
+    auto ir = emitIR(
+        "class Ctrl {\n"
+        "  var handle: i32\n"
+        "  init(h: i32) { self.handle = h }\n"
+        "}\n"
+        "class Child {\n"
+        "  var x: i32\n"
+        "  init(parent: Ctrl, n: i32) { self.x = parent.handle + n }\n"
+        "}\n"
+        "func main() {\n"
+        "  let p = Ctrl(100)\n"
+        "  let a = Child(p, 1)\n"
+        "  let b = Child(p, 2)\n"
+        "  let c = Child(p, 3)\n"
+        "}\n",
+        "class_copy_no_move");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM

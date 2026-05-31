@@ -328,6 +328,10 @@ bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
         const auto &n = named->getName();
         if (n == "String" || n == "Map" || n == "Set")
             return true;
+        // Classes are reference types — passing a class value shares the
+        // reference rather than consuming it, so treat them as Copy.
+        if (classNames_.count(n))
+            return true;
     }
 
     // Arrays, Optionals, Tuples, and Function types are Copy

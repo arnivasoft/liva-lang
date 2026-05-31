@@ -6,6 +6,7 @@
 #include <deque>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace liva {
 
@@ -38,6 +39,12 @@ public:
 
     /// Check ownership for a translation unit
     void check(TranslationUnit &tu);
+
+    /// Provide the set of class type names. Classes are reference types, so
+    /// they are treated as Copy (passing a class value does not move it).
+    void setClassNames(std::unordered_set<std::string> names) {
+        classNames_ = std::move(names);
+    }
 
     void visitFuncDecl(FuncDecl *node);
     void visitClassDecl(ClassDecl *node);
@@ -100,6 +107,9 @@ private:
 
     /// All tracked variables (flat lookup)
     std::unordered_map<std::string, OwnershipInfo *> allVariables_;
+
+    /// Class type names — treated as Copy (reference types, not moved).
+    std::unordered_set<std::string> classNames_;
 };
 
 } // namespace liva
