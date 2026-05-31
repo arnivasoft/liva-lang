@@ -1291,6 +1291,39 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Chained class method call: obj.field.method() where the receiver
+        // resolves to a class type. The identifier-based class path above only
+        // fires for a plain identifier receiver; here the receiver is an
+        // arbitrary expression (e.g. a member access) whose resolved type is a
+        // class. Class instances are pointers, so visiting the receiver yields
+        // the self pointer directly.
+        if (auto *recvType = memberExpr->getObject()->getResolvedType()) {
+            if (recvType->getKind() == TypeRepr::Kind::Named) {
+                auto *named = static_cast<const NamedTypeRepr *>(recvType);
+                if (classTypes_.count(named->getName())) {
+                    std::string foundClass =
+                        findClassMethodOwner(named->getName(), methodName);
+                    if (!foundClass.empty()) {
+                        std::string mangledName = foundClass + "_" + methodName;
+                        if (auto *callee = module_->getFunction(mangledName)) {
+                            llvm::Value *selfPtr = visit(memberExpr->getObject());
+                            if (!selfPtr) return nullptr;
+                            std::vector<llvm::Value *> callArgs;
+                            callArgs.push_back(selfPtr);
+                            for (auto &arg : node->getArgs()) {
+                                auto *v = visit(arg.get());
+                                if (!v) return nullptr;
+                                callArgs.push_back(v);
+                            }
+                            return builder_->CreateCall(
+                                callee, callArgs,
+                                callee->getReturnType()->isVoidTy() ? "" : "callm");
+                        }
+                    }
+                }
+            }
+        }
+
         // Nested struct method call: obj.field.method() (MemberExpr chain)
         if (!objAlloca && structTypeName.empty() &&
             memberExpr->getObject()->getKind() == ASTNode::NodeKind::MemberExpr) {

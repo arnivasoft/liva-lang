@@ -201,4 +201,36 @@ TEST(UICodegenExec, ChainedClassFieldRead) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Task 2c: chained method call through a class-typed field ────────────
+//
+// Regression for `obj.classField.method(args)` (e.g. composite widgets
+// delegating: self.input.getText()). The receiver of the call is a member
+// expression resolving to a class type; the identifier-based class method
+// dispatch did not handle it.
+
+TEST(UICodegenExec, ChainedClassMethodCall) {
+    auto ir = emitIR(
+        "class Inner {\n"
+        "  var v: i32\n"
+        "  init(v: i32) { self.v = v }\n"
+        "  func get() -> i32 { return self.v }\n"
+        "  func setV(x: i32) { self.v = x }\n"
+        "}\n"
+        "class Holder {\n"
+        "  var inner: Inner\n"
+        "  init() { self.inner = Inner(7) }\n"
+        "  func chainGet() -> i32 { return self.inner.get() }\n"
+        "  func chainSet() { self.inner.setV(42) }\n"
+        "}\n"
+        "func main() {\n"
+        "  let h = Holder()\n"
+        "  println(h.inner.get())\n"
+        "  println(h.chainGet())\n"
+        "  h.inner.setV(9)\n"
+        "  h.chainSet()\n"
+        "}\n",
+        "chained_class_method_call");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
