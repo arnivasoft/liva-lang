@@ -1,12 +1,11 @@
 // Tooltip — wxWidgets native tooltip wrapper
 // Import with: import ui::tooltip
-
 import std::ui
+import ui::widgets
 
-// wxWidgets handles tooltips natively via SetToolTip
-// Use: setTooltip(widgetHandle, "Tooltip text")
-// Or via the widget struct method: btn.setTooltip("Click here")
-
-pub func applyTooltip(widgetHandle: i32, text: string) {
-    setTooltip(widgetHandle, text)
+// wxWidgets handles tooltips natively via SetToolTip.
+// Prefer the widget method: widget.setTooltip("...").
+// This helper applies a tooltip to any Control.
+pub func applyTooltip(c: Control, text: string) {
+    c.setTooltip(text)
 }
