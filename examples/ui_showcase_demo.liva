@@ -1,28 +1,27 @@
-// UI Showcase Demo — ListView, Canvas, Form (struct wrapper syntax)
+// UI Showcase Demo — ListView, Canvas, Form (class API)
 // Build: livac examples/ui_showcase_demo.liva -o showcase_demo
 
-import std::ui
 import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(600, 500, "Gelismis Ozellikler")
-    let panel = createPanel(win)
+    let win = Window(600, 500, "Gelismis Ozellikler")
+    let panel = Panel(win)
 
-    var tabs = TabView.new(panel)
+    let tabs = TabView(panel)
 
     // Tab 1: ListView
-    let tab1 = createPanel(tabs.handle)
+    let tab1 = Panel(tabs)
     let t1 = createVBoxSizer()
 
-    var searchLbl = Label.new(tab1, "Arama:")
-    var searchInp = TextInput.new(tab1, "")
+    let searchLbl = Label(tab1, "Arama:")
+    let searchInp = TextInput(tab1, "")
     sizerAdd(t1, searchLbl.handle, 0, WX_LEFT(), 5)
     sizerAdd(t1, searchInp.handle, 0, WX_EXPAND(), 3)
 
-    var lv = ListBox.new(tab1)
+    let lv = ListBox(tab1)
     lv.addItem("Turkiye - Istanbul")
     lv.addItem("Turkiye - Ankara")
     lv.addItem("Turkiye - Izmir")
@@ -36,41 +35,41 @@ func main() {
     })
     sizerAdd(t1, lv.handle, 1, WX_EXPAND(), 5)
 
-    setSizer(tab1, t1)
+    tab1.setSizerHandle(t1)
     tabs.addPage(tab1, "Liste")
 
     // Tab 2: Form & Status
-    let tab2 = createPanel(tabs.handle)
+    let tab2 = Panel(tabs)
     let t2 = createVBoxSizer()
 
-    var userLbl = Label.new(tab2, "Kullanici Adi:")
-    var userInp = TextInput.new(tab2, "")
+    let userLbl = Label(tab2, "Kullanici Adi:")
+    let userInp = TextInput(tab2, "")
     sizerAdd(t2, userLbl.handle, 0, WX_LEFT(), 5)
     sizerAdd(t2, userInp.handle, 0, WX_EXPAND(), 3)
 
-    var passLbl = Label.new(tab2, "Sifre:")
-    var passInp = TextInput.new(tab2, "")
+    let passLbl = Label(tab2, "Sifre:")
+    let passInp = TextInput(tab2, "")
     sizerAdd(t2, passLbl.handle, 0, WX_LEFT(), 5)
     sizerAdd(t2, passInp.handle, 0, WX_EXPAND(), 3)
 
-    var loginBtn = Button.new(tab2, "Giris Yap")
+    let loginBtn = Button(tab2, "Giris Yap")
     loginBtn.onClick(|_h: i32| {
         messageBox("Giris", "Giris yapiliyor...", 1)
     })
     sizerAdd(t2, loginBtn.handle, 0, WX_ALL(), 8)
 
-    var statusLbl = Label.new(tab2, "Giris bekleniyor...")
+    let statusLbl = Label(tab2, "Giris bekleniyor...")
     statusLbl.setFgColor(150, 150, 150)
     sizerAdd(t2, statusLbl.handle, 0, WX_ALL(), 5)
 
-    setSizer(tab2, t2)
+    tab2.setSizerHandle(t2)
     tabs.addPage(tab2, "Giris")
 
     // Tab 3: Canvas
-    let tab3 = createPanel(tabs.handle)
+    let tab3 = Panel(tabs)
     let t3 = createVBoxSizer()
 
-    var canvas = Canvas.new(tab3)
+    let canvas = Canvas(tab3)
     canvas.onPaint(|dc: i32| {
         dcClear(dc, 20, 20, 30)
         dcDrawRect(dc, 20, 20, 80, 80, 231, 76, 60)
@@ -84,14 +83,14 @@ func main() {
     })
     sizerAdd(t3, canvas.handle, 1, WX_EXPAND(), 0)
 
-    setSizer(tab3, t3)
+    tab3.setSizerHandle(t3)
     tabs.addPage(tab3, "Canvas")
 
     // Main layout
     let mainSizer = createVBoxSizer()
     sizerAdd(mainSizer, tabs.handle, 1, WX_EXPAND(), 0)
 
-    setSizer(panel, mainSizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(mainSizer)
+    win.show()
     appRun()
 }

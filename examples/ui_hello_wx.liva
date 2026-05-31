@@ -1,35 +1,35 @@
 // wxWidgets Hello World — demonstrates the new retained-mode UI API
 // Build: livac examples/ui_hello_wx.liva -o hello_wx
 
-import std::ui
+import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(400, 300, "Merhaba wxWidgets!")
-    let panel = createPanel(win)
+    let win = Window(400, 300, "Merhaba wxWidgets!")
+    let panel = Panel(win)
 
     let sizer = createVBoxSizer()
 
-    let title = createLabel(panel, "Liva + wxWidgets Demo")
-    setWidgetFont(title, 16, 1)
+    let title = Label(panel, "Liva + wxWidgets Demo")
+    title.setFont(16, true)
 
-    let btn = createButton(panel, "Tikla Beni!")
-    setTooltip(btn, "Bu butona tiklayin")
-    onClick(btn, |_h: i32| {
+    let btn = Button(panel, "Tikla Beni!")
+    btn.setTooltip("Bu butona tiklayin")
+    btn.onClick(|_h: i32| {
         messageBox("Bilgi", "Butona tiklandi!", 1)
     })
 
-    let inp = createTextInput(panel, "Metin girin...")
-    let slider = createSlider(panel, 0, 100, 50)
+    let inp = TextInput(panel, "Metin girin...")
+    let slider = Slider(panel, 0, 100, 50)
 
-    sizerAdd(sizer, title, 0, WX_ALL(), 10)
-    sizerAdd(sizer, inp, 0, WX_EXPAND(), 5)
-    sizerAdd(sizer, slider, 0, WX_EXPAND(), 5)
-    sizerAdd(sizer, btn, 0, WX_ALL(), 10)
+    sizerAdd(sizer, title.handle, 0, WX_ALL(), 10)
+    sizerAdd(sizer, inp.handle, 0, WX_EXPAND(), 5)
+    sizerAdd(sizer, slider.handle, 0, WX_EXPAND(), 5)
+    sizerAdd(sizer, btn.handle, 0, WX_ALL(), 10)
 
-    setSizer(panel, sizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(sizer)
+    win.show()
     appRun()
 }

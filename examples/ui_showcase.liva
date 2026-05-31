@@ -1,119 +1,119 @@
 // UI Showcase — All wxWidgets features of the Liva UI framework
 // Build: livac examples/ui_showcase.liva -o showcase
 
-import std::ui
+import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(700, 600, "Liva wxWidgets Vitrin")
-    let panel = createPanel(win)
-    setBgColor(panel, 30, 30, 30)
-    setFgColor(panel, 220, 220, 220)
+    let win = Window(700, 600, "Liva wxWidgets Vitrin")
+    let panel = Panel(win)
+    panel.setBgColor(30, 30, 30)
+    panel.setFgColor(220, 220, 220)
 
     let mainSizer = createVBoxSizer()
 
     // Header
-    let header = createLabel(panel, "Liva UI Framework - wxWidgets Backend")
-    setWidgetFont(header, 18, 1)
-    setFgColor(header, 220, 220, 220)
-    sizerAdd(mainSizer, header, 0, WX_ALL(), 10)
+    let header = Label(panel, "Liva UI Framework - wxWidgets Backend")
+    header.setFont(18, true)
+    header.setFgColor(220, 220, 220)
+    sizerAdd(mainSizer, header.handle, 0, WX_ALL(), 10)
 
     // Tabs
-    let tabs = createTabView(panel)
+    let tabs = TabView(panel)
 
     // Tab 1: Basic Widgets
-    let tab1 = createPanel(tabs)
+    let tab1 = Panel(tabs)
     let t1Sizer = createVBoxSizer()
-    let lbl = createLabel(tab1, "Temel Widget'lar")
-    setWidgetFont(lbl, 14, 1)
-    sizerAdd(t1Sizer, lbl, 0, WX_ALL(), 5)
+    let lbl = Label(tab1, "Temel Widget'lar")
+    lbl.setFont(14, true)
+    sizerAdd(t1Sizer, lbl.handle, 0, WX_ALL(), 5)
 
-    let btn = createButton(tab1, "Tikla Beni")
-    setTooltip(btn, "Bu bir buton")
-    onClick(btn, |_h: i32| {
+    let btn = Button(tab1, "Tikla Beni")
+    btn.setTooltip("Bu bir buton")
+    btn.onClick(|_h: i32| {
         messageBox("Tiklandi", "Butona basildi!", 1)
     })
-    sizerAdd(t1Sizer, btn, 0, WX_ALL(), 5)
+    sizerAdd(t1Sizer, btn.handle, 0, WX_ALL(), 5)
 
-    let inp = createTextInput(tab1, "Metin girin...")
-    sizerAdd(t1Sizer, inp, 0, WX_EXPAND(), 5)
+    let inp = TextInput(tab1, "Metin girin...")
+    sizerAdd(t1Sizer, inp.handle, 0, WX_EXPAND(), 5)
 
-    let cbx = createCheckbox(tab1, "Bildirimler")
-    sizerAdd(t1Sizer, cbx, 0, WX_ALL(), 5)
+    let cbx = Checkbox(tab1, "Bildirimler")
+    sizerAdd(t1Sizer, cbx.handle, 0, WX_ALL(), 5)
 
-    let sl = createSlider(tab1, 0, 100, 50)
-    sizerAdd(t1Sizer, sl, 0, WX_EXPAND(), 5)
+    let sl = Slider(tab1, 0, 100, 50)
+    sizerAdd(t1Sizer, sl.handle, 0, WX_EXPAND(), 5)
 
-    let pb = createProgressBar(tab1, 100)
-    setValue(pb, 60)
-    sizerAdd(t1Sizer, pb, 0, WX_EXPAND(), 5)
+    let pb = ProgressBar(tab1, 100)
+    pb.setValue(60)
+    sizerAdd(t1Sizer, pb.handle, 0, WX_EXPAND(), 5)
 
-    setSizer(tab1, t1Sizer)
-    tabAddPage(tabs, tab1, "Temel")
+    tab1.setSizerHandle(t1Sizer)
+    tabs.addPage(tab1, "Temel")
 
     // Tab 2: Selection Widgets
-    let tab2 = createPanel(tabs)
+    let tab2 = Panel(tabs)
     let t2Sizer = createVBoxSizer()
 
-    let rg = createRadioGroup(tab2, "Secenek A;Secenek B;Secenek C")
-    sizerAdd(t2Sizer, rg, 0, WX_ALL(), 5)
+    let rg = RadioGroup(tab2, "Secenek A;Secenek B;Secenek C")
+    sizerAdd(t2Sizer, rg.handle, 0, WX_ALL(), 5)
 
-    let dd = createDropdown(tab2, "Istanbul;Ankara;Izmir;Bursa")
-    sizerAdd(t2Sizer, dd, 0, WX_EXPAND(), 5)
+    let dd = Dropdown(tab2, "Istanbul;Ankara;Izmir;Bursa")
+    sizerAdd(t2Sizer, dd.handle, 0, WX_EXPAND(), 5)
 
-    let lb = createListBox(tab2)
-    listAddItem(lb, "Oge 1")
-    listAddItem(lb, "Oge 2")
-    listAddItem(lb, "Oge 3")
-    listAddItem(lb, "Oge 4")
-    listAddItem(lb, "Oge 5")
-    sizerAdd(t2Sizer, lb, 1, WX_EXPAND(), 5)
+    let lb = ListBox(tab2)
+    lb.addItem("Oge 1")
+    lb.addItem("Oge 2")
+    lb.addItem("Oge 3")
+    lb.addItem("Oge 4")
+    lb.addItem("Oge 5")
+    sizerAdd(t2Sizer, lb.handle, 1, WX_EXPAND(), 5)
 
-    setSizer(tab2, t2Sizer)
-    tabAddPage(tabs, tab2, "Secim")
+    tab2.setSizerHandle(t2Sizer)
+    tabs.addPage(tab2, "Secim")
 
     // Tab 3: Form
-    let tab3 = createPanel(tabs)
+    let tab3 = Panel(tabs)
     let t3Sizer = createVBoxSizer()
 
-    let f1Lbl = createLabel(tab3, "Ad:")
-    let f1Inp = createTextInput(tab3, "Adinizi girin")
-    sizerAdd(t3Sizer, f1Lbl, 0, WX_LEFT(), 5)
-    sizerAdd(t3Sizer, f1Inp, 0, WX_EXPAND(), 3)
+    let f1Lbl = Label(tab3, "Ad:")
+    let f1Inp = TextInput(tab3, "Adinizi girin")
+    sizerAdd(t3Sizer, f1Lbl.handle, 0, WX_LEFT(), 5)
+    sizerAdd(t3Sizer, f1Inp.handle, 0, WX_EXPAND(), 3)
 
-    let f2Lbl = createLabel(tab3, "E-posta:")
-    let f2Inp = createTextInput(tab3, "ornek@mail.com")
-    sizerAdd(t3Sizer, f2Lbl, 0, WX_LEFT(), 5)
-    sizerAdd(t3Sizer, f2Inp, 0, WX_EXPAND(), 3)
+    let f2Lbl = Label(tab3, "E-posta:")
+    let f2Inp = TextInput(tab3, "ornek@mail.com")
+    sizerAdd(t3Sizer, f2Lbl.handle, 0, WX_LEFT(), 5)
+    sizerAdd(t3Sizer, f2Inp.handle, 0, WX_EXPAND(), 3)
 
-    let divider = createDivider(tab3)
-    sizerAdd(t3Sizer, divider, 0, WX_EXPAND(), 8)
+    let divider = Divider(tab3)
+    sizerAdd(t3Sizer, divider.handle, 0, WX_EXPAND(), 8)
 
     let fBtnSizer = createHBoxSizer()
-    let saveBtn = createButton(tab3, "Kaydet")
-    onClick(saveBtn, |_h: i32| {
+    let saveBtn = Button(tab3, "Kaydet")
+    saveBtn.onClick(|_h: i32| {
         messageBox("Form", "Form kaydedildi!", 1)
     })
-    let clearBtn = createButton(tab3, "Temizle")
-    onClick(clearBtn, |_h: i32| {
-        setText(f1Inp, "")
-        setText(f2Inp, "")
+    let clearBtn = Button(tab3, "Temizle")
+    clearBtn.onClick(|_h: i32| {
+        f1Inp.setText("")
+        f2Inp.setText("")
     })
-    sizerAdd(fBtnSizer, saveBtn, 0, WX_ALL(), 4)
-    sizerAdd(fBtnSizer, clearBtn, 0, WX_ALL(), 4)
+    sizerAdd(fBtnSizer, saveBtn.handle, 0, WX_ALL(), 4)
+    sizerAdd(fBtnSizer, clearBtn.handle, 0, WX_ALL(), 4)
     sizerAdd(t3Sizer, fBtnSizer, 0, WX_ALL(), 5)
 
-    setSizer(tab3, t3Sizer)
-    tabAddPage(tabs, tab3, "Form")
+    tab3.setSizerHandle(t3Sizer)
+    tabs.addPage(tab3, "Form")
 
     // Tab 4: Canvas Drawing
-    let tab4 = createPanel(tabs)
+    let tab4 = Panel(tabs)
     let t4Sizer = createVBoxSizer()
 
-    let canvas = createCanvas(tab4)
-    canvasOnPaint(canvas, |dc: i32| {
+    let canvas = Canvas(tab4)
+    canvas.onPaint(|dc: i32| {
         dcClear(dc, 40, 40, 60)
         dcDrawRect(dc, 20, 20, 150, 80, 66, 133, 244)
         dcDrawText(dc, "Canvas Cizim", 30, 45, 255, 255, 255)
@@ -123,19 +123,19 @@ func main() {
         dcDrawRect(dc, 140, 200, 100, 60, 255, 82, 82)
         dcDrawRect(dc, 260, 200, 100, 60, 255, 193, 7)
     })
-    sizerAdd(t4Sizer, canvas, 1, WX_EXPAND(), 5)
+    sizerAdd(t4Sizer, canvas.handle, 1, WX_EXPAND(), 5)
 
-    setSizer(tab4, t4Sizer)
-    tabAddPage(tabs, tab4, "Canvas")
+    tab4.setSizerHandle(t4Sizer)
+    tabs.addPage(tab4, "Canvas")
 
-    sizerAdd(mainSizer, tabs, 1, WX_EXPAND(), 5)
+    sizerAdd(mainSizer, tabs.handle, 1, WX_EXPAND(), 5)
 
     // Footer
-    let footer = createLabel(panel, "Liva v1.0 - wxWidgets 3.3 Backend")
-    setFgColor(footer, 220, 220, 220)
-    sizerAdd(mainSizer, footer, 0, WX_ALL(), 5)
+    let footer = Label(panel, "Liva v1.0 - wxWidgets 3.3 Backend")
+    footer.setFgColor(220, 220, 220)
+    sizerAdd(mainSizer, footer.handle, 0, WX_ALL(), 5)
 
-    setSizer(panel, mainSizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(mainSizer)
+    win.show()
     appRun()
 }

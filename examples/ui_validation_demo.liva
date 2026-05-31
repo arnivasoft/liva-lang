@@ -1,80 +1,80 @@
 // Input Validation Demo — Form validation with status feedback
 // Build: livac examples/ui_validation_demo.liva -o validation_demo
 
-import std::ui
+import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(450, 400, "Form Dogrulama")
-    let panel = createPanel(win)
+    let win = Window(450, 400, "Form Dogrulama")
+    let panel = Panel(win)
 
     let sizer = createVBoxSizer()
 
-    let title = createLabel(panel, "Kayit Dogrulama Formu")
-    setWidgetFont(title, 16, 1)
-    sizerAdd(sizer, title, 0, WX_ALL(), 10)
+    let title = Label(panel, "Kayit Dogrulama Formu")
+    title.setFont(16, true)
+    sizerAdd(sizer, title.handle, 0, WX_ALL(), 10)
 
     // Name field
-    let nameLbl = createLabel(panel, "Ad (en az 3 karakter):")
-    let nameInp = createTextInput(panel, "")
-    sizerAdd(sizer, nameLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, nameInp, 0, WX_EXPAND(), 3)
+    let nameLbl = Label(panel, "Ad (en az 3 karakter):")
+    let nameInp = TextInput(panel, "")
+    sizerAdd(sizer, nameLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, nameInp.handle, 0, WX_EXPAND(), 3)
 
     // Email field
-    let emailLbl = createLabel(panel, "E-posta:")
-    let emailInp = createTextInput(panel, "")
-    sizerAdd(sizer, emailLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, emailInp, 0, WX_EXPAND(), 3)
+    let emailLbl = Label(panel, "E-posta:")
+    let emailInp = TextInput(panel, "")
+    sizerAdd(sizer, emailLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, emailInp.handle, 0, WX_EXPAND(), 3)
 
     // Age field
-    let ageLbl = createLabel(panel, "Yas (sayi):")
-    let ageInp = createTextInput(panel, "")
-    sizerAdd(sizer, ageLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, ageInp, 0, WX_EXPAND(), 3)
+    let ageLbl = Label(panel, "Yas (sayi):")
+    let ageInp = TextInput(panel, "")
+    sizerAdd(sizer, ageLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, ageInp.handle, 0, WX_EXPAND(), 3)
 
     // Status label
-    let status = createLabel(panel, "")
-    setFgColor(status, 255, 100, 100)
-    sizerAdd(sizer, status, 0, WX_ALL(), 5)
+    let status = Label(panel, "")
+    status.setFgColor(255, 100, 100)
+    sizerAdd(sizer, status.handle, 0, WX_ALL(), 5)
 
     // Validation result list
-    let resultList = createListBox(panel)
-    sizerAdd(sizer, resultList, 1, WX_EXPAND(), 5)
+    let resultList = ListBox(panel)
+    sizerAdd(sizer, resultList.handle, 1, WX_EXPAND(), 5)
 
-    let div = createDivider(panel)
-    sizerAdd(sizer, div, 0, WX_EXPAND(), 8)
+    let div = Divider(panel)
+    sizerAdd(sizer, div.handle, 0, WX_EXPAND(), 8)
 
     // Validate button
-    let validateBtn = createButton(panel, "Dogrula ve Kaydet")
-    onClick(validateBtn, |_h: i32| {
-        listClear(resultList)
-        let name = getText(nameInp)
-        let email = getText(emailInp)
-        let age = getText(ageInp)
+    let validateBtn = Button(panel, "Dogrula ve Kaydet")
+    validateBtn.onClick(|_h: i32| {
+        resultList.clear()
+        let name = nameInp.getText()
+        let email = emailInp.getText()
+        let age = ageInp.getText()
 
-        listAddItem(resultList, "Ad: kontrol ediliyor...")
-        listAddItem(resultList, "E-posta: kontrol ediliyor...")
-        listAddItem(resultList, "Yas: kontrol ediliyor...")
+        resultList.addItem("Ad: kontrol ediliyor...")
+        resultList.addItem("E-posta: kontrol ediliyor...")
+        resultList.addItem("Yas: kontrol ediliyor...")
 
-        setText(status, "Dogrulama tamamlandi!")
-        setFgColor(status, 100, 200, 100)
+        status.setText("Dogrulama tamamlandi!")
+        status.setFgColor(100, 200, 100)
     })
-    sizerAdd(sizer, validateBtn, 0, WX_ALL(), 8)
+    sizerAdd(sizer, validateBtn.handle, 0, WX_ALL(), 8)
 
     // Clear button
-    let clearBtn = createButton(panel, "Temizle")
-    onClick(clearBtn, |_h: i32| {
-        setText(nameInp, "")
-        setText(emailInp, "")
-        setText(ageInp, "")
-        setText(status, "")
-        listClear(resultList)
+    let clearBtn = Button(panel, "Temizle")
+    clearBtn.onClick(|_h: i32| {
+        nameInp.setText("")
+        emailInp.setText("")
+        ageInp.setText("")
+        status.setText("")
+        resultList.clear()
     })
-    sizerAdd(sizer, clearBtn, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, clearBtn.handle, 0, WX_LEFT(), 10)
 
-    setSizer(panel, sizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(sizer)
+    win.show()
     appRun()
 }

@@ -1,15 +1,15 @@
 // Themed Form Demo — dark and light theme application
 // Build: livac examples/ui_form_themed.liva -o form_themed
 
-import std::ui
+import ui::widgets
 import ui::theme
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(600, 400, "Temali Form")
-    let panel = createPanel(win)
+    let win = Window(600, 400, "Temali Form")
+    let panel = Panel(win)
 
     // Apply dark theme
     var dark = Theme.dark()
@@ -17,48 +17,48 @@ func main() {
 
     let sizer = createVBoxSizer()
 
-    let title = createLabel(panel, "Karanlik Tema Formu")
-    setWidgetFont(title, 16, 1)
+    let title = Label(panel, "Karanlik Tema Formu")
+    title.setFont(16, true)
     dark.applyToWidget(title)
-    sizerAdd(sizer, title, 0, WX_ALL(), 10)
+    sizerAdd(sizer, title.handle, 0, WX_ALL(), 10)
 
     // Themed text inputs
-    let nameLbl = createLabel(panel, "Isim:")
+    let nameLbl = Label(panel, "Isim:")
     dark.applyToWidget(nameLbl)
-    let nameInp = createTextInput(panel, "")
-    sizerAdd(sizer, nameLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, nameInp, 0, WX_EXPAND(), 3)
+    let nameInp = TextInput(panel, "")
+    sizerAdd(sizer, nameLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, nameInp.handle, 0, WX_EXPAND(), 3)
 
-    let emailLbl = createLabel(panel, "E-posta:")
+    let emailLbl = Label(panel, "E-posta:")
     dark.applyToWidget(emailLbl)
-    let emailInp = createTextInput(panel, "")
-    sizerAdd(sizer, emailLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, emailInp, 0, WX_EXPAND(), 3)
+    let emailInp = TextInput(panel, "")
+    sizerAdd(sizer, emailLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, emailInp.handle, 0, WX_EXPAND(), 3)
 
     // Themed checkbox
-    let terms = createCheckbox(panel, "Kosullari kabul ediyorum")
+    let terms = Checkbox(panel, "Kosullari kabul ediyorum")
     dark.applyToWidget(terms)
-    sizerAdd(sizer, terms, 0, WX_ALL(), 8)
+    sizerAdd(sizer, terms.handle, 0, WX_ALL(), 8)
 
     // Themed slider
-    let volLbl = createLabel(panel, "Ses:")
+    let volLbl = Label(panel, "Ses:")
     dark.applyToWidget(volLbl)
-    let slider = createSlider(panel, 0, 100, 50)
-    sizerAdd(sizer, volLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, slider, 0, WX_EXPAND(), 3)
+    let slider = Slider(panel, 0, 100, 50)
+    sizerAdd(sizer, volLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, slider.handle, 0, WX_EXPAND(), 3)
 
     // Divider
-    let div = createDivider(panel)
-    sizerAdd(sizer, div, 0, WX_EXPAND(), 10)
+    let div = Divider(panel)
+    sizerAdd(sizer, div.handle, 0, WX_EXPAND(), 10)
 
     // Submit
-    let btn = createButton(panel, "Gonder")
-    onClick(btn, |_h: i32| {
+    let btn = Button(panel, "Gonder")
+    btn.onClick(|_h: i32| {
         messageBox("Tema", "Karanlik temali form gonderildi!", 1)
     })
-    sizerAdd(sizer, btn, 0, WX_ALL(), 10)
+    sizerAdd(sizer, btn.handle, 0, WX_ALL(), 10)
 
-    setSizer(panel, sizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(sizer)
+    win.show()
     appRun()
 }

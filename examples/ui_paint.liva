@@ -1,30 +1,30 @@
 // Simple Paint App — wxWidgets Canvas with custom drawing
-import std::ui
+import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(800, 600, "Liva Paint")
-    let panel = createPanel(win)
+    let win = Window(800, 600, "Liva Paint")
+    let panel = Panel(win)
 
     let sizer = createVBoxSizer()
 
-    let lbl = createLabel(panel, "Canvas custom drawing demo")
-    setWidgetFont(lbl, 14, 1)
-    sizerAdd(sizer, lbl, 0, WX_ALL(), 5)
+    let lbl = Label(panel, "Canvas custom drawing demo")
+    lbl.setFont(14, true)
+    sizerAdd(sizer, lbl.handle, 0, WX_ALL(), 5)
 
-    let canvas = createCanvas(panel)
-    canvasOnPaint(canvas, |dc: i32| {
+    let canvas = Canvas(panel)
+    canvas.onPaint(|dc: i32| {
         dcClear(dc, 30, 30, 30)
         dcDrawText(dc, "wxWidgets Canvas", 20, 20, 255, 255, 255)
         dcDrawRect(dc, 50, 60, 200, 100, 255, 100, 100)
         dcDrawCircle(dc, 400, 150, 60, 100, 200, 255)
         dcDrawLine(dc, 0, 250, 800, 250, 255, 255, 0)
     })
-    sizerAdd(sizer, canvas, 1, WX_EXPAND(), 5)
+    sizerAdd(sizer, canvas.handle, 1, WX_EXPAND(), 5)
 
-    setSizer(panel, sizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(sizer)
+    win.show()
     appRun()
 }

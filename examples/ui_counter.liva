@@ -1,40 +1,40 @@
 // Counter App — Button click events with dynamic label update
 // Build: livac examples/ui_counter.liva -o counter
 
-import std::ui
+import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(400, 250, "Liva Counter")
-    let panel = createPanel(win)
-    setBgColor(panel, 40, 40, 40)
+    let win = Window(400, 250, "Liva Counter")
+    let panel = Panel(win)
+    panel.setBgColor(40, 40, 40)
 
     let sizer = createVBoxSizer()
 
-    let title = createLabel(panel, "Counter: 0")
-    setWidgetFont(title, 20, 1)
-    setFgColor(title, 255, 255, 255)
+    let title = Label(panel, "Counter: 0")
+    title.setFont(20, true)
+    title.setFgColor(255, 255, 255)
 
-    let btnInc = createButton(panel, "+ Artir")
-    onClick(btnInc, |_h: i32| {
-        setText(title, "Counter: arttirildi")
+    let btnInc = Button(panel, "+ Artir")
+    btnInc.onClick(|_h: i32| {
+        title.setText("Counter: arttirildi")
     })
 
-    let btnDec = createButton(panel, "- Azalt")
-    onClick(btnDec, |_h: i32| {
-        setText(title, "Counter: azaltildi")
+    let btnDec = Button(panel, "- Azalt")
+    btnDec.onClick(|_h: i32| {
+        title.setText("Counter: azaltildi")
     })
 
     let hbox = createHBoxSizer()
-    sizerAdd(hbox, btnDec, 0, WX_ALL(), 5)
-    sizerAdd(hbox, btnInc, 0, WX_ALL(), 5)
+    sizerAdd(hbox, btnDec.handle, 0, WX_ALL(), 5)
+    sizerAdd(hbox, btnInc.handle, 0, WX_ALL(), 5)
 
-    sizerAdd(sizer, title, 0, WX_ALL(), 15)
+    sizerAdd(sizer, title.handle, 0, WX_ALL(), 15)
     sizerAdd(sizer, hbox, 0, WX_ALL(), 5)
 
-    setSizer(panel, sizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(sizer)
+    win.show()
     appRun()
 }

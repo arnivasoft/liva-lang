@@ -1,75 +1,75 @@
 // Composite Widget Demo — FormField, ButtonBar, StatusText
 // Build: livac examples/ui_composite_demo.liva -o composite_demo
 
-import std::ui
+import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(500, 450, "Bilesik Widget Demo")
-    let panel = createPanel(win)
+    let win = Window(500, 450, "Bilesik Widget Demo")
+    let panel = Panel(win)
 
     let sizer = createVBoxSizer()
 
     // Title
-    let title = createLabel(panel, "Kisi Bilgileri")
-    setWidgetFont(title, 18, 1)
-    sizerAdd(sizer, title, 0, WX_ALL(), 10)
+    let title = Label(panel, "Kisi Bilgileri")
+    title.setFont(18, true)
+    sizerAdd(sizer, title.handle, 0, WX_ALL(), 10)
 
     // Form fields (manual — label + input pairs)
-    let nameLbl = createLabel(panel, "Ad Soyad:")
-    let nameInp = createTextInput(panel, "Adinizi girin")
+    let nameLbl = Label(panel, "Ad Soyad:")
+    let nameInp = TextInput(panel, "Adinizi girin")
     let nameSizer = createVBoxSizer()
-    sizerAdd(nameSizer, nameLbl, 0, WX_EXPAND(), 2)
-    sizerAdd(nameSizer, nameInp, 0, WX_EXPAND(), 2)
+    sizerAdd(nameSizer, nameLbl.handle, 0, WX_EXPAND(), 2)
+    sizerAdd(nameSizer, nameInp.handle, 0, WX_EXPAND(), 2)
     sizerAdd(sizer, nameSizer, 0, WX_EXPAND(), 5)
 
-    let emailLbl = createLabel(panel, "E-posta:")
-    let emailInp = createTextInput(panel, "ornek@mail.com")
+    let emailLbl = Label(panel, "E-posta:")
+    let emailInp = TextInput(panel, "ornek@mail.com")
     let emailSizer = createVBoxSizer()
-    sizerAdd(emailSizer, emailLbl, 0, WX_EXPAND(), 2)
-    sizerAdd(emailSizer, emailInp, 0, WX_EXPAND(), 2)
+    sizerAdd(emailSizer, emailLbl.handle, 0, WX_EXPAND(), 2)
+    sizerAdd(emailSizer, emailInp.handle, 0, WX_EXPAND(), 2)
     sizerAdd(sizer, emailSizer, 0, WX_EXPAND(), 5)
 
-    let phoneLbl = createLabel(panel, "Telefon:")
-    let phoneInp = createTextInput(panel, "+90 5xx xxx xx xx")
+    let phoneLbl = Label(panel, "Telefon:")
+    let phoneInp = TextInput(panel, "+90 5xx xxx xx xx")
     let phoneSizer = createVBoxSizer()
-    sizerAdd(phoneSizer, phoneLbl, 0, WX_EXPAND(), 2)
-    sizerAdd(phoneSizer, phoneInp, 0, WX_EXPAND(), 2)
+    sizerAdd(phoneSizer, phoneLbl.handle, 0, WX_EXPAND(), 2)
+    sizerAdd(phoneSizer, phoneInp.handle, 0, WX_EXPAND(), 2)
     sizerAdd(sizer, phoneSizer, 0, WX_EXPAND(), 5)
 
     // Divider
-    let div = createDivider(panel)
-    sizerAdd(sizer, div, 0, WX_EXPAND(), 10)
+    let div = Divider(panel)
+    sizerAdd(sizer, div.handle, 0, WX_EXPAND(), 10)
 
     // Button bar
     let btnSizer = createHBoxSizer()
-    let saveBtn = createButton(panel, "Kaydet")
-    onClick(saveBtn, |_h: i32| {
+    let saveBtn = Button(panel, "Kaydet")
+    saveBtn.onClick(|_h: i32| {
         messageBox("Kayit", "Bilgiler kaydedildi!", 1)
     })
-    let clearBtn = createButton(panel, "Temizle")
-    onClick(clearBtn, |_h: i32| {
-        setText(nameInp, "")
-        setText(emailInp, "")
-        setText(phoneInp, "")
+    let clearBtn = Button(panel, "Temizle")
+    clearBtn.onClick(|_h: i32| {
+        nameInp.setText("")
+        emailInp.setText("")
+        phoneInp.setText("")
     })
-    let cancelBtn = createButton(panel, "Iptal")
-    onClick(cancelBtn, |_h: i32| {
+    let cancelBtn = Button(panel, "Iptal")
+    cancelBtn.onClick(|_h: i32| {
         appQuit()
     })
-    sizerAdd(btnSizer, saveBtn, 0, WX_ALL(), 4)
-    sizerAdd(btnSizer, clearBtn, 0, WX_ALL(), 4)
-    sizerAdd(btnSizer, cancelBtn, 0, WX_ALL(), 4)
+    sizerAdd(btnSizer, saveBtn.handle, 0, WX_ALL(), 4)
+    sizerAdd(btnSizer, clearBtn.handle, 0, WX_ALL(), 4)
+    sizerAdd(btnSizer, cancelBtn.handle, 0, WX_ALL(), 4)
     sizerAdd(sizer, btnSizer, 0, WX_ALL(), 10)
 
     // Status text
-    let statusLbl = createLabel(panel, "Hazir")
-    setFgColor(statusLbl, 100, 200, 100)
-    sizerAdd(sizer, statusLbl, 0, WX_ALL(), 5)
+    let statusLbl = Label(panel, "Hazir")
+    statusLbl.setFgColor(100, 200, 100)
+    sizerAdd(sizer, statusLbl.handle, 0, WX_ALL(), 5)
 
-    setSizer(panel, sizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(sizer)
+    win.show()
     appRun()
 }

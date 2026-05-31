@@ -1,0 +1,26 @@
+// Counter built by a returning helper — class API
+// Build: livac examples/ui_counter_helper.liva -o counter_helper
+import ui::widgets
+import ui::types
+
+func buildCounter(panel: Control, label: string) -> Button {
+    var count = 0
+    let btn = Button(panel, label)
+    btn.onClick(|_h: i32| {
+        count = count + 1
+        btn.setText("Tiklandi")
+    })
+    return btn
+}
+
+func main() {
+    appInit()
+    let win = Window(320, 220, "Sayac")
+    let panel = Panel(win)
+    let sizer = createVBoxSizer()
+    let b = buildCounter(panel, "Arttir (+)")
+    sizerAdd(sizer, b.handle, 0, WX_ALL(), 20)
+    panel.setSizerHandle(sizer)
+    win.show()
+    appRun()
+}

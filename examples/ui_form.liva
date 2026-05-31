@@ -1,65 +1,65 @@
 // UI Form Demo — TextInput, Checkbox, Slider, ProgressBar
 // Build: livac examples/ui_form.liva -o form_demo
 
-import std::ui
+import ui::widgets
 import ui::types
 
 func main() {
     appInit()
 
-    let win = createWindow(500, 400, "Kayit Formu")
-    let panel = createPanel(win)
+    let win = Window(500, 400, "Kayit Formu")
+    let panel = Panel(win)
 
     let sizer = createVBoxSizer()
 
     // Title
-    let title = createLabel(panel, "Kayit Formu")
-    setWidgetFont(title, 18, 1)
-    sizerAdd(sizer, title, 0, WX_ALL(), 10)
+    let title = Label(panel, "Kayit Formu")
+    title.setFont(18, true)
+    sizerAdd(sizer, title.handle, 0, WX_ALL(), 10)
 
     // Name input
-    let nameLbl = createLabel(panel, "Isim:")
-    let nameInp = createTextInput(panel, "")
-    sizerAdd(sizer, nameLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, nameInp, 0, WX_EXPAND(), 5)
+    let nameLbl = Label(panel, "Isim:")
+    let nameInp = TextInput(panel, "")
+    sizerAdd(sizer, nameLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, nameInp.handle, 0, WX_EXPAND(), 5)
 
     // Email input
-    let emailLbl = createLabel(panel, "E-posta:")
-    let emailInp = createTextInput(panel, "")
-    sizerAdd(sizer, emailLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, emailInp, 0, WX_EXPAND(), 5)
+    let emailLbl = Label(panel, "E-posta:")
+    let emailInp = TextInput(panel, "")
+    sizerAdd(sizer, emailLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, emailInp.handle, 0, WX_EXPAND(), 5)
 
     // Terms checkbox
-    let terms = createCheckbox(panel, "Kosullari kabul ediyorum")
-    sizerAdd(sizer, terms, 0, WX_ALL(), 10)
+    let terms = Checkbox(panel, "Kosullari kabul ediyorum")
+    sizerAdd(sizer, terms.handle, 0, WX_ALL(), 10)
 
     // Volume slider
-    let volLbl = createLabel(panel, "Ses Seviyesi:")
-    let slider = createSlider(panel, 0, 100, 50)
-    sizerAdd(sizer, volLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, slider, 0, WX_EXPAND(), 5)
+    let volLbl = Label(panel, "Ses Seviyesi:")
+    let slider = Slider(panel, 0, 100, 50)
+    sizerAdd(sizer, volLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, slider.handle, 0, WX_EXPAND(), 5)
 
     // Progress bar
-    let progLbl = createLabel(panel, "Ilerleme:")
-    let prog = createProgressBar(panel, 100)
-    setValue(prog, 50)
-    sizerAdd(sizer, progLbl, 0, WX_LEFT(), 10)
-    sizerAdd(sizer, prog, 0, WX_EXPAND(), 5)
+    let progLbl = Label(panel, "Ilerleme:")
+    let prog = ProgressBar(panel, 100)
+    prog.setValue(50)
+    sizerAdd(sizer, progLbl.handle, 0, WX_LEFT(), 10)
+    sizerAdd(sizer, prog.handle, 0, WX_EXPAND(), 5)
 
     // Slider -> ProgressBar sync
-    onChange(slider, |_h: i32| {
-        let v = getValue(slider)
-        setValue(prog, v)
+    slider.onChange(|_h: i32| {
+        let v = slider.getValue()
+        prog.setValue(v)
     })
 
     // Submit button
-    let submitBtn = createButton(panel, "Gonder")
-    onClick(submitBtn, |_h: i32| {
+    let submitBtn = Button(panel, "Gonder")
+    submitBtn.onClick(|_h: i32| {
         messageBox("Basarili", "Form gonderildi!", 1)
     })
-    sizerAdd(sizer, submitBtn, 0, WX_ALL(), 10)
+    sizerAdd(sizer, submitBtn.handle, 0, WX_ALL(), 10)
 
-    setSizer(panel, sizer)
-    windowShow(win, 1)
+    panel.setSizerHandle(sizer)
+    win.show()
     appRun()
 }
