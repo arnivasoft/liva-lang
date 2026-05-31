@@ -535,10 +535,15 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             unsigned argIdx = arg.getArgNo();
             if (argIdx < node->getParams().size()) {
                 auto &pd = node->getParams()[argIdx];
-                if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
-                    auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
+                const TypeRepr *pt = pd.type.get();
+                if (pt && pt->getKind() == TypeRepr::Kind::Reference)
+                    pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
+                if (pt && pt->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(pt);
                     if (structTypes_.count(named->getName()))
                         vars_.varStructTypes[pd.name] = named->getName();
+                    else if (classTypes_.count(named->getName()))
+                        vars_.varClassTypes[pd.name] = named->getName();
                     else if (enumTypes_.count(named->getName()))
                         vars_.varEnumTypes[pd.name] = named->getName();
                 }
@@ -1890,10 +1895,15 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
             } else {
                 // Register struct/enum-typed parameters for member access
                 auto &pd = method->getParams()[i];
-                if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
-                    auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
+                const TypeRepr *pt = pd.type.get();
+                if (pt && pt->getKind() == TypeRepr::Kind::Reference)
+                    pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
+                if (pt && pt->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(pt);
                     if (structTypes_.count(named->getName()))
                         vars_.varStructTypes[pd.name] = named->getName();
+                    else if (classTypes_.count(named->getName()))
+                        vars_.varClassTypes[pd.name] = named->getName();
                     else if (enumTypes_.count(named->getName()))
                         vars_.varEnumTypes[pd.name] = named->getName();
                 }
@@ -2106,10 +2116,15 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     } else {
                         // Register struct/enum-typed parameters for member access
                         auto &pd = protoMethod->getParams()[i];
-                        if (pd.type && pd.type->getKind() == TypeRepr::Kind::Named) {
-                            auto *named = static_cast<const NamedTypeRepr *>(pd.type.get());
+                        const TypeRepr *pt = pd.type.get();
+                        if (pt && pt->getKind() == TypeRepr::Kind::Reference)
+                            pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
+                        if (pt && pt->getKind() == TypeRepr::Kind::Named) {
+                            auto *named = static_cast<const NamedTypeRepr *>(pt);
                             if (structTypes_.count(named->getName()))
                                 vars_.varStructTypes[pd.name] = named->getName();
+                            else if (classTypes_.count(named->getName()))
+                                vars_.varClassTypes[pd.name] = named->getName();
                             else if (enumTypes_.count(named->getName()))
                                 vars_.varEnumTypes[pd.name] = named->getName();
                         }
@@ -2403,9 +2418,28 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         for (auto &arg : func->args()) {
             auto *alloca = createEntryBlockAlloca(func, std::string(arg.getName()), arg.getType());
             builder_->CreateStore(&arg, alloca);
-            vars_.namedValues[std::string(arg.getName())] = alloca;
-            if (std::string(arg.getName()) == "self") {
+            std::string argName = std::string(arg.getName());
+            vars_.namedValues[argName] = alloca;
+            if (argName == "self") {
                 vars_.varClassTypes["self"] = className;
+                continue;
+            }
+            // Register struct/class/enum-typed params for member access
+            for (auto &pd : method->getParams()) {
+                if (pd.isSelf || pd.name != argName) continue;
+                const TypeRepr *pt = pd.type.get();
+                if (pt && pt->getKind() == TypeRepr::Kind::Reference)
+                    pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
+                if (pt && pt->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(pt);
+                    if (structTypes_.count(named->getName()))
+                        vars_.varStructTypes[pd.name] = named->getName();
+                    else if (classTypes_.count(named->getName()))
+                        vars_.varClassTypes[pd.name] = named->getName();
+                    else if (enumTypes_.count(named->getName()))
+                        vars_.varEnumTypes[pd.name] = named->getName();
+                }
+                break;
             }
         }
 
@@ -2679,6 +2713,20 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
                         initFunc, std::string(arg.getName()), arg.getType());
                     builder_->CreateStore(&arg, alloca);
                     vars_.namedValues[std::string(arg.getName())] = alloca;
+                    // Register struct/class/enum-typed init params for member access
+                    auto &pd = initDecl->getParams()[argIdx];
+                    const TypeRepr *pt = pd.type.get();
+                    if (pt && pt->getKind() == TypeRepr::Kind::Reference)
+                        pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
+                    if (pt && pt->getKind() == TypeRepr::Kind::Named) {
+                        auto *named = static_cast<const NamedTypeRepr *>(pt);
+                        if (structTypes_.count(named->getName()))
+                            vars_.varStructTypes[pd.name] = named->getName();
+                        else if (classTypes_.count(named->getName()))
+                            vars_.varClassTypes[pd.name] = named->getName();
+                        else if (enumTypes_.count(named->getName()))
+                            vars_.varEnumTypes[pd.name] = named->getName();
+                    }
                 }
                 ++argIdx;
             }
@@ -2772,6 +2820,19 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
                     auto *alloca = createEntryBlockAlloca(func, param.name, argIt->getType());
                     builder_->CreateStore(&*argIt, alloca);
                     vars_.namedValues[param.name] = alloca;
+                    // Register struct/class/enum-typed params for member access
+                    const TypeRepr *pt = param.type.get();
+                    if (pt && pt->getKind() == TypeRepr::Kind::Reference)
+                        pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
+                    if (pt && pt->getKind() == TypeRepr::Kind::Named) {
+                        auto *named = static_cast<const NamedTypeRepr *>(pt);
+                        if (structTypes_.count(named->getName()))
+                            vars_.varStructTypes[param.name] = named->getName();
+                        else if (classTypes_.count(named->getName()))
+                            vars_.varClassTypes[param.name] = named->getName();
+                        else if (enumTypes_.count(named->getName()))
+                            vars_.varEnumTypes[param.name] = named->getName();
+                    }
                     ++argIt;
                 }
             }

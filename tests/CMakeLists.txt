@@ -172,6 +172,25 @@ if(LIVA_HAS_LLVM AND NOT MINGW)
         LIVA_HAS_LLVM=1
         LIVA_BUILD_DIR="${CMAKE_BINARY_DIR}")
     add_dependencies(runtime_exec_test liva_runtime)
+
+    # UI/class codegen exec harness — full-pipeline regression for the
+    # class-based UI library and class-codegen fixes. Isolated from
+    # RuntimeExecTest.cpp. Mirrors runtime_exec_test linkage.
+    liva_add_test(ui_codegen_exec_test
+        unit/UICodegenExecTest.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/Driver.cpp
+    )
+    target_link_libraries(ui_codegen_exec_test PRIVATE
+        liva_codegen liva_irgen liva_sema liva_parser liva_driver liva_plugin
+        liva_lsp liva_dap liva_repl liva_jit liva_runtime)
+    if(WIN32)
+        target_link_libraries(ui_codegen_exec_test PRIVATE winhttp)
+    endif()
+    target_compile_definitions(ui_codegen_exec_test PRIVATE
+        LIVA_HAS_LLVM=1
+        LIVA_BUILD_DIR="${CMAKE_BINARY_DIR}")
+    add_dependencies(ui_codegen_exec_test liva_runtime)
 endif()
 
 # Fuzz targets (requires Clang with libFuzzer: -DLIVA_ENABLE_FUZZING=ON)
