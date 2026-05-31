@@ -12,6 +12,21 @@
 
 ---
 
+## Yürütme Adaptasyonu — wxWidgets bu ortamda KURULU DEĞİL
+
+Build, pratikte `LIVA_HAS_WXWIDGETS=OFF` ile çalışıyor: `stdlib/ui/wx_runtime.cpp` (liva_ui) derlenmiyor ve `import std::ui`/`ui::widgets` içeren programlar **linklenemiyor** (wx kütüphaneleri yok). Doğrulama bu gerçeğe uyarlanır:
+
+1. **wx_runtime.cpp (Task 1):** Burada derlenemez; kod spec'e göre yazılır, build `liva_runtime` + livac (wx hariç) hatasız derlenerek doğrulanır. Tam wx derlemesi kullanıcının wx-kurulu makinesine bırakılır.
+2. **Sema testleri (UIModuleTest, Task 2/4):** wx GEREKTİRMEZ — parse + ModuleLoader + Sema. Tam doğrulanır. **Birincil doğrulama katmanı.**
+3. **IRGen heap-env (Task 3):** `import ui::widgets` içeren bir program `livac --emit-ir` ile (LİNK YOK) LLVM IR'a derlenir; üretilen `.ll` içinde `liva_ui_on_click`'in **4 argümanlı** çağrısı ve `size` sabiti aranır. wx gerektirmez.
+4. **UI programını fiilen .exe yapma (Task 5):** wx olmadan linklenemez → `livac --emit-ir`/`--emit-obj` (link yok) ile "derlenir mi" doğrulanır; tam .exe kullanıcıya bırakılır.
+5. **Saf-fonksiyon testleri (Task 6):** `ui::types` / `ui::animation` `std::ui` import ETMEZ → wx linklenmez → compile-run headless çalışır.
+6. **Test dosyası izolasyonu:** Tüm yeni UI runtime/IR testleri YENİ `tests/unit/UIRuntimeExecTest.cpp` dosyasına konur (ilgisiz btree WIP'i barındıran `RuntimeExecTest.cpp`'ye dokunulmaz). Dosya kendi yerel test yardımcılarını içerir (izolasyon için kasıtlı; yorumla belirtilir). `tests/CMakeLists.txt`'e tek satır eklenir.
+
+Bu adaptasyon Task 3 Step 9, Task 5 Step 4 ve Task 6'nın "**Files**/Run" satırlarının yerine geçer.
+
+---
+
 ## Dosya Haritası
 
 | Dosya | Sorumluluk | Eylem |
