@@ -6332,6 +6332,45 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
                             node->getMember() + ".val");
                     }
                 }
+                // Class-typed object (e.g. chained access h.inner.v where
+                // `h.inner` resolves to a class type). Class instances are
+                // heap pointers, and the field layout has the vtable slot at
+                // index 0, so the field is at getClassFieldIndex + 1.
+                auto ctIt = classTypes_.find(namedType->getName());
+                if (ctIt != classTypes_.end()) {
+                    auto *classTy = ctIt->second;
+                    auto cfIt = classFieldNames_.find(namedType->getName());
+                    if (cfIt != classFieldNames_.end()) {
+                        int fieldIdx = -1;
+                        for (size_t i = 0; i < cfIt->second.size(); ++i) {
+                            if (cfIt->second[i] == node->getMember()) {
+                                fieldIdx = static_cast<int>(i);
+                                break;
+                            }
+                        }
+                        if (fieldIdx >= 0) {
+                            int structIdx = fieldIdx + 1; // vtable ptr at 0
+                            // The object value IS the class pointer. For an
+                            // identifier with an alloca, load the pointer; for
+                            // a chained/non-identifier object, visit it.
+                            llvm::Value *basePtr = nullptr;
+                            if (objAlloca &&
+                                objAlloca->getAllocatedType()->isPointerTy()) {
+                                basePtr = builder_->CreateLoad(
+                                    objAlloca->getAllocatedType(), objAlloca,
+                                    objName + ".ptr");
+                            } else {
+                                basePtr = visit(node->getObject());
+                                if (!basePtr) return nullptr;
+                            }
+                            auto *gep = builder_->CreateStructGEP(
+                                classTy, basePtr, structIdx, node->getMember());
+                            return builder_->CreateLoad(
+                                classTy->getElementType(structIdx), gep,
+                                node->getMember() + ".val");
+                        }
+                    }
+                }
             }
         }
         diag_.report(node->getStartLoc(), DiagID::err_irgen_member_resolve_failed, node->getMember());

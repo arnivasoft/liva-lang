@@ -173,4 +173,32 @@ TEST(UICodegenExec, ClassValueIsCopyNotMoved) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Task 2c: chained field access through a class-typed field ───────────
+//
+// Regression for `obj.classField.field` (e.g. composite widgets storing a
+// child widget and reading through it: self.input.handle). The object of the
+// outer member access is itself a member expression resolving to a class type;
+// IRGen previously failed with "cannot resolve member" because the class
+// field-access path only handled identifier objects.
+
+TEST(UICodegenExec, ChainedClassFieldRead) {
+    auto ir = emitIR(
+        "class Inner {\n"
+        "  var v: i32\n"
+        "  init(v: i32) { self.v = v }\n"
+        "}\n"
+        "class Holder {\n"
+        "  var inner: Inner\n"
+        "  init() { self.inner = Inner(7) }\n"
+        "  func chain() -> i32 { return self.inner.v }\n"
+        "}\n"
+        "func main() {\n"
+        "  let h = Holder()\n"
+        "  println(h.inner.v)\n"
+        "  println(h.chain())\n"
+        "}\n",
+        "chained_class_field_read");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
