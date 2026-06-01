@@ -38,6 +38,7 @@ pub class Control {
     pub func onChange(cb: (i32) -> void) { onChange(self.handle, cb) }
     pub func onSelect(cb: (i32) -> void) { onSelect(self.handle, cb) }
     pub func onKey(cb: (i32, i32) -> void) { onKey(self.handle, cb) }
+    pub func onRightClick(cb: (i32, i32) -> void) { onRightClick(self.handle, cb) }
 }
 
 // ── Window (wxFrame) ───────────────────────────────────────────
@@ -50,6 +51,10 @@ pub class Window: Control {
     pub func getHeight() -> i32 { return windowGetHeight(self.handle) }
     pub func onClose(cb: (i32) -> void) { windowOnClose(self.handle, cb) }
     pub func setSizerHandle(sizerH: i32) { setSizer(self.handle, sizerH) }
+    pub func setMenuBar(mb: MenuBar) { windowSetMenuBar(self.handle, mb.handle) }
+    pub func setStatusBar(fieldCount: i32) -> StatusBar {
+        return StatusBar(createStatusBar(self.handle, fieldCount))
+    }
 }
 
 // ── Panel ──────────────────────────────────────────────────────
@@ -155,4 +160,89 @@ pub class Canvas: Control {
     init(parent: Control) { super.init(createCanvas(parent.handle)) }
     pub func onPaint(cb: (i32) -> void) { canvasOnPaint(self.handle, cb) }
     pub func refresh() { canvasRefresh(self.handle) }
+}
+
+// ═══ Phase 2: Menu system & app frame ═══════════════════════════
+// MenuItem/Menu/MenuBar live here (not a separate module) so that
+// Window.setMenuBar / Control.onRightClick can reference them without an
+// import cycle. `import ui::menu` re-exports these.
+
+// ── MenuItem (wxMenuItem — NOT a wxWindow; handle at field index 0) ─
+pub class MenuItem {
+    var handle: i32
+    init(h: i32) { self.handle = h }
+    pub func onClick(cb: (i32) -> void) { menuItemOnClick(self.handle, cb) }
+    pub func setEnabled(b: bool) {
+        var v = 0
+        if b { v = 1 }
+        menuItemSetEnabled(self.handle, v)
+    }
+    pub func setChecked(b: bool) {
+        var v = 0
+        if b { v = 1 }
+        menuItemSetChecked(self.handle, v)
+    }
+}
+
+// ── Menu (wxMenu) ──────────────────────────────────────────────
+// addItem/addCheckItem with an inline closure literal are intercepted by the
+// compiler (dangling-safe heap-env). This method body is the non-literal
+// fallback (closure stored in a variable first).
+pub class Menu {
+    var handle: i32
+    init(title: string) { self.handle = createMenu(title) }
+    pub func addItem(label: string, cb: (i32) -> void) -> MenuItem {
+        let h = menuAddItem(self.handle, label)
+        let item = MenuItem(h)
+        item.onClick(cb)
+        return item
+    }
+    pub func addCheckItem(label: string, cb: (i32) -> void) -> MenuItem {
+        let h = menuAddCheckItem(self.handle, label)
+        let item = MenuItem(h)
+        item.onClick(cb)
+        return item
+    }
+    pub func addSeparator() { menuAddSeparator(self.handle) }
+    pub func addSubmenu(label: string, sub: Menu) { menuAddSubmenu(self.handle, label, sub.handle) }
+    pub func popup(target: Control) { menuPopup(self.handle, target.handle) }
+}
+
+// ── MenuBar (wxMenuBar) ────────────────────────────────────────
+pub class MenuBar {
+    var handle: i32
+    init() { self.handle = createMenuBar() }
+    pub func addMenu(menu: Menu) { menuBarAddMenu(self.handle, menu.handle) }
+}
+
+// ── StatusBar (wxStatusBar) ────────────────────────────────────
+pub class StatusBar {
+    var handle: i32
+    init(h: i32) { self.handle = h }
+    pub func setText(field: i32, text: string) { statusBarSetText(self.handle, field, text) }
+}
+
+// ── ToolItem (wxToolBarToolBase — handle at field index 0) ─────
+pub class ToolItem {
+    var handle: i32
+    init(h: i32) { self.handle = h }
+    pub func onClick(cb: (i32) -> void) { toolItemOnClick(self.handle, cb) }
+    pub func setEnabled(b: bool) {
+        var v = 0
+        if b { v = 1 }
+        toolItemSetEnabled(self.handle, v)
+    }
+}
+
+// ── Toolbar (wxToolBar — a wxWindow) ───────────────────────────
+pub class Toolbar: Control {
+    init(parent: Control) { super.init(createToolbar(parent.handle)) }
+    pub func addTool(label: string, cb: (i32) -> void) -> ToolItem {
+        let h = toolbarAddTool(self.handle, label)
+        let t = ToolItem(h)
+        t.onClick(cb)
+        return t
+    }
+    pub func addSeparator() { toolbarAddSeparator(self.handle) }
+    pub func realize() { toolbarRealize(self.handle) }
 }

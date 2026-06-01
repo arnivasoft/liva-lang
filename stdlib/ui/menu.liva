@@ -1,0 +1,5 @@
+// std::ui menu — re-exports the menu classes from ui::widgets.
+// Menu/MenuBar/MenuItem live in ui::widgets to avoid an import cycle with
+// Window.setMenuBar / Control.onRightClick.
+// Import with: import ui::menu   (or simply import ui::widgets)
+import ui::widgets

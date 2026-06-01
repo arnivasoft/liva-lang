@@ -435,4 +435,25 @@ TEST(UICodegenExec, NonLiteralCallbackUsesStackEnv) {
         << "non-literal callback must not heap-own the env";
 }
 
+// ── Phase 2: menu system ───────────────────────────────────────────────
+TEST(UICodegenExec, MenuSystemCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "import ui::menu\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(640, 480, \"T\")\n"
+        "  let m = Menu(\"Dosya\")\n"
+        "  let item = m.addItem(\"Ac\", |_h: i32| { messageBox(\"i\", \"a\", 1) })\n"
+        "  item.setEnabled(false)\n"
+        "  m.addSeparator()\n"
+        "  m.addCheckItem(\"Kalin\", |_h: i32| { })\n"
+        "  let mb = MenuBar()\n"
+        "  mb.addMenu(m)\n"
+        "  win.setMenuBar(mb)\n"
+        "}\n",
+        "menu_system");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
