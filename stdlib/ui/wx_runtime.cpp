@@ -103,6 +103,7 @@ using LivaXYFn = void (*)(void *env, int32_t handle, int32_t x, int32_t y);
 struct LivaMenuItem {
     wxMenuItem *item = nullptr;
     int32_t id = 0;
+    wxMenu *ownerMenu = nullptr;     // the menu this item belongs to
     wxFrame *ownerFrame = nullptr;   // resolved when the menubar/popup is shown
     LivaCallbackFn pendingFn = nullptr;
     void *pendingEnv = nullptr;
@@ -122,6 +123,21 @@ static int g_nextCmdId = 20000;  // wx user command id range
 static std::unordered_map<int32_t, wxString> &g_menuTitles() {
     static std::unordered_map<int32_t, wxString> m;
     return m;
+}
+
+// Free the heap-owned callback envs of every menu/tool item bound to `frame`.
+// Menu/tool item envs are registered (in g_widgetEnvs) under the ITEM handle,
+// so the window-destroy sweep (which only knows the window handle) would miss
+// them; this sweeps them by owner frame. Called when a frame is destroyed.
+static void freeFrameOwnedItemEnvs(wxFrame *frame) {
+    if (!frame) return;
+    for (auto &kv : g_menuItems) {
+        if (kv.second.ownerFrame == frame) freeWidgetEnvs(kv.first);
+    }
+    for (auto &kv : g_toolItems) {
+        if (kv.second.toolbar && kv.second.toolbar->GetParent() == frame)
+            freeWidgetEnvs(kv.first);
+    }
 }
 
 struct LivaCallback {
@@ -315,8 +331,9 @@ void liva_ui_window_on_close(int32_t handle, void *func, void *env, int32_t size
     if (!f || !func) return;
     void *owned = ownEnv(handle, env, size);
     LivaCallback cb{(LivaCallbackFn)func, owned, handle};
-    f->Bind(wxEVT_CLOSE_WINDOW, [cb, handle](wxCloseEvent &evt) {
+    f->Bind(wxEVT_CLOSE_WINDOW, [cb, handle, f](wxCloseEvent &evt) {
         freeWidgetEnvs(handle);
+        freeFrameOwnedItemEnvs(f);  // sweep menu/tool item envs owned by this frame
         cb.invoke();
         evt.Skip();
     });
@@ -827,7 +844,9 @@ int32_t liva_ui_menu_add_item(int32_t menu, const char *label) {
     int id = g_nextCmdId++;
     auto *item = m->Append(id, wxString::FromUTF8(label ? label : ""));
     int32_t h = allocHandle(item);
-    g_menuItems[h] = LivaMenuItem{item, id, nullptr, nullptr, nullptr, false};
+    LivaMenuItem mi;
+    mi.item = item; mi.id = id; mi.ownerMenu = m;
+    g_menuItems[h] = mi;
     return h;
 }
 
@@ -837,7 +856,9 @@ int32_t liva_ui_menu_add_check_item(int32_t menu, const char *label) {
     int id = g_nextCmdId++;
     auto *item = m->AppendCheckItem(id, wxString::FromUTF8(label ? label : ""));
     int32_t h = allocHandle(item);
-    g_menuItems[h] = LivaMenuItem{item, id, nullptr, nullptr, nullptr, false};
+    LivaMenuItem mi;
+    mi.item = item; mi.id = id; mi.ownerMenu = m;
+    g_menuItems[h] = mi;
     return h;
 }
 
@@ -910,9 +931,11 @@ void liva_ui_menu_popup(int32_t menu, int32_t target) {
     auto *m = getHandle<wxMenu>(menu);
     auto *w = getHandle<wxWindow>(target);
     if (!m || !w) return;
+    // Flush only THIS menu's pending item bindings onto the target window, so
+    // popping one context menu doesn't steal another menu's pending items.
     for (auto &kv : g_menuItems) {
         auto &mi = kv.second;
-        if (mi.hasPending && mi.ownerFrame == nullptr) {
+        if (mi.hasPending && mi.ownerFrame == nullptr && mi.ownerMenu == m) {
             LivaCallbackFn fn = mi.pendingFn;
             void *env = mi.pendingEnv;
             int32_t ih = kv.first;
@@ -921,7 +944,19 @@ void liva_ui_menu_popup(int32_t menu, int32_t target) {
             mi.hasPending = false;
         }
     }
+    // PopupMenu is synchronous: it returns after the menu is dismissed and any
+    // selected item's handler has run. A popup menu (and its items) is
+    // typically built fresh per right-click, so free its item envs and drop its
+    // handle entries here to avoid a per-popup leak.
     w->PopupMenu(m);
+    for (auto it = g_menuItems.begin(); it != g_menuItems.end();) {
+        if (it->second.ownerMenu == m) {
+            freeWidgetEnvs(it->first);
+            it = g_menuItems.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 /* ── Context menu ──────────────────────────────────────────────────── */
