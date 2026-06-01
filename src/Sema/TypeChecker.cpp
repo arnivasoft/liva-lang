@@ -972,6 +972,19 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
         auto it = classDecls_.find(parentName);
         if (it == classDecls_.end()) {
             auto *parentSym = scopes_.lookup(parentName);
+            if (parentSym && parentSym->kind == Symbol::Kind::ClassType &&
+                parentSym->classDecl) {
+                // Parent is a class imported from another module — register it
+                // locally so inheritance, field, and method resolution can walk
+                // the chain. (Imported ClassType symbols carry their ClassDecl.)
+                classDecls_[parentName] = parentSym->classDecl;
+                if (parentSym->classDecl->hasParentClass())
+                    classParent_[parentName] = parentSym->classDecl->getParentClass();
+                it = classDecls_.find(parentName);
+            }
+        }
+        if (it == classDecls_.end()) {
+            auto *parentSym = scopes_.lookup(parentName);
             if (parentSym && parentSym->kind == Symbol::Kind::StructType) {
                 diag_.report(node->getStartLoc(), DiagID::err_class_inherits_nonclass,
                              node->getName(), parentName);
