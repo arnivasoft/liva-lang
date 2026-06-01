@@ -812,6 +812,10 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
 
     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
+    // Reset; set below once the env struct (if any) is built. The UI
+    // event-method fast path reads this right after visiting this closure.
+    lastClosureEnvSize_ = 0;
+
     // --- Build environment struct (in outer function context) ---
     llvm::Value *envPtr = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy));
     llvm::StructType *envStructTy = nullptr;
@@ -828,6 +832,9 @@ llvm::Value *IRGen::visitClosureExpr(ClosureExpr *node) {
         }
         envStructTy = llvm::StructType::create(*context_, envFields,
             "__env_" + std::to_string(closureCounter_));
+
+        lastClosureEnvSize_ =
+            module_->getDataLayout().getTypeAllocSize(envStructTy);
 
         auto *outerFunc = builder_->GetInsertBlock()->getParent();
         auto *envAlloca = createEntryBlockAlloca(outerFunc, "env", envStructTy);

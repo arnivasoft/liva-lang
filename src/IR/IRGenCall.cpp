@@ -75,6 +75,66 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *memberExpr = static_cast<MemberExpr *>(node->getCallee());
         const auto &methodName = memberExpr->getMember();
 
+        // ── UI event-method fast path: heap-own inline closure envs ───────
+        // `widget.onClick(|..| { ... })` (and onChange/onSelect/onKey) where
+        // the argument is a closure LITERAL. The widget classes expose these
+        // as ordinary methods that forward the closure with env size 0 (stack
+        // env) — which dangles if the binding scope (e.g. a helper returning
+        // the widget) ends before the widget. Here we intercept the literal,
+        // compute its captured-env size, and pass it so the runtime heap-copies
+        // the env and frees it on widget destroy. Non-literal args fall through
+        // to the ordinary method (stack env).
+        {
+            const char *cFn =
+                methodName == "onClick"  ? "liva_ui_on_click"
+              : methodName == "onChange" ? "liva_ui_on_change"
+              : methodName == "onSelect" ? "liva_ui_on_select"
+              : methodName == "onKey"    ? "liva_ui_on_key"
+                                         : nullptr;
+            if (cFn && node->getArgs().size() == 1 &&
+                node->getArgs()[0]->getKind() == ASTNode::NodeKind::ClosureExpr) {
+                std::string recvClass = resolveExprClassTypeName(memberExpr->getObject());
+                auto isControlDescendant = [&](std::string tn) -> bool {
+                    for (int i = 0; i < 64 && !tn.empty(); ++i) {
+                        if (tn == "Control") return true;
+                        auto it = classParent_.find(tn);
+                        if (it == classParent_.end()) return false;
+                        tn = it->second;
+                    }
+                    return false;
+                };
+                auto ctlIt = classTypes_.find("Control");
+                if (!recvClass.empty() && isControlDescendant(recvClass) &&
+                    ctlIt != classTypes_.end()) {
+                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                    llvm::Value *selfPtr = visit(memberExpr->getObject());
+                    if (!selfPtr) return nullptr;
+                    // Control layout: { vtable_ptr, handle, ... } → handle at idx 1.
+                    auto *handleGEP = builder_->CreateStructGEP(
+                        ctlIt->second, selfPtr, 1, "handle.gep");
+                    auto *handle = builder_->CreateLoad(
+                        builder_->getInt32Ty(), handleGEP, "handle");
+                    lastClosureEnvSize_ = 0;
+                    auto *closureVal = visit(node->getArgs()[0].get());
+                    if (!closureVal) return nullptr;
+                    uint64_t envSize = lastClosureEnvSize_;
+                    auto *closureObjTy = getClosureObjTy();
+                    auto *cbAlloca = createEntryBlockAlloca(
+                        builder_->GetInsertBlock()->getParent(), "cb.tmp", closureObjTy);
+                    builder_->CreateStore(closureVal, cbAlloca);
+                    auto *fnPtr = builder_->CreateLoad(
+                        ptrTy, builder_->CreateStructGEP(closureObjTy, cbAlloca, 0));
+                    auto *envPtr = builder_->CreateLoad(
+                        ptrTy, builder_->CreateStructGEP(closureObjTy, cbAlloca, 1));
+                    auto *i32Ty = builder_->getInt32Ty();
+                    builder_->CreateCall(
+                        getOrPanic(cFn),
+                        {handle, fnPtr, envPtr, llvm::ConstantInt::get(i32Ty, envSize)});
+                    return llvm::Constant::getNullValue(i32Ty);
+                }
+            }
+        }
+
         // Result.ok(val) / Result.err(val) constructor
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
@@ -1297,41 +1357,54 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // arbitrary expression (e.g. a member access) whose resolved type is a
         // class. Class instances are pointers, so visiting the receiver yields
         // the self pointer directly.
-        if (auto *recvType = memberExpr->getObject()->getResolvedType()) {
-            if (recvType->getKind() == TypeRepr::Kind::Named) {
-                auto *named = static_cast<const NamedTypeRepr *>(recvType);
-                if (classTypes_.count(named->getName())) {
-                    // Find the method owner by walking the inheritance chain
-                    // and looking for a mangled `Type_method` definition.
-                    std::string foundClass;
-                    {
-                        std::string tn = named->getName();
-                        for (int i = 0; i < 64 && !tn.empty(); ++i) {
-                            if (module_->getFunction(tn + "_" + methodName)) {
-                                foundClass = tn;
-                                break;
-                            }
-                            auto pit = classParent_.find(tn);
-                            if (pit == classParent_.end()) break;
-                            tn = pit->second;
+        // We try the Sema resolved type first; if that is absent (e.g. inside a
+        // class method body where TypeChecker uses currentClassName_ rather than
+        // currentImplTypeName_), fall back to resolveExprClassTypeName().
+        {
+            std::string chainedClsName;
+            if (auto *recvType = memberExpr->getObject()->getResolvedType()) {
+                if (recvType->getKind() == TypeRepr::Kind::Named) {
+                    auto *named = static_cast<const NamedTypeRepr *>(recvType);
+                    if (classTypes_.count(named->getName()))
+                        chainedClsName = named->getName();
+                }
+            }
+            if (chainedClsName.empty())
+                chainedClsName = resolveExprClassTypeName(memberExpr->getObject());
+
+            if (!chainedClsName.empty()) {
+                // Find the method owner by walking the inheritance chain
+                // and looking for a mangled `Type_method` definition.
+                std::string foundClass;
+                {
+                    std::string tn = chainedClsName;
+                    for (int i = 0; i < 64 && !tn.empty(); ++i) {
+                        if (module_->getFunction(tn + "_" + methodName)) {
+                            foundClass = tn;
+                            break;
                         }
+                        auto pit = classParent_.find(tn);
+                        if (pit == classParent_.end()) break;
+                        tn = pit->second;
                     }
-                    if (!foundClass.empty()) {
-                        std::string mangledName = foundClass + "_" + methodName;
-                        if (auto *callee = module_->getFunction(mangledName)) {
-                            llvm::Value *selfPtr = visit(memberExpr->getObject());
-                            if (!selfPtr) return nullptr;
-                            std::vector<llvm::Value *> callArgs;
-                            callArgs.push_back(selfPtr);
-                            for (auto &arg : node->getArgs()) {
-                                auto *v = visit(arg.get());
-                                if (!v) return nullptr;
-                                callArgs.push_back(v);
-                            }
-                            return builder_->CreateCall(
-                                callee, callArgs,
-                                callee->getReturnType()->isVoidTy() ? "" : "callm");
+                }
+                if (!foundClass.empty()) {
+                    std::string mangledName = foundClass + "_" + methodName;
+                    if (auto *callee = module_->getFunction(mangledName)) {
+                        llvm::Value *selfPtr = visit(memberExpr->getObject());
+                        if (!selfPtr) return nullptr;
+                        std::vector<llvm::Value *> callArgs;
+                        callArgs.push_back(selfPtr);
+                        for (auto &arg : node->getArgs()) {
+                            auto *v = visit(arg.get());
+                            if (!v) return nullptr;
+                            callArgs.push_back(v);
                         }
+                        if (callee->getReturnType()->isVoidTy()) {
+                            builder_->CreateCall(callee, callArgs);
+                            return nullptr;
+                        }
+                        return builder_->CreateCall(callee, callArgs, "callm");
                     }
                 }
             }
@@ -4858,8 +4931,13 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *envPtr = builder_->CreateLoad(
             llvm::PointerType::getUnqual(*context_),
             builder_->CreateStructGEP(closureObjTy, alloca, 1));
-        builder_->CreateCall(getOrPanic(cFuncName.c_str()), {handle, funcPtr, envPtr});
-        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+        // Free-function / ordinary-method path: the env stays on the caller's
+        // stack, so pass size 0 (no heap-own). The inline closure-literal fast
+        // path in visitCallExpr passes a real size instead.
+        auto *i32Ty = builder_->getInt32Ty();
+        builder_->CreateCall(getOrPanic(cFuncName.c_str()),
+                             {handle, funcPtr, envPtr, llvm::ConstantInt::get(i32Ty, 0)});
+        return llvm::Constant::getNullValue(i32Ty);
     };
 
     // appInit() -> void
@@ -6070,6 +6148,55 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
     return val;
 }
 
+std::string IRGen::resolveExprClassTypeName(Expr *expr) {
+    if (!expr) return {};
+
+    // Fast path: use Sema's resolved type if available.
+    if (auto *rt = expr->getResolvedType()) {
+        if (rt->getKind() == TypeRepr::Kind::Named) {
+            auto *named = static_cast<const NamedTypeRepr *>(rt);
+            if (classTypes_.count(named->getName()))
+                return named->getName();
+        }
+    }
+
+    // Identifier: look up in varClassTypes (works for locals, params, 'self').
+    if (expr->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(expr);
+        auto it = vars_.varClassTypes.find(ident->getName());
+        if (it != vars_.varClassTypes.end())
+            return it->second;
+    }
+
+    // MemberExpr obj.field: recursively resolve obj's class type, then look up
+    // the field's declared type in classFieldTypeReprs_.
+    if (expr->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *mem = static_cast<MemberExpr *>(expr);
+        std::string objClass = resolveExprClassTypeName(mem->getObject());
+        if (!objClass.empty()) {
+            auto cfnIt = classFieldNames_.find(objClass);
+            auto cftrIt = classFieldTypeReprs_.find(objClass);
+            if (cfnIt != classFieldNames_.end() && cftrIt != classFieldTypeReprs_.end()) {
+                for (size_t i = 0; i < cfnIt->second.size(); ++i) {
+                    if (cfnIt->second[i] == mem->getMember()) {
+                        if (i < cftrIt->second.size()) {
+                            auto *fieldType = cftrIt->second[i];
+                            if (fieldType && fieldType->getKind() == TypeRepr::Kind::Named) {
+                                auto *named = static_cast<const NamedTypeRepr *>(fieldType);
+                                if (classTypes_.count(named->getName()))
+                                    return named->getName();
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    return {};
+}
+
 llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
     if (diBuilder_) emitDebugLocation(node->getStartLoc());
     // Optional chaining: obj?.field
@@ -6415,6 +6542,38 @@ llvm::Value *IRGen::visitMemberExpr(MemberExpr *node) {
                                 classTy->getElementType(structIdx), gep,
                                 node->getMember() + ".val");
                         }
+                    }
+                }
+            }
+        }
+        // Fallback for class field access when Sema did not set resolvedType on
+        // the object expression (e.g. `self.inner.v` inside a class method body
+        // where TypeChecker uses currentClassName_ rather than
+        // currentImplTypeName_, so `self.inner` has no resolvedType).
+        // Use resolveExprClassTypeName() to walk the maps directly.
+        {
+            std::string clsName = resolveExprClassTypeName(node->getObject());
+            if (!clsName.empty()) {
+                auto ctIt2 = classTypes_.find(clsName);
+                auto cfIt2 = classFieldNames_.find(clsName);
+                if (ctIt2 != classTypes_.end() && cfIt2 != classFieldNames_.end()) {
+                    int fieldIdx = -1;
+                    for (size_t i = 0; i < cfIt2->second.size(); ++i) {
+                        if (cfIt2->second[i] == node->getMember()) {
+                            fieldIdx = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                    if (fieldIdx >= 0) {
+                        int structIdx = fieldIdx + 1; // vtable ptr at index 0
+                        auto *classTy = ctIt2->second;
+                        llvm::Value *basePtr = visit(node->getObject());
+                        if (!basePtr) return nullptr;
+                        auto *gep = builder_->CreateStructGEP(
+                            classTy, basePtr, structIdx, node->getMember());
+                        return builder_->CreateLoad(
+                            classTy->getElementType(structIdx), gep,
+                            node->getMember() + ".val");
                     }
                 }
             }

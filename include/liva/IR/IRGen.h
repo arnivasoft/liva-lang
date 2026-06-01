@@ -565,6 +565,11 @@ private:
     /// Counter for generating unique closure names
     int closureCounter_ = 0;
 
+    /// Alloc size (bytes) of the most recently visited closure literal's env
+    /// struct; 0 when it captured nothing. Read by the UI event-method fast
+    /// path immediately after visiting the closure to heap-own the env.
+    uint64_t lastClosureEnvSize_ = 0;
+
     /// Closure object type: { ptr func_ptr, ptr env_ptr }
     llvm::StructType *closureObjTy_ = nullptr;
 
@@ -614,6 +619,12 @@ private:
     /// Get or create a vtable for type conforming to protocol
     llvm::GlobalVariable *getOrCreateVtable(const std::string &protocolName,
                                               const std::string &typeName);
+
+    /// Walk an expression and determine its class type name using IRGen maps.
+    /// Returns empty string if the expression does not resolve to a known class
+    /// type.  Handles IdentifierExpr (varClassTypes) and MemberExpr chains
+    /// (classFieldTypeReprs_) without requiring Sema to have set resolvedType.
+    std::string resolveExprClassTypeName(Expr *expr);
 
     /// Monomorphization statistics
     MonoStats monoStats_;

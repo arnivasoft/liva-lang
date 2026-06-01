@@ -362,12 +362,26 @@ TEST(UICodegenExec, UiAnimationEasing) {
 // returns the widget would dangle. (The runtime side is verified by the size
 // argument being non-zero; we assert on the emitted IR call.)
 
-// Pull the env-size (4th) argument of the first liva_ui_on_click call.
-static std::string firstOnClickCall(const std::string &ir) {
-    auto p = ir.find("call void @liva_ui_on_click(");
-    if (p == std::string::npos) return "";
-    auto end = ir.find(')', p);
-    return ir.substr(p, end == std::string::npos ? std::string::npos : end - p + 1);
+// True if any liva_ui_on_click CALL site passes a non-zero env size (4th arg),
+// i.e. the heap-own fast path fired. Note: the Control.onClick method body also
+// emits a stack-env (`, i32 0)`) call, so we scan ALL call sites rather than
+// just the first.
+static bool anyOnClickHeapOwns(const std::string &ir) {
+    const std::string needle = "call void @liva_ui_on_click(";
+    for (size_t p = ir.find(needle); p != std::string::npos;
+         p = ir.find(needle, p + 1)) {
+        size_t end = ir.find(')', p);
+        if (end == std::string::npos) break;
+        std::string call = ir.substr(p, end - p + 1);
+        if (call.find(", i32 0)") == std::string::npos)
+            return true; // a call whose size arg is not literally 0
+    }
+    return false;
+}
+
+// True if at least one liva_ui_on_click call exists.
+static bool hasOnClickCall(const std::string &ir) {
+    return ir.find("call void @liva_ui_on_click(") != std::string::npos;
 }
 
 TEST(UICodegenExec, InlineCallbackLiteralHeapOwnsEnv) {
@@ -377,7 +391,10 @@ TEST(UICodegenExec, InlineCallbackLiteralHeapOwnsEnv) {
         "func buildCounter(panel: Control) -> Button {\n"
         "  var count = 0\n"
         "  let btn = Button(panel, \"x\")\n"
-        "  btn.onClick(|_h: i32| { count = count + 1; btn.setText(\"y\") })\n"
+        "  btn.onClick(|_h: i32| {\n"
+        "    count = count + 1\n"
+        "    btn.setText(\"y\")\n"
+        "  })\n"
         "  return btn\n"
         "}\n"
         "func main() {\n"
@@ -388,11 +405,11 @@ TEST(UICodegenExec, InlineCallbackLiteralHeapOwnsEnv) {
         "}\n",
         "inline_cb_heap");
     ASSERT_TRUE(emitsClean(ir));
-    std::string call = firstOnClickCall(ir);
-    ASSERT_FALSE(call.empty()) << "no liva_ui_on_click call in IR";
-    // Last arg is the env size; for a capturing inline literal it must not be 0.
-    EXPECT_EQ(call.find(", i32 0)"), std::string::npos)
-        << "expected non-zero env size, got: " << call;
+    ASSERT_TRUE(hasOnClickCall(ir)) << "no liva_ui_on_click call in IR";
+    // The inline closure literal captures `count`/`btn`, so the fast path must
+    // emit a call with a non-zero env size (heap-own).
+    EXPECT_TRUE(anyOnClickHeapOwns(ir))
+        << "expected a heap-own (non-zero env size) call site";
 }
 
 TEST(UICodegenExec, NonLiteralCallbackUsesStackEnv) {
@@ -410,10 +427,12 @@ TEST(UICodegenExec, NonLiteralCallbackUsesStackEnv) {
         "}\n",
         "nonliteral_cb_stack");
     ASSERT_TRUE(emitsClean(ir));
-    std::string call = firstOnClickCall(ir);
-    ASSERT_FALSE(call.empty()) << "no liva_ui_on_click call in IR";
-    EXPECT_NE(call.find(", i32 0)"), std::string::npos)
-        << "expected stack env (size 0), got: " << call;
+    // A non-literal argument does NOT take the heap-own fast path: it lowers
+    // through the ordinary Control.onClick method (env size 0 — stack env).
+    // (Phase-1 documented limitation.) No call site heap-owns.
+    ASSERT_TRUE(hasOnClickCall(ir)) << "no liva_ui_on_click call in IR";
+    EXPECT_FALSE(anyOnClickHeapOwns(ir))
+        << "non-literal callback must not heap-own the env";
 }
 
 #endif // LIVA_HAS_LLVM

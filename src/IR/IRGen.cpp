@@ -1325,8 +1325,10 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_window_get_width", uiHandleRetI32Ty);
     module_->getOrInsertFunction("liva_ui_window_get_height", uiHandleRetI32Ty);
 
-    // Callback type: (i32 handle, ptr func, ptr env) -> void
-    auto *uiCallbackTy = llvm::FunctionType::get(voidTy, {i32Ty, ptrTy, ptrTy}, false);
+    // Callback type: (i32 handle, ptr func, ptr env, i32 env_size) -> void.
+    // env_size > 0 tells the runtime to heap-copy the (stack) env and free it
+    // when the widget is destroyed; 0 keeps the caller-owned (stack) env.
+    auto *uiCallbackTy = llvm::FunctionType::get(voidTy, {i32Ty, ptrTy, ptrTy, i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_window_on_close", uiCallbackTy);
     module_->getOrInsertFunction("liva_ui_on_click", uiCallbackTy);
     module_->getOrInsertFunction("liva_ui_on_change", uiCallbackTy);
