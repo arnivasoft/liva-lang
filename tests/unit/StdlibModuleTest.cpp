@@ -1565,3 +1565,36 @@ TEST_F(StdlibModuleTest, TomlDocumentMethods) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "TomlDocument methods should type-check";
 }
+
+// ============================================================
+// Collections: BTreeMap (P1-8 alt-spec 3)
+// ============================================================
+
+TEST_F(StdlibModuleTest, BTreeMapI64I64Type) {
+    auto r = check(
+        "import collections::btree\n"
+        "func main() {\n"
+        "    var m = BTreeMapI64I64.new()\n"
+        "    m.insert(1, 100)\n"
+        "    let v = m.get(1)\n"
+        "    let n = m.size()\n"
+        "    let e = m.isEmpty()\n"
+        "    m.remove(1)\n"
+        "    m.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed);
+}
+
+TEST_F(StdlibModuleTest, BTreeMapStrI64Type) {
+    auto r = check(
+        "import collections::btree\n"
+        "func main() {\n"
+        "    var m = BTreeMapStrI64.new()\n"
+        "    m.insert(\"key\", 42)\n"
+        "    let v = m.get(\"key\")\n"
+        "    m.free()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed);
+}

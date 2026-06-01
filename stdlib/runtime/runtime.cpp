@@ -1152,74 +1152,87 @@ extern "C" int64_t liva_hash_char(int32_t codepoint) {
 // Backed by std::map for ordered O(log n) semantics. Two type-specialized
 // families: i64 keys and string keys, both with i64 values.
 
+// BTreeMap i32-key family: keys and values use int32_t so Liva integer
+// literals (emitted as i32) match FFI parameter types without widening.
 extern "C" int64_t liva_btree_i64_new() {
-    return reinterpret_cast<int64_t>(new std::map<int64_t, int64_t>());
+    return reinterpret_cast<int64_t>(new std::map<int32_t, int32_t>());
 }
 
 extern "C" void liva_btree_i64_free(int64_t handle) {
-    delete reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+    delete reinterpret_cast<std::map<int32_t, int32_t>*>(handle);
 }
 
-extern "C" void liva_btree_i64_insert(int64_t handle, int64_t key, int64_t value) {
-    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+extern "C" void liva_btree_i64_insert(int64_t handle, int32_t key, int32_t value) {
+    auto *m = reinterpret_cast<std::map<int32_t, int32_t>*>(handle);
     (*m)[key] = value;
 }
 
-extern "C" int64_t liva_btree_i64_get(int64_t handle, int64_t key) {
-    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+extern "C" int32_t liva_btree_i64_get(int64_t handle, int32_t key) {
+    auto *m = reinterpret_cast<std::map<int32_t, int32_t>*>(handle);
     auto it = m->find(key);
-    if (it == m->end()) return INT64_MIN;
+    if (it == m->end()) return INT32_MIN;
     return it->second;
 }
 
-extern "C" int8_t liva_btree_i64_contains(int64_t handle, int64_t key) {
-    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+extern "C" int32_t liva_btree_i64_contains(int64_t handle, int32_t key) {
+    auto *m = reinterpret_cast<std::map<int32_t, int32_t>*>(handle);
     return m->find(key) != m->end() ? 1 : 0;
 }
 
-extern "C" int8_t liva_btree_i64_remove(int64_t handle, int64_t key) {
-    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
+extern "C" int32_t liva_btree_i64_remove(int64_t handle, int32_t key) {
+    auto *m = reinterpret_cast<std::map<int32_t, int32_t>*>(handle);
     return m->erase(key) > 0 ? 1 : 0;
 }
 
-extern "C" int64_t liva_btree_i64_size(int64_t handle) {
-    auto *m = reinterpret_cast<std::map<int64_t, int64_t>*>(handle);
-    return static_cast<int64_t>(m->size());
+extern "C" int32_t liva_btree_i64_size(int64_t handle) {
+    auto *m = reinterpret_cast<std::map<int32_t, int32_t>*>(handle);
+    return static_cast<int32_t>(m->size());
 }
 
+extern "C" int32_t liva_btree_i64_is_empty(int64_t handle) {
+    auto *m = reinterpret_cast<std::map<int32_t, int32_t>*>(handle);
+    return m->empty() ? 1 : 0;
+}
+
+// BTreeMap str-key family: string keys, int32_t values.
 extern "C" int64_t liva_btree_str_new() {
-    return reinterpret_cast<int64_t>(new std::map<std::string, int64_t>());
+    return reinterpret_cast<int64_t>(new std::map<std::string, int32_t>());
 }
 
 extern "C" void liva_btree_str_free(int64_t handle) {
-    delete reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+    delete reinterpret_cast<std::map<std::string, int32_t>*>(handle);
 }
 
-extern "C" void liva_btree_str_insert(int64_t handle, const char *key, int64_t value) {
-    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+extern "C" void liva_btree_str_insert(int64_t handle, const char *key, int32_t value) {
+    auto *m = reinterpret_cast<std::map<std::string, int32_t>*>(handle);
     (*m)[std::string(key ? key : "")] = value;
 }
 
-extern "C" int64_t liva_btree_str_get(int64_t handle, const char *key) {
-    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+extern "C" int32_t liva_btree_str_get(int64_t handle, const char *key) {
+    auto *m = reinterpret_cast<std::map<std::string, int32_t>*>(handle);
     auto it = m->find(std::string(key ? key : ""));
-    if (it == m->end()) return INT64_MIN;
+    if (it == m->end()) return INT32_MIN;
     return it->second;
 }
 
-extern "C" int8_t liva_btree_str_contains(int64_t handle, const char *key) {
-    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+extern "C" int32_t liva_btree_str_contains(int64_t handle, const char *key) {
+    auto *m = reinterpret_cast<std::map<std::string, int32_t>*>(handle);
     return m->find(std::string(key ? key : "")) != m->end() ? 1 : 0;
 }
 
-extern "C" int8_t liva_btree_str_remove(int64_t handle, const char *key) {
-    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
+extern "C" int32_t liva_btree_str_remove(int64_t handle, const char *key) {
+    auto *m = reinterpret_cast<std::map<std::string, int32_t>*>(handle);
     return m->erase(std::string(key ? key : "")) > 0 ? 1 : 0;
 }
 
-extern "C" int64_t liva_btree_str_size(int64_t handle) {
-    auto *m = reinterpret_cast<std::map<std::string, int64_t>*>(handle);
-    return static_cast<int64_t>(m->size());
+extern "C" int32_t liva_btree_str_size(int64_t handle) {
+    auto *m = reinterpret_cast<std::map<std::string, int32_t>*>(handle);
+    return static_cast<int32_t>(m->size());
+}
+
+extern "C" int32_t liva_btree_str_is_empty(int64_t handle) {
+    auto *m = reinterpret_cast<std::map<std::string, int32_t>*>(handle);
+    return m->empty() ? 1 : 0;
 }
 
 static int keys_equal(const void *a, const void *b, int64_t key_size, int8_t key_kind) {

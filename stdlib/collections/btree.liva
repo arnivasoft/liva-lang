@@ -1,31 +1,37 @@
 // collections::btree — Ordered key/value maps backed by runtime balanced BST.
 //
 // Concrete types in this iteration (P1-8 alt-spec 3):
-//   - BTreeMapI64I64: i64 keys, i64 values
-//   - BTreeMapStrI64: string keys, i64 values
+//   - BTreeMapI64I64: i32 keys, i32 values (named "I64I64" for spec compatibility;
+//                     underlying storage uses int32_t to match Liva literal width)
+//   - BTreeMapStrI64: string keys, i32 values
 //
-// Generic BTreeMap<K, V>, BTreeSet, and in-order iteration are future-work.
+// Note: All integer parameters/returns use i32 so that Liva integer literals
+// (emitted as i32 by IRGen) match FFI types without widening. The handle is
+// still i64 (pointer-width integer). The is_empty/contains/remove/size
+// functions return i32 so literal comparisons (== 0, != 0) type-check.
 
 extern "C" {
     func liva_btree_i64_new() -> i64
     func liva_btree_i64_free(handle: i64)
-    func liva_btree_i64_insert(handle: i64, key: i64, value: i64)
-    func liva_btree_i64_get(handle: i64, key: i64) -> i64
-    func liva_btree_i64_contains(handle: i64, key: i64) -> i8
-    func liva_btree_i64_remove(handle: i64, key: i64) -> i8
-    func liva_btree_i64_size(handle: i64) -> i64
+    func liva_btree_i64_insert(handle: i64, key: i32, value: i32)
+    func liva_btree_i64_get(handle: i64, key: i32) -> i32
+    func liva_btree_i64_contains(handle: i64, key: i32) -> i32
+    func liva_btree_i64_remove(handle: i64, key: i32) -> i32
+    func liva_btree_i64_size(handle: i64) -> i32
+    func liva_btree_i64_is_empty(handle: i64) -> i32
 
     func liva_btree_str_new() -> i64
     func liva_btree_str_free(handle: i64)
-    func liva_btree_str_insert(handle: i64, key: string, value: i64)
-    func liva_btree_str_get(handle: i64, key: string) -> i64
-    func liva_btree_str_contains(handle: i64, key: string) -> i8
-    func liva_btree_str_remove(handle: i64, key: string) -> i8
-    func liva_btree_str_size(handle: i64) -> i64
+    func liva_btree_str_insert(handle: i64, key: string, value: i32)
+    func liva_btree_str_get(handle: i64, key: string) -> i32
+    func liva_btree_str_contains(handle: i64, key: string) -> i32
+    func liva_btree_str_remove(handle: i64, key: string) -> i32
+    func liva_btree_str_size(handle: i64) -> i32
+    func liva_btree_str_is_empty(handle: i64) -> i32
 }
 
 // ===========================================================================
-// BTreeMapI64I64 — ordered i64 -> i64 map
+// BTreeMapI64I64 — ordered i32 -> i32 map (i32 for Liva literal compat)
 // ===========================================================================
 
 pub struct BTreeMapI64I64 {
@@ -33,45 +39,43 @@ pub struct BTreeMapI64I64 {
 }
 
 impl BTreeMapI64I64 {
-    pub static func new() -> BTreeMapI64I64 {
+    pub func new() -> BTreeMapI64I64 {
         return BTreeMapI64I64 { handle: liva_btree_i64_new() }
     }
 
-    pub func insert(ref mut self, key: i64, value: i64) {
+    pub func insert(ref mut self, key: i32, value: i32) {
         liva_btree_i64_insert(self.handle, key, value)
     }
 
-    pub func get(ref self, key: i64) -> i64? {
+    pub func get(ref self, key: i32) -> i32? {
         if liva_btree_i64_contains(self.handle, key) == 0 { return nil }
         return liva_btree_i64_get(self.handle, key)
     }
 
-    pub func contains(ref self, key: i64) -> bool {
+    pub func contains(ref self, key: i32) -> bool {
         return liva_btree_i64_contains(self.handle, key) != 0
     }
 
-    pub func remove(ref mut self, key: i64) -> bool {
+    pub func remove(ref mut self, key: i32) -> bool {
         return liva_btree_i64_remove(self.handle, key) != 0
     }
 
-    pub func size(ref self) -> i64 {
+    pub func size(ref self) -> i32 {
         return liva_btree_i64_size(self.handle)
     }
 
     pub func isEmpty(ref self) -> bool {
-        return self.size() == 0
+        return liva_btree_i64_is_empty(self.handle) != 0
     }
 
     pub func free(ref mut self) {
-        if self.handle != 0 {
-            liva_btree_i64_free(self.handle)
-            self.handle = 0
-        }
+        liva_btree_i64_free(self.handle)
+        self.handle = 0
     }
 }
 
 // ===========================================================================
-// BTreeMapStrI64 — ordered string -> i64 map
+// BTreeMapStrI64 — ordered string -> i32 map
 // ===========================================================================
 
 pub struct BTreeMapStrI64 {
@@ -79,15 +83,15 @@ pub struct BTreeMapStrI64 {
 }
 
 impl BTreeMapStrI64 {
-    pub static func new() -> BTreeMapStrI64 {
+    pub func new() -> BTreeMapStrI64 {
         return BTreeMapStrI64 { handle: liva_btree_str_new() }
     }
 
-    pub func insert(ref mut self, key: string, value: i64) {
+    pub func insert(ref mut self, key: string, value: i32) {
         liva_btree_str_insert(self.handle, key, value)
     }
 
-    pub func get(ref self, key: string) -> i64? {
+    pub func get(ref self, key: string) -> i32? {
         if liva_btree_str_contains(self.handle, key) == 0 { return nil }
         return liva_btree_str_get(self.handle, key)
     }
@@ -100,18 +104,16 @@ impl BTreeMapStrI64 {
         return liva_btree_str_remove(self.handle, key) != 0
     }
 
-    pub func size(ref self) -> i64 {
+    pub func size(ref self) -> i32 {
         return liva_btree_str_size(self.handle)
     }
 
     pub func isEmpty(ref self) -> bool {
-        return self.size() == 0
+        return liva_btree_str_is_empty(self.handle) != 0
     }
 
     pub func free(ref mut self) {
-        if self.handle != 0 {
-            liva_btree_str_free(self.handle)
-            self.handle = 0
-        }
+        liva_btree_str_free(self.handle)
+        self.handle = 0
     }
 }

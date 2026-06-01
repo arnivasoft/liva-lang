@@ -492,4 +492,108 @@ TEST(RuntimeExecTest, HashStringDifferentInputs) {
         << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// BTreeMap runtime tests (P1-8 alt-spec 3)
+// ============================================================
+
+TEST(RuntimeExecTest, BTreeMapI64OrderedInsertGet) {
+    // Use local variables for unwrap so the Optional alloca is in scope.
+    auto r = compileAndRun(R"--(
+        import collections::btree
+        func main() {
+            var m = BTreeMapI64I64.new()
+            m.insert(5, 50)
+            m.insert(2, 20)
+            m.insert(8, 80)
+            let v5 = m.get(5)
+            let v2 = m.get(2)
+            let v8 = m.get(8)
+            println(v5.unwrap())
+            println(v2.unwrap())
+            println(v8.unwrap())
+            println(m.size())
+            m.free()
+        }
+    )--", "btree_i64_ordered");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("50"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("20"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("80"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("3"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, BTreeMapI64ContainsAndRemove) {
+    auto r = compileAndRun(R"--(
+        import collections::btree
+        func main() {
+            var m = BTreeMapI64I64.new()
+            m.insert(10, 100)
+            m.insert(20, 200)
+            if m.contains(10) { println("has10") }
+            m.remove(10)
+            if m.contains(10) { println("still10") } else { println("no10") }
+            m.free()
+        }
+    )--", "btree_i64_contains_remove");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("has10"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("no10"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, BTreeMapStrLookup) {
+    // Use local variables for unwrap; use contains() to check missing key.
+    auto r = compileAndRun(R"--(
+        import collections::btree
+        func main() {
+            var m = BTreeMapStrI64.new()
+            m.insert("apple", 1)
+            m.insert("banana", 2)
+            m.insert("cherry", 3)
+            let va = m.get("apple")
+            let vb = m.get("banana")
+            let vc = m.get("cherry")
+            println(va.unwrap())
+            println(vb.unwrap())
+            println(vc.unwrap())
+            if !m.contains("missing") { println("absent") }
+            m.free()
+        }
+    )--", "btree_str_lookup");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("1"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("2"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("3"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("absent"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, BTreeMapI64SizeAndIsEmpty) {
+    auto r = compileAndRun(R"--(
+        import collections::btree
+        func main() {
+            var m = BTreeMapI64I64.new()
+            if m.isEmpty() { println("empty") }
+            m.insert(1, 1)
+            m.insert(2, 2)
+            m.insert(3, 3)
+            println(m.size())
+            m.free()
+        }
+    )--", "btree_i64_size_empty");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("empty"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("3"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
