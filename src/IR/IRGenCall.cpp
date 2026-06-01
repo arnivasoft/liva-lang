@@ -76,62 +76,121 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         const auto &methodName = memberExpr->getMember();
 
         // ── UI event-method fast path: heap-own inline closure envs ───────
-        // `widget.onClick(|..| { ... })` (and onChange/onSelect/onKey) where
-        // the argument is a closure LITERAL. The widget classes expose these
-        // as ordinary methods that forward the closure with env size 0 (stack
-        // env) — which dangles if the binding scope (e.g. a helper returning
-        // the widget) ends before the widget. Here we intercept the literal,
-        // compute its captured-env size, and pass it so the runtime heap-copies
-        // the env and frees it on widget destroy. Non-literal args fall through
-        // to the ordinary method (stack env).
-        {
-            const char *cFn =
-                methodName == "onClick"  ? "liva_ui_on_click"
-              : methodName == "onChange" ? "liva_ui_on_change"
-              : methodName == "onSelect" ? "liva_ui_on_select"
-              : methodName == "onKey"    ? "liva_ui_on_key"
-                                         : nullptr;
-            if (cFn && node->getArgs().size() == 1 &&
-                node->getArgs()[0]->getKind() == ASTNode::NodeKind::ClosureExpr) {
-                std::string recvClass = resolveExprClassTypeName(memberExpr->getObject());
-                auto isControlDescendant = [&](std::string tn) -> bool {
-                    for (int i = 0; i < 64 && !tn.empty(); ++i) {
-                        if (tn == "Control") return true;
-                        auto it = classParent_.find(tn);
-                        if (it == classParent_.end()) return false;
-                        tn = it->second;
-                    }
-                    return false;
-                };
-                auto ctlIt = classTypes_.find("Control");
-                if (!recvClass.empty() && isControlDescendant(recvClass) &&
-                    ctlIt != classTypes_.end()) {
-                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                    llvm::Value *selfPtr = visit(memberExpr->getObject());
-                    if (!selfPtr) return nullptr;
-                    // Control layout: { vtable_ptr, handle, ... } → handle at idx 1.
-                    auto *handleGEP = builder_->CreateStructGEP(
-                        ctlIt->second, selfPtr, 1, "handle.gep");
-                    auto *handle = builder_->CreateLoad(
-                        builder_->getInt32Ty(), handleGEP, "handle");
-                    lastClosureEnvSize_ = 0;
-                    auto *closureVal = visit(node->getArgs()[0].get());
-                    if (!closureVal) return nullptr;
-                    uint64_t envSize = lastClosureEnvSize_;
-                    auto *closureObjTy = getClosureObjTy();
-                    auto *cbAlloca = createEntryBlockAlloca(
-                        builder_->GetInsertBlock()->getParent(), "cb.tmp", closureObjTy);
-                    builder_->CreateStore(closureVal, cbAlloca);
-                    auto *fnPtr = builder_->CreateLoad(
-                        ptrTy, builder_->CreateStructGEP(closureObjTy, cbAlloca, 0));
-                    auto *envPtr = builder_->CreateLoad(
-                        ptrTy, builder_->CreateStructGEP(closureObjTy, cbAlloca, 1));
-                    auto *i32Ty = builder_->getInt32Ty();
-                    builder_->CreateCall(
-                        getOrPanic(cFn),
-                        {handle, fnPtr, envPtr, llvm::ConstantInt::get(i32Ty, envSize)});
-                    return llvm::Constant::getNullValue(i32Ty);
+        // widget.onClick / onChange / onSelect / onKey / onRightClick and
+        // MenuItem.onClick / ToolItem.onClick, when the argument is a closure
+        // LITERAL. We intercept it, compute the captured-env size, and pass it
+        // so the runtime heap-copies the env (freed on widget/item destroy).
+        // Receiver classes all store the wx handle as `i32 handle` at field
+        // index 0 (LLVM struct index 1, after the vtable). Non-literal args
+        // fall through to the ordinary method (stack env).
+        //
+        // Special case: Menu.addItem/addCheckItem(label, <closure>) and
+        // Toolbar.addTool(label, <closure>) — the closure literal is the 2nd
+        // arg (bound to the new item, not to an onX method). We create the
+        // item, heap-own the closure onto it, and return a MenuItem/ToolItem.
+        if (node->getArgs().size() == 1 &&
+            node->getArgs()[0]->getKind() == ASTNode::NodeKind::ClosureExpr) {
+            std::string recvClass = resolveExprClassTypeName(memberExpr->getObject());
+            auto isControlDescendant = [&](std::string tn) -> bool {
+                for (int i = 0; i < 64 && !tn.empty(); ++i) {
+                    if (tn == "Control") return true;
+                    auto pit = classParent_.find(tn);
+                    if (pit == classParent_.end()) return false;
+                    tn = pit->second;
                 }
+                return false;
+            };
+            const char *cFn = nullptr;
+            if (!recvClass.empty()) {
+                if (recvClass == "MenuItem" && methodName == "onClick")
+                    cFn = "liva_ui_menu_item_on_click";
+                else if (recvClass == "ToolItem" && methodName == "onClick")
+                    cFn = "liva_ui_tool_item_on_click";
+                else if (isControlDescendant(recvClass)) {
+                    if (methodName == "onClick")      cFn = "liva_ui_on_click";
+                    else if (methodName == "onChange")     cFn = "liva_ui_on_change";
+                    else if (methodName == "onSelect")     cFn = "liva_ui_on_select";
+                    else if (methodName == "onKey")        cFn = "liva_ui_on_key";
+                    else if (methodName == "onRightClick") cFn = "liva_ui_on_right_click";
+                }
+            }
+            auto rcIt = recvClass.empty() ? classTypes_.end()
+                                          : classTypes_.find(recvClass);
+            if (cFn && rcIt != classTypes_.end()) {
+                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                llvm::Value *selfPtr = visit(memberExpr->getObject());
+                if (!selfPtr) return nullptr;
+                // handle: first field → struct index 1 (vtable at 0).
+                auto *handleGEP = builder_->CreateStructGEP(
+                    rcIt->second, selfPtr, 1, "handle.gep");
+                auto *handle = builder_->CreateLoad(
+                    builder_->getInt32Ty(), handleGEP, "handle");
+                lastClosureEnvSize_ = 0;
+                auto *closureVal = visit(node->getArgs()[0].get());
+                if (!closureVal) return nullptr;
+                uint64_t envSize = lastClosureEnvSize_;
+                auto *closureObjTy = getClosureObjTy();
+                auto *cbAlloca = createEntryBlockAlloca(
+                    builder_->GetInsertBlock()->getParent(), "cb.tmp", closureObjTy);
+                builder_->CreateStore(closureVal, cbAlloca);
+                auto *fnPtr = builder_->CreateLoad(
+                    ptrTy, builder_->CreateStructGEP(closureObjTy, cbAlloca, 0));
+                auto *envPtr = builder_->CreateLoad(
+                    ptrTy, builder_->CreateStructGEP(closureObjTy, cbAlloca, 1));
+                auto *i32Ty = builder_->getInt32Ty();
+                builder_->CreateCall(
+                    getOrPanic(cFn),
+                    {handle, fnPtr, envPtr, llvm::ConstantInt::get(i32Ty, envSize)});
+                return llvm::Constant::getNullValue(i32Ty);
+            }
+        }
+        // addItem/addCheckItem(label, closure) on Menu, addTool on Toolbar.
+        if (node->getArgs().size() == 2 &&
+            node->getArgs()[1]->getKind() == ASTNode::NodeKind::ClosureExpr) {
+            std::string recvClass = resolveExprClassTypeName(memberExpr->getObject());
+            const char *addFn = nullptr;    // FFI to create the item
+            const char *bindFn = nullptr;   // FFI to bind the click
+            const char *itemClass = nullptr;
+            if (recvClass == "Menu" && methodName == "addItem") {
+                addFn = "liva_ui_menu_add_item";
+                bindFn = "liva_ui_menu_item_on_click"; itemClass = "MenuItem";
+            } else if (recvClass == "Menu" && methodName == "addCheckItem") {
+                addFn = "liva_ui_menu_add_check_item";
+                bindFn = "liva_ui_menu_item_on_click"; itemClass = "MenuItem";
+            } else if (recvClass == "Toolbar" && methodName == "addTool") {
+                addFn = "liva_ui_toolbar_add_tool";
+                bindFn = "liva_ui_tool_item_on_click"; itemClass = "ToolItem";
+            }
+            auto rcIt = (addFn == nullptr) ? classTypes_.end()
+                                           : classTypes_.find(recvClass);
+            if (addFn && rcIt != classTypes_.end()) {
+                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+                auto *i32Ty = builder_->getInt32Ty();
+                llvm::Value *selfPtr = visit(memberExpr->getObject());
+                if (!selfPtr) return nullptr;
+                auto *hGEP = builder_->CreateStructGEP(rcIt->second, selfPtr, 1, "rh.gep");
+                auto *rh = builder_->CreateLoad(i32Ty, hGEP, "rh");
+                auto *label = visit(node->getArgs()[0].get());
+                if (!label) return nullptr;
+                auto *itemH = builder_->CreateCall(getOrPanic(addFn), {rh, label}, "item.h");
+                lastClosureEnvSize_ = 0;
+                auto *closureVal = visit(node->getArgs()[1].get());
+                if (!closureVal) return nullptr;
+                uint64_t envSize = lastClosureEnvSize_;
+                auto *closureObjTy = getClosureObjTy();
+                auto *cbA = createEntryBlockAlloca(
+                    builder_->GetInsertBlock()->getParent(), "cb.tmp", closureObjTy);
+                builder_->CreateStore(closureVal, cbA);
+                auto *fnPtr = builder_->CreateLoad(
+                    ptrTy, builder_->CreateStructGEP(closureObjTy, cbA, 0));
+                auto *envPtr = builder_->CreateLoad(
+                    ptrTy, builder_->CreateStructGEP(closureObjTy, cbA, 1));
+                builder_->CreateCall(getOrPanic(bindFn),
+                    {itemH, fnPtr, envPtr, llvm::ConstantInt::get(i32Ty, envSize)});
+                auto *ctor = module_->getFunction(std::string(itemClass) + "_init");
+                if (ctor)
+                    return builder_->CreateCall(ctor, {itemH}, "item.obj");
+                return itemH;
             }
         }
 
@@ -5129,6 +5188,145 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_set_bounds"), {handle, x, y, w, h});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+
+    // ── Phase 2: menu / statusbar / toolbar intrinsics ──────────────────
+    // createMenuBar() -> i32
+    if (funcName == "createMenuBar" && node->getArgs().empty())
+        return builder_->CreateCall(getOrPanic("liva_ui_create_menu_bar"), {}, "ui.mb");
+    // createMenu(title) -> i32
+    if (funcName == "createMenu" && node->getArgs().size() >= 1) {
+        auto *title = visit(node->getArgs()[0].get());
+        if (!title) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_menu"), {title}, "ui.menu");
+    }
+    // menuAddItem(menu, label) -> i32
+    if (funcName == "menuAddItem" && node->getArgs().size() >= 2) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *l = visit(node->getArgs()[1].get());
+        if (!m || !l) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_menu_add_item"), {m, l}, "ui.mi");
+    }
+    // menuAddCheckItem(menu, label) -> i32
+    if (funcName == "menuAddCheckItem" && node->getArgs().size() >= 2) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *l = visit(node->getArgs()[1].get());
+        if (!m || !l) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_menu_add_check_item"), {m, l}, "ui.mci");
+    }
+    // menuAddSeparator(menu) -> void
+    if (funcName == "menuAddSeparator" && node->getArgs().size() >= 1) {
+        auto *m = visit(node->getArgs()[0].get());
+        if (!m) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_menu_add_separator"), {m});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // menuAddSubmenu(menu, label, sub) -> void
+    if (funcName == "menuAddSubmenu" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *l = visit(node->getArgs()[1].get());
+        auto *s = visit(node->getArgs()[2].get());
+        if (!m || !l || !s) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_menu_add_submenu"), {m, l, s});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // menuBarAddMenu(bar, menu) -> void
+    if (funcName == "menuBarAddMenu" && node->getArgs().size() >= 2) {
+        auto *b = visit(node->getArgs()[0].get());
+        auto *m = visit(node->getArgs()[1].get());
+        if (!b || !m) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_menu_bar_add_menu"), {b, m});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // windowSetMenuBar(window, bar) -> void
+    if (funcName == "windowSetMenuBar" && node->getArgs().size() >= 2) {
+        auto *w = visit(node->getArgs()[0].get());
+        auto *b = visit(node->getArgs()[1].get());
+        if (!w || !b) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_window_set_menu_bar"), {w, b});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // menuItemSetEnabled(item, enabled) -> void
+    if (funcName == "menuItemSetEnabled" && node->getArgs().size() >= 2) {
+        auto *i = visit(node->getArgs()[0].get());
+        auto *e = visit(node->getArgs()[1].get());
+        if (!i || !e) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_menu_item_set_enabled"), {i, e});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // menuItemSetChecked(item, checked) -> void
+    if (funcName == "menuItemSetChecked" && node->getArgs().size() >= 2) {
+        auto *i = visit(node->getArgs()[0].get());
+        auto *c = visit(node->getArgs()[1].get());
+        if (!i || !c) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_menu_item_set_checked"), {i, c});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // menuPopup(menu, target) -> void
+    if (funcName == "menuPopup" && node->getArgs().size() >= 2) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *t = visit(node->getArgs()[1].get());
+        if (!m || !t) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_menu_popup"), {m, t});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // createStatusBar(window, fieldCount) -> i32
+    if (funcName == "createStatusBar" && node->getArgs().size() >= 2) {
+        auto *w = visit(node->getArgs()[0].get());
+        auto *fc = visit(node->getArgs()[1].get());
+        if (!w || !fc) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_status_bar"), {w, fc}, "ui.sb");
+    }
+    // statusBarSetText(sb, field, text) -> void
+    if (funcName == "statusBarSetText" && node->getArgs().size() >= 3) {
+        auto *s = visit(node->getArgs()[0].get());
+        auto *f = visit(node->getArgs()[1].get());
+        auto *t = visit(node->getArgs()[2].get());
+        if (!s || !f || !t) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_status_bar_set_text"), {s, f, t});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // createToolbar(window) -> i32
+    if (funcName == "createToolbar" && node->getArgs().size() >= 1) {
+        auto *w = visit(node->getArgs()[0].get());
+        if (!w) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_toolbar"), {w}, "ui.tb");
+    }
+    // toolbarAddTool(tb, label) -> i32
+    if (funcName == "toolbarAddTool" && node->getArgs().size() >= 2) {
+        auto *tb = visit(node->getArgs()[0].get());
+        auto *l = visit(node->getArgs()[1].get());
+        if (!tb || !l) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_toolbar_add_tool"), {tb, l}, "ui.tool");
+    }
+    // toolbarAddSeparator(tb) -> void
+    if (funcName == "toolbarAddSeparator" && node->getArgs().size() >= 1) {
+        auto *tb = visit(node->getArgs()[0].get());
+        if (!tb) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_toolbar_add_separator"), {tb});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // toolbarRealize(tb) -> void
+    if (funcName == "toolbarRealize" && node->getArgs().size() >= 1) {
+        auto *tb = visit(node->getArgs()[0].get());
+        if (!tb) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_toolbar_realize"), {tb});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // toolItemSetEnabled(tool, enabled) -> void
+    if (funcName == "toolItemSetEnabled" && node->getArgs().size() >= 2) {
+        auto *t = visit(node->getArgs()[0].get());
+        auto *e = visit(node->getArgs()[1].get());
+        if (!t || !e) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_tool_item_set_enabled"), {t, e});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // Closure-taking free-function forms (called from class methods; stack env, size 0)
+    if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);
+    if (funcName == "toolItemOnClick" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_tool_item_on_click", 0, 1);
+    if (funcName == "onRightClick" && node->getArgs().size() >= 2)
+        return emitCallbackCall("liva_ui_on_right_click", 0, 1);
 
     // setWidgetFont(handle, size, bold) -> void
     if (funcName == "setWidgetFont" && node->getArgs().size() >= 3) {

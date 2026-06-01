@@ -209,7 +209,14 @@ void ModuleLoader::registerBuiltinModules() {
          "getClipboardText", "setClipboardText",
          // Canvas / custom drawing
          "createCanvas", "canvasOnPaint", "canvasRefresh",
-         "dcClear", "dcDrawRect", "dcDrawText", "dcDrawLine", "dcDrawCircle"});
+         "dcClear", "dcDrawRect", "dcDrawText", "dcDrawLine", "dcDrawCircle",
+         // Menu / app frame (Phase 2)
+         "createMenuBar", "createMenu", "menuAddItem", "menuAddCheckItem",
+         "menuAddSeparator", "menuAddSubmenu", "menuBarAddMenu", "windowSetMenuBar",
+         "menuItemSetEnabled", "menuItemSetChecked", "menuItemOnClick", "menuPopup",
+         "onRightClick", "createStatusBar", "statusBarSetText",
+         "createToolbar", "toolbarAddTool", "toolbarAddSeparator", "toolbarRealize",
+         "toolItemSetEnabled", "toolItemOnClick"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

@@ -1336,6 +1336,39 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_on_key", uiCallbackTy);
     module_->getOrInsertFunction("liva_ui_canvas_on_paint", uiCallbackTy);
 
+    // ── Phase 2: menu / statusbar / toolbar ──────────────────────────
+    auto *uiRetI32Ty        = llvm::FunctionType::get(i32Ty, {}, false);
+    auto *uiStrRetI32Ty     = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
+    auto *uiI32StrRetI32Ty  = llvm::FunctionType::get(i32Ty, {i32Ty, i8PtrTy}, false);
+    auto *uiI32I32RetI32Ty  = llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty}, false);
+    auto *uiI32RetI32Ty     = llvm::FunctionType::get(i32Ty, {i32Ty}, false);
+    auto *uiI32VoidTy       = llvm::FunctionType::get(voidTy, {i32Ty}, false);
+    auto *uiI32StrVoidTy    = llvm::FunctionType::get(voidTy, {i32Ty, i8PtrTy}, false);
+    auto *uiI32StrI32VoidTy = llvm::FunctionType::get(voidTy, {i32Ty, i8PtrTy, i32Ty}, false);
+    auto *uiI32I32StrVoidTy = llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i8PtrTy}, false);
+
+    module_->getOrInsertFunction("liva_ui_create_menu_bar", uiRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_create_menu", uiStrRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_menu_add_item", uiI32StrRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_menu_add_check_item", uiI32StrRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_menu_add_separator", uiI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_menu_add_submenu", uiI32StrI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_menu_bar_add_menu", uiHandleI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_window_set_menu_bar", uiHandleI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_menu_item_set_enabled", uiHandleI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_menu_item_set_checked", uiHandleI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_menu_item_on_click", uiCallbackTy);
+    module_->getOrInsertFunction("liva_ui_menu_popup", uiHandleI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_on_right_click", uiCallbackTy);
+    module_->getOrInsertFunction("liva_ui_create_status_bar", uiI32I32RetI32Ty);
+    module_->getOrInsertFunction("liva_ui_status_bar_set_text", uiI32I32StrVoidTy);
+    module_->getOrInsertFunction("liva_ui_create_toolbar", uiI32RetI32Ty);
+    module_->getOrInsertFunction("liva_ui_toolbar_add_tool", uiI32StrRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_toolbar_add_separator", uiI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_toolbar_realize", uiI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_tool_item_set_enabled", uiHandleI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_tool_item_on_click", uiCallbackTy);
+
     // create_widget(i32 parent) -> i32
     auto *uiCreateParentTy = llvm::FunctionType::get(i32Ty, {i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_create_panel", uiCreateParentTy);
