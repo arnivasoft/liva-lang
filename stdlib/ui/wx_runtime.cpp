@@ -25,6 +25,7 @@
 #include <wx/menu.h>
 #include <wx/toolbar.h>
 #include <wx/statusbr.h>
+#include <wx/artprov.h>
 
 #include <unordered_map>
 #include <string>
@@ -993,7 +994,10 @@ void liva_ui_status_bar_set_text(int32_t sb, int32_t field, const char *text) {
 int32_t liva_ui_create_toolbar(int32_t window) {
     auto *f = getHandle<wxFrame>(window);
     if (!f) return 0;
-    wxToolBar *tb = f->CreateToolBar();
+    // Show text labels: Phase 2 tools are label-only (no custom icons), so the
+    // toolbar must display the text. We still give each tool a valid bitmap
+    // below because wxToolBar::Realize() asserts on a null tool bitmap.
+    wxToolBar *tb = f->CreateToolBar(wxTB_HORIZONTAL | wxTB_TEXT);
     return allocHandle(tb);
 }
 
@@ -1002,7 +1006,23 @@ int32_t liva_ui_toolbar_add_tool(int32_t tb, const char *label) {
     if (!t) return 0;
     int id = g_nextCmdId++;
     wxString lbl = wxString::FromUTF8(label ? label : "");
-    auto *tool = t->AddTool(id, lbl, wxNullBitmap, lbl);
+    // wxToolBar requires a valid bitmap; use a generic stock icon as a
+    // placeholder (no per-tool icon support in Phase 2). Size it to the
+    // toolbar's configured tool bitmap size so Realize() is happy.
+    wxBitmap bmp = wxArtProvider::GetBitmap(wxART_NEW, wxART_TOOLBAR,
+                                            t->GetToolBitmapSize());
+    if (!bmp.IsOk()) {
+        // Fall back to a 16x16 transparent bitmap if the art provider fails.
+        wxSize sz = t->GetToolBitmapSize();
+        if (sz.x <= 0 || sz.y <= 0) sz = wxSize(16, 16);
+        wxBitmap blank(sz);
+        wxMemoryDC dc(blank);
+        dc.SetBackground(*wxTRANSPARENT_BRUSH);
+        dc.Clear();
+        dc.SelectObject(wxNullBitmap);
+        bmp = blank;
+    }
+    auto *tool = t->AddTool(id, lbl, bmp, lbl);
     int32_t h = allocHandle(tool);
     g_toolItems[h] = LivaToolItem{tool, id, t};
     return h;
