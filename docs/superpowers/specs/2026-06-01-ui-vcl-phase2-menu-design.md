@@ -34,6 +34,7 @@ wxWidgets'te menü item'ları (`wxMenuItem`) ve toolbar tool'ları `wxWindow` **
 | Birincil ergonomi | Kısa yol her yerde: `menu.addItem(label, cb) -> MenuItem`, `toolbar.addTool(label, cb) -> ToolItem`; dönüş nesnesi gerekince kullanılır |
 | Menü callback ömrü | Menü için ayrı FFI + Faz 1 heap-env mekanizması |
 | Fast-path | Genelleştir: "alıcı = `handle: i32` alanı struct-index 1'de olan herhangi bir sınıf + tanınan event metodu" (Control + MenuItem + ToolItem) |
+| `addItem`/`addTool` callback güvenliği | **`Menu.addItem(label, cb)` / `Toolbar.addTool(label, cb)` IRGenCall intrinsic'i olur** — kısa-yol birincil API'de closure literali doğrudan heap-env ile bind edilir (item.onClick'e değil, addItem argümanına bağlı olduğundan normal yol heap-own alamazdı). Böylece birincil API dangling-güvenli. |
 | Branch | Ayrı `feat/ui-vcl-phase2` (Faz 1 üzerine) |
 
 ---
@@ -223,6 +224,7 @@ void     liva_ui_tool_item_on_click(int32_t tool, void *func, void *env, int32_t
     - alıcı `MenuItem` + `onClick` → `liva_ui_menu_item_on_click`
     - alıcı `ToolItem` + `onClick` → `liva_ui_tool_item_on_click`
   - `onRightClick` callback'i 2 parametreli (`(i32,i32)`); FFI yine `(handle, func, env, size)` — koordinatlar runtime'da callback'e geçirilir.
+  - **`addItem`/`addCheckItem`/`addTool` intrinsic'i:** `recv.addItem(label, <closure literal>)` çağrısında (alıcı `Menu`/`Toolbar`) IRGenCall: (1) `menu_add_item(menuHandle, label)` ile item handle al, (2) closure literalini ziyaret edip env boyutunu hesapla, (3) `menu_item_on_click(itemHandle, func, env, size)` ile heap-env bind et, (4) `MenuItem(itemHandle)` (veya `ToolItem`) inşa edip döndür. Böylece birincil kısa-yol API dangling-güvenli olur. Closure literali değilse (değişkene atanmış) normal stdlib metoduna düşer (stack-env, belgelenmiş sınır).
 
 ---
 
