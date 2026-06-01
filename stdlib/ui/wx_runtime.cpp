@@ -22,6 +22,9 @@
 #include <wx/dcbuffer.h>
 #include <wx/timer.h>
 #include <wx/image.h>
+#include <wx/menu.h>
+#include <wx/toolbar.h>
+#include <wx/statusbr.h>
 
 #include <unordered_map>
 #include <string>
@@ -93,6 +96,33 @@ static void freeWidgetEnvs(int32_t widgetHandle) {
 
 using LivaCallbackFn = void (*)(void *env, int32_t handle);
 using LivaKeyFn = void (*)(void *env, int32_t handle, int32_t keycode);
+using LivaXYFn = void (*)(void *env, int32_t handle, int32_t x, int32_t y);
+
+// Menu/tool items are not wxWindow*; track the wx object, its command id, and
+// the owning frame (for late event binding).
+struct LivaMenuItem {
+    wxMenuItem *item = nullptr;
+    int32_t id = 0;
+    wxFrame *ownerFrame = nullptr;   // resolved when the menubar/popup is shown
+    LivaCallbackFn pendingFn = nullptr;
+    void *pendingEnv = nullptr;
+    bool hasPending = false;
+};
+static std::unordered_map<int32_t, LivaMenuItem> g_menuItems;
+
+struct LivaToolItem {
+    wxToolBarToolBase *tool = nullptr;
+    int32_t id = 0;
+    wxToolBar *toolbar = nullptr;
+};
+static std::unordered_map<int32_t, LivaToolItem> g_toolItems;
+
+static int g_nextCmdId = 20000;  // wx user command id range
+
+static std::unordered_map<int32_t, wxString> &g_menuTitles() {
+    static std::unordered_map<int32_t, wxString> m;
+    return m;
+}
 
 struct LivaCallback {
     LivaCallbackFn func = nullptr;
@@ -776,6 +806,197 @@ void liva_ui_dc_draw_circle(int32_t dcH, int32_t cx, int32_t cy, int32_t radius,
 void liva_ui_set_bounds(int32_t handle, int32_t x, int32_t y, int32_t w, int32_t h) {
     if (auto *win = getHandle<wxWindow>(handle))
         win->SetSize(x, y, w, h);
+}
+
+/* ── Menu ──────────────────────────────────────────────────────────── */
+
+int32_t liva_ui_create_menu_bar(void) {
+    return allocHandle(new wxMenuBar());
+}
+
+int32_t liva_ui_create_menu(const char *title) {
+    auto *m = new wxMenu();
+    int32_t h = allocHandle(m);
+    g_menuTitles()[h] = wxString::FromUTF8(title ? title : "");
+    return h;
+}
+
+int32_t liva_ui_menu_add_item(int32_t menu, const char *label) {
+    auto *m = getHandle<wxMenu>(menu);
+    if (!m) return 0;
+    int id = g_nextCmdId++;
+    auto *item = m->Append(id, wxString::FromUTF8(label ? label : ""));
+    int32_t h = allocHandle(item);
+    g_menuItems[h] = LivaMenuItem{item, id, nullptr, nullptr, nullptr, false};
+    return h;
+}
+
+int32_t liva_ui_menu_add_check_item(int32_t menu, const char *label) {
+    auto *m = getHandle<wxMenu>(menu);
+    if (!m) return 0;
+    int id = g_nextCmdId++;
+    auto *item = m->AppendCheckItem(id, wxString::FromUTF8(label ? label : ""));
+    int32_t h = allocHandle(item);
+    g_menuItems[h] = LivaMenuItem{item, id, nullptr, nullptr, nullptr, false};
+    return h;
+}
+
+void liva_ui_menu_add_separator(int32_t menu) {
+    if (auto *m = getHandle<wxMenu>(menu)) m->AppendSeparator();
+}
+
+void liva_ui_menu_add_submenu(int32_t menu, const char *label, int32_t sub) {
+    auto *m = getHandle<wxMenu>(menu);
+    auto *s = getHandle<wxMenu>(sub);
+    if (m && s) m->AppendSubMenu(s, wxString::FromUTF8(label ? label : ""));
+}
+
+void liva_ui_menu_bar_add_menu(int32_t bar, int32_t menu) {
+    auto *mb = getHandle<wxMenuBar>(bar);
+    auto *m = getHandle<wxMenu>(menu);
+    if (mb && m) mb->Append(m, g_menuTitles()[menu]);
+}
+
+void liva_ui_window_set_menu_bar(int32_t window, int32_t bar) {
+    auto *f = getHandle<wxFrame>(window);
+    auto *mb = getHandle<wxMenuBar>(bar);
+    if (!f || !mb) return;
+    f->SetMenuBar(mb);
+    for (auto &kv : g_menuItems) {
+        auto &mi = kv.second;
+        if (mi.hasPending && mi.ownerFrame == nullptr) {
+            mi.ownerFrame = f;
+            LivaCallbackFn fn = mi.pendingFn;
+            void *env = mi.pendingEnv;
+            int32_t ih = kv.first;
+            f->Bind(wxEVT_MENU,
+                    [fn, env, ih](wxCommandEvent &) { if (fn) fn(env, ih); },
+                    mi.id);
+            mi.hasPending = false;
+        }
+    }
+}
+
+void liva_ui_menu_item_set_enabled(int32_t item, int32_t enabled) {
+    auto it = g_menuItems.find(item);
+    if (it != g_menuItems.end() && it->second.item)
+        it->second.item->Enable(enabled != 0);
+}
+
+void liva_ui_menu_item_set_checked(int32_t item, int32_t checked) {
+    auto it = g_menuItems.find(item);
+    if (it != g_menuItems.end() && it->second.item && it->second.item->IsCheckable())
+        it->second.item->Check(checked != 0);
+}
+
+void liva_ui_menu_item_on_click(int32_t item, void *func, void *env, int32_t size) {
+    auto it = g_menuItems.find(item);
+    if (it == g_menuItems.end() || !func) return;
+    void *owned = ownEnv(item, env, size);
+    auto fn = (LivaCallbackFn)func;
+    auto &mi = it->second;
+    if (mi.ownerFrame) {
+        int32_t ih = item;
+        mi.ownerFrame->Bind(wxEVT_MENU,
+            [fn, owned, ih](wxCommandEvent &) { if (fn) fn(owned, ih); }, mi.id);
+    } else {
+        mi.pendingFn = fn;
+        mi.pendingEnv = owned;
+        mi.hasPending = true;
+    }
+}
+
+void liva_ui_menu_popup(int32_t menu, int32_t target) {
+    auto *m = getHandle<wxMenu>(menu);
+    auto *w = getHandle<wxWindow>(target);
+    if (!m || !w) return;
+    for (auto &kv : g_menuItems) {
+        auto &mi = kv.second;
+        if (mi.hasPending && mi.ownerFrame == nullptr) {
+            LivaCallbackFn fn = mi.pendingFn;
+            void *env = mi.pendingEnv;
+            int32_t ih = kv.first;
+            w->Bind(wxEVT_MENU,
+                    [fn, env, ih](wxCommandEvent &) { if (fn) fn(env, ih); }, mi.id);
+            mi.hasPending = false;
+        }
+    }
+    w->PopupMenu(m);
+}
+
+/* ── Context menu ──────────────────────────────────────────────────── */
+
+void liva_ui_on_right_click(int32_t handle, void *func, void *env, int32_t size) {
+    auto *w = getHandle<wxWindow>(handle);
+    if (!w || !func) return;
+    void *owned = ownEnv(handle, env, size);
+    auto fn = (LivaXYFn)func;
+    w->Bind(wxEVT_CONTEXT_MENU, [fn, owned, handle, w](wxContextMenuEvent &evt) {
+        wxPoint p = evt.GetPosition();
+        if (p == wxDefaultPosition) p = ::wxGetMousePosition();
+        wxPoint cli = w->ScreenToClient(p);
+        if (fn) fn(owned, handle, cli.x, cli.y);
+    });
+}
+
+/* ── StatusBar ─────────────────────────────────────────────────────── */
+
+int32_t liva_ui_create_status_bar(int32_t window, int32_t field_count) {
+    auto *f = getHandle<wxFrame>(window);
+    if (!f) return 0;
+    wxStatusBar *sb = f->CreateStatusBar(field_count > 0 ? field_count : 1);
+    return allocHandle(sb);
+}
+
+void liva_ui_status_bar_set_text(int32_t sb, int32_t field, const char *text) {
+    if (auto *s = getHandle<wxStatusBar>(sb))
+        s->SetStatusText(wxString::FromUTF8(text ? text : ""), field);
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────── */
+
+int32_t liva_ui_create_toolbar(int32_t window) {
+    auto *f = getHandle<wxFrame>(window);
+    if (!f) return 0;
+    wxToolBar *tb = f->CreateToolBar();
+    return allocHandle(tb);
+}
+
+int32_t liva_ui_toolbar_add_tool(int32_t tb, const char *label) {
+    auto *t = getHandle<wxToolBar>(tb);
+    if (!t) return 0;
+    int id = g_nextCmdId++;
+    wxString lbl = wxString::FromUTF8(label ? label : "");
+    auto *tool = t->AddTool(id, lbl, wxNullBitmap, lbl);
+    int32_t h = allocHandle(tool);
+    g_toolItems[h] = LivaToolItem{tool, id, t};
+    return h;
+}
+
+void liva_ui_toolbar_add_separator(int32_t tb) {
+    if (auto *t = getHandle<wxToolBar>(tb)) t->AddSeparator();
+}
+
+void liva_ui_toolbar_realize(int32_t tb) {
+    if (auto *t = getHandle<wxToolBar>(tb)) t->Realize();
+}
+
+void liva_ui_tool_item_set_enabled(int32_t tool, int32_t enabled) {
+    auto it = g_toolItems.find(tool);
+    if (it != g_toolItems.end() && it->second.toolbar)
+        it->second.toolbar->EnableTool(it->second.id, enabled != 0);
+}
+
+void liva_ui_tool_item_on_click(int32_t tool, void *func, void *env, int32_t size) {
+    auto it = g_toolItems.find(tool);
+    if (it == g_toolItems.end() || !func) return;
+    void *owned = ownEnv(tool, env, size);
+    auto fn = (LivaCallbackFn)func;
+    auto &ti = it->second;
+    int32_t th = tool;
+    if (ti.toolbar)
+        ti.toolbar->Bind(wxEVT_TOOL,
+            [fn, owned, th](wxCommandEvent &) { if (fn) fn(owned, th); }, ti.id);
 }
 
 } // extern "C"

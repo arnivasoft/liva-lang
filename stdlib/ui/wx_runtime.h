@@ -76,6 +76,35 @@ void     liva_ui_on_key(int32_t handle, void *func, void *env, int32_t size);
 /* ── Geometry ──────────────────────────────────────────────────────── */
 void     liva_ui_set_bounds(int32_t handle, int32_t x, int32_t y, int32_t w, int32_t h);
 
+/* ── Menu ─────────────────────────────────────────────────────────── */
+int32_t  liva_ui_create_menu_bar(void);
+int32_t  liva_ui_create_menu(const char *title);
+int32_t  liva_ui_menu_add_item(int32_t menu, const char *label);
+int32_t  liva_ui_menu_add_check_item(int32_t menu, const char *label);
+void     liva_ui_menu_add_separator(int32_t menu);
+void     liva_ui_menu_add_submenu(int32_t menu, const char *label, int32_t sub);
+void     liva_ui_menu_bar_add_menu(int32_t bar, int32_t menu);
+void     liva_ui_window_set_menu_bar(int32_t window, int32_t bar);
+void     liva_ui_menu_item_set_enabled(int32_t item, int32_t enabled);
+void     liva_ui_menu_item_set_checked(int32_t item, int32_t checked);
+void     liva_ui_menu_item_on_click(int32_t item, void *func, void *env, int32_t size);
+void     liva_ui_menu_popup(int32_t menu, int32_t target);
+
+/* ── Context menu ─────────────────────────────────────────────────── */
+void     liva_ui_on_right_click(int32_t handle, void *func, void *env, int32_t size);
+
+/* ── StatusBar ────────────────────────────────────────────────────── */
+int32_t  liva_ui_create_status_bar(int32_t window, int32_t field_count);
+void     liva_ui_status_bar_set_text(int32_t sb, int32_t field, const char *text);
+
+/* ── Toolbar ──────────────────────────────────────────────────────── */
+int32_t  liva_ui_create_toolbar(int32_t window);
+int32_t  liva_ui_toolbar_add_tool(int32_t tb, const char *label);
+void     liva_ui_toolbar_add_separator(int32_t tb);
+void     liva_ui_toolbar_realize(int32_t tb);
+void     liva_ui_tool_item_set_enabled(int32_t tool, int32_t enabled);
+void     liva_ui_tool_item_on_click(int32_t tool, void *func, void *env, int32_t size);
+
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
 void     liva_ui_list_clear(int32_t handle);
