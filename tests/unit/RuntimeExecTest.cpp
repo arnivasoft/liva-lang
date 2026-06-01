@@ -596,4 +596,43 @@ TEST(RuntimeExecTest, BTreeMapI64SizeAndIsEmpty) {
         << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Optional method codegen (.isSome / .isNone / .unwrap)
+// ============================================================
+
+TEST(RuntimeExecTest, OptionalIsSomeUnwrap) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let v: i32? = 7
+            if v.isSome() { println("some") } else { println("none") }
+            println(v.unwrap())
+        }
+    )--", "opt_issome_unwrap");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("some"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("7"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, OptionalIsNoneOnNil) {
+    auto r = compileAndRun(R"--(
+        func mk(x: i32) -> i32? {
+            if x == 0 { return nil }
+            return x
+        }
+        func main() {
+            let v = mk(0)
+            if v.isNone() { println("isnone") } else { println("hasval") }
+            let w = mk(42)
+            if w.isSome() { println(w.unwrap()) }
+        }
+    )--", "opt_isnone_nil");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("isnone"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("42"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

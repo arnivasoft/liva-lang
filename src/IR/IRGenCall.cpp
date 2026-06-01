@@ -213,6 +213,47 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Optional methods on a local Optional-typed variable:
+        //   v.isSome() -> i1, v.isNone() -> i1, v.unwrap() -> T (panic if empty).
+        // The Optional value is laid out as { i1 hasVal, T val }.
+        if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr &&
+            (methodName == "isSome" || methodName == "isNone" ||
+             methodName == "unwrap")) {
+            auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+            auto optIt = vars_.varOptionalTypes.find(ident->getName());
+            auto nvIt = vars_.namedValues.find(ident->getName());
+            if (optIt != vars_.varOptionalTypes.end() &&
+                nvIt != vars_.namedValues.end()) {
+                auto *innerTy = optIt->second;
+                auto *optTy = getOptionalType(innerTy);
+                auto *optAlloca = nvIt->second;
+                auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0,
+                                                            ident->getName() + ".hasval.gep");
+                auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr,
+                                                    ident->getName() + ".hasval");
+                if (methodName == "isSome")
+                    return hasVal;
+                if (methodName == "isNone")
+                    return builder_->CreateNot(hasVal, ident->getName() + ".isnone");
+                // unwrap: branch on hasVal; panic if empty, else load the payload.
+                auto *curFunc = builder_->GetInsertBlock()->getParent();
+                auto *someBB = llvm::BasicBlock::Create(*context_, "opt.unwrap.some", curFunc);
+                auto *panicBB = llvm::BasicBlock::Create(*context_, "opt.unwrap.panic", curFunc);
+                builder_->CreateCondBr(hasVal, someBB, panicBB);
+
+                builder_->SetInsertPoint(panicBB);
+                auto *panicFn = getOrPanic("liva_panic");
+                auto *msg = builder_->CreateGlobalString("unwrap of nil Optional value");
+                builder_->CreateCall(panicFn, {msg});
+                builder_->CreateUnreachable();
+
+                builder_->SetInsertPoint(someBB);
+                auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1,
+                                                         ident->getName() + ".val.gep");
+                return builder_->CreateLoad(innerTy, valPtr, ident->getName() + ".val");
+            }
+        }
+
         // r.unwrap() method for Result types
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
