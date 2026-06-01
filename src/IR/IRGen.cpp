@@ -284,6 +284,23 @@ bool IRGen::generate(TranslationUnit &tu) {
     initDebugInfo(module_->getModuleIdentifier());
     createRuntimeDecls();
 
+    // Class pre-pass (phase 1): register every class's type/field/vtable maps and
+    // create all method/init/accessor PROTOTYPES (no bodies) BEFORE any body is
+    // emitted, so a class can forward-reference a class declared later in the file.
+    // First index all class decls so preDeclareClass can recursively ensure a
+    // parent is pre-declared before its children regardless of source order.
+    for (auto &decl : tu.getDeclarations()) {
+        if (decl->getKind() == ASTNode::NodeKind::ClassDecl) {
+            auto *classDecl = static_cast<ClassDecl *>(decl.get());
+            classDecls_[classDecl->getName()] = classDecl;
+        }
+    }
+    for (auto &decl : tu.getDeclarations()) {
+        if (decl->getKind() == ASTNode::NodeKind::ClassDecl) {
+            preDeclareClass(static_cast<ClassDecl *>(decl.get()));
+        }
+    }
+
     for (auto &decl : tu.getDeclarations()) {
         // Skip generic functions (they are monomorphized at call sites)
         if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {

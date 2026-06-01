@@ -2225,8 +2225,20 @@ llvm::Value *IRGen::visitTypeAliasDecl(TypeAliasDecl *node) {
     return nullptr;
 }
 
-llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
+void IRGen::preDeclareClass(ClassDecl *node) {
     const std::string &className = node->getName();
+    // Idempotency / cycle guard.
+    if (preDeclared_.count(className)) return;
+    preDeclared_.insert(className);
+
+    // Ensure parent class is pre-declared first so field/vtable inheritance reads
+    // the parent's already-populated maps regardless of source order.
+    if (node->hasParentClass()) {
+        auto pdit = classDecls_.find(node->getParentClass());
+        if (pdit != classDecls_.end())
+            preDeclareClass(pdit->second);
+    }
+
     classNames_.insert(className);
 
     // Record parent class (if any — protocols were reclassified by TypeChecker)
@@ -2406,8 +2418,234 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             argIt->setName(param.name);
             ++argIt;
         }
+        // Body emitted in phase 2 (visitClassDecl).
+    }
 
+    // Generate computed property getter/setter prototypes
+    for (auto *field : node->getFields()) {
+        if (!field->isComputed()) continue;
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+        // Getter: ClassName_get_fieldName(self) → fieldType
+        if (field->getGetter()) {
+            std::string getterName = className + "_get_" + field->getName();
+            auto *retTy = toLLVMType(field->getType());
+            auto *funcType = llvm::FunctionType::get(retTy, {ptrTy}, false);
+            auto *func = llvm::Function::Create(
+                funcType, llvm::Function::ExternalLinkage, getterName, *module_);
+            func->arg_begin()->setName("self");
+        }
+
+        // Setter: ClassName_set_fieldName(self, newValue) → void
+        if (field->getSetter()) {
+            std::string setterName = className + "_set_" + field->getName();
+            auto *valTy = toLLVMType(field->getType());
+            auto *funcType = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(*context_), {ptrTy, valTy}, false);
+            auto *func = llvm::Function::Create(
+                funcType, llvm::Function::ExternalLinkage, setterName, *module_);
+            auto argIt = func->arg_begin();
+            argIt->setName("self");
+            ++argIt;
+            argIt->setName("newValue");
+        }
+    }
+
+    // Generate property observer (willSet/didSet) prototypes for stored fields
+    for (auto *field : node->getFields()) {
+        if (field->isComputed()) continue;
+        if (!field->hasObservers()) continue;
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *valTy = toLLVMType(field->getType());
+        auto *voidTy = llvm::Type::getVoidTy(*context_);
+
+        // willSet: ClassName_willSet_fieldName(self, newValue) → void
+        if (field->getWillSet()) {
+            std::string fname = className + "_willSet_" + field->getName();
+            auto *funcType = llvm::FunctionType::get(voidTy, {ptrTy, valTy}, false);
+            auto *func = llvm::Function::Create(
+                funcType, llvm::Function::ExternalLinkage, fname, *module_);
+            auto argIt = func->arg_begin();
+            argIt->setName("self"); ++argIt;
+            argIt->setName("newValue");
+        }
+
+        // didSet: ClassName_didSet_fieldName(self, oldValue) → void
+        if (field->getDidSet()) {
+            std::string fname = className + "_didSet_" + field->getName();
+            auto *funcType = llvm::FunctionType::get(voidTy, {ptrTy, valTy}, false);
+            auto *func = llvm::Function::Create(
+                funcType, llvm::Function::ExternalLinkage, fname, *module_);
+            auto argIt = func->arg_begin();
+            argIt->setName("self"); ++argIt;
+            argIt->setName("oldValue");
+        }
+    }
+
+    // Track which fields have observers (for assignment codegen)
+    for (auto *field : node->getFields()) {
+        if (field->hasObservers()) {
+            classObserverFields_[className].insert(field->getName());
+        }
+    }
+
+    // Generate lazy accessor prototypes: ClassName_lazy_<field>(self) → fieldType
+    for (auto *field : node->getFields()) {
+        if (!field->hasLazyInit()) continue;
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *fieldLLVMTy = toLLVMType(field->getType());
+        std::string fname = className + "_lazy_" + field->getName();
+        auto *funcType = llvm::FunctionType::get(fieldLLVMTy, {ptrTy}, false);
+        auto *func = llvm::Function::Create(
+            funcType, llvm::Function::ExternalLinkage, fname, *module_);
+        func->arg_begin()->setName("self");
+    }
+
+    // Generate init(s) prototypes: for each init (designated + convenience), a separate function
+    // Mangled name: first = ClassName_init, others = ClassName_init<argCount>
+    auto allInits = node->getInits();
+    bool hasAnyInit = !allInits.empty();
+    // Fallback: synthesize a zero-arg init if none declared (for vtable-only classes)
+    std::vector<const FuncDecl *> initsToGen;
+    for (auto *it : allInits) initsToGen.push_back(it);
+    if (initsToGen.empty()) initsToGen.push_back(nullptr); // sentinel for default init
+
+    bool firstInit = true;
+    for (auto *initDecl : initsToGen) {
+        // Mangled name
+        std::string initName = className + "_init";
+        if (!firstInit && initDecl) {
+            size_t argCount = 0;
+            for (auto &p : initDecl->getParams()) if (!p.isSelf) argCount++;
+            initName += std::to_string(argCount);
+        }
+        firstInit = false;
+
+        std::vector<llvm::Type *> initParamTypes;
+        if (initDecl) {
+            for (auto &param : initDecl->getParams()) {
+                initParamTypes.push_back(toLLVMType(param.type.get()));
+            }
+        }
+
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *initFuncType = llvm::FunctionType::get(ptrTy, initParamTypes, false);
+        auto *initFunc = llvm::Function::Create(
+            initFuncType, llvm::Function::ExternalLinkage, initName, *module_);
+
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType();
+            auto *sp = diBuilder_->createFunction(
+                diFile_, initName, initName, diFile_, 0,
+                funcDbgType, 0,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            initFunc->setSubprogram(sp);
+        }
+
+        // Set arg names; body emitted in phase 2 (visitClassDecl).
+        if (initDecl) {
+            size_t argIdx = 0;
+            for (auto &arg : initFunc->args()) {
+                if (argIdx < initDecl->getParams().size())
+                    arg.setName(initDecl->getParams()[argIdx].name);
+                ++argIdx;
+            }
+        }
+    }
+
+    // Generate init_fields prototype: uses designated (first) init's signature.
+    // Used by child class super.init() and convenience self.init delegation.
+    {
+        auto *designatedInit = hasAnyInit ? allInits.front() : nullptr;
+        std::string initFieldsName = className + "_init_fields";
+
+        std::vector<llvm::Type *> paramTypes;
+        paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
+        if (designatedInit) {
+            for (auto &param : designatedInit->getParams()) {
+                paramTypes.push_back(toLLVMType(param.type.get()));
+            }
+        }
+
+        auto *voidTy = llvm::Type::getVoidTy(*context_);
+        auto *funcType = llvm::FunctionType::get(voidTy, paramTypes, false);
+        auto *func = llvm::Function::Create(
+            funcType, llvm::Function::ExternalLinkage, initFieldsName, *module_);
+
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType();
+            auto *sp = diBuilder_->createFunction(
+                diFile_, initFieldsName, initFieldsName, diFile_, 0,
+                funcDbgType, 0,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            func->setSubprogram(sp);
+        }
+
+        // Set arg names; body emitted in phase 2 (visitClassDecl).
+        auto argIt = func->arg_begin();
+        argIt->setName("self");
+        ++argIt;
+        if (designatedInit) {
+            for (auto &param : designatedInit->getParams()) {
+                if (argIt != func->arg_end()) {
+                    argIt->setName(param.name);
+                    ++argIt;
+                }
+            }
+        }
+    }
+
+    // Generate deinit prototype: ClassName_deinit(self) → void
+    {
+        std::string deinitName = className + "_deinit";
+
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *voidTy = llvm::Type::getVoidTy(*context_);
+        auto *funcType = llvm::FunctionType::get(voidTy, {ptrTy}, false);
+        auto *func = llvm::Function::Create(
+            funcType, llvm::Function::ExternalLinkage, deinitName, *module_);
+
+        // Attach debug info subprogram to class deinit
+        if (diBuilder_) {
+            auto *funcDbgType = createFunctionDebugType();
+            auto *sp = diBuilder_->createFunction(
+                diFile_, deinitName, deinitName, diFile_, 0,
+                funcDbgType, 0,
+                llvm::DINode::FlagPrototyped,
+                llvm::DISubprogram::SPFlagDefinition);
+            func->setSubprogram(sp);
+        }
+
+        // Set arg name; body emitted in phase 2 (visitClassDecl).
+        func->arg_begin()->setName("self");
+    }
+
+    currentClassContext_ = prevClassCtx;
+}
+
+// Phase 2: emit class function bodies and build the vtable global. All prototypes
+// were created in preDeclareClass; here we look them up via module_->getFunction.
+llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
+    const std::string &className = node->getName();
+
+    // Safety net: if pre-declare pass didn't run for this class, do it now.
+    preDeclareClass(node);
+
+    auto *classType = classTypes_[className];
+    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+
+    std::string prevClassCtx = currentClassContext_;
+    currentClassContext_ = className;
+
+    // --- Method bodies ---
+    for (auto *method : node->getMethods()) {
         if (!method->hasBody()) continue;
+        std::string mangledName = className + "_" + method->getName();
+        auto *func = module_->getFunction(mangledName);
+        if (!func) continue;
+        auto *returnType = func->getReturnType();
 
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         builder_->SetInsertPoint(entryBB);
@@ -2454,154 +2692,111 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
                 builder_->CreateRet(llvm::Constant::getNullValue(returnType));
             }
         }
-
     }
 
-    // Generate computed property getter/setter functions
+    // --- Computed property getter/setter bodies ---
     for (auto *field : node->getFields()) {
         if (!field->isComputed()) continue;
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
 
-        // Getter: ClassName_get_fieldName(self) → fieldType
         if (field->getGetter()) {
-            std::string getterName = className + "_get_" + field->getName();
-            auto *retTy = toLLVMType(field->getType());
-            auto *funcType = llvm::FunctionType::get(retTy, {ptrTy}, false);
-            auto *func = llvm::Function::Create(
-                funcType, llvm::Function::ExternalLinkage, getterName, *module_);
-            func->arg_begin()->setName("self");
-
-            auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
-            builder_->SetInsertPoint(entryBB);
-
-            auto guard = pushVarState();
-            vars_ = VarState{};
-            auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
-            builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            vars_.namedValues["self"] = selfAlloca;
-            vars_.varClassTypes["self"] = className;
-
-            visit(const_cast<BlockStmt *>(field->getGetter()));
-
-            if (!builder_->GetInsertBlock()->getTerminator()) {
-                builder_->CreateRet(llvm::Constant::getNullValue(retTy));
+            auto *func = module_->getFunction(className + "_get_" + field->getName());
+            if (func) {
+                auto *retTy = func->getReturnType();
+                auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+                builder_->SetInsertPoint(entryBB);
+                auto guard = pushVarState();
+                vars_ = VarState{};
+                auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
+                builder_->CreateStore(&*func->arg_begin(), selfAlloca);
+                vars_.namedValues["self"] = selfAlloca;
+                vars_.varClassTypes["self"] = className;
+                visit(const_cast<BlockStmt *>(field->getGetter()));
+                if (!builder_->GetInsertBlock()->getTerminator()) {
+                    builder_->CreateRet(llvm::Constant::getNullValue(retTy));
+                }
             }
         }
 
-        // Setter: ClassName_set_fieldName(self, newValue) → void
         if (field->getSetter()) {
-            std::string setterName = className + "_set_" + field->getName();
-            auto *valTy = toLLVMType(field->getType());
-            auto *funcType = llvm::FunctionType::get(
-                llvm::Type::getVoidTy(*context_), {ptrTy, valTy}, false);
-            auto *func = llvm::Function::Create(
-                funcType, llvm::Function::ExternalLinkage, setterName, *module_);
-            auto argIt = func->arg_begin();
-            argIt->setName("self");
-            ++argIt;
-            argIt->setName("newValue");
-
-            auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
-            builder_->SetInsertPoint(entryBB);
-
-            auto guard = pushVarState();
-            vars_ = VarState{};
-            auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
-            builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            vars_.namedValues["self"] = selfAlloca;
-            vars_.varClassTypes["self"] = className;
-
-            auto setArgIt = func->arg_begin(); ++setArgIt;
-            auto *nvAlloca = createEntryBlockAlloca(func, "newValue", valTy);
-            builder_->CreateStore(&*setArgIt, nvAlloca);
-            vars_.namedValues["newValue"] = nvAlloca;
-
-            visit(const_cast<BlockStmt *>(field->getSetter()));
-
-            if (!builder_->GetInsertBlock()->getTerminator()) {
-                builder_->CreateRetVoid();
+            auto *func = module_->getFunction(className + "_set_" + field->getName());
+            if (func) {
+                auto *valTy = toLLVMType(field->getType());
+                auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+                builder_->SetInsertPoint(entryBB);
+                auto guard = pushVarState();
+                vars_ = VarState{};
+                auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
+                builder_->CreateStore(&*func->arg_begin(), selfAlloca);
+                vars_.namedValues["self"] = selfAlloca;
+                vars_.varClassTypes["self"] = className;
+                auto setArgIt = func->arg_begin(); ++setArgIt;
+                auto *nvAlloca = createEntryBlockAlloca(func, "newValue", valTy);
+                builder_->CreateStore(&*setArgIt, nvAlloca);
+                vars_.namedValues["newValue"] = nvAlloca;
+                visit(const_cast<BlockStmt *>(field->getSetter()));
+                if (!builder_->GetInsertBlock()->getTerminator()) {
+                    builder_->CreateRetVoid();
+                }
             }
         }
     }
 
-    // Generate property observer functions (willSet/didSet) for stored fields
+    // --- Property observer (willSet/didSet) bodies ---
     for (auto *field : node->getFields()) {
         if (field->isComputed()) continue;
         if (!field->hasObservers()) continue;
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
         auto *valTy = toLLVMType(field->getType());
-        auto *voidTy = llvm::Type::getVoidTy(*context_);
 
-        // willSet: ClassName_willSet_fieldName(self, newValue) → void
         if (field->getWillSet()) {
-            std::string fname = className + "_willSet_" + field->getName();
-            auto *funcType = llvm::FunctionType::get(voidTy, {ptrTy, valTy}, false);
-            auto *func = llvm::Function::Create(
-                funcType, llvm::Function::ExternalLinkage, fname, *module_);
-            auto argIt = func->arg_begin();
-            argIt->setName("self"); ++argIt;
-            argIt->setName("newValue");
-
-            auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
-            builder_->SetInsertPoint(entryBB);
-            auto guard = pushVarState();
-            vars_ = VarState{};
-            auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
-            builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            vars_.namedValues["self"] = selfAlloca;
-            vars_.varClassTypes["self"] = className;
-            auto wsIt = func->arg_begin(); ++wsIt;
-            auto *nvAlloca = createEntryBlockAlloca(func, "newValue", valTy);
-            builder_->CreateStore(&*wsIt, nvAlloca);
-            vars_.namedValues["newValue"] = nvAlloca;
-
-            visit(const_cast<BlockStmt *>(field->getWillSet()));
-            if (!builder_->GetInsertBlock()->getTerminator()) {
-                builder_->CreateRetVoid();
+            auto *func = module_->getFunction(className + "_willSet_" + field->getName());
+            if (func) {
+                auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+                builder_->SetInsertPoint(entryBB);
+                auto guard = pushVarState();
+                vars_ = VarState{};
+                auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
+                builder_->CreateStore(&*func->arg_begin(), selfAlloca);
+                vars_.namedValues["self"] = selfAlloca;
+                vars_.varClassTypes["self"] = className;
+                auto wsIt = func->arg_begin(); ++wsIt;
+                auto *nvAlloca = createEntryBlockAlloca(func, "newValue", valTy);
+                builder_->CreateStore(&*wsIt, nvAlloca);
+                vars_.namedValues["newValue"] = nvAlloca;
+                visit(const_cast<BlockStmt *>(field->getWillSet()));
+                if (!builder_->GetInsertBlock()->getTerminator()) {
+                    builder_->CreateRetVoid();
+                }
             }
         }
 
-        // didSet: ClassName_didSet_fieldName(self, oldValue) → void
         if (field->getDidSet()) {
-            std::string fname = className + "_didSet_" + field->getName();
-            auto *funcType = llvm::FunctionType::get(voidTy, {ptrTy, valTy}, false);
-            auto *func = llvm::Function::Create(
-                funcType, llvm::Function::ExternalLinkage, fname, *module_);
-            auto argIt = func->arg_begin();
-            argIt->setName("self"); ++argIt;
-            argIt->setName("oldValue");
-
-            auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
-            builder_->SetInsertPoint(entryBB);
-            auto guard = pushVarState();
-            vars_ = VarState{};
-            auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
-            builder_->CreateStore(&*func->arg_begin(), selfAlloca);
-            vars_.namedValues["self"] = selfAlloca;
-            vars_.varClassTypes["self"] = className;
-            auto dsIt = func->arg_begin(); ++dsIt;
-            auto *ovAlloca = createEntryBlockAlloca(func, "oldValue", valTy);
-            builder_->CreateStore(&*dsIt, ovAlloca);
-            vars_.namedValues["oldValue"] = ovAlloca;
-
-            visit(const_cast<BlockStmt *>(field->getDidSet()));
-            if (!builder_->GetInsertBlock()->getTerminator()) {
-                builder_->CreateRetVoid();
+            auto *func = module_->getFunction(className + "_didSet_" + field->getName());
+            if (func) {
+                auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+                builder_->SetInsertPoint(entryBB);
+                auto guard = pushVarState();
+                vars_ = VarState{};
+                auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
+                builder_->CreateStore(&*func->arg_begin(), selfAlloca);
+                vars_.namedValues["self"] = selfAlloca;
+                vars_.varClassTypes["self"] = className;
+                auto dsIt = func->arg_begin(); ++dsIt;
+                auto *ovAlloca = createEntryBlockAlloca(func, "oldValue", valTy);
+                builder_->CreateStore(&*dsIt, ovAlloca);
+                vars_.namedValues["oldValue"] = ovAlloca;
+                visit(const_cast<BlockStmt *>(field->getDidSet()));
+                if (!builder_->GetInsertBlock()->getTerminator()) {
+                    builder_->CreateRetVoid();
+                }
             }
         }
     }
 
-    // Track which fields have observers (for assignment codegen)
-    for (auto *field : node->getFields()) {
-        if (field->hasObservers()) {
-            classObserverFields_[className].insert(field->getName());
-        }
-    }
-
-    // Generate lazy accessor functions: ClassName_lazy_<field>(self) → fieldType
-    // Branch on __lazy_init_<field> flag; if false compute + store + set flag; then load.
+    // --- Lazy accessor bodies ---
     for (auto *field : node->getFields()) {
         if (!field->hasLazyInit()) continue;
+        auto *func = module_->getFunction(className + "_lazy_" + field->getName());
+        if (!func) continue;
         auto cfIt = classFieldNames_.find(className);
         if (cfIt == classFieldNames_.end()) continue;
         int fieldIdx = -1, flagIdx = -1;
@@ -2611,14 +2806,7 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         }
         if (fieldIdx < 0 || flagIdx < 0) continue;
 
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
         auto *fieldLLVMTy = toLLVMType(field->getType());
-        std::string fname = className + "_lazy_" + field->getName();
-        auto *funcType = llvm::FunctionType::get(fieldLLVMTy, {ptrTy}, false);
-        auto *func = llvm::Function::Create(
-            funcType, llvm::Function::ExternalLinkage, fname, *module_);
-        func->arg_begin()->setName("self");
-
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
         auto *initBB = llvm::BasicBlock::Create(*context_, "lazy.init", func);
         auto *loadBB = llvm::BasicBlock::Create(*context_, "lazy.load", func);
@@ -2637,7 +2825,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         auto *flagV = builder_->CreateLoad(llvm::Type::getInt1Ty(*context_), flagGEP, "lazy.flag");
         builder_->CreateCondBr(flagV, loadBB, initBB);
 
-        // init block: compute, store value, set flag, branch to load
         builder_->SetInsertPoint(initBB);
         auto *initVal = visit(const_cast<Expr *>(field->getLazyInit()));
         auto *selfV2 = builder_->CreateLoad(ptrTy, selfAlloca, "self.v2");
@@ -2647,27 +2834,22 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         builder_->CreateStore(llvm::ConstantInt::getTrue(*context_), flagGEP2);
         builder_->CreateBr(loadBB);
 
-        // load block: return value
         builder_->SetInsertPoint(loadBB);
         auto *selfV3 = builder_->CreateLoad(ptrTy, selfAlloca, "self.v3");
         auto *fieldGEP2 = builder_->CreateStructGEP(classType, selfV3, fieldIdx + 1, "fld.gep2");
         auto *retVal = builder_->CreateLoad(fieldLLVMTy, fieldGEP2, "lazy.val");
         builder_->CreateRet(retVal);
-
     }
 
-    // Generate init(s): for each init (designated + convenience), create a separate function
-    // Mangled name: first = ClassName_init, others = ClassName_init<argCount>
+    // --- init(s) bodies ---
     auto allInits = node->getInits();
     bool hasAnyInit = !allInits.empty();
-    // Fallback: synthesize a zero-arg init if none declared (for vtable-only classes)
     std::vector<const FuncDecl *> initsToGen;
     for (auto *it : allInits) initsToGen.push_back(it);
-    if (initsToGen.empty()) initsToGen.push_back(nullptr); // sentinel for default init
+    if (initsToGen.empty()) initsToGen.push_back(nullptr);
 
     bool firstInit = true;
     for (auto *initDecl : initsToGen) {
-        // Mangled name
         std::string initName = className + "_init";
         if (!firstInit && initDecl) {
             size_t argCount = 0;
@@ -2676,27 +2858,8 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         }
         firstInit = false;
 
-        std::vector<llvm::Type *> initParamTypes;
-        if (initDecl) {
-            for (auto &param : initDecl->getParams()) {
-                initParamTypes.push_back(toLLVMType(param.type.get()));
-            }
-        }
-
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-        auto *initFuncType = llvm::FunctionType::get(ptrTy, initParamTypes, false);
-        auto *initFunc = llvm::Function::Create(
-            initFuncType, llvm::Function::ExternalLinkage, initName, *module_);
-
-        if (diBuilder_) {
-            auto *funcDbgType = createFunctionDebugType();
-            auto *sp = diBuilder_->createFunction(
-                diFile_, initName, initName, diFile_, 0,
-                funcDbgType, 0,
-                llvm::DINode::FlagPrototyped,
-                llvm::DISubprogram::SPFlagDefinition);
-            initFunc->setSubprogram(sp);
-        }
+        auto *initFunc = module_->getFunction(initName);
+        if (!initFunc) continue;
 
         auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", initFunc);
         builder_->SetInsertPoint(entryBB);
@@ -2708,12 +2871,10 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
             size_t argIdx = 0;
             for (auto &arg : initFunc->args()) {
                 if (argIdx < initDecl->getParams().size()) {
-                    arg.setName(initDecl->getParams()[argIdx].name);
                     auto *alloca = createEntryBlockAlloca(
                         initFunc, std::string(arg.getName()), arg.getType());
                     builder_->CreateStore(&arg, alloca);
                     vars_.namedValues[std::string(arg.getName())] = alloca;
-                    // Register struct/class/enum-typed init params for member access
                     auto &pd = initDecl->getParams()[argIdx];
                     const TypeRepr *pt = pd.type.get();
                     if (pt && pt->getKind() == TypeRepr::Kind::Reference)
@@ -2758,9 +2919,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         }
         currentIsClassInit_ = savedIsClassInit;
 
-        // Lazy fields: malloc already zeroed the companion __lazy_init_* bool flag,
-        // so nothing to do during init. First access will compute and cache.
-
         if (!builder_->GetInsertBlock()->getTerminator()) {
             auto *selfVal = builder_->CreateLoad(ptrTy, selfAlloca, "self_val");
             auto *vtableGEP2 = builder_->CreateStructGEP(classType, selfVal, 0, "vtable_slot");
@@ -2769,167 +2927,114 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
         }
     }
 
-    // Generate init_fields: uses designated (first) init's body, skips malloc
-    // Used by child class super.init() and convenience self.init delegation
+    // --- init_fields body ---
     {
         auto *designatedInit = hasAnyInit ? allInits.front() : nullptr;
-        std::string initFieldsName = className + "_init_fields";
+        auto *func = module_->getFunction(className + "_init_fields");
+        if (func) {
+            auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+            builder_->SetInsertPoint(entryBB);
 
-        std::vector<llvm::Type *> paramTypes;
-        paramTypes.push_back(llvm::PointerType::getUnqual(*context_));
-        if (designatedInit) {
-            for (auto &param : designatedInit->getParams()) {
-                paramTypes.push_back(toLLVMType(param.type.get()));
-            }
-        }
+            auto guard = pushVarState();
+            vars_ = VarState{};
 
-        auto *voidTy = llvm::Type::getVoidTy(*context_);
-        auto *funcType = llvm::FunctionType::get(voidTy, paramTypes, false);
-        auto *func = llvm::Function::Create(
-            funcType, llvm::Function::ExternalLinkage, initFieldsName, *module_);
+            auto argIt = func->arg_begin();
+            auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
+            builder_->CreateStore(&*argIt, selfAlloca);
+            vars_.namedValues["self"] = selfAlloca;
+            vars_.varClassTypes["self"] = className;
+            ++argIt;
 
-        if (diBuilder_) {
-            auto *funcDbgType = createFunctionDebugType();
-            auto *sp = diBuilder_->createFunction(
-                diFile_, initFieldsName, initFieldsName, diFile_, 0,
-                funcDbgType, 0,
-                llvm::DINode::FlagPrototyped,
-                llvm::DISubprogram::SPFlagDefinition);
-            func->setSubprogram(sp);
-        }
-
-        auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
-        builder_->SetInsertPoint(entryBB);
-
-        auto guard = pushVarState();
-        vars_ = VarState{};
-
-        auto argIt = func->arg_begin();
-        argIt->setName("self");
-        auto *selfAlloca = createEntryBlockAlloca(
-            func, "self", llvm::PointerType::getUnqual(*context_));
-        builder_->CreateStore(&*argIt, selfAlloca);
-        vars_.namedValues["self"] = selfAlloca;
-        vars_.varClassTypes["self"] = className;
-        ++argIt;
-
-        if (designatedInit) {
-            for (auto &param : designatedInit->getParams()) {
-                if (argIt != func->arg_end()) {
-                    argIt->setName(param.name);
-                    auto *alloca = createEntryBlockAlloca(func, param.name, argIt->getType());
-                    builder_->CreateStore(&*argIt, alloca);
-                    vars_.namedValues[param.name] = alloca;
-                    // Register struct/class/enum-typed params for member access
-                    const TypeRepr *pt = param.type.get();
-                    if (pt && pt->getKind() == TypeRepr::Kind::Reference)
-                        pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
-                    if (pt && pt->getKind() == TypeRepr::Kind::Named) {
-                        auto *named = static_cast<const NamedTypeRepr *>(pt);
-                        if (structTypes_.count(named->getName()))
-                            vars_.varStructTypes[param.name] = named->getName();
-                        else if (classTypes_.count(named->getName()))
-                            vars_.varClassTypes[param.name] = named->getName();
-                        else if (enumTypes_.count(named->getName()))
-                            vars_.varEnumTypes[param.name] = named->getName();
+            if (designatedInit) {
+                for (auto &param : designatedInit->getParams()) {
+                    if (argIt != func->arg_end()) {
+                        auto *alloca = createEntryBlockAlloca(func, param.name, argIt->getType());
+                        builder_->CreateStore(&*argIt, alloca);
+                        vars_.namedValues[param.name] = alloca;
+                        const TypeRepr *pt = param.type.get();
+                        if (pt && pt->getKind() == TypeRepr::Kind::Reference)
+                            pt = static_cast<const ReferenceTypeRepr *>(pt)->getInner();
+                        if (pt && pt->getKind() == TypeRepr::Kind::Named) {
+                            auto *named = static_cast<const NamedTypeRepr *>(pt);
+                            if (structTypes_.count(named->getName()))
+                                vars_.varStructTypes[param.name] = named->getName();
+                            else if (classTypes_.count(named->getName()))
+                                vars_.varClassTypes[param.name] = named->getName();
+                            else if (enumTypes_.count(named->getName()))
+                                vars_.varEnumTypes[param.name] = named->getName();
+                        }
+                        ++argIt;
                     }
-                    ++argIt;
                 }
             }
-        }
 
-        if (designatedInit && designatedInit->getBody()) {
-            visit(const_cast<BlockStmt *>(designatedInit->getBody()));
-        }
+            if (designatedInit && designatedInit->getBody()) {
+                visit(const_cast<BlockStmt *>(designatedInit->getBody()));
+            }
 
-        if (!builder_->GetInsertBlock()->getTerminator()) {
-            builder_->CreateRetVoid();
-        }
-
-    }
-
-    // Generate deinit: ClassName_deinit(self) → void
-    {
-        std::string deinitName = className + "_deinit";
-
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-        auto *voidTy = llvm::Type::getVoidTy(*context_);
-        auto *funcType = llvm::FunctionType::get(voidTy, {ptrTy}, false);
-        auto *func = llvm::Function::Create(
-            funcType, llvm::Function::ExternalLinkage, deinitName, *module_);
-
-        // Attach debug info subprogram to class deinit
-        if (diBuilder_) {
-            auto *funcDbgType = createFunctionDebugType();
-            auto *sp = diBuilder_->createFunction(
-                diFile_, deinitName, deinitName, diFile_, 0,
-                funcDbgType, 0,
-                llvm::DINode::FlagPrototyped,
-                llvm::DISubprogram::SPFlagDefinition);
-            func->setSubprogram(sp);
-        }
-
-        auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
-        builder_->SetInsertPoint(entryBB);
-
-        auto guard = pushVarState();
-        vars_ = VarState{};
-
-        auto &selfArg = *func->arg_begin();
-        selfArg.setName("self");
-        auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
-        builder_->CreateStore(&selfArg, selfAlloca);
-        vars_.namedValues["self"] = selfAlloca;
-        vars_.varClassTypes["self"] = className;
-
-        // User deinit body
-        auto *deinitDecl = node->getDeinit();
-        if (deinitDecl && deinitDecl->getBody()) {
-            visit(const_cast<BlockStmt *>(deinitDecl->getBody()));
-        }
-
-        // Call parent deinit
-        if (node->hasParentClass()) {
-            std::string parentDeinit = node->getParentClass() + "_deinit";
-            auto *parentFn = module_->getFunction(parentDeinit);
-            if (parentFn) {
-                auto *selfVal = builder_->CreateLoad(ptrTy, selfAlloca, "self_val");
-                builder_->CreateCall(parentFn, {selfVal});
+            if (!builder_->GetInsertBlock()->getTerminator()) {
+                builder_->CreateRetVoid();
             }
         }
-
-        // free(self)
-        auto *freeFn = module_->getFunction("free");
-        if (!freeFn) {
-            auto *freeTy = llvm::FunctionType::get(
-                voidTy, {ptrTy}, false);
-            freeFn = llvm::Function::Create(
-                freeTy, llvm::Function::ExternalLinkage, "free", *module_);
-        }
-        auto *selfVal = builder_->CreateLoad(ptrTy, selfAlloca, "self_for_free");
-        builder_->CreateCall(freeFn, {selfVal});
-
-        if (!builder_->GetInsertBlock()->getTerminator()) {
-            builder_->CreateRetVoid();
-        }
-
     }
 
-    // Create vtable global
+    // --- deinit body ---
     {
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *voidTy = llvm::Type::getVoidTy(*context_);
+        auto *func = module_->getFunction(className + "_deinit");
+        if (func) {
+            auto *entryBB = llvm::BasicBlock::Create(*context_, "entry", func);
+            builder_->SetInsertPoint(entryBB);
+
+            auto guard = pushVarState();
+            vars_ = VarState{};
+
+            auto &selfArg = *func->arg_begin();
+            auto *selfAlloca = createEntryBlockAlloca(func, "self", ptrTy);
+            builder_->CreateStore(&selfArg, selfAlloca);
+            vars_.namedValues["self"] = selfAlloca;
+            vars_.varClassTypes["self"] = className;
+
+            auto *deinitDecl = node->getDeinit();
+            if (deinitDecl && deinitDecl->getBody()) {
+                visit(const_cast<BlockStmt *>(deinitDecl->getBody()));
+            }
+
+            if (node->hasParentClass()) {
+                std::string parentDeinit = node->getParentClass() + "_deinit";
+                auto *parentFn = module_->getFunction(parentDeinit);
+                if (parentFn) {
+                    auto *selfVal = builder_->CreateLoad(ptrTy, selfAlloca, "self_val");
+                    builder_->CreateCall(parentFn, {selfVal});
+                }
+            }
+
+            auto *freeFn = module_->getFunction("free");
+            if (!freeFn) {
+                auto *freeTy = llvm::FunctionType::get(voidTy, {ptrTy}, false);
+                freeFn = llvm::Function::Create(
+                    freeTy, llvm::Function::ExternalLinkage, "free", *module_);
+            }
+            auto *selfVal = builder_->CreateLoad(ptrTy, selfAlloca, "self_for_free");
+            builder_->CreateCall(freeFn, {selfVal});
+
+            if (!builder_->GetInsertBlock()->getTerminator()) {
+                builder_->CreateRetVoid();
+            }
+        }
+    }
+
+    // --- Create vtable global ---
+    {
         auto &methods = classVtableMethods_[className];
         std::vector<llvm::Constant *> vtableEntries;
 
         for (auto &methodName : methods) {
-            // Look for method: own → parent chain
             std::string mangledName;
-            // Check own class first
             auto *fn = module_->getFunction(className + "_" + methodName);
             if (fn) {
                 mangledName = className + "_" + methodName;
             } else {
-                // Walk parent chain
                 std::string cur = className;
                 while (!mangledName.empty() || cur == className) {
                     if (cur != className) {
@@ -2946,7 +3051,6 @@ llvm::Value *IRGen::visitClassDecl(ClassDecl *node) {
                         break;
                 }
                 if (mangledName.empty()) {
-                    // Search parent chain from parent
                     std::string pc = node->hasParentClass() ? node->getParentClass() : "";
                     while (!pc.empty()) {
                         fn = module_->getFunction(pc + "_" + methodName);

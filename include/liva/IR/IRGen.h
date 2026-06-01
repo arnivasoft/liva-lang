@@ -78,6 +78,10 @@ public:
 
     // Visitor methods
     llvm::Value *visitClassDecl(ClassDecl *node);
+    /// Pre-declare a class (phase 1): register type/field/vtable maps and create
+    /// all function PROTOTYPES (no bodies) so other classes can forward-reference it.
+    /// Idempotent (guarded by preDeclared_); recursively ensures parent is done first.
+    void preDeclareClass(ClassDecl *node);
     llvm::Value *visitTestDecl(TestDecl *node);
     llvm::Value *visitFuncDecl(FuncDecl *node);
     llvm::Value *visitVarDecl(VarDecl *node);
@@ -603,6 +607,11 @@ private:
     std::unordered_map<std::string, std::vector<const TypeRepr *>> classFieldTypeReprs_;
     std::unordered_map<std::string, std::string> classParent_;
     std::set<std::string> classNames_;
+    /// Classes that have completed phase-1 pre-declaration (guards idempotency/cycles)
+    std::set<std::string> preDeclared_;
+    /// Map of class name → ClassDecl node, populated during the pre-declare pass so
+    /// preDeclareClass can recursively ensure a parent is pre-declared first.
+    std::unordered_map<std::string, ClassDecl *> classDecls_;
     std::unordered_map<std::string, std::vector<std::string>> classVtableMethods_;
     std::unordered_map<std::string, llvm::GlobalVariable *> classVtables_;
     std::unordered_map<std::string, std::unordered_map<std::string, int>> classMethodIndices_;
