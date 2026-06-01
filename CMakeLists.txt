@@ -191,8 +191,23 @@ if(LIVA_HAS_WXWIDGETS AND LIVA_HAS_LLVM)
         if(NOT _wx_base_loc)
             get_target_property(_wx_base_loc wx::wxbase IMPORTED_LOCATION)
         endif()
-        # Get the lib directory from wxcore path
-        get_filename_component(_wx_lib_dir "${_wx_core_loc}" DIRECTORY)
+        # Resolve the directory holding the wx import libraries (.lib). For a
+        # dynamic vcpkg build, IMPORTED_LOCATION points at the DLL under bin/,
+        # while the .lib import libraries live under lib/. Derive lib/ from the
+        # prefix; fall back to the imported-location directory.
+        set(_wx_lib_dir "")
+        foreach(_p ${CMAKE_PREFIX_PATH})
+            if(EXISTS "${_p}/lib")
+                file(GLOB _probe "${_p}/lib/wx*.lib")
+                if(_probe)
+                    set(_wx_lib_dir "${_p}/lib")
+                    break()
+                endif()
+            endif()
+        endforeach()
+        if(NOT _wx_lib_dir)
+            get_filename_component(_wx_lib_dir "${_wx_core_loc}" DIRECTORY)
+        endif()
         file(GLOB _wx_all_libs "${_wx_lib_dir}/wx*.lib")
         # Also gather dependency libs (png, jpeg, tiff, zlib, expat, pcre2, etc.)
         file(GLOB _wx_dep_libs

@@ -486,7 +486,10 @@ bool CompilerInstance::compile(const std::string &outputPath) {
         for (auto &decl : tu->getDeclarations()) {
             if (auto *imp = dynamic_cast<ImportDecl *>(decl.get())) {
                 auto path = imp->getPathString();
-                if (path == "std::ui" || path == "std") {
+                // std::ui (raw FFI) or any ui:: module (widgets/menu/layout/...)
+                // pulls in the wx UI runtime.
+                if (path == "std::ui" || path == "std" ||
+                    path.rfind("ui::", 0) == 0) {
                     needsUI = true;
                     break;
                 }
