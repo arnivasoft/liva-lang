@@ -27,6 +27,24 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
     if (!mod->tu)
         return nullptr;
 
+    // Class pre-pass for the imported module (phase 1), mirroring the main-TU
+    // pre-pass in generate(): index every ClassDecl, then pre-declare each
+    // (types + prototypes, no bodies) so classes in this module can
+    // forward-reference each other (e.g. Window.setMenuBar(mb: MenuBar) where
+    // MenuBar is declared later in the same module).
+    if (!separateCompilation_) {
+        for (auto &decl : mod->tu->getDeclarations()) {
+            if (decl->getKind() == ASTNode::NodeKind::ClassDecl) {
+                auto *classDecl = static_cast<ClassDecl *>(decl.get());
+                classDecls_[classDecl->getName()] = classDecl;
+            }
+        }
+        for (auto &decl : mod->tu->getDeclarations()) {
+            if (decl->getKind() == ASTNode::NodeKind::ClassDecl)
+                preDeclareClass(static_cast<ClassDecl *>(decl.get()));
+        }
+    }
+
     // Process all declarations from the imported module
     for (auto &decl : mod->tu->getDeclarations()) {
         if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
