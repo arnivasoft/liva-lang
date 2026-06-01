@@ -1,0 +1,48 @@
+// Menu / Toolbar / StatusBar / Context-menu demo — VCL-style app frame
+// Build: livac examples/ui_menu_demo.liva -o menu_demo
+import ui::widgets
+
+func main() {
+    appInit()
+    let win = Window(640, 480, "Liva Editor")
+
+    // Menu bar
+    let fileMenu = Menu("Dosya")
+    fileMenu.addItem("Yeni", |_h: i32| { messageBox("Bilgi", "Yeni", 1) })
+    let saveItem = fileMenu.addItem("Kaydet", |_h: i32| { messageBox("Bilgi", "Kaydet", 1) })
+    saveItem.setEnabled(false)
+    fileMenu.addSeparator()
+    fileMenu.addItem("Cikis", |_h: i32| { appQuit() })
+
+    let viewMenu = Menu("Gorunum")
+    viewMenu.addCheckItem("Durum Cubugu", |_h: i32| { })
+
+    let mb = MenuBar()
+    mb.addMenu(fileMenu)
+    mb.addMenu(viewMenu)
+    win.setMenuBar(mb)
+
+    // Status bar
+    let sb = win.setStatusBar(2)
+    sb.setText(0, "Hazir")
+    sb.setText(1, "Satir 1")
+
+    // Toolbar
+    let tb = Toolbar(win)
+    tb.addTool("Yeni", |_h: i32| { messageBox("Bilgi", "Toolbar Yeni", 1) })
+    tb.addSeparator()
+    tb.addTool("Ac", |_h: i32| { messageBox("Bilgi", "Toolbar Ac", 1) })
+    tb.realize()
+
+    // Content + context menu
+    let panel = Panel(win)
+    panel.onRightClick(|x: i32, y: i32| {
+        let ctx = Menu("")
+        ctx.addItem("Kopyala", |_h: i32| { messageBox("Bilgi", "Kopyala", 1) })
+        ctx.addItem("Yapistir", |_h: i32| { messageBox("Bilgi", "Yapistir", 1) })
+        ctx.popup(panel)
+    })
+
+    win.show()
+    appRun()
+}

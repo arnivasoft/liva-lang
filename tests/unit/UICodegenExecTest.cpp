@@ -456,4 +456,74 @@ TEST(UICodegenExec, MenuSystemCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// True if any liva_ui_menu_item_on_click call passes a non-zero env size.
+static bool anyMenuItemHeapOwns(const std::string &ir) {
+    const std::string needle = "call void @liva_ui_menu_item_on_click(";
+    for (size_t p = ir.find(needle); p != std::string::npos;
+         p = ir.find(needle, p + 1)) {
+        size_t end = ir.find(')', p);
+        if (end == std::string::npos) break;
+        if (ir.substr(p, end - p + 1).find(", i32 0)") == std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+TEST(UICodegenExec, MenuAddItemInlineHeapOwns) {
+    // The primary short-cut menu.addItem("x", |..|{..}) with a capture must
+    // heap-own the env (the addItem intrinsic binds the literal directly),
+    // even inside a helper that returns the item.
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func build() -> MenuItem {\n"
+        "  var n = 0\n"
+        "  let m = Menu(\"M\")\n"
+        "  let item = m.addItem(\"x\", |_h: i32| { n = n + 1 })\n"
+        "  return item\n"
+        "}\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let i = build()\n"
+        "}\n",
+        "menu_additem_heap");
+    ASSERT_TRUE(emitsClean(ir));
+    EXPECT_TRUE(anyMenuItemHeapOwns(ir))
+        << "menu.addItem inline closure literal must heap-own the env";
+}
+
+TEST(UICodegenExec, ContextMenuCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let panel = Panel(win)\n"
+        "  panel.onRightClick(|x: i32, y: i32| {\n"
+        "    let ctx = Menu(\"\")\n"
+        "    ctx.addItem(\"Kopyala\", |_h: i32| { })\n"
+        "    ctx.popup(panel)\n"
+        "  })\n"
+        "}\n",
+        "context_menu");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
+TEST(UICodegenExec, StatusBarAndToolbarCompile) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let sb = win.setStatusBar(2)\n"
+        "  sb.setText(0, \"Hazir\")\n"
+        "  let tb = Toolbar(win)\n"
+        "  let t = tb.addTool(\"Yeni\", |_h: i32| { })\n"
+        "  t.setEnabled(true)\n"
+        "  tb.addSeparator()\n"
+        "  tb.realize()\n"
+        "}\n",
+        "statusbar_toolbar");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
