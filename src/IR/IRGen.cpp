@@ -1542,6 +1542,10 @@ void IRGen::createRuntimeDecls() {
         {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_dc_draw_circle", uiDcCircleTy);
 
+    // ── Phase 3: new widgets ─────────────────────────────────────────
+    // create_spin_ctrl(i32 parent, i32 min, i32 max, i32 val) -> i32
+    module_->getOrInsertFunction("liva_ui_create_spin_ctrl", uiCreateSliderTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();

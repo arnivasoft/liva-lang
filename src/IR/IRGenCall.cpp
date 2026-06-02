@@ -5361,6 +5361,17 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_tool_item_set_enabled"), {t, e});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // ── Phase 3: new widgets ─────────────────────────────────────────
+    // createSpinCtrl(parent, min, max, val) -> i32
+    if (funcName == "createSpinCtrl" && node->getArgs().size() >= 4) {
+        auto *parent = visit(node->getArgs()[0].get());
+        auto *minV = visit(node->getArgs()[1].get());
+        auto *maxV = visit(node->getArgs()[2].get());
+        auto *val = visit(node->getArgs()[3].get());
+        if (!parent || !minV || !maxV || !val) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_spin_ctrl"),
+                                    {parent, minV, maxV, val}, "ui.spin");
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

@@ -26,6 +26,13 @@
 #include <wx/toolbar.h>
 #include <wx/statusbr.h>
 #include <wx/artprov.h>
+#include <wx/spinctrl.h>
+#include <wx/datectrl.h>
+#include <wx/dateevt.h>
+#include <wx/combobox.h>
+#include <wx/treectrl.h>
+#include <wx/grid.h>
+#include <wx/splitter.h>
 
 #include <unordered_map>
 #include <string>
@@ -479,6 +486,8 @@ void liva_ui_set_value(int32_t handle, int32_t val) {
         g->SetValue(val);
     else if (auto *cb = dynamic_cast<wxCheckBox *>(w))
         cb->SetValue(val != 0);
+    else if (auto *spin = dynamic_cast<wxSpinCtrl *>(w))
+        spin->SetValue(val);
 }
 
 int32_t liva_ui_get_value(int32_t handle) {
@@ -491,6 +500,8 @@ int32_t liva_ui_get_value(int32_t handle) {
         return g->GetValue();
     if (auto *cb = dynamic_cast<wxCheckBox *>(w))
         return cb->GetValue() ? 1 : 0;
+    if (auto *spin = dynamic_cast<wxSpinCtrl *>(w))
+        return spin->GetValue();
     return 0;
 }
 
@@ -616,6 +627,8 @@ void liva_ui_on_change(int32_t handle, void *func, void *env, int32_t size) {
         w->Bind(wxEVT_SLIDER, [cb](wxCommandEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxCheckBox *>(w)) {
         w->Bind(wxEVT_CHECKBOX, [cb](wxCommandEvent &) { cb.invoke(); });
+    } else if (dynamic_cast<wxSpinCtrl *>(w)) {
+        w->Bind(wxEVT_SPINCTRL, [cb](wxSpinEvent &) { cb.invoke(); });
     }
 }
 
@@ -1052,6 +1065,17 @@ void liva_ui_tool_item_on_click(int32_t tool, void *func, void *env, int32_t siz
     if (ti.toolbar)
         ti.toolbar->Bind(wxEVT_TOOL,
             [fn, owned, th](wxCommandEvent &) { if (fn) fn(owned, th); }, ti.id);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Phase 3: new widgets
+   ═══════════════════════════════════════════════════════════════════ */
+
+int32_t liva_ui_create_spin_ctrl(int32_t parent, int32_t minVal, int32_t maxVal, int32_t val) {
+    auto *p = getHandle<wxWindow>(parent);
+    auto *sc = new wxSpinCtrl(p, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                              wxDefaultSize, wxSP_ARROW_KEYS, minVal, maxVal, val);
+    return allocHandle(sc);
 }
 
 } // extern "C"

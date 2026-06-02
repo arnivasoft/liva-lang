@@ -216,7 +216,9 @@ void ModuleLoader::registerBuiltinModules() {
          "menuItemSetEnabled", "menuItemSetChecked", "menuItemOnClick", "menuPopup",
          "onRightClick", "createStatusBar", "statusBarSetText",
          "createToolbar", "toolbarAddTool", "toolbarAddSeparator", "toolbarRealize",
-         "toolItemSetEnabled", "toolItemOnClick"});
+         "toolItemSetEnabled", "toolItemOnClick",
+         // Phase 3: new widgets
+         "createSpinCtrl"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

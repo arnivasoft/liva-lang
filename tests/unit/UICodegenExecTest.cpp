@@ -526,4 +526,20 @@ TEST(UICodegenExec, StatusBarAndToolbarCompile) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Phase 3: new widgets ───────────────────────────────────────────────
+TEST(UICodegenExec, SpinCtrlCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let sp = SpinCtrl(win, 0, 100, 5)\n"
+        "  sp.setValue(10)\n"
+        "  println(sp.getValue())\n"
+        "  sp.onChange(|_h: i32| { })\n"
+        "}\n",
+        "spin_ctrl");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM

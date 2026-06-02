@@ -246,3 +246,14 @@ pub class Toolbar: Control {
     pub func addSeparator() { toolbarAddSeparator(self.handle) }
     pub func realize() { toolbarRealize(self.handle) }
 }
+
+// ═══ Phase 3: new widgets ═══════════════════════════════════════
+
+// ── SpinCtrl (wxSpinCtrl) ──────────────────────────────────────
+pub class SpinCtrl: Control {
+    init(parent: Control, minVal: i32, maxVal: i32, val: i32) {
+        super.init(createSpinCtrl(parent.handle, minVal, maxVal, val))
+    }
+    pub func getValue() -> i32 { return getValue(self.handle) }
+    pub func setValue(v: i32) { setValue(self.handle, v) }
+}

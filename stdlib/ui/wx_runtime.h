@@ -105,6 +105,9 @@ void     liva_ui_toolbar_realize(int32_t tb);
 void     liva_ui_tool_item_set_enabled(int32_t tool, int32_t enabled);
 void     liva_ui_tool_item_on_click(int32_t tool, void *func, void *env, int32_t size);
 
+/* ── Phase 3: new widgets ─────────────────────────────────────────── */
+int32_t  liva_ui_create_spin_ctrl(int32_t parent, int32_t minVal, int32_t maxVal, int32_t val);
+
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
 void     liva_ui_list_clear(int32_t handle);
