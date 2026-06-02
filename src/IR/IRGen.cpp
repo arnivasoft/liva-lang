@@ -1615,6 +1615,9 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_model_set_text", uiI32StrStrVoidTy);
     module_->getOrInsertFunction("liva_ui_model_get_text", uiI32StrRetStrTy);
     module_->getOrInsertFunction("liva_ui_model_bind_text", uiI32StrI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_model_set_int", uiI32StrI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_model_get_int", uiI32StrRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_model_bind_int", uiI32StrI32VoidTy);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();

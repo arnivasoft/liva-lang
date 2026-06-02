@@ -5557,6 +5557,31 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_model_bind_text"), {m, k, w});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // modelSetInt(model, key, val) -> void
+    if (funcName == "modelSetInt" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        auto *v = visit(node->getArgs()[2].get());
+        if (!m || !k || !v) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_model_set_int"), {m, k, v});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // modelGetInt(model, key) -> i32
+    if (funcName == "modelGetInt" && node->getArgs().size() >= 2) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        if (!m || !k) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_model_get_int"), {m, k}, "ui.mgeti");
+    }
+    // modelBindInt(model, key, widget) -> void
+    if (funcName == "modelBindInt" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        auto *w = visit(node->getArgs()[2].get());
+        if (!m || !k || !w) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_model_bind_int"), {m, k, w});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

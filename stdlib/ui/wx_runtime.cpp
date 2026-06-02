@@ -1413,4 +1413,60 @@ void liva_ui_model_bind_text(int32_t model, const char *key, int32_t widget) {
     // Label/StaticText wxEVT_TEXT yaymaz → tek yön (yalnız yukarıdaki ilk it).
 }
 
+// `key`'e bağlı int widget'lara `val` yaz (kaynak handle atlanır).
+static void propagateInt(LivaModel &M, const std::string &key,
+                         int32_t val, int32_t source) {
+    auto it = M.bindings.find(key);
+    if (it == M.bindings.end()) return;
+    g_modelUpdating = true;
+    for (auto &b : it->second)
+        if (b.kind == 1 && b.widget != source)
+            liva_ui_set_value(b.widget, val);
+    g_modelUpdating = false;
+}
+
+void liva_ui_model_set_int(int32_t model, const char *key, int32_t val) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return;
+    std::string k = key ? key : "";
+    it->second.intVals[k] = val;
+    propagateInt(it->second, k, val, -1);
+}
+
+int32_t liva_ui_model_get_int(int32_t model, const char *key) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return 0;
+    auto vit = it->second.intVals.find(key ? key : "");
+    return (vit != it->second.intVals.end()) ? vit->second : 0;
+}
+
+void liva_ui_model_bind_int(int32_t model, const char *key, int32_t widget) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return;
+    auto *w = getHandle<wxWindow>(widget);
+    if (!w) return;
+    std::string k = key ? key : "";
+    LivaModel &M = it->second;
+    M.bindings[k].push_back({widget, 1});
+    auto vit = M.intVals.find(k);
+    if (vit != M.intVals.end())
+        liva_ui_set_value(widget, vit->second);
+    int32_t mh = model;
+    auto onChange = [mh, k, widget](wxCommandEvent &) {
+        if (g_modelUpdating) return;
+        auto mit = g_models.find(mh);
+        if (mit == g_models.end()) return;
+        int32_t v = liva_ui_get_value(widget);
+        mit->second.intVals[k] = v;
+        propagateInt(mit->second, k, v, widget);
+    };
+    // wxComboBox MSW'de wxChoice'tan türer → ComboBox önce kontrol edilir.
+    if (dynamic_cast<wxComboBox *>(w))       w->Bind(wxEVT_COMBOBOX, onChange);
+    else if (dynamic_cast<wxChoice *>(w))    w->Bind(wxEVT_CHOICE, onChange);
+    else if (dynamic_cast<wxListBox *>(w))   w->Bind(wxEVT_LISTBOX, onChange);
+    else if (dynamic_cast<wxCheckBox *>(w))  w->Bind(wxEVT_CHECKBOX, onChange);
+    else if (dynamic_cast<wxSpinCtrl *>(w))  w->Bind(wxEVT_SPINCTRL, onChange);
+    else if (dynamic_cast<wxSlider *>(w))    w->Bind(wxEVT_SLIDER, onChange);
+}
+
 } // extern "C"

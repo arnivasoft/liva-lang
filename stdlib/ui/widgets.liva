@@ -339,4 +339,7 @@ pub class Model {
     pub func setText(key: string, val: string) { modelSetText(self.handle, key, val) }
     pub func getText(key: string) -> string { return modelGetText(self.handle, key) }
     pub func bindText(key: string, w: Control) { modelBindText(self.handle, key, w.handle) }
+    pub func setInt(key: string, val: i32) { modelSetInt(self.handle, key, val) }
+    pub func getInt(key: string) -> i32 { return modelGetInt(self.handle, key) }
+    pub func bindInt(key: string, w: Control) { modelBindInt(self.handle, key, w.handle) }
 }
