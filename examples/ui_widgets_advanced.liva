@@ -1,0 +1,57 @@
+// Faz 3 — Gelişmiş widget'lar tek pencerede.
+// TreeView + DataGrid bir Splitter içinde; SpinCtrl/DatePicker/ComboBox alt panelde.
+//
+// Splitter kuralı: bölünecek panellerin parent'ı Splitter olmalı
+// (tree ve grid burada Splitter'ın çocuklarıdır).
+import ui::widgets
+
+func main() {
+    appInit()
+    let win = Window(720, 520, "Liva — Gelişmiş Widget'lar")
+
+    // Üst alan: TreeView | DataGrid (dikey bölünmüş)
+    let sp = Splitter(win)
+
+    let tree = TreeView(sp)
+    let root = tree.addRoot("Proje")
+    let src = tree.addNode(root, "src")
+    tree.addNode(src, "main.liva")
+    tree.addNode(src, "ui.liva")
+    let docs = tree.addNode(root, "docs")
+    tree.addNode(docs, "README.md")
+    tree.onSelect(|_h: i32| {
+        let sel = tree.getSelection()
+        println(sel)
+    })
+
+    let grid = DataGrid(sp, 6, 3)
+    grid.setColLabel(0, "Ad")
+    grid.setColLabel(1, "Tür")
+    grid.setColLabel(2, "Boyut")
+    grid.setCell(0, 0, "main.liva")
+    grid.setCell(0, 1, "kaynak")
+    grid.setCell(0, 2, "2 KB")
+    grid.onChange(|_h: i32| { println(42) })
+
+    sp.splitVertically(tree, grid)
+    sp.setSashPosition(240)
+
+    // Alt form alanı
+    let form = Panel(win)
+    let spin = SpinCtrl(form, 0, 100, 10)
+    spin.setBounds(10, 10, 80, 28)
+    spin.onChange(|_h: i32| { println(spin.getValue()) })
+
+    let date = DatePicker(form)
+    date.setBounds(100, 10, 140, 28)
+
+    let combo = ComboBox(form, "Seçiniz")
+    combo.addItem("Düşük")
+    combo.addItem("Orta")
+    combo.addItem("Yüksek")
+    combo.setBounds(250, 10, 140, 28)
+    combo.onSelect(|_h: i32| { println(combo.getText()) })
+
+    win.show()
+    appRun()
+}

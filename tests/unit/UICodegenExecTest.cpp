@@ -659,4 +659,32 @@ TEST(UICodegenExec, SplitterCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+TEST(UICodegenExec, AdvancedWidgetsExampleCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(700, 500, \"Gelismis Widgetlar\")\n"
+        "  let sp = Splitter(win)\n"
+        "  let tree = TreeView(sp)\n"
+        "  let root = tree.addRoot(\"Proje\")\n"
+        "  let src = tree.addNode(root, \"src\")\n"
+        "  tree.addNode(src, \"main.liva\")\n"
+        "  tree.onSelect(|_h: i32| { })\n"
+        "  let grid = DataGrid(sp, 5, 3)\n"
+        "  grid.setColLabel(0, \"Ad\")\n"
+        "  grid.setCell(0, 0, \"Ali\")\n"
+        "  sp.splitVertically(tree, grid)\n"
+        "  sp.setSashPosition(220)\n"
+        "  let sc = SpinCtrl(win, 0, 100, 5)\n"
+        "  let dp = DatePicker(win)\n"
+        "  let cmb = ComboBox(win, \"sec\")\n"
+        "  cmb.addItem(\"bir\")\n"
+        "  win.show()\n"
+        "  appRun()\n"
+        "}\n",
+        "advanced_widgets");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
