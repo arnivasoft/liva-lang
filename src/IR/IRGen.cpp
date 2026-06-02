@@ -1548,6 +1548,9 @@ void IRGen::createRuntimeDecls() {
     // create_date_picker(i32 parent) -> i32 ; date_get_value(i32) -> ptr
     module_->getOrInsertFunction("liva_ui_create_date_picker", uiCreateParentTy);
     module_->getOrInsertFunction("liva_ui_date_get_value", uiGetTextTy);
+    // create_combo_box(i32, ptr) -> i32 ; combo_add_item(i32, ptr) -> void
+    module_->getOrInsertFunction("liva_ui_create_combo_box", uiCreateParentStrTy);
+    module_->getOrInsertFunction("liva_ui_combo_add_item", uiHandleStrTy);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();

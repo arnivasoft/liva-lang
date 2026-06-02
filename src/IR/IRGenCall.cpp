@@ -5386,6 +5386,22 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(getOrPanic("liva_ui_date_get_value"),
                                     {handle}, "ui.dgv");
     }
+    // createComboBox(parent, value) -> i32
+    if (funcName == "createComboBox" && node->getArgs().size() >= 2) {
+        auto *parent = visit(node->getArgs()[0].get());
+        auto *value = visit(node->getArgs()[1].get());
+        if (!parent || !value) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_combo_box"),
+                                    {parent, value}, "ui.combo");
+    }
+    // comboAddItem(handle, item) -> void
+    if (funcName == "comboAddItem" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *item = visit(node->getArgs()[1].get());
+        if (!handle || !item) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_combo_add_item"), {handle, item});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

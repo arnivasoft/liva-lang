@@ -473,6 +473,8 @@ const char *liva_ui_get_text(int32_t handle) {
 
     if (auto *tc = dynamic_cast<wxTextCtrl *>(w))
         return returnTempStr(tc->GetValue());
+    if (auto *combo = dynamic_cast<wxComboBox *>(w))
+        return returnTempStr(combo->GetValue());
     return returnTempStr(w->GetLabel());
 }
 
@@ -502,6 +504,8 @@ int32_t liva_ui_get_value(int32_t handle) {
         return cb->GetValue() ? 1 : 0;
     if (auto *spin = dynamic_cast<wxSpinCtrl *>(w))
         return spin->GetValue();
+    if (auto *combo = dynamic_cast<wxComboBox *>(w))
+        return combo->GetSelection();
     return 0;
 }
 
@@ -631,6 +635,8 @@ void liva_ui_on_change(int32_t handle, void *func, void *env, int32_t size) {
         w->Bind(wxEVT_SPINCTRL, [cb](wxSpinEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxDatePickerCtrl *>(w)) {
         w->Bind(wxEVT_DATE_CHANGED, [cb](wxDateEvent &) { cb.invoke(); });
+    } else if (dynamic_cast<wxComboBox *>(w)) {
+        w->Bind(wxEVT_TEXT, [cb](wxCommandEvent &) { cb.invoke(); });
     }
 }
 
@@ -648,6 +654,8 @@ void liva_ui_on_select(int32_t handle, void *func, void *env, int32_t size) {
         w->Bind(wxEVT_RADIOBOX, [cb](wxCommandEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxNotebook *>(w)) {
         w->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, [cb](wxBookCtrlEvent &) { cb.invoke(); });
+    } else if (dynamic_cast<wxComboBox *>(w)) {
+        w->Bind(wxEVT_COMBOBOX, [cb](wxCommandEvent &) { cb.invoke(); });
     }
 }
 
@@ -1092,6 +1100,17 @@ const char *liva_ui_date_get_value(int32_t handle) {
     wxDateTime d = dp->GetValue();
     if (!d.IsValid()) return "";
     return returnTempStr(d.FormatISODate());
+}
+
+int32_t liva_ui_create_combo_box(int32_t parent, const char *value) {
+    auto *p = getHandle<wxWindow>(parent);
+    auto *cb = new wxComboBox(p, wxID_ANY, wxString::FromUTF8(value ? value : ""));
+    return allocHandle(cb);
+}
+
+void liva_ui_combo_add_item(int32_t handle, const char *item) {
+    if (auto *cb = getHandle<wxComboBox>(handle))
+        cb->Append(wxString::FromUTF8(item ? item : ""));
 }
 
 } // extern "C"

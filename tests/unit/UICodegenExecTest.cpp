@@ -556,4 +556,22 @@ TEST(UICodegenExec, DatePickerCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+TEST(UICodegenExec, ComboBoxCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let cb = ComboBox(win, \"baslangic\")\n"
+        "  cb.addItem(\"bir\")\n"
+        "  cb.addItem(\"iki\")\n"
+        "  println(cb.getText())\n"
+        "  println(cb.getSelection())\n"
+        "  cb.onSelect(|_h: i32| { })\n"
+        "  cb.onChange(|_h: i32| { })\n"
+        "}\n",
+        "combo_box");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM

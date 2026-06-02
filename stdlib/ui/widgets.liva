@@ -263,3 +263,11 @@ pub class DatePicker: Control {
     init(parent: Control) { super.init(createDatePicker(parent.handle)) }
     pub func getDate() -> string { return dateGetValue(self.handle) }   // "YYYY-MM-DD"
 }
+
+// ── ComboBox (wxComboBox — editable dropdown) ──────────────────
+pub class ComboBox: Control {
+    init(parent: Control, value: string) { super.init(createComboBox(parent.handle, value)) }
+    pub func addItem(item: string) { comboAddItem(self.handle, item) }
+    pub func getText() -> string { return getText(self.handle) }
+    pub func getSelection() -> i32 { return getValue(self.handle) }
+}

@@ -109,6 +109,8 @@ void     liva_ui_tool_item_on_click(int32_t tool, void *func, void *env, int32_t
 int32_t  liva_ui_create_spin_ctrl(int32_t parent, int32_t minVal, int32_t maxVal, int32_t val);
 int32_t      liva_ui_create_date_picker(int32_t parent);
 const char  *liva_ui_date_get_value(int32_t handle);     /* "YYYY-MM-DD" */
+int32_t  liva_ui_create_combo_box(int32_t parent, const char *value);
+void     liva_ui_combo_add_item(int32_t handle, const char *item);
 
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
