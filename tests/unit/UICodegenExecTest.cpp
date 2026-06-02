@@ -384,6 +384,11 @@ static bool hasOnClickCall(const std::string &ir) {
     return ir.find("call void @liva_ui_on_click(") != std::string::npos;
 }
 
+// True if the IR contains a call to the named void-returning runtime function.
+static bool hasRuntimeCall(const std::string &ir, const std::string &fn) {
+    return ir.find("call void @" + fn + "(") != std::string::npos;
+}
+
 TEST(UICodegenExec, InlineCallbackLiteralHeapOwnsEnv) {
     // Closure captures `count` and `btn`, bound inline → env size must be > 0.
     auto ir = emitIR(
@@ -724,6 +729,8 @@ TEST(UICodegenExec, AlignDockCompiles) {
         "}\n",
         "align_dock");
     EXPECT_TRUE(emitsClean(ir));
+    EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_set_align"))
+        << "setAlign must lower to a liva_ui_set_align call";
 }
 
 TEST(UICodegenExec, AnchorsCompiles) {
@@ -742,6 +749,8 @@ TEST(UICodegenExec, AnchorsCompiles) {
         "}\n",
         "anchors");
     EXPECT_TRUE(emitsClean(ir));
+    EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_set_anchors"))
+        << "setAnchors must lower to a liva_ui_set_anchors call";
 }
 
 #endif // LIVA_HAS_LLVM
