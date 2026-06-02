@@ -224,7 +224,7 @@ void ModuleLoader::registerBuiltinModules() {
          "createDataGrid", "gridSetCell", "gridGetCell", "gridSetColLabel",
          "createSplitter", "splitterSplitV", "splitterSplitH", "splitterSetSash",
          // Phase 4: align/anchors
-         "setAlign"});
+         "setAlign", "setAnchors"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

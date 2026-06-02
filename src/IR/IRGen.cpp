@@ -1601,6 +1601,11 @@ void IRGen::createRuntimeDecls() {
     // set_align(i32 handle, i32 align) -> void
     module_->getOrInsertFunction("liva_ui_set_align", uiSetValTy);
 
+    // set_anchors(i32 handle, i32 l, i32 t, i32 r, i32 b) -> void
+    auto *uiI32x5VoidTy =
+        llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_set_anchors", uiI32x5VoidTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();

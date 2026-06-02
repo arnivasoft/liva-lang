@@ -5516,6 +5516,17 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_set_align"), {handle, align});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // setAnchors(handle, left, top, right, bottom) -> void
+    if (funcName == "setAnchors" && node->getArgs().size() >= 5) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *l = visit(node->getArgs()[1].get());
+        auto *t = visit(node->getArgs()[2].get());
+        auto *r = visit(node->getArgs()[3].get());
+        auto *b = visit(node->getArgs()[4].get());
+        if (!handle || !l || !t || !r || !b) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_anchors"), {handle, l, t, r, b});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

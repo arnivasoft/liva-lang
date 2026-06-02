@@ -1285,14 +1285,43 @@ static void relayoutParent(wxWindow *parent) {
             clientUsed = true;
         }
     }
-    // 3) 'none' çocuklar: anchors (Task 2). Task 1'de varsayılan [left,top] =
-    //    sabit konum → dokunulmaz (zaten yerlerinde).
+    // 3) 'none' çocuklar: anchors (refBounds + ebeveyn boyut deltası).
+    for (wxWindow *child : parent->GetChildren()) {
+        auto it = g_layouts.find(child);
+        if (it == g_layouts.end()) continue;        // dokunulmamış → sabit
+        LivaLayout &L = it->second;
+        if (L.align != 0 || !L.hasRef) continue;
+        int dw = cs.x - L.refParentClient.x;
+        int dh = cs.y - L.refParentClient.y;
+        int nx = L.refBounds.x, nw = L.refBounds.width;
+        int ny = L.refBounds.y, nh = L.refBounds.height;
+        if (L.aLeft && L.aRight)        nw = L.refBounds.width + dw;   // yatay esner
+        else if (!L.aLeft && L.aRight)  nx = L.refBounds.x + dw;       // sag kenarla
+        else if (!L.aLeft && !L.aRight) nx = L.refBounds.x + dw / 2;   // orantili
+        if (L.aTop && L.aBottom)        nh = L.refBounds.height + dh;  // dikey esner
+        else if (!L.aTop && L.aBottom)  ny = L.refBounds.y + dh;       // alt kenarla
+        else if (!L.aTop && !L.aBottom) ny = L.refBounds.y + dh / 2;   // orantili
+        child->SetSize(nx, ny, nw, nh);
+    }
 }
 
 void liva_ui_set_align(int32_t handle, int32_t align) {
     auto *w = getHandle<wxWindow>(handle);
     if (!w) return;
     g_layouts[w].align = align;
+    captureLayoutRef(w);
+    wxWindow *parent = w->GetParent();
+    ensureParentBound(parent);
+    relayoutParent(parent);
+}
+
+void liva_ui_set_anchors(int32_t handle, int32_t left, int32_t top,
+                         int32_t right, int32_t bottom) {
+    auto *w = getHandle<wxWindow>(handle);
+    if (!w) return;
+    LivaLayout &L = g_layouts[w];
+    L.aLeft = left != 0; L.aTop = top != 0;
+    L.aRight = right != 0; L.aBottom = bottom != 0;
     captureLayoutRef(w);
     wxWindow *parent = w->GetParent();
     ensureParentBound(parent);

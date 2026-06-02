@@ -52,6 +52,19 @@ pub class Control {
 
     // VCL yerlesim: kenar-dock. Once setSize/setBounds, sonra setAlign.
     pub func setAlign(a: Align) { setAlign(self.handle, a) }
+
+    // VCL yerlesim: kenar sabitleme. Once setBounds, sonra setAnchors.
+    pub func setAnchors(left: bool, top: bool, right: bool, bottom: bool) {
+        var l = 0
+        if left { l = 1 }
+        var t = 0
+        if top { t = 1 }
+        var r = 0
+        if right { r = 1 }
+        var b = 0
+        if bottom { b = 1 }
+        setAnchors(self.handle, l, t, r, b)
+    }
 }
 
 // ── Window (wxFrame) ───────────────────────────────────────────

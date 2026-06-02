@@ -726,4 +726,22 @@ TEST(UICodegenExec, AlignDockCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+TEST(UICodegenExec, AnchorsCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let root = Panel(win)\n"
+        "  let ok = Button(root, \"OK\")\n"
+        "  ok.setBounds(300, 250, 80, 28)\n"
+        "  ok.setAnchors(false, false, true, true)\n"
+        "  let inp = TextInput(root, \"\")\n"
+        "  inp.setBounds(10, 250, 280, 28)\n"
+        "  inp.setAnchors(true, true, true, false)\n"
+        "}\n",
+        "anchors");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
