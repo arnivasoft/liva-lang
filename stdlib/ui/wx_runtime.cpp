@@ -1235,10 +1235,10 @@ static void relayoutParent(wxWindow *parent);   // forward
 static void captureLayoutRef(wxWindow *w) {
     LivaLayout &L = g_layouts[w];
     L.refBounds = w->GetRect();
-    if (wxWindow *p = w->GetParent()) {
-        L.refParentClient = p->GetClientSize();
-        L.hasRef = true;
-    }
+    // Ebeveyn-client baseline'i burada YAKALAMA: anchors genelde win.show()
+    // oncesi ayarlanir, o an ebeveyn istemci boyutu dejenere (≈0) olur. Baseline
+    // ilk gercek (non-degenerate) relayout'ta yakalanir (asagida).
+    L.hasRef = false;
 }
 
 // Ebeveynin yeniden boyutlanınca VCL yerleşimini çalıştırmasını sağla (bir kez bağla).
@@ -1290,7 +1290,17 @@ static void relayoutParent(wxWindow *parent) {
         auto it = g_layouts.find(child);
         if (it == g_layouts.end()) continue;        // dokunulmamış → sabit
         LivaLayout &L = it->second;
-        if (L.align != 0 || !L.hasRef) continue;
+        if (L.align != 0) continue;                 // dock'lu çocuklar pass 1-2'de
+        if (!L.hasRef) {
+            // İlk gerçek (non-degenerate) boyutta baseline'i yakala; çocuğu
+            // tasarım konumunda bırak. Dejenere boyutta (show öncesi) atla.
+            if (cs.x > 0 && cs.y > 0) {
+                L.refBounds = child->GetRect();
+                L.refParentClient = cs;
+                L.hasRef = true;
+            }
+            continue;
+        }
         int dw = cs.x - L.refParentClient.x;
         int dh = cs.y - L.refParentClient.y;
         int nx = L.refBounds.x, nw = L.refBounds.width;
