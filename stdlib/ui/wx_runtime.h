@@ -128,6 +128,15 @@ void         liva_ui_splitter_set_sash(int32_t handle, int32_t px);
 void liva_ui_set_align(int32_t handle, int32_t align);
 void liva_ui_set_anchors(int32_t handle, int32_t left, int32_t top, int32_t right, int32_t bottom);
 
+/* ── Phase 5: data binding ──────────────────────────────────────────── */
+int32_t      liva_ui_model_create(void);
+void         liva_ui_model_set_text(int32_t model, const char *key, const char *val);
+const char  *liva_ui_model_get_text(int32_t model, const char *key);
+void         liva_ui_model_set_int(int32_t model, const char *key, int32_t val);
+int32_t      liva_ui_model_get_int(int32_t model, const char *key);
+void         liva_ui_model_bind_text(int32_t model, const char *key, int32_t widget);
+void         liva_ui_model_bind_int(int32_t model, const char *key, int32_t widget);
+
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
 void     liva_ui_list_clear(int32_t handle);

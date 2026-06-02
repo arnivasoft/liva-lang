@@ -1606,6 +1606,16 @@ void IRGen::createRuntimeDecls() {
         llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}, false);
     module_->getOrInsertFunction("liva_ui_set_anchors", uiI32x5VoidTy);
 
+    // ── Phase 5: data binding ────────────────────────────────────────
+    auto *uiI32StrStrVoidTy =
+        llvm::FunctionType::get(voidTy, {i32Ty, i8PtrTy, i8PtrTy}, false);
+    auto *uiI32StrRetStrTy =
+        llvm::FunctionType::get(i8PtrTy, {i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_model_create", uiRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_model_set_text", uiI32StrStrVoidTy);
+    module_->getOrInsertFunction("liva_ui_model_get_text", uiI32StrRetStrTy);
+    module_->getOrInsertFunction("liva_ui_model_bind_text", uiI32StrI32VoidTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();

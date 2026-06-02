@@ -5527,6 +5527,36 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_set_anchors"), {handle, l, t, r, b});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // ── Phase 5: data binding ────────────────────────────────────────
+    // modelCreate() -> i32
+    if (funcName == "modelCreate" && node->getArgs().empty()) {
+        return builder_->CreateCall(getOrPanic("liva_ui_model_create"), {}, "ui.model");
+    }
+    // modelSetText(model, key, val) -> void
+    if (funcName == "modelSetText" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        auto *v = visit(node->getArgs()[2].get());
+        if (!m || !k || !v) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_model_set_text"), {m, k, v});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // modelGetText(model, key) -> string
+    if (funcName == "modelGetText" && node->getArgs().size() >= 2) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        if (!m || !k) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_model_get_text"), {m, k}, "ui.mget");
+    }
+    // modelBindText(model, key, widget) -> void
+    if (funcName == "modelBindText" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        auto *w = visit(node->getArgs()[2].get());
+        if (!m || !k || !w) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_model_bind_text"), {m, k, w});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

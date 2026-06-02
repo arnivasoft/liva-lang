@@ -780,4 +780,31 @@ TEST(UICodegenExec, AlignAnchorsLayoutCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Phase 5: data binding ──────────────────────────────────────────────
+TEST(UICodegenExec, ModelTextBindCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let root = Panel(win)\n"
+        "  let model = Model()\n"
+        "  model.setText(\"ad\", \"Ali\")\n"
+        "  println(model.getText(\"ad\"))\n"
+        "  let input = TextInput(root, \"\")\n"
+        "  model.bindText(\"ad\", input)\n"
+        "  let echo = Label(root, \"\")\n"
+        "  model.bindText(\"ad\", echo)\n"
+        "}\n",
+        "model_text_bind");
+    ASSERT_TRUE(emitsClean(ir));
+    // hasRuntimeCall matches `call void @<fn>(`, so it only works for
+    // void-returning FFIs. model_create returns i32 (covered indirectly by
+    // emitsClean) — assert the two void calls.
+    EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_model_set_text"))
+        << "setText must lower to liva_ui_model_set_text";
+    EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_model_bind_text"))
+        << "bindText must lower to liva_ui_model_bind_text";
+}
+
 #endif // LIVA_HAS_LLVM

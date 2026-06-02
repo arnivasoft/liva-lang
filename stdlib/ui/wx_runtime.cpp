@@ -1338,4 +1338,79 @@ void liva_ui_set_anchors(int32_t handle, int32_t left, int32_t top,
     relayoutParent(parent);
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   Phase 5: data binding (observable Model)
+   ═══════════════════════════════════════════════════════════════════ */
+
+struct LivaBinding { int32_t widget; int kind; };   // kind: 0=text, 1=int
+struct LivaModel {
+    std::unordered_map<std::string, std::string> textVals;
+    std::unordered_map<std::string, int32_t>     intVals;
+    std::unordered_map<std::string, std::vector<LivaBinding>> bindings;
+};
+static std::unordered_map<int32_t, LivaModel> g_models;
+static bool g_modelUpdating = false;   // geri-besleme (feedback-loop) koruması
+
+// `key`'e bağlı text widget'lara `val` yaz (kaynak handle atlanır).
+static void propagateText(LivaModel &M, const std::string &key,
+                          const char *val, int32_t source) {
+    auto it = M.bindings.find(key);
+    if (it == M.bindings.end()) return;
+    g_modelUpdating = true;
+    for (auto &b : it->second)
+        if (b.kind == 0 && b.widget != source)
+            liva_ui_set_text(b.widget, val);
+    g_modelUpdating = false;
+}
+
+int32_t liva_ui_model_create(void) {
+    int32_t h = g_nextHandle++;   // benzersiz; g_handles'a EKLENMEZ (g_treeNodes deseni)
+    g_models[h];                   // default-construct
+    return h;
+}
+
+void liva_ui_model_set_text(int32_t model, const char *key, const char *val) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return;
+    std::string k = key ? key : "";
+    std::string v = val ? val : "";
+    it->second.textVals[k] = v;
+    propagateText(it->second, k, v.c_str(), -1);   // kaynak yok → hepsine
+}
+
+const char *liva_ui_model_get_text(int32_t model, const char *key) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return "";
+    auto vit = it->second.textVals.find(key ? key : "");
+    if (vit == it->second.textVals.end()) return "";
+    return returnTempStr(wxString::FromUTF8(vit->second));
+}
+
+void liva_ui_model_bind_text(int32_t model, const char *key, int32_t widget) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return;
+    auto *w = getHandle<wxWindow>(widget);
+    if (!w) return;
+    std::string k = key ? key : "";
+    LivaModel &M = it->second;
+    M.bindings[k].push_back({widget, 0});
+    // mevcut model değerini widget'a it
+    auto vit = M.textVals.find(k);
+    if (vit != M.textVals.end())
+        liva_ui_set_text(widget, vit->second.c_str());
+    // widget değişim olayını hookle → model + diğerlerini güncelle
+    if (dynamic_cast<wxTextCtrl *>(w) || dynamic_cast<wxComboBox *>(w)) {
+        int32_t mh = model;
+        w->Bind(wxEVT_TEXT, [mh, k, widget](wxCommandEvent &) {
+            if (g_modelUpdating) return;
+            auto mit = g_models.find(mh);
+            if (mit == g_models.end()) return;
+            const char *v = liva_ui_get_text(widget);
+            mit->second.textVals[k] = v ? v : "";
+            propagateText(mit->second, k, mit->second.textVals[k].c_str(), widget);
+        });
+    }
+    // Label/StaticText wxEVT_TEXT yaymaz → tek yön (yalnız yukarıdaki ilk it).
+}
+
 } // extern "C"

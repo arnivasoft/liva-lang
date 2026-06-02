@@ -329,3 +329,14 @@ pub class Splitter: Control {
     }
     pub func setSashPosition(px: i32) { splitterSetSash(self.handle, px) }
 }
+
+// ═══ Phase 5: data binding ══════════════════════════════════════
+
+// ── Model (gözlemlenebilir anahtar-değer; Control değil, handle-sarmalayıcı) ──
+pub class Model {
+    var handle: i32
+    init() { self.handle = modelCreate() }
+    pub func setText(key: string, val: string) { modelSetText(self.handle, key, val) }
+    pub func getText(key: string) -> string { return modelGetText(self.handle, key) }
+    pub func bindText(key: string, w: Control) { modelBindText(self.handle, key, w.handle) }
+}
