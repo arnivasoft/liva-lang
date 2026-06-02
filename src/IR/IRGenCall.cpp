@@ -5433,6 +5433,45 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(getOrPanic("liva_ui_tree_get_selection"),
                                     {handle}, "ui.tsel");
     }
+    // createDataGrid(parent, rows, cols) -> i32
+    if (funcName == "createDataGrid" && node->getArgs().size() >= 3) {
+        auto *parent = visit(node->getArgs()[0].get());
+        auto *rows = visit(node->getArgs()[1].get());
+        auto *cols = visit(node->getArgs()[2].get());
+        if (!parent || !rows || !cols) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_data_grid"),
+                                    {parent, rows, cols}, "ui.grid2");
+    }
+    // gridSetCell(handle, row, col, text) -> void
+    if (funcName == "gridSetCell" && node->getArgs().size() >= 4) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *row = visit(node->getArgs()[1].get());
+        auto *col = visit(node->getArgs()[2].get());
+        auto *text = visit(node->getArgs()[3].get());
+        if (!handle || !row || !col || !text) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_grid_set_cell"),
+                             {handle, row, col, text});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // gridGetCell(handle, row, col) -> string
+    if (funcName == "gridGetCell" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *row = visit(node->getArgs()[1].get());
+        auto *col = visit(node->getArgs()[2].get());
+        if (!handle || !row || !col) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_grid_get_cell"),
+                                    {handle, row, col}, "ui.gcell");
+    }
+    // gridSetColLabel(handle, col, text) -> void
+    if (funcName == "gridSetColLabel" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *col = visit(node->getArgs()[1].get());
+        auto *text = visit(node->getArgs()[2].get());
+        if (!handle || !col || !text) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_grid_set_col_label"),
+                             {handle, col, text});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

@@ -1559,6 +1559,18 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_tree_add_root", uiI32StrRetI32Ty);
     module_->getOrInsertFunction("liva_ui_tree_add_node", uiI32I32StrRetI32Ty);
     module_->getOrInsertFunction("liva_ui_tree_get_selection", uiHandleRetI32Ty);
+    // DataGrid: create(i32,i32,i32)->i32, set_cell(i32,i32,i32,ptr)->void,
+    //           get_cell(i32,i32,i32)->ptr, set_col_label(i32,i32,ptr)->void
+    auto *uiI32I32I32RetI32Ty =
+        llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty, i32Ty}, false);
+    auto *uiI32I32I32StrVoidTy =
+        llvm::FunctionType::get(voidTy, {i32Ty, i32Ty, i32Ty, i8PtrTy}, false);
+    auto *uiI32I32I32RetStrTy =
+        llvm::FunctionType::get(i8PtrTy, {i32Ty, i32Ty, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_create_data_grid", uiI32I32I32RetI32Ty);
+    module_->getOrInsertFunction("liva_ui_grid_set_cell", uiI32I32I32StrVoidTy);
+    module_->getOrInsertFunction("liva_ui_grid_get_cell", uiI32I32I32RetStrTy);
+    module_->getOrInsertFunction("liva_ui_grid_set_col_label", uiI32I32StrVoidTy);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();

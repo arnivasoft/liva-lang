@@ -281,3 +281,13 @@ pub class TreeView: Control {
     }
     pub func getSelection() -> i32 { return treeGetSelection(self.handle) }
 }
+
+// ── DataGrid (wxGrid — hücre = row/col) ────────────────────────
+pub class DataGrid: Control {
+    init(parent: Control, rows: i32, cols: i32) {
+        super.init(createDataGrid(parent.handle, rows, cols))
+    }
+    pub func setCell(row: i32, col: i32, text: string) { gridSetCell(self.handle, row, col, text) }
+    pub func getCell(row: i32, col: i32) -> string { return gridGetCell(self.handle, row, col) }
+    pub func setColLabel(col: i32, text: string) { gridSetColLabel(self.handle, col, text) }
+}

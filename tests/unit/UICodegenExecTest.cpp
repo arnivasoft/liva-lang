@@ -627,4 +627,20 @@ TEST(UICodegenExec, TreeViewInlineSelectHeapOwns) {
         << "inline onSelect on a Control subclass must heap-own the env";
 }
 
+TEST(UICodegenExec, DataGridCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let grid = DataGrid(win, 5, 3)\n"
+        "  grid.setColLabel(0, \"Ad\")\n"
+        "  grid.setCell(0, 0, \"Ali\")\n"
+        "  println(grid.getCell(0, 0))\n"
+        "  grid.onChange(|_h: i32| { })\n"
+        "}\n",
+        "data_grid");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM

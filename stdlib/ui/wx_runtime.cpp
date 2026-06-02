@@ -642,6 +642,8 @@ void liva_ui_on_change(int32_t handle, void *func, void *env, int32_t size) {
         w->Bind(wxEVT_DATE_CHANGED, [cb](wxDateEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxComboBox *>(w)) {
         w->Bind(wxEVT_TEXT, [cb](wxCommandEvent &) { cb.invoke(); });
+    } else if (auto *grid = dynamic_cast<wxGrid *>(w)) {
+        grid->Bind(wxEVT_GRID_CELL_CHANGED, [cb](wxGridEvent &) { cb.invoke(); });
     }
 }
 
@@ -1154,6 +1156,29 @@ int32_t liva_ui_tree_get_selection(int32_t handle) {
     for (auto &kv : g_treeNodes)
         if (kv.second == sel) return kv.first;
     return 0;
+}
+
+int32_t liva_ui_create_data_grid(int32_t parent, int32_t rows, int32_t cols) {
+    auto *p = getHandle<wxWindow>(parent);
+    auto *grid = new wxGrid(p, wxID_ANY);
+    grid->CreateGrid(rows, cols);
+    return allocHandle(grid);
+}
+
+void liva_ui_grid_set_cell(int32_t handle, int32_t row, int32_t col, const char *text) {
+    if (auto *grid = getHandle<wxGrid>(handle))
+        grid->SetCellValue(row, col, wxString::FromUTF8(text ? text : ""));
+}
+
+const char *liva_ui_grid_get_cell(int32_t handle, int32_t row, int32_t col) {
+    auto *grid = getHandle<wxGrid>(handle);
+    if (!grid) return "";
+    return returnTempStr(grid->GetCellValue(row, col));
+}
+
+void liva_ui_grid_set_col_label(int32_t handle, int32_t col, const char *text) {
+    if (auto *grid = getHandle<wxGrid>(handle))
+        grid->SetColLabelValue(col, wxString::FromUTF8(text ? text : ""));
 }
 
 } // extern "C"

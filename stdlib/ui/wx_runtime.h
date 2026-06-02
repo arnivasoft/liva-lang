@@ -115,6 +115,10 @@ int32_t  liva_ui_create_tree_view(int32_t parent);
 int32_t  liva_ui_tree_add_root(int32_t handle, const char *label);              /* -> node handle */
 int32_t  liva_ui_tree_add_node(int32_t handle, int32_t parentNode, const char *label);
 int32_t  liva_ui_tree_get_selection(int32_t handle);                            /* -> node handle (0 if none) */
+int32_t      liva_ui_create_data_grid(int32_t parent, int32_t rows, int32_t cols);
+void         liva_ui_grid_set_cell(int32_t handle, int32_t row, int32_t col, const char *text);
+const char  *liva_ui_grid_get_cell(int32_t handle, int32_t row, int32_t col);
+void         liva_ui_grid_set_col_label(int32_t handle, int32_t col, const char *text);
 
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
