@@ -574,4 +574,57 @@ TEST(UICodegenExec, ComboBoxCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+TEST(UICodegenExec, TreeViewCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let tree = TreeView(win)\n"
+        "  let root = tree.addRoot(\"Proje\")\n"
+        "  let src = tree.addNode(root, \"src\")\n"
+        "  tree.addNode(src, \"main.liva\")\n"
+        "  println(tree.getSelection())\n"
+        "}\n",
+        "tree_view");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
+// True if any liva_ui_on_select CALL site passes a non-zero env size (4th arg),
+// i.e. the heap-own fast path fired for a Control-subclass widget.
+static bool anySelectHeapOwns(const std::string &ir) {
+    const std::string needle = "call void @liva_ui_on_select(";
+    for (size_t p = ir.find(needle); p != std::string::npos;
+         p = ir.find(needle, p + 1)) {
+        size_t end = ir.find(')', p);
+        if (end == std::string::npos) break;
+        if (ir.substr(p, end - p + 1).find(", i32 0)") == std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+TEST(UICodegenExec, TreeViewInlineSelectHeapOwns) {
+    // Inline onSelect closure on a Control subclass (TreeView) must take the
+    // generalized fast path and heap-own its env, even inside a helper that
+    // returns the widget. Confirms the fast path auto-covers new widgets.
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func build(parent: Control) -> TreeView {\n"
+        "  var n = 0\n"
+        "  let tree = TreeView(parent)\n"
+        "  tree.onSelect(|_h: i32| { n = n + 1 })\n"
+        "  return tree\n"
+        "}\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let t = build(win)\n"
+        "}\n",
+        "tree_select_heap");
+    ASSERT_TRUE(emitsClean(ir));
+    EXPECT_TRUE(anySelectHeapOwns(ir))
+        << "inline onSelect on a Control subclass must heap-own the env";
+}
+
 #endif // LIVA_HAS_LLVM

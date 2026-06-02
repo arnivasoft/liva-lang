@@ -271,3 +271,13 @@ pub class ComboBox: Control {
     pub func getText() -> string { return getText(self.handle) }
     pub func getSelection() -> i32 { return getValue(self.handle) }
 }
+
+// ── TreeView (wxTreeCtrl — node = i32 handle) ──────────────────
+pub class TreeView: Control {
+    init(parent: Control) { super.init(createTreeView(parent.handle)) }
+    pub func addRoot(label: string) -> i32 { return treeAddRoot(self.handle, label) }
+    pub func addNode(parentNode: i32, label: string) -> i32 {
+        return treeAddNode(self.handle, parentNode, label)
+    }
+    pub func getSelection() -> i32 { return treeGetSelection(self.handle) }
+}

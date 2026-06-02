@@ -111,6 +111,10 @@ int32_t      liva_ui_create_date_picker(int32_t parent);
 const char  *liva_ui_date_get_value(int32_t handle);     /* "YYYY-MM-DD" */
 int32_t  liva_ui_create_combo_box(int32_t parent, const char *value);
 void     liva_ui_combo_add_item(int32_t handle, const char *item);
+int32_t  liva_ui_create_tree_view(int32_t parent);
+int32_t  liva_ui_tree_add_root(int32_t handle, const char *label);              /* -> node handle */
+int32_t  liva_ui_tree_add_node(int32_t handle, int32_t parentNode, const char *label);
+int32_t  liva_ui_tree_get_selection(int32_t handle);                            /* -> node handle (0 if none) */
 
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);

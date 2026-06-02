@@ -1551,6 +1551,14 @@ void IRGen::createRuntimeDecls() {
     // create_combo_box(i32, ptr) -> i32 ; combo_add_item(i32, ptr) -> void
     module_->getOrInsertFunction("liva_ui_create_combo_box", uiCreateParentStrTy);
     module_->getOrInsertFunction("liva_ui_combo_add_item", uiHandleStrTy);
+    // TreeView: create(i32)->i32, add_root(i32,ptr)->i32,
+    //           add_node(i32,i32,ptr)->i32, get_selection(i32)->i32
+    auto *uiI32I32StrRetI32Ty =
+        llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_ui_create_tree_view", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_tree_add_root", uiI32StrRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_tree_add_node", uiI32I32StrRetI32Ty);
+    module_->getOrInsertFunction("liva_ui_tree_get_selection", uiHandleRetI32Ty);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();

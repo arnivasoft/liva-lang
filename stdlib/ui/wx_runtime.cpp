@@ -126,6 +126,11 @@ struct LivaToolItem {
 };
 static std::unordered_map<int32_t, LivaToolItem> g_toolItems;
 
+// TreeView nodes are wxTreeItemId values (not wxWindow*); map them to i32
+// handles using the global handle counter (unique, but kept out of g_handles
+// since they are never looked up via getHandle<>). Mirrors the menu-item table.
+static std::unordered_map<int32_t, wxTreeItemId> g_treeNodes;
+
 static int g_nextCmdId = 20000;  // wx user command id range
 
 static std::unordered_map<int32_t, wxString> &g_menuTitles() {
@@ -656,6 +661,8 @@ void liva_ui_on_select(int32_t handle, void *func, void *env, int32_t size) {
         w->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, [cb](wxBookCtrlEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxComboBox *>(w)) {
         w->Bind(wxEVT_COMBOBOX, [cb](wxCommandEvent &) { cb.invoke(); });
+    } else if (dynamic_cast<wxTreeCtrl *>(w)) {
+        w->Bind(wxEVT_TREE_SEL_CHANGED, [cb](wxTreeEvent &) { cb.invoke(); });
     }
 }
 
@@ -1111,6 +1118,42 @@ int32_t liva_ui_create_combo_box(int32_t parent, const char *value) {
 void liva_ui_combo_add_item(int32_t handle, const char *item) {
     if (auto *cb = getHandle<wxComboBox>(handle))
         cb->Append(wxString::FromUTF8(item ? item : ""));
+}
+
+int32_t liva_ui_create_tree_view(int32_t parent) {
+    auto *p = getHandle<wxWindow>(parent);
+    auto *tree = new wxTreeCtrl(p, wxID_ANY);
+    return allocHandle(tree);
+}
+
+int32_t liva_ui_tree_add_root(int32_t handle, const char *label) {
+    auto *tree = getHandle<wxTreeCtrl>(handle);
+    if (!tree) return 0;
+    wxTreeItemId id = tree->AddRoot(wxString::FromUTF8(label ? label : ""));
+    int32_t nh = g_nextHandle++;
+    g_treeNodes[nh] = id;
+    return nh;
+}
+
+int32_t liva_ui_tree_add_node(int32_t handle, int32_t parentNode, const char *label) {
+    auto *tree = getHandle<wxTreeCtrl>(handle);
+    if (!tree) return 0;
+    auto it = g_treeNodes.find(parentNode);
+    if (it == g_treeNodes.end()) return 0;
+    wxTreeItemId id = tree->AppendItem(it->second, wxString::FromUTF8(label ? label : ""));
+    int32_t nh = g_nextHandle++;
+    g_treeNodes[nh] = id;
+    return nh;
+}
+
+int32_t liva_ui_tree_get_selection(int32_t handle) {
+    auto *tree = getHandle<wxTreeCtrl>(handle);
+    if (!tree) return 0;
+    wxTreeItemId sel = tree->GetSelection();
+    if (!sel.IsOk()) return 0;
+    for (auto &kv : g_treeNodes)
+        if (kv.second == sel) return kv.first;
+    return 0;
 }
 
 } // extern "C"

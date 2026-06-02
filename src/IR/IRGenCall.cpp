@@ -5402,6 +5402,37 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_combo_add_item"), {handle, item});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // createTreeView(parent) -> i32
+    if (funcName == "createTreeView" && node->getArgs().size() >= 1) {
+        auto *parent = visit(node->getArgs()[0].get());
+        if (!parent) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_tree_view"),
+                                    {parent}, "ui.tree");
+    }
+    // treeAddRoot(handle, label) -> i32
+    if (funcName == "treeAddRoot" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *label = visit(node->getArgs()[1].get());
+        if (!handle || !label) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_tree_add_root"),
+                                    {handle, label}, "ui.troot");
+    }
+    // treeAddNode(handle, parentNode, label) -> i32
+    if (funcName == "treeAddNode" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *parentNode = visit(node->getArgs()[1].get());
+        auto *label = visit(node->getArgs()[2].get());
+        if (!handle || !parentNode || !label) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_tree_add_node"),
+                                    {handle, parentNode, label}, "ui.tnode");
+    }
+    // treeGetSelection(handle) -> i32
+    if (funcName == "treeGetSelection" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_tree_get_selection"),
+                                    {handle}, "ui.tsel");
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);
