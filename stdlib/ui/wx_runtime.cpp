@@ -1478,6 +1478,7 @@ void liva_ui_model_bind_int(int32_t model, const char *key, int32_t widget) {
     if (dynamic_cast<wxComboBox *>(w))       w->Bind(wxEVT_COMBOBOX, onChange);
     else if (dynamic_cast<wxChoice *>(w))    w->Bind(wxEVT_CHOICE, onChange);
     else if (dynamic_cast<wxListBox *>(w))   w->Bind(wxEVT_LISTBOX, onChange);
+    else if (dynamic_cast<wxRadioBox *>(w))  w->Bind(wxEVT_RADIOBOX, onChange);
     else if (dynamic_cast<wxCheckBox *>(w))  w->Bind(wxEVT_CHECKBOX, onChange);
     else if (dynamic_cast<wxSpinCtrl *>(w))  w->Bind(wxEVT_SPINCTRL, onChange);
     else if (dynamic_cast<wxSlider *>(w))    w->Bind(wxEVT_SLIDER, onChange);
