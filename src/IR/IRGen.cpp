@@ -1571,6 +1571,11 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_grid_set_cell", uiI32I32I32StrVoidTy);
     module_->getOrInsertFunction("liva_ui_grid_get_cell", uiI32I32I32RetStrTy);
     module_->getOrInsertFunction("liva_ui_grid_set_col_label", uiI32I32StrVoidTy);
+    // Splitter: create(i32)->i32, split_v/h(i32,i32,i32)->void, set_sash(i32,i32)->void
+    module_->getOrInsertFunction("liva_ui_create_splitter", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_splitter_split_v", uiSetSizeTy);
+    module_->getOrInsertFunction("liva_ui_splitter_split_h", uiSetSizeTy);
+    module_->getOrInsertFunction("liva_ui_splitter_set_sash", uiSetValTy);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();

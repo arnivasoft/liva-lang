@@ -221,7 +221,8 @@ void ModuleLoader::registerBuiltinModules() {
          "createSpinCtrl", "createDatePicker", "dateGetValue",
          "createComboBox", "comboAddItem",
          "createTreeView", "treeAddRoot", "treeAddNode", "treeGetSelection",
-         "createDataGrid", "gridSetCell", "gridGetCell", "gridSetColLabel"});
+         "createDataGrid", "gridSetCell", "gridGetCell", "gridSetColLabel",
+         "createSplitter", "splitterSplitV", "splitterSplitH", "splitterSetSash"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

@@ -643,4 +643,20 @@ TEST(UICodegenExec, DataGridCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+TEST(UICodegenExec, SplitterCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let sp = Splitter(win)\n"
+        "  let left = Panel(sp)\n"
+        "  let right = Panel(sp)\n"
+        "  sp.splitVertically(left, right)\n"
+        "  sp.setSashPosition(150)\n"
+        "}\n",
+        "splitter");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM

@@ -1181,4 +1181,29 @@ void liva_ui_grid_set_col_label(int32_t handle, int32_t col, const char *text) {
         grid->SetColLabelValue(col, wxString::FromUTF8(text ? text : ""));
 }
 
+int32_t liva_ui_create_splitter(int32_t parent) {
+    auto *p = getHandle<wxWindow>(parent);
+    auto *sp = new wxSplitterWindow(p, wxID_ANY);
+    return allocHandle(sp);
+}
+
+void liva_ui_splitter_split_v(int32_t handle, int32_t left, int32_t right) {
+    auto *sp = getHandle<wxSplitterWindow>(handle);
+    auto *l = getHandle<wxWindow>(left);
+    auto *r = getHandle<wxWindow>(right);
+    if (sp && l && r) sp->SplitVertically(l, r);
+}
+
+void liva_ui_splitter_split_h(int32_t handle, int32_t top, int32_t bottom) {
+    auto *sp = getHandle<wxSplitterWindow>(handle);
+    auto *t = getHandle<wxWindow>(top);
+    auto *b = getHandle<wxWindow>(bottom);
+    if (sp && t && b) sp->SplitHorizontally(t, b);
+}
+
+void liva_ui_splitter_set_sash(int32_t handle, int32_t px) {
+    if (auto *sp = getHandle<wxSplitterWindow>(handle))
+        sp->SetSashPosition(px);
+}
+
 } // extern "C"

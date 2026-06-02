@@ -119,6 +119,10 @@ int32_t      liva_ui_create_data_grid(int32_t parent, int32_t rows, int32_t cols
 void         liva_ui_grid_set_cell(int32_t handle, int32_t row, int32_t col, const char *text);
 const char  *liva_ui_grid_get_cell(int32_t handle, int32_t row, int32_t col);
 void         liva_ui_grid_set_col_label(int32_t handle, int32_t col, const char *text);
+int32_t      liva_ui_create_splitter(int32_t parent);
+void         liva_ui_splitter_split_v(int32_t handle, int32_t left, int32_t right);
+void         liva_ui_splitter_split_h(int32_t handle, int32_t top, int32_t bottom);
+void         liva_ui_splitter_set_sash(int32_t handle, int32_t px);
 
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);

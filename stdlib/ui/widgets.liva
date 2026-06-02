@@ -291,3 +291,15 @@ pub class DataGrid: Control {
     pub func getCell(row: i32, col: i32) -> string { return gridGetCell(self.handle, row, col) }
     pub func setColLabel(col: i32, text: string) { gridSetColLabel(self.handle, col, text) }
 }
+
+// ── Splitter (wxSplitterWindow — iki Control'ü split eder) ─────
+pub class Splitter: Control {
+    init(parent: Control) { super.init(createSplitter(parent.handle)) }
+    pub func splitVertically(left: Control, right: Control) {
+        splitterSplitV(self.handle, left.handle, right.handle)
+    }
+    pub func splitHorizontally(top: Control, bottom: Control) {
+        splitterSplitH(self.handle, top.handle, bottom.handle)
+    }
+    pub func setSashPosition(px: i32) { splitterSetSash(self.handle, px) }
+}

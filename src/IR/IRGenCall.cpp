@@ -5472,6 +5472,41 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                              {handle, col, text});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // createSplitter(parent) -> i32
+    if (funcName == "createSplitter" && node->getArgs().size() >= 1) {
+        auto *parent = visit(node->getArgs()[0].get());
+        if (!parent) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_splitter"),
+                                    {parent}, "ui.split");
+    }
+    // splitterSplitV(handle, left, right) -> void
+    if (funcName == "splitterSplitV" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *left = visit(node->getArgs()[1].get());
+        auto *right = visit(node->getArgs()[2].get());
+        if (!handle || !left || !right) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_splitter_split_v"),
+                             {handle, left, right});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // splitterSplitH(handle, top, bottom) -> void
+    if (funcName == "splitterSplitH" && node->getArgs().size() >= 3) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *top = visit(node->getArgs()[1].get());
+        auto *bottom = visit(node->getArgs()[2].get());
+        if (!handle || !top || !bottom) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_splitter_split_h"),
+                             {handle, top, bottom});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // splitterSetSash(handle, px) -> void
+    if (funcName == "splitterSetSash" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *px = visit(node->getArgs()[1].get());
+        if (!handle || !px) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_splitter_set_sash"), {handle, px});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);
