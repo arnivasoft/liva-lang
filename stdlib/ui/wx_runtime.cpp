@@ -653,7 +653,12 @@ void liva_ui_on_select(int32_t handle, void *func, void *env, int32_t size) {
     void *owned = ownEnv(handle, env, size);
     LivaCallback cb{(LivaCallbackFn)func, owned, handle};
 
-    if (dynamic_cast<wxChoice *>(w)) {
+    if (dynamic_cast<wxComboBox *>(w)) {
+        // wxComboBox publicly derives from wxChoice on MSW, so this branch
+        // MUST be checked before wxChoice (derived-before-base) — otherwise
+        // combo selections would bind wxEVT_CHOICE and never fire onSelect.
+        w->Bind(wxEVT_COMBOBOX, [cb](wxCommandEvent &) { cb.invoke(); });
+    } else if (dynamic_cast<wxChoice *>(w)) {
         w->Bind(wxEVT_CHOICE, [cb](wxCommandEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxListBox *>(w)) {
         w->Bind(wxEVT_LISTBOX, [cb](wxCommandEvent &) { cb.invoke(); });
@@ -661,8 +666,6 @@ void liva_ui_on_select(int32_t handle, void *func, void *env, int32_t size) {
         w->Bind(wxEVT_RADIOBOX, [cb](wxCommandEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxNotebook *>(w)) {
         w->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, [cb](wxBookCtrlEvent &) { cb.invoke(); });
-    } else if (dynamic_cast<wxComboBox *>(w)) {
-        w->Bind(wxEVT_COMBOBOX, [cb](wxCommandEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxTreeCtrl *>(w)) {
         w->Bind(wxEVT_TREE_SEL_CHANGED, [cb](wxTreeEvent &) { cb.invoke(); });
     }
