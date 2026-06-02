@@ -1,0 +1,44 @@
+// Faz 4 — Align/Anchors yerlesim (sizer'siz, saf VCL).
+// Build: livac examples/ui_layout_align.liva -o layout_align
+//
+// Frame'in tek icerik cocugu root Panel'dir (otomatik dolar). Icindeki
+// cocuklar Align ile kenarlara dock olur; client kalani doldurur. Buton
+// Anchors ile sag-alt koseye sabitlenir. Pencere yeniden boyutlaninca:
+// kenarlar sabit kalir, client (editor) buyur, buton sag-alt'ta kalir.
+// Kural: kenar-dock icin once setSize (dock yonundeki kalinlik), sonra setAlign.
+import ui::widgets
+
+func main() {
+    appInit()
+    let win = Window(720, 520, "Liva — Align/Anchors")
+    let root = Panel(win)
+
+    // Ust arac cubugu (yukseklik 36, tam genislik)
+    let toolbar = Panel(root)
+    toolbar.setSize(720, 36)
+    toolbar.setBgColor(60, 60, 90)
+    toolbar.setAlign(Align.top)
+
+    // Alt durum satiri
+    let status = Label(root, "Hazir — pencereyi yeniden boyutlandirin")
+    status.setAlign(Align.bottom)
+
+    // Sol kenar paneli (genislik 180)
+    let side = Panel(root)
+    side.setSize(180, 0)
+    side.setBgColor(230, 230, 235)
+    side.setAlign(Align.left)
+
+    // Merkez editor — kalan tum alani doldurur
+    let editor = TextArea(root, "Bu alan client align'lidir; pencere buyudukce buyur.")
+    editor.setAlign(Align.client)
+
+    // Sag-alt'a sabit buton (anchors: sag + alt)
+    let ok = Button(root, "Tamam")
+    ok.setBounds(620, 440, 80, 28)
+    ok.setAnchors(false, false, true, true)
+    ok.onClick(|_h: i32| { messageBox("Bilgi", "Tamam", 1) })
+
+    win.show()
+    appRun()
+}

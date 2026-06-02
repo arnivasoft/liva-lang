@@ -753,4 +753,31 @@ TEST(UICodegenExec, AnchorsCompiles) {
         << "setAnchors must lower to a liva_ui_set_anchors call";
 }
 
+TEST(UICodegenExec, AlignAnchorsLayoutCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(700, 500, \"Align Anchors\")\n"
+        "  let root = Panel(win)\n"
+        "  let toolbar = Panel(root)\n"
+        "  toolbar.setSize(700, 36)\n"
+        "  toolbar.setAlign(Align.top)\n"
+        "  let status = Label(root, \"Hazir\")\n"
+        "  status.setAlign(Align.bottom)\n"
+        "  let side = Panel(root)\n"
+        "  side.setSize(180, 0)\n"
+        "  side.setAlign(Align.left)\n"
+        "  let editor = TextArea(root, \"\")\n"
+        "  editor.setAlign(Align.client)\n"
+        "  let ok = Button(root, \"Tamam\")\n"
+        "  ok.setBounds(600, 430, 80, 28)\n"
+        "  ok.setAnchors(false, false, true, true)\n"
+        "  win.show()\n"
+        "  appRun()\n"
+        "}\n",
+        "align_anchors_layout");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
