@@ -1,0 +1,46 @@
+// Faz 5 — Iki yonlu veri baglama (gozlemlenebilir Model).
+// Build: livac examples/ui_data_binding.liva -o data_binding
+//
+// Model anahtar-deger tutar; bindText/bindInt widget'lari iki yonlu baglar.
+// input'a yazinca model["ad"] + echo Label canli guncellenir. Spin'i oynatinca
+// model["yas"] guncellenir. Sifirla butonu model'i degistirir -> widget'lar
+// aninda yansir (model -> widget yonu).
+import ui::widgets
+
+func main() {
+    appInit()
+    let win = Window(440, 280, "Liva — Veri Baglama")
+    let root = Panel(win)
+
+    let model = Model()
+    model.setText("ad", "Ali")
+    model.setInt("yas", 30)
+
+    let adLbl = Label(root, "Ad:")
+    adLbl.setBounds(20, 24, 80, 24)
+    let input = TextInput(root, "")
+    input.setBounds(110, 20, 200, 28)
+    model.bindText("ad", input)          // iki yonlu: input <-> model["ad"]
+
+    let echoLbl = Label(root, "Yansima:")
+    echoLbl.setBounds(20, 64, 80, 24)
+    let echo = Label(root, "")
+    echo.setBounds(110, 64, 280, 24)
+    model.bindText("ad", echo)           // canli yansima (Label -> tek yon)
+
+    let yasLbl = Label(root, "Yas:")
+    yasLbl.setBounds(20, 104, 80, 24)
+    let spin = SpinCtrl(root, 0, 120, 0)
+    spin.setBounds(110, 100, 100, 28)
+    model.bindInt("yas", spin)           // iki yonlu: spin <-> model["yas"]
+
+    let reset = Button(root, "Sifirla")
+    reset.setBounds(110, 150, 200, 30)
+    reset.onClick(|_h: i32| {
+        model.setText("ad", "Varsayilan")    // model -> input + echo
+        model.setInt("yas", 18)              // model -> spin
+    })
+
+    win.show()
+    appRun()
+}

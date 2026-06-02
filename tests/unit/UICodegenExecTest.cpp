@@ -828,4 +828,29 @@ TEST(UICodegenExec, ModelIntBindCompiles) {
         << "bindInt must lower to liva_ui_model_bind_int";
 }
 
+TEST(UICodegenExec, DataBindingExampleCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(420, 260, \"Veri Baglama\")\n"
+        "  let root = Panel(win)\n"
+        "  let model = Model()\n"
+        "  model.setText(\"ad\", \"Ali\")\n"
+        "  let input = TextInput(root, \"\")\n"
+        "  model.bindText(\"ad\", input)\n"
+        "  let echo = Label(root, \"\")\n"
+        "  model.bindText(\"ad\", echo)\n"
+        "  let spin = SpinCtrl(root, 0, 120, 0)\n"
+        "  model.setInt(\"yas\", 30)\n"
+        "  model.bindInt(\"yas\", spin)\n"
+        "  let reset = Button(root, \"Sifirla\")\n"
+        "  reset.onClick(|_h: i32| { model.setText(\"ad\", \"Varsayilan\") })\n"
+        "  win.show()\n"
+        "  appRun()\n"
+        "}\n",
+        "data_binding_example");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
