@@ -704,4 +704,26 @@ TEST(UICodegenExec, AdvancedWidgetsExampleCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Phase 4: Align/Anchors layout ──────────────────────────────────────
+TEST(UICodegenExec, AlignDockCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let root = Panel(win)\n"
+        "  let top = Panel(root)\n"
+        "  top.setSize(400, 36)\n"
+        "  top.setAlign(Align.top)\n"
+        "  let bottom = Panel(root)\n"
+        "  bottom.setAlign(Align.bottom)\n"
+        "  let side = Panel(root)\n"
+        "  side.setAlign(Align.left)\n"
+        "  let center = Panel(root)\n"
+        "  center.setAlign(Align.client)\n"
+        "}\n",
+        "align_dock");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM

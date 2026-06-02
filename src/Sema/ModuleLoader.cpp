@@ -222,7 +222,9 @@ void ModuleLoader::registerBuiltinModules() {
          "createComboBox", "comboAddItem",
          "createTreeView", "treeAddRoot", "treeAddNode", "treeGetSelection",
          "createDataGrid", "gridSetCell", "gridGetCell", "gridSetColLabel",
-         "createSplitter", "splitterSplitV", "splitterSplitH", "splitterSetSash"});
+         "createSplitter", "splitterSplitV", "splitterSplitH", "splitterSetSash",
+         // Phase 4: align/anchors
+         "setAlign"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

@@ -5507,6 +5507,15 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_splitter_set_sash"), {handle, px});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // ── Phase 4: Align/Anchors layout ────────────────────────────────
+    // setAlign(handle, align) -> void  (align: basit enum → i32 discriminant)
+    if (funcName == "setAlign" && node->getArgs().size() >= 2) {
+        auto *handle = visit(node->getArgs()[0].get());
+        auto *align = visit(node->getArgs()[1].get());
+        if (!handle || !align) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_set_align"), {handle, align});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

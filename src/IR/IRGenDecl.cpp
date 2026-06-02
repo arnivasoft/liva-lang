@@ -33,6 +33,17 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
     // forward-reference each other (e.g. Window.setMenuBar(mb: MenuBar) where
     // MenuBar is declared later in the same module).
     if (!separateCompilation_) {
+        // Enum pre-pass: register enum case/payload maps BEFORE class method
+        // prototypes are built, so a method param typed by an enum declared in
+        // this same module (e.g. Control.setAlign(a: Align)) lowers correctly
+        // (simple enum → i32) regardless of declaration order.
+        for (auto &decl : mod->tu->getDeclarations()) {
+            if (decl->getKind() == ASTNode::NodeKind::EnumDecl) {
+                auto *enumDecl = static_cast<EnumDecl *>(decl.get());
+                if (preDeclaredEnums_.insert(enumDecl->getName()).second)
+                    visitEnumDecl(enumDecl);
+            }
+        }
         for (auto &decl : mod->tu->getDeclarations()) {
             if (decl->getKind() == ASTNode::NodeKind::ClassDecl) {
                 auto *classDecl = static_cast<ClassDecl *>(decl.get());
@@ -83,6 +94,14 @@ llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
                 declareExternImpl(implDecl);
                 continue;
             }
+        }
+
+        // Enums already registered in the enum pre-pass above — don't re-emit
+        // (would recreate the named tagged-union struct type).
+        if (decl->getKind() == ASTNode::NodeKind::EnumDecl) {
+            auto *enumDecl = static_cast<EnumDecl *>(decl.get());
+            if (preDeclaredEnums_.count(enumDecl->getName()))
+                continue;
         }
 
         // EnumDecl, ProtocolDecl, TypeAliasDecl, ImportDecl: always visit

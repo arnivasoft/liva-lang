@@ -124,6 +124,10 @@ void         liva_ui_splitter_split_v(int32_t handle, int32_t left, int32_t righ
 void         liva_ui_splitter_split_h(int32_t handle, int32_t top, int32_t bottom);
 void         liva_ui_splitter_set_sash(int32_t handle, int32_t px);
 
+/* ── Phase 4: Align/Anchors layout ────────────────────────────────── */
+void liva_ui_set_align(int32_t handle, int32_t align);
+void liva_ui_set_anchors(int32_t handle, int32_t left, int32_t top, int32_t right, int32_t bottom);
+
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
 void     liva_ui_list_clear(int32_t handle);

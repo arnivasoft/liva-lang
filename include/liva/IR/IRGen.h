@@ -609,6 +609,8 @@ private:
     std::set<std::string> classNames_;
     /// Classes that have completed phase-1 pre-declaration (guards idempotency/cycles)
     std::set<std::string> preDeclared_;
+    /// Enums registered in the enum pre-pass (guards re-emission in main decl loop)
+    std::set<std::string> preDeclaredEnums_;
     /// Map of class name → ClassDecl node, populated during the pre-declare pass so
     /// preDeclareClass can recursively ensure a parent is pre-declared first.
     std::unordered_map<std::string, ClassDecl *> classDecls_;

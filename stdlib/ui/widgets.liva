@@ -3,6 +3,16 @@
 import std::ui
 import ui::types
 
+// ── Align (VCL kenar-dock) ─────────────────────────────────────
+pub enum Align {
+    case none = 0
+    case top = 1
+    case bottom = 2
+    case left = 3
+    case right = 4
+    case client = 5
+}
+
 // ── Control: taban sınıf (VCL TControl) ────────────────────────
 pub class Control {
     var handle: i32
@@ -39,6 +49,9 @@ pub class Control {
     pub func onSelect(cb: (i32) -> void) { onSelect(self.handle, cb) }
     pub func onKey(cb: (i32, i32) -> void) { onKey(self.handle, cb) }
     pub func onRightClick(cb: (i32, i32) -> void) { onRightClick(self.handle, cb) }
+
+    // VCL yerlesim: kenar-dock. Once setSize/setBounds, sonra setAlign.
+    pub func setAlign(a: Align) { setAlign(self.handle, a) }
 }
 
 // ── Window (wxFrame) ───────────────────────────────────────────

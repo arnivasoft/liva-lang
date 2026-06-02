@@ -35,6 +35,7 @@
 #include <wx/splitter.h>
 
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -556,10 +557,25 @@ void liva_ui_set_tooltip(int32_t handle, const char *text) {
         w->SetToolTip(wxString::FromUTF8(text ? text : ""));
 }
 
+/* Phase 4 layout state — forward-declared here so liva_ui_destroy_widget can
+   clean it up; the layout engine functions are defined at end of file. */
+struct LivaLayout {
+    int  align = 0;                 // 0=none,1=top,2=bottom,3=left,4=right,5=client
+    bool aLeft = true, aTop = true, aRight = false, aBottom = false;  // VCL default
+    wxRect refBounds;               // anchor referans dikdörtgeni
+    wxSize refParentClient;         // anchor referans ebeveyn istemci boyutu
+    bool   hasRef = false;
+};
+// Anahtar wxWindow* (handle değil): relayout doğrudan GetChildren() pointer'larıyla bakar.
+static std::unordered_map<wxWindow *, LivaLayout> g_layouts;
+static std::unordered_set<wxWindow *> g_layoutParents;
+
 void liva_ui_destroy_widget(int32_t handle) {
     freeWidgetEnvs(handle);
     auto *w = getHandle<wxWindow>(handle);
     if (!w) return;
+    g_layouts.erase(w);
+    g_layoutParents.erase(w);
     w->Destroy();
     g_handles.erase(handle);
 }
@@ -1207,6 +1223,80 @@ void liva_ui_splitter_split_h(int32_t handle, int32_t top, int32_t bottom) {
 void liva_ui_splitter_set_sash(int32_t handle, int32_t px) {
     if (auto *sp = getHandle<wxSplitterWindow>(handle))
         sp->SetSashPosition(px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Phase 4: Align/Anchors layout (VCL AlignControls)
+   ═══════════════════════════════════════════════════════════════════ */
+
+static void relayoutParent(wxWindow *parent);   // forward
+
+// Çocuğun mevcut rect'ini + ebeveyn istemci boyutunu anchor referansı olarak yakala.
+static void captureLayoutRef(wxWindow *w) {
+    LivaLayout &L = g_layouts[w];
+    L.refBounds = w->GetRect();
+    if (wxWindow *p = w->GetParent()) {
+        L.refParentClient = p->GetClientSize();
+        L.hasRef = true;
+    }
+}
+
+// Ebeveynin yeniden boyutlanınca VCL yerleşimini çalıştırmasını sağla (bir kez bağla).
+static void ensureParentBound(wxWindow *parent) {
+    if (!parent || g_layoutParents.count(parent)) return;
+    if (parent->GetSizer()) parent->SetSizer(nullptr, false);  // ebeveyn başına biri
+    parent->Bind(wxEVT_SIZE, [parent](wxSizeEvent &e) {
+        relayoutParent(parent);
+        e.Skip();
+    });
+    g_layoutParents.insert(parent);
+}
+
+// VCL AlignControls: kenar-dock çocuklar istemci dikdörtgenini tüketir; sonra
+// 'none' çocuklar anchor'lara göre konumlanır (anchor matematiği Task 2'de).
+static void relayoutParent(wxWindow *parent) {
+    if (!parent) return;
+    wxSize cs = parent->GetClientSize();
+    wxRect R(0, 0, cs.x, cs.y);
+
+    // 1) Kenar-dock (top, bottom, left, right) — z-sırasında.
+    for (wxWindow *child : parent->GetChildren()) {
+        auto it = g_layouts.find(child);
+        if (it == g_layouts.end()) continue;
+        wxSize sz = child->GetSize();
+        switch (it->second.align) {
+            case 1: child->SetSize(R.x, R.y, R.width, sz.y);
+                    R.y += sz.y; R.height -= sz.y; break;             // top
+            case 2: child->SetSize(R.x, R.y + R.height - sz.y, R.width, sz.y);
+                    R.height -= sz.y; break;                          // bottom
+            case 3: child->SetSize(R.x, R.y, sz.x, R.height);
+                    R.x += sz.x; R.width -= sz.x; break;              // left
+            case 4: child->SetSize(R.x + R.width - sz.x, R.y, sz.x, R.height);
+                    R.width -= sz.x; break;                           // right
+            default: break;
+        }
+    }
+    // 2) client: kalan R'yi doldur (yalnız ilki).
+    bool clientUsed = false;
+    for (wxWindow *child : parent->GetChildren()) {
+        auto it = g_layouts.find(child);
+        if (it != g_layouts.end() && it->second.align == 5 && !clientUsed) {
+            child->SetSize(R.x, R.y, R.width, R.height);
+            clientUsed = true;
+        }
+    }
+    // 3) 'none' çocuklar: anchors (Task 2). Task 1'de varsayılan [left,top] =
+    //    sabit konum → dokunulmaz (zaten yerlerinde).
+}
+
+void liva_ui_set_align(int32_t handle, int32_t align) {
+    auto *w = getHandle<wxWindow>(handle);
+    if (!w) return;
+    g_layouts[w].align = align;
+    captureLayoutRef(w);
+    wxWindow *parent = w->GetParent();
+    ensureParentBound(parent);
+    relayoutParent(parent);
 }
 
 } // extern "C"

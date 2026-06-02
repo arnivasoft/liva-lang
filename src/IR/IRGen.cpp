@@ -284,6 +284,18 @@ bool IRGen::generate(TranslationUnit &tu) {
     initDebugInfo(module_->getModuleIdentifier());
     createRuntimeDecls();
 
+    // Enum pre-pass: register every enum's case/payload maps BEFORE class method
+    // prototypes are built, so a method param typed by an enum (e.g.
+    // `setAlign(a: Align)`) lowers to the correct LLVM type (i32 for simple
+    // enums) regardless of source order.
+    for (auto &decl : tu.getDeclarations()) {
+        if (decl->getKind() == ASTNode::NodeKind::EnumDecl) {
+            auto *enumDecl = static_cast<EnumDecl *>(decl.get());
+            if (preDeclaredEnums_.insert(enumDecl->getName()).second)
+                visitEnumDecl(enumDecl);
+        }
+    }
+
     // Class pre-pass (phase 1): register every class's type/field/vtable maps and
     // create all method/init/accessor PROTOTYPES (no bodies) BEFORE any body is
     // emitted, so a class can forward-reference a class declared later in the file.
@@ -327,6 +339,14 @@ bool IRGen::generate(TranslationUnit &tu) {
                 genericImplDecls_[implDecl->getTypeName()] = implDecl;
                 continue;
             }
+        }
+
+        // Enums already registered in the enum pre-pass — don't re-emit (would
+        // recreate the named tagged-union struct type).
+        if (decl->getKind() == ASTNode::NodeKind::EnumDecl) {
+            auto *enumDecl = static_cast<EnumDecl *>(decl.get());
+            if (preDeclaredEnums_.count(enumDecl->getName()))
+                continue;
         }
 
         visit(decl.get());
@@ -1577,6 +1597,10 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_splitter_split_h", uiSetSizeTy);
     module_->getOrInsertFunction("liva_ui_splitter_set_sash", uiSetValTy);
 
+    // ── Phase 4: Align/Anchors layout ────────────────────────────────
+    // set_align(i32 handle, i32 align) -> void
+    module_->getOrInsertFunction("liva_ui_set_align", uiSetValTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();
@@ -1829,6 +1853,13 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
         auto it = structTypes_.find(named->getName());
         if (it != structTypes_.end())
             return it->second;
+        // Enum types: payload-carrying enums lower to their tagged-union struct;
+        // simple (payload-less) enums are a plain i32 discriminant.
+        auto enumStructIt = enumTypes_.find(named->getName());
+        if (enumStructIt != enumTypes_.end())
+            return enumStructIt->second;
+        if (enumCases_.count(named->getName()))
+            return builder_->getInt32Ty();
         return llvm::PointerType::getUnqual(*context_);
     }
     case TypeRepr::Kind::Array: {
