@@ -1545,6 +1545,9 @@ void IRGen::createRuntimeDecls() {
     // ── Phase 3: new widgets ─────────────────────────────────────────
     // create_spin_ctrl(i32 parent, i32 min, i32 max, i32 val) -> i32
     module_->getOrInsertFunction("liva_ui_create_spin_ctrl", uiCreateSliderTy);
+    // create_date_picker(i32 parent) -> i32 ; date_get_value(i32) -> ptr
+    module_->getOrInsertFunction("liva_ui_create_date_picker", uiCreateParentTy);
+    module_->getOrInsertFunction("liva_ui_date_get_value", uiGetTextTy);
 
     // Coroutine + async runtime
     declareCoroutineIntrinsics();

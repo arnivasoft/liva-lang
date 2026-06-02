@@ -5372,6 +5372,20 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(getOrPanic("liva_ui_create_spin_ctrl"),
                                     {parent, minV, maxV, val}, "ui.spin");
     }
+    // createDatePicker(parent) -> i32
+    if (funcName == "createDatePicker" && node->getArgs().size() >= 1) {
+        auto *parent = visit(node->getArgs()[0].get());
+        if (!parent) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_create_date_picker"),
+                                    {parent}, "ui.date");
+    }
+    // dateGetValue(handle) -> string
+    if (funcName == "dateGetValue" && node->getArgs().size() >= 1) {
+        auto *handle = visit(node->getArgs()[0].get());
+        if (!handle) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_date_get_value"),
+                                    {handle}, "ui.dgv");
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

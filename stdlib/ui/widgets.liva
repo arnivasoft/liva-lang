@@ -257,3 +257,9 @@ pub class SpinCtrl: Control {
     pub func getValue() -> i32 { return getValue(self.handle) }
     pub func setValue(v: i32) { setValue(self.handle, v) }
 }
+
+// ── DatePicker (wxDatePickerCtrl) ──────────────────────────────
+pub class DatePicker: Control {
+    init(parent: Control) { super.init(createDatePicker(parent.handle)) }
+    pub func getDate() -> string { return dateGetValue(self.handle) }   // "YYYY-MM-DD"
+}

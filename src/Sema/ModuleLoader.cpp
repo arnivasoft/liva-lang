@@ -218,7 +218,7 @@ void ModuleLoader::registerBuiltinModules() {
          "createToolbar", "toolbarAddTool", "toolbarAddSeparator", "toolbarRealize",
          "toolItemSetEnabled", "toolItemOnClick",
          // Phase 3: new widgets
-         "createSpinCtrl"});
+         "createSpinCtrl", "createDatePicker", "dateGetValue"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

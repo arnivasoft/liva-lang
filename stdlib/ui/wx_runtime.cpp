@@ -629,6 +629,8 @@ void liva_ui_on_change(int32_t handle, void *func, void *env, int32_t size) {
         w->Bind(wxEVT_CHECKBOX, [cb](wxCommandEvent &) { cb.invoke(); });
     } else if (dynamic_cast<wxSpinCtrl *>(w)) {
         w->Bind(wxEVT_SPINCTRL, [cb](wxSpinEvent &) { cb.invoke(); });
+    } else if (dynamic_cast<wxDatePickerCtrl *>(w)) {
+        w->Bind(wxEVT_DATE_CHANGED, [cb](wxDateEvent &) { cb.invoke(); });
     }
 }
 
@@ -1076,6 +1078,20 @@ int32_t liva_ui_create_spin_ctrl(int32_t parent, int32_t minVal, int32_t maxVal,
     auto *sc = new wxSpinCtrl(p, wxID_ANY, wxEmptyString, wxDefaultPosition,
                               wxDefaultSize, wxSP_ARROW_KEYS, minVal, maxVal, val);
     return allocHandle(sc);
+}
+
+int32_t liva_ui_create_date_picker(int32_t parent) {
+    auto *p = getHandle<wxWindow>(parent);
+    auto *dp = new wxDatePickerCtrl(p, wxID_ANY);
+    return allocHandle(dp);
+}
+
+const char *liva_ui_date_get_value(int32_t handle) {
+    auto *dp = getHandle<wxDatePickerCtrl>(handle);
+    if (!dp) return "";
+    wxDateTime d = dp->GetValue();
+    if (!d.IsValid()) return "";
+    return returnTempStr(d.FormatISODate());
 }
 
 } // extern "C"

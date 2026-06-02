@@ -542,4 +542,18 @@ TEST(UICodegenExec, SpinCtrlCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+TEST(UICodegenExec, DatePickerCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let dp = DatePicker(win)\n"
+        "  println(dp.getDate())\n"
+        "  dp.onChange(|_h: i32| { })\n"
+        "}\n",
+        "date_picker");
+    EXPECT_TRUE(emitsClean(ir));
+}
+
 #endif // LIVA_HAS_LLVM
