@@ -660,12 +660,20 @@ TEST(UICodegenExec, SplitterCompiles) {
 }
 
 TEST(UICodegenExec, AdvancedWidgetsExampleCompiles) {
+    // Mirrors examples/ui_widgets_advanced.liva: all six new widgets composed
+    // together inside a single sizer-managed content panel (the layout a real
+    // frame needs — a frame auto-fills only ONE child, so multiple top-level
+    // children must go through a sizer). Splitter (tree|grid) grows; the form
+    // row (spin/date/combo) sits below via an hbox sizer.
     auto ir = emitIR(
         "import ui::widgets\n"
+        "import ui::types\n"
         "func main() {\n"
         "  appInit()\n"
         "  let win = Window(700, 500, \"Gelismis Widgetlar\")\n"
-        "  let sp = Splitter(win)\n"
+        "  let panel = Panel(win)\n"
+        "  let mainSizer = createVBoxSizer()\n"
+        "  let sp = Splitter(panel)\n"
         "  let tree = TreeView(sp)\n"
         "  let root = tree.addRoot(\"Proje\")\n"
         "  let src = tree.addNode(root, \"src\")\n"
@@ -676,10 +684,19 @@ TEST(UICodegenExec, AdvancedWidgetsExampleCompiles) {
         "  grid.setCell(0, 0, \"Ali\")\n"
         "  sp.splitVertically(tree, grid)\n"
         "  sp.setSashPosition(220)\n"
-        "  let sc = SpinCtrl(win, 0, 100, 5)\n"
-        "  let dp = DatePicker(win)\n"
-        "  let cmb = ComboBox(win, \"sec\")\n"
+        "  sizerAdd(mainSizer, sp.handle, 1, WX_EXPAND(), 0)\n"
+        "  let form = Panel(panel)\n"
+        "  let formSizer = createHBoxSizer()\n"
+        "  let sc = SpinCtrl(form, 0, 100, 5)\n"
+        "  sizerAdd(formSizer, sc.handle, 0, WX_ALL(), 6)\n"
+        "  let dp = DatePicker(form)\n"
+        "  sizerAdd(formSizer, dp.handle, 0, WX_ALL(), 6)\n"
+        "  let cmb = ComboBox(form, \"sec\")\n"
         "  cmb.addItem(\"bir\")\n"
+        "  sizerAdd(formSizer, cmb.handle, 0, WX_ALL(), 6)\n"
+        "  form.setSizerHandle(formSizer)\n"
+        "  sizerAdd(mainSizer, form.handle, 0, WX_EXPAND(), 0)\n"
+        "  panel.setSizerHandle(mainSizer)\n"
         "  win.show()\n"
         "  appRun()\n"
         "}\n",

@@ -1,17 +1,25 @@
 // Faz 3 — Gelismis widget'lar tek pencerede.
 // Build: livac examples/ui_widgets_advanced.liva -o widgets_advanced
-// TreeView + DataGrid bir Splitter icinde; SpinCtrl/DatePicker/ComboBox alt panelde.
+// Ust alan: TreeView | DataGrid (Splitter ile dikey bolunmus); alt: SpinCtrl/DatePicker/ComboBox form satiri.
 //
-// Splitter kurali: bolunecek panellerin parent'i Splitter olmali
-// (tree ve grid burada Splitter'in cocuklaridir).
+// Yerlesim kurali: frame (Window) yalnizca TEK icerik cocugunu otomatik doldurur.
+// Bu yuzden tum icerik, frame'i dolduran tek bir Panel'e konur; o panelin dikey
+// sizer'i Splitter'i (buyur) ust'e, form satirini alt'a yerlestirir. Mutlak konum
+// (setBounds) yerine sizer kullanmak dogru yontemdir (bkz. ui_showcase.liva).
+// Splitter kurali: bolunecek panellerin (tree, grid) parent'i Splitter olmali.
 import ui::widgets
+import ui::types
 
 func main() {
     appInit()
     let win = Window(720, 520, "Liva — Gelismis Widget'lar")
 
-    // Ust alan: TreeView | DataGrid (dikey bolunmus)
-    let sp = Splitter(win)
+    // Frame'i dolduran tek icerik paneli + dikey ana sizer
+    let panel = Panel(win)
+    let mainSizer = createVBoxSizer()
+
+    // Ust alan: TreeView | DataGrid (Splitter ile dikey bolunmus, alani doldurur)
+    let sp = Splitter(panel)
 
     let tree = TreeView(sp)
     let root = tree.addRoot("Proje")
@@ -36,23 +44,30 @@ func main() {
 
     sp.splitVertically(tree, grid)
     sp.setSashPosition(240)
+    sizerAdd(mainSizer, sp.handle, 1, WX_EXPAND(), 0)
 
-    // Alt form alani
-    let form = Panel(win)
+    // Alt form satiri: SpinCtrl | DatePicker | ComboBox (yatay sizer)
+    let form = Panel(panel)
+    let formSizer = createHBoxSizer()
+
     let spin = SpinCtrl(form, 0, 100, 10)
-    spin.setBounds(10, 10, 80, 28)
     spin.onChange(|_h: i32| { println(spin.getValue()) })
+    sizerAdd(formSizer, spin.handle, 0, WX_ALL(), 6)
 
     let date = DatePicker(form)
-    date.setBounds(100, 10, 140, 28)
+    sizerAdd(formSizer, date.handle, 0, WX_ALL(), 6)
 
     let combo = ComboBox(form, "Seciniz")
     combo.addItem("Dusuk")
     combo.addItem("Orta")
     combo.addItem("Yuksek")
-    combo.setBounds(250, 10, 140, 28)
     combo.onSelect(|_h: i32| { println(combo.getText()) })
+    sizerAdd(formSizer, combo.handle, 0, WX_ALL(), 6)
 
+    form.setSizerHandle(formSizer)
+    sizerAdd(mainSizer, form.handle, 0, WX_EXPAND(), 0)
+
+    panel.setSizerHandle(mainSizer)
     win.show()
     appRun()
 }
