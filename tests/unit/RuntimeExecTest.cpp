@@ -635,4 +635,58 @@ TEST(RuntimeExecTest, OptionalIsNoneOnNil) {
         << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Simple (payload-less) enum lowering (Faz 4 Task 1 regression)
+// ============================================================
+
+TEST(RuntimeExecTest, SimpleEnum_AsParamAndStructField_LowersToI32) {
+    // Regression guard for the Faz 4 Task 1 fix: a simple (payload-less) enum
+    // used as a function/method parameter and as a class field must lower to
+    // i32, not fall through to a pointer (which previously caused an LLVM type
+    // mismatch). Exercises BOTH broken paths in one executable:
+    //   1. enum passed as a function parameter (`rank(c: Color)`)
+    //   2. enum stored/read as a class field (`Box.color`, matched in a method)
+    auto r = compileAndRun(R"--(
+        enum Color {
+            case Red = 0
+            case Green = 1
+            case Blue = 2
+        }
+
+        func rank(c: Color) -> i32 {
+            let r = match c {
+                Color.Red => 10
+                Color.Green => 20
+                _ => 30
+            }
+            return r
+        }
+
+        class Box {
+            var color: Color
+            init(c: Color) {
+                self.color = c
+            }
+            func score() -> i32 {
+                let s = match self.color {
+                    Color.Blue => 99
+                    _ => 0
+                }
+                return s
+            }
+        }
+
+        func main() {
+            println(rank(Color.Green))
+            let b = Box(Color.Blue)
+            println(b.score())
+        }
+    )--", "simple_enum_param_field");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("20"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("99"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
