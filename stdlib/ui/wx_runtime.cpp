@@ -496,6 +496,14 @@ void liva_ui_set_value(int32_t handle, int32_t val) {
         cb->SetValue(val != 0);
     else if (auto *spin = dynamic_cast<wxSpinCtrl *>(w))
         spin->SetValue(val);
+    else if (auto *combo = dynamic_cast<wxComboBox *>(w))   // ComboBox: wxChoice'tan önce (MSW)
+        combo->SetSelection(val);
+    else if (auto *ch = dynamic_cast<wxChoice *>(w))
+        ch->SetSelection(val);
+    else if (auto *rb = dynamic_cast<wxRadioBox *>(w))
+        rb->SetSelection(val);
+    else if (auto *lb = dynamic_cast<wxListBox *>(w))
+        lb->SetSelection(val);
 }
 
 int32_t liva_ui_get_value(int32_t handle) {
@@ -512,6 +520,12 @@ int32_t liva_ui_get_value(int32_t handle) {
         return spin->GetValue();
     if (auto *combo = dynamic_cast<wxComboBox *>(w))
         return combo->GetSelection();
+    if (auto *ch = dynamic_cast<wxChoice *>(w))
+        return ch->GetSelection();
+    if (auto *rb = dynamic_cast<wxRadioBox *>(w))
+        return rb->GetSelection();
+    if (auto *lb = dynamic_cast<wxListBox *>(w))
+        return lb->GetSelection();
     return 0;
 }
 
