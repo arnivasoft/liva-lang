@@ -1,0 +1,25 @@
+// Unified DB layer demo: the same code path works over SQLite and PostgreSQL.
+// Run against SQLite (always available via winsqlite3 / libsqlite3).
+import db::db
+
+func dump(db: dyn Database) {
+    let rows = db.query("SELECT id, name FROM users WHERE id > ?", ["0"])
+    println("rows: \(rows.length)")
+    for row in rows {
+        println("\(row.getInt(0)): \(row.getText(1))")
+    }
+}
+
+func main() {
+    if let d = SqliteDatabase.openMemory() {
+        var db = d
+        db.exec("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)")
+        db.exec("INSERT INTO users(name) VALUES ('Ada')")
+        db.exec("INSERT INTO users(name) VALUES ('Linus')")
+        dump(db)
+        db.close()
+    }
+    // For PostgreSQL, swap the first line for:
+    //   if let d = PgDatabase.open("host=localhost dbname=mydb user=me") {
+    // The rest of the code is identical.
+}

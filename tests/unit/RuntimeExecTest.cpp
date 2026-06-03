@@ -891,5 +891,32 @@ TEST(RuntimeExecTest, DbLayerSqliteAdapter) {
     EXPECT_EQ(r.stdout_output, "2\nAda\nLin\nAda\n");
 }
 
+TEST(RuntimeExecTest, DbUnifiedDemo) {
+    // Exercises dynamic dispatch over the Database protocol: a SqliteDatabase
+    // value is passed to dump(db: dyn Database), which calls db.query() and
+    // iterates rows via getInt/getText with string interpolation (\(...)).
+    // This verifies the full vtable dispatch path end-to-end on real SQLite.
+    auto r = compileAndRun(
+        "import db::db\n"
+        "func dump(db: dyn Database) {\n"
+        "    let rows = db.query(\"SELECT id, name FROM users WHERE id > ?\", [\"0\"])\n"
+        "    println(\"rows: \\(rows.length)\")\n"
+        "    for row in rows { println(\"\\(row.getInt(0)): \\(row.getText(1))\") }\n"
+        "}\n"
+        "func main() {\n"
+        "    if let d = SqliteDatabase.openMemory() {\n"
+        "        var db = d\n"
+        "        db.exec(\"CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)\")\n"
+        "        db.exec(\"INSERT INTO users(name) VALUES ('Ada')\")\n"
+        "        db.exec(\"INSERT INTO users(name) VALUES ('Linus')\")\n"
+        "        dump(db)\n"
+        "        db.close()\n"
+        "    }\n"
+        "}\n",
+        "db_unified_demo");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "rows: 2\n1: Ada\n2: Linus\n");
+}
+
 
 #endif // LIVA_HAS_LLVM

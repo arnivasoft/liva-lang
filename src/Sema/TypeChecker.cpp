@@ -378,6 +378,17 @@ void TypeChecker::check(TranslationUnit &tu) {
                                         typeMethodReturnTypes_[key] = rt;
                                     }
                                 }
+                            } else if (topDecl->getKind() == ASTNode::NodeKind::ProtocolDecl) {
+                                // Also import protocol method return types so that
+                                // `dyn Protocol` call sites resolve the return type.
+                                auto *protoD = static_cast<ProtocolDecl *>(topDecl.get());
+                                for (auto &method : protoD->getMethods()) {
+                                    auto *rt = method->getReturnType();
+                                    if (rt) {
+                                        std::string key = protoD->getName() + "::" + method->getName();
+                                        typeMethodReturnTypes_[key] = rt;
+                                    }
+                                }
                             }
                         }
                     }
@@ -1485,6 +1496,12 @@ void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
         // Type-check default method bodies
         if (method->hasBody()) {
             visitFuncDecl(method.get());
+        }
+        // Record protocol method return types so dyn Protocol call sites can
+        // resolve the return type (e.g. `db.query(...)` where db: dyn Database).
+        if (method->getReturnType()) {
+            std::string key = node->getName() + "::" + method->getName();
+            typeMethodReturnTypes_[key] = method->getReturnType();
         }
     }
     protocolMethods_[node->getName()] = std::move(methodNames);
@@ -2986,6 +3003,17 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                     auto iRetIt = typeMethodReturnTypes_.find(instanceKey);
                     if (iRetIt != typeMethodReturnTypes_.end() && iRetIt->second) {
                         node->setResolvedType(cloneTypeRepr(iRetIt->second));
+                    }
+                }
+                // Fall back: if the variable has a dyn Protocol type, look up the
+                // protocol's method return type (e.g. `db: dyn Database` → Database::query).
+                if (!node->getResolvedType() && sym && sym->type &&
+                    sym->type->getKind() == TypeRepr::Kind::DynProtocol) {
+                    auto *dynTy = static_cast<const DynProtocolTypeRepr *>(sym->type);
+                    std::string protoKey = dynTy->getProtocolName() + "::" + methodName;
+                    auto pRetIt = typeMethodReturnTypes_.find(protoKey);
+                    if (pRetIt != typeMethodReturnTypes_.end() && pRetIt->second) {
+                        node->setResolvedType(cloneTypeRepr(pRetIt->second));
                     }
                 }
             }
