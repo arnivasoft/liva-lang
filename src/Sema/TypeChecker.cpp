@@ -358,22 +358,47 @@ void TypeChecker::check(TranslationUnit &tu) {
                         scopes_.declare(sym.name, sym);
                     }
                     // Propagate impl method return types from the module's TU
-                    // into this TypeChecker, but only for methods returning array
-                    // or optional types ([T] / T?). This enables instance method
-                    // calls like stmt2.columnBlob(0) -> [u8] to get their resolved
-                    // type set correctly in visitCallExpr so varDynArrayTypes is
-                    // populated. Also enables propagation through Optional-returning
-                    // methods (e.g. db.prepare() -> Stmt?) for multi-step chains.
-                    // Restricting to Array/Optional avoids regressions from
-                    // broader Named-type propagation.
+                    // into this TypeChecker, for methods returning array, optional,
+                    // or named struct types ([T] / T? / StructName). This enables
+                    // instance method calls like stmt2.columnBlob(0) -> [u8] to get
+                    // their resolved type set correctly in visitCallExpr so
+                    // varDynArrayTypes is populated. Also enables propagation through
+                    // Optional-returning methods (e.g. db.prepare() -> Stmt?) for
+                    // multi-step chains, and Named-returning methods (e.g.
+                    // stmt.columnDate(i) -> Date) so chained calls like
+                    // stmt.columnDate(i).year() resolve correctly.
+                    //
+                    // For Named returns: only register when the return type name
+                    // DIFFERS from the receiver struct name. This avoids marking
+                    // builder-style methods (e.g. DateTime::addSeconds → DateTime)
+                    // as returning a struct type, which would cause the
+                    // OwnershipChecker to treat the variables as non-Copy and
+                    // flag spurious use-after-move errors on pass-by-value usage.
                     if (mod->tu) {
                         for (auto &topDecl : mod->tu->getDeclarations()) {
                             if (topDecl->getKind() == ASTNode::NodeKind::ImplDecl) {
                                 auto *implD = static_cast<ImplDecl *>(topDecl.get());
                                 for (auto &method : implD->getMethods()) {
                                     auto *rt = method->getReturnType();
-                                    if (rt && (rt->getKind() == TypeRepr::Kind::Array ||
-                                               rt->getKind() == TypeRepr::Kind::Optional)) {
+                                    bool shouldRegister = false;
+                                    if (rt) {
+                                        auto retKind = rt->getKind();
+                                        if (retKind == TypeRepr::Kind::Array ||
+                                            retKind == TypeRepr::Kind::Optional) {
+                                            shouldRegister = true;
+                                        } else if (retKind == TypeRepr::Kind::Named) {
+                                            // Only register cross-struct Named returns:
+                                            // the return type must name a DIFFERENT struct
+                                            // than the receiver (e.g. Stmt→Date is ok;
+                                            // DateTime→DateTime is skipped to avoid
+                                            // non-Copy inference on builder-style chains).
+                                            auto *named = static_cast<const NamedTypeRepr *>(rt);
+                                            if (named->getName() != implD->getTypeName()) {
+                                                shouldRegister = true;
+                                            }
+                                        }
+                                    }
+                                    if (shouldRegister) {
                                         std::string key = implD->getTypeName() + "::" + method->getName();
                                         typeMethodReturnTypes_[key] = rt;
                                     }
@@ -3049,6 +3074,22 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                     // split() returns [string] — dynamic array
                     auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType());
                     node->setResolvedType(std::move(arrType));
+                }
+            }
+        }
+
+        // Chained call: expr.method() where expr has a resolved Named struct type.
+        // Handles patterns like stmt.columnDate(i).year() — the inner call's
+        // return type was set to a Named type (e.g. Date), and now we need to
+        // resolve the outer call's return type from StructName::method.
+        if (!node->getResolvedType()) {
+            const TypeRepr *objType = memberExpr->getObject()->getResolvedType();
+            if (objType && objType->getKind() == TypeRepr::Kind::Named) {
+                auto *namedTy = static_cast<const NamedTypeRepr *>(objType);
+                std::string chainKey = namedTy->getName() + "::" + methodName;
+                auto chainIt = typeMethodReturnTypes_.find(chainKey);
+                if (chainIt != typeMethodReturnTypes_.end() && chainIt->second) {
+                    node->setResolvedType(cloneTypeRepr(chainIt->second));
                 }
             }
         }

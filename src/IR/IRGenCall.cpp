@@ -1614,6 +1614,29 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Chained struct call: expr.method() where expr is a CallExpr returning
+        // a Named struct. e.g. stmt.columnDate(i).year() — columnDate returns
+        // Date, so we materialise the Date value in a temp alloca and dispatch
+        // year() on it.  This mirrors the arr[i].method() pattern above.
+        if (!objAlloca && structTypeName.empty() &&
+            memberExpr->getObject()->getKind() == ASTNode::NodeKind::CallExpr) {
+            const TypeRepr *recvTy = memberExpr->getObject()->getResolvedType();
+            if (recvTy && recvTy->getKind() == TypeRepr::Kind::Named) {
+                auto *named = static_cast<const NamedTypeRepr *>(recvTy);
+                const std::string &sName = named->getName();
+                auto stIt = structTypes_.find(sName);
+                if (stIt != structTypes_.end()) {
+                    auto *structVal = visit(memberExpr->getObject());
+                    if (structVal) {
+                        auto *func = builder_->GetInsertBlock()->getParent();
+                        objAlloca = createEntryBlockAlloca(func, "chain.tmp", stIt->second);
+                        builder_->CreateStore(structVal, objAlloca);
+                        structTypeName = sName;
+                    }
+                }
+            }
+        }
+
         // Static method call: Type.method() (e.g., Student.new("Alice"))
         if (!objAlloca && structTypeName.empty()) {
             auto typeIt = structTypes_.find(objName);

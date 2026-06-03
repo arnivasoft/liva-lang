@@ -6,6 +6,8 @@
 // exec returns false, queries return nil/empty).
 
 import std::sqlite
+import convert::convert
+import time::time
 
 // =============================================================
 // Stmt — a compiled SQL statement
@@ -103,6 +105,22 @@ impl Stmt {
 
     pub func columnIsNull(ref self, col: i32) -> bool {
         return sqliteColumnIsNull(self.handle, col)
+    }
+
+    pub func columnBool(ref self, col: i32) -> bool {
+        return toBool(self.columnText(col))
+    }
+
+    pub func columnDate(ref self, col: i32) -> Date {
+        return Date.parse(self.columnText(col))
+    }
+
+    pub func columnTime(ref self, col: i32) -> Time {
+        return Time.parse(self.columnText(col))
+    }
+
+    pub func columnDateTime(ref self, col: i32) -> DateTime {
+        return DateTime.parse(self.columnText(col), "%Y-%m-%d %H:%M:%S")
     }
 
     pub func finalize(mut self) {
