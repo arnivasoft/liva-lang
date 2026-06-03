@@ -78,6 +78,10 @@ impl Stmt {
         return sqliteColumnDouble(self.handle, col)
     }
 
+    pub func columnName(ref self, col: i32) -> String {
+        return sqliteColumnName(self.handle, col)
+    }
+
     pub func finalize(mut self) {
         sqliteFinalize(self.handle)
         self.handle = 0 as i64

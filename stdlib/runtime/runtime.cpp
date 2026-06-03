@@ -2777,6 +2777,7 @@ struct SqliteApi {
     const unsigned char *(*column_text)(void *, int) = nullptr;
     long long (*column_int64)(void *, int) = nullptr;
     double (*column_double)(void *, int) = nullptr;
+    const char *(*column_name)(void *, int) = nullptr;
     int  (*bind_text)(void *, int, const char *, int, void (*)(void *)) = nullptr;
     int  (*bind_int64)(void *, int, long long) = nullptr;
     int  (*bind_double)(void *, int, double) = nullptr;
@@ -2808,6 +2809,7 @@ static SqliteApi &sqlite_api() {
         api.column_text = (decltype(api.column_text))resolve("sqlite3_column_text");
         api.column_int64 = (decltype(api.column_int64))resolve("sqlite3_column_int64");
         api.column_double = (decltype(api.column_double))resolve("sqlite3_column_double");
+        api.column_name = (decltype(api.column_name))resolve("sqlite3_column_name");
         api.bind_text = (decltype(api.bind_text))resolve("sqlite3_bind_text");
         api.bind_int64 = (decltype(api.bind_int64))resolve("sqlite3_bind_int64");
         api.bind_double = (decltype(api.bind_double))resolve("sqlite3_bind_double");
@@ -2831,6 +2833,7 @@ static SqliteApi &sqlite_api() {
         api.column_text = reinterpret_cast<decltype(api.column_text)>(&sqlite3_column_text);
         api.column_int64 = reinterpret_cast<decltype(api.column_int64)>(&sqlite3_column_int64);
         api.column_double = reinterpret_cast<decltype(api.column_double)>(&sqlite3_column_double);
+        api.column_name = reinterpret_cast<decltype(api.column_name)>(&sqlite3_column_name);
         api.bind_text = reinterpret_cast<decltype(api.bind_text)>(&sqlite3_bind_text);
         api.bind_int64 = reinterpret_cast<decltype(api.bind_int64)>(&sqlite3_bind_int64);
         api.bind_double = reinterpret_cast<decltype(api.bind_double)>(&sqlite3_bind_double);
@@ -3189,6 +3192,20 @@ double liva_sqlite_column_double(int64_t stmt, int32_t col) {
     (void)stmt;
     (void)col;
     return 0.0;
+#endif
+}
+
+char *liva_sqlite_column_name(int64_t stmt, int32_t col) {
+    if (!stmt) return nullptr;
+#ifdef LIVA_HAS_SQLITE
+    auto &api = sqlite_api();
+    if (!api.column_name) return nullptr;
+    const char *n = api.column_name((void *)(uintptr_t)stmt, col);
+    return strdup_safe(n ? n : "");
+#else
+    (void)stmt;
+    (void)col;
+    return nullptr;
 #endif
 }
 

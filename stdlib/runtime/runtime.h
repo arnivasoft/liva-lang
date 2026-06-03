@@ -540,6 +540,8 @@ int32_t liva_sqlite_column_count(int64_t stmt);
 char *liva_sqlite_column_text(int64_t stmt, int32_t col);
 int64_t liva_sqlite_column_int(int64_t stmt, int32_t col);
 double  liva_sqlite_column_double(int64_t stmt, int32_t col);
+/// Name of result column `col` (0-based). Caller frees.
+char *liva_sqlite_column_name(int64_t stmt, int32_t col);
 
 /// Release the statement.
 void liva_sqlite_finalize(int64_t stmt);

@@ -3448,6 +3448,19 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateCall(fn, {stmtArg}, "sqlite.colcount");
     }
 
+    // sqliteColumnName(stmt, col) -> string
+    if (funcName == "sqliteColumnName" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *colArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !colArg) return nullptr;
+        if (colArg->getType()->isIntegerTy(64))
+            colArg = builder_->CreateTrunc(colArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_column_name");
+        auto *r = builder_->CreateCall(fn, {stmtArg, colArg}, "sqlite.colname");
+        trackStringTemp(r);
+        return r;
+    }
+
     // sqliteColumnText(stmt, col) -> string
     if (funcName == "sqliteColumnText" && node->getArgs().size() >= 2) {
         auto *stmtArg = visit(node->getArgs()[0].get());

@@ -689,4 +689,25 @@ TEST(RuntimeExecTest, SimpleEnum_AsParamAndStructField_LowersToI32) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, SqliteColumnName) {
+    auto r = compileAndRun(
+        "import sqlite::sqlite\n"
+        "func main() {\n"
+        "    if let db = SqliteDB.openMemory() {\n"
+        "        var d = db\n"
+        "        d.exec(\"CREATE TABLE t(alpha INTEGER, beta TEXT)\")\n"
+        "        if let s = d.prepare(\"SELECT alpha, beta FROM t\") {\n"
+        "            var stmt = s\n"
+        "            println(stmt.columnName(0))\n"
+        "            println(stmt.columnName(1))\n"
+        "            stmt.finalize()\n"
+        "        }\n"
+        "        d.close()\n"
+        "    }\n"
+        "}\n",
+        "sqlite_column_name");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "alpha\nbeta\n");
+}
+
 #endif // LIVA_HAS_LLVM

@@ -81,6 +81,7 @@ void ModuleLoader::registerBuiltinModules() {
          "sqliteBindDouble", "sqliteBindNull",
          "sqliteStep", "sqliteReset", "sqliteColumnCount",
          "sqliteColumnText", "sqliteColumnInt", "sqliteColumnDouble",
+         "sqliteColumnName",
          "sqliteFinalize"});
 
     cache_["std::json"] = createBuiltinModule("std::json",
