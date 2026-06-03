@@ -24,7 +24,13 @@ stdlib/.liva wrapper  →  liva_* runtime fonksiyonları  →  IRGenCall.cpp int
 
 SQLite'ın `winsqlite3` deseninin birebir aynısı:
 
-- `libpq` çalışma anında çözülür: Windows `LoadLibraryA("libpq.dll")`, POSIX `dlopen("libpq.so"/"libpq.dylib")`. Birden çok aday isim denenir (ör. `libpq.so.5`).
+- `libpq` çalışma anında çözülür. **Aday yollar sırayla denenir** (ilk başarılı kazanır):
+  - Windows:
+    1. `LoadLibraryA("libpq.dll")` (PATH'te varsa)
+    2. Standart kurulum yolları, **en yeni sürüm önce**: `C:\Program Files\PostgreSQL\18\bin\libpq.dll` → `\17\bin\libpq.dll` → `\14\bin\libpq.dll`. (Bu makinede 14/17/18 kuruludur; `libpq.dll` PATH'te değil, kurulumun `bin` dizinindedir.)
+    3. Opsiyonel: `LIVA_LIBPQ_PATH` ortam değişkeni ayarlıysa o yol.
+  - POSIX: `dlopen` ile `libpq.so` / `libpq.so.5` / `libpq.dylib`.
+  - Sürüm listesi sabit-kodlanmaz da olabilir: `C:\Program Files\PostgreSQL\*\bin\libpq.dll` glob'u ile bulunan en büyük sürüm numarası seçilir (uygulamada basit dizin taraması).
 - Kütüphane veya bir sembol bulunamazsa **tüm girişler fail-closed**: `open` → nil, `exec` → false, query → nil/boş, sayaçlar → 0.
 - Derleme libpq olmadan da geçer; **CMake'te link YOK**.
 - Sembol tablosu (lazy resolve, tek seferlik init):
@@ -159,7 +165,8 @@ En belirsiz kısım. Plan: native imzalar `(ptr, len)` alır/döndürür. IRGen'
 
 ## 5. Test stratejisi
 
-- **PostgreSQL (sunucusuz, fail-closed)**: libpq yokken `PgConn.open` → nil, `exec` → false, query → nil; modülün import/derleme bütünlüğü. Gerçek sorgu testleri opsiyonel/elle (sunucu + libpq gerekir), CI'da çalışmaz.
+- **PostgreSQL (varsayılan, ortamdan bağımsız)**: libpq yokken/sunucu yokken `PgConn.open` → nil, `exec` → false, query → nil; modülün import/derleme bütünlüğü. Bu testler her ortamda (CI dahil) çalışır.
+- **PostgreSQL (gerçek entegrasyon, opt-in)**: bu makinede libpq (14/17/18) + `psql.exe` mevcut olduğundan gerçek sorgu testleri yazılabilir. **`LIVA_PG_TEST_CONN` ortam değişkeni** ayarlıysa (ör. `host=localhost dbname=postgres user=postgres`) çalışır; ayarlı değilse test atlanır (skip). Böylece CI'da yeşil kalır, yerelde gerçek round-trip doğrulanır. Loader'ın kurulum-yolu yoklamasının da gerçekten libpq bulup yüklediğini bu test teyit eder.
 - **SQLite yeni özellikler (in-memory)**: transaction rollback bir INSERT'i geri alıyor; blob round-trip (yaz→oku eşit); `columnIsNull` NULL kolonda true; `bindByName` `:isim` ile doğru değeri bağlıyor; `columnType` doğru tip kodu.
 - **Ortak katman**: `?`→`$n` normalize birim testi (tırnak-içi atlama dahil); `SqliteDatabase` üzerinden uçtan uca `query` → `[Row]` doğrulaması; `dyn Database` ile polimorfik kullanım.
 - Mevcut **2064 testin tamamı geçmeye devam etmeli** (regresyon yok).
@@ -184,6 +191,6 @@ En belirsiz kısım. Plan: native imzalar `(ptr, len)` alır/döndürür. IRGen'
 ## 7. Açık riskler
 
 1. **BLOB `[u8]` köprüsü** — IRGen array temsiline bağlı; en yüksek belirsizlik. İlk iş bunu doğrulamak.
-2. **Postgres testi sunucusuz** — yalnız fail-closed doğrulanabilir; gerçek I/O testleri ortam-bağımlı.
+2. **Postgres gerçek testi ortam-bağımlı** — fail-closed her yerde çalışır; gerçek round-trip yalnız `LIVA_PG_TEST_CONN` ayarlıyken (yerelde libpq 14/17/18 + çalışan sunucu var). CI'da skip.
 3. **Param normalize sınırı** — yorum ve dollar-quoted string içindeki `?` çevrilebilir; belgelenir, edge-case'te `queryParams` doğrudan kullanılır.
 4. **`std::sqlite`'a yeni intrinsic eklerken** mevcut 2064 testin kırılmaması — her eklemeden sonra `ctest`.
