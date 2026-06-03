@@ -14,11 +14,11 @@ impl Duration {
     }
 
     pub func fromSecs(s: i64) -> Duration {
-        return Duration { ms: s * 1000 }
+        return Duration { ms: s * (1000 as i64) }
     }
 
     pub func fromMins(m: i64) -> Duration {
-        return Duration { ms: m * 60000 }
+        return Duration { ms: m * (60000 as i64) }
     }
 
     pub func toMs(ref self) -> i64 {
@@ -26,7 +26,7 @@ impl Duration {
     }
 
     pub func toSecs(ref self) -> i64 {
-        return self.ms / 1000
+        return self.ms / (1000 as i64)
     }
 
     pub func sleepFor(ref self) {
@@ -142,27 +142,27 @@ impl DateTime {
     }
 
     pub func addMinutes(ref self, n: i64) -> DateTime {
-        return DateTime { timestamp: dateAdd(self.timestamp, (n * 60) as f64) }
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * (60 as i64)) as f64) }
     }
 
     pub func addHours(ref self, n: i64) -> DateTime {
-        return DateTime { timestamp: dateAdd(self.timestamp, (n * 3600) as f64) }
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * (3600 as i64)) as f64) }
     }
 
     pub func addDays(ref self, n: i64) -> DateTime {
-        return DateTime { timestamp: dateAdd(self.timestamp, (n * 86400) as f64) }
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * (86400 as i64)) as f64) }
     }
 
     pub func addWeeks(ref self, n: i64) -> DateTime {
-        return DateTime { timestamp: dateAdd(self.timestamp, (n * 604800) as f64) }
+        return DateTime { timestamp: dateAdd(self.timestamp, (n * (604800 as i64)) as f64) }
     }
 
     pub func subSeconds(ref self, n: i64) -> DateTime {
-        return DateTime { timestamp: dateAdd(self.timestamp, (0 - n) as f64) }
+        return DateTime { timestamp: dateAdd(self.timestamp, ((0 as i64) - n) as f64) }
     }
 
     pub func subDays(ref self, n: i64) -> DateTime {
-        return DateTime { timestamp: dateAdd(self.timestamp, (0 - n * 86400) as f64) }
+        return DateTime { timestamp: dateAdd(self.timestamp, ((0 as i64) - n * (86400 as i64)) as f64) }
     }
 
     pub func diff(ref self, other: DateTime) -> f64 {
@@ -215,6 +215,47 @@ impl DateTime {
 
     pub func equals(ref self, other: DateTime) -> bool {
         return self.timestamp == other.timestamp
+    }
+}
+
+// =============================================================
+// Date — a calendar date (year/month/day). Time-of-day component unused.
+// Reuses the same native intrinsics as DateTime.
+// =============================================================
+
+pub struct Date {
+    var timestamp: f64
+}
+
+impl Date {
+    pub func parse(s: String) -> Date {
+        return Date { timestamp: dateParse(s, "%Y-%m-%d") }
+    }
+    pub func year(ref self) -> i32 { return dateYear(self.timestamp) }
+    pub func month(ref self) -> i32 { return dateMonth(self.timestamp) }
+    pub func day(ref self) -> i32 { return dateDay(self.timestamp) }
+    pub func toString(ref self) -> String {
+        return dateFormat(self.timestamp, "%Y-%m-%d")
+    }
+}
+
+// =============================================================
+// Time — a time-of-day (hour/minute/second). Date component unused.
+// =============================================================
+
+pub struct Time {
+    var timestamp: f64
+}
+
+impl Time {
+    pub func parse(s: String) -> Time {
+        return Time { timestamp: dateParse(s, "%H:%M:%S") }
+    }
+    pub func hour(ref self) -> i32 { return dateHour(self.timestamp) }
+    pub func minute(ref self) -> i32 { return dateMinute(self.timestamp) }
+    pub func second(ref self) -> i32 { return dateSecond(self.timestamp) }
+    pub func toString(ref self) -> String {
+        return dateFormat(self.timestamp, "%H:%M:%S")
     }
 }
 

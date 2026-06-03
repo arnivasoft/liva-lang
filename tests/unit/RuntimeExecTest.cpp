@@ -946,5 +946,21 @@ TEST(RuntimeExecTest, ConvertToBool) {
     EXPECT_EQ(r.stdout_output, "Y\nY\nY\nY\nN\nN\nN\n");
 }
 
+TEST(RuntimeExecTest, TimeDateAndTime) {
+    auto r = compileAndRun(
+        "import time::time\n"
+        "func main() {\n"
+        "    let d = Date.parse(\"2024-06-15\")\n"
+        "    println(d.year())\n"
+        "    println(d.month())\n"
+        "    println(d.day())\n"
+        "    let t = Time.parse(\"13:45:30\")\n"
+        "    println(t.second())\n"
+        "}\n",
+        "time_date_time");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "2024\n6\n15\n30\n");
+}
+
 
 #endif // LIVA_HAS_LLVM
