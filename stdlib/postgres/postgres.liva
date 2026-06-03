@@ -7,6 +7,7 @@
 
 import std::postgres
 import convert::convert
+import time::time
 
 // Rewrite '?' placeholders to PostgreSQL '$1','$2',... (skips quoted literals).
 // Exposed for the db::db layer; libpq-independent.
@@ -53,6 +54,28 @@ impl PgResult {
 
     pub func columnName(ref self, col: i32) -> String {
         return pgColumnName(self.handle, col)
+    }
+
+    pub func getDouble(ref self, row: i32, col: i32) -> f64 {
+        let p = toFloat(pgResultText(self.handle, row, col))
+        if let v = p { return v }
+        return 0.0
+    }
+
+    pub func getBool(ref self, row: i32, col: i32) -> bool {
+        return toBool(pgResultText(self.handle, row, col))
+    }
+
+    pub func getDate(ref self, row: i32, col: i32) -> Date {
+        return Date.parse(pgResultText(self.handle, row, col))
+    }
+
+    pub func getTime(ref self, row: i32, col: i32) -> Time {
+        return Time.parse(pgResultText(self.handle, row, col))
+    }
+
+    pub func getDateTime(ref self, row: i32, col: i32) -> DateTime {
+        return DateTime.parse(pgResultText(self.handle, row, col), "%Y-%m-%d %H:%M:%S")
     }
 
     pub func clear(mut self) {

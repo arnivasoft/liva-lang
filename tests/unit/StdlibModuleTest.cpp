@@ -1687,3 +1687,25 @@ TEST_F(StdlibModuleTest, DbPgAdapterTypeCheck) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "PgDatabase should satisfy dyn Database";
 }
+
+TEST_F(StdlibModuleTest, PostgresTypedAccessors) {
+    auto r = check(
+        "import postgres::postgres\n"
+        "func main() {\n"
+        "    if let c = PgConn.open(\"host=localhost\") {\n"
+        "        var conn = c\n"
+        "        if let res = conn.query(\"SELECT 1\") {\n"
+        "            var rs = res\n"
+        "            let f = rs.getDouble(0, 0)\n"
+        "            let b = rs.getBool(0, 0)\n"
+        "            let dy = rs.getDate(0, 0).year()\n"
+        "            let tm = rs.getTime(0, 0).second()\n"
+        "            let yr = rs.getDateTime(0, 0).year()\n"
+        "            rs.clear()\n"
+        "        }\n"
+        "        conn.close()\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "PgResult typed accessors should type-check";
+}
