@@ -928,5 +928,23 @@ TEST(RuntimeExecTest, DbUnifiedDemo) {
     EXPECT_EQ(r.stdout_output, "rows: 2\n1: Ada\n2: Linus\n");
 }
 
+TEST(RuntimeExecTest, ConvertToBool) {
+    auto r = compileAndRun(
+        "import convert::convert\n"
+        "func yn(b: bool) -> String { if b { return \"Y\" } return \"N\" }\n"
+        "func main() {\n"
+        "    println(yn(toBool(\"1\")))\n"
+        "    println(yn(toBool(\"t\")))\n"
+        "    println(yn(toBool(\"TRUE\")))\n"
+        "    println(yn(toBool(\" yes \")))\n"
+        "    println(yn(toBool(\"0\")))\n"
+        "    println(yn(toBool(\"f\")))\n"
+        "    println(yn(toBool(\"\")))\n"
+        "}\n",
+        "convert_tobool");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "Y\nY\nY\nY\nN\nN\nN\n");
+}
+
 
 #endif // LIVA_HAS_LLVM

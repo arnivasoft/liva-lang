@@ -17,6 +17,13 @@ pub func toFloat(s: String) -> f64? {
     return parseFloat(s)
 }
 
+// Flexible boolean parse: "1"/"t"/"true"/"yes"/"on" (any case, trimmed) -> true,
+// everything else -> false. Handles SQLite (0/1) and PostgreSQL ('t'/'f') text.
+pub func toBool(s: string) -> bool {
+    let v = s.trim().toLower()
+    return v == "1" || v == "t" || v == "true" || v == "yes" || v == "on"
+}
+
 // === Number → String ===
 
 pub func i32ToStr(x: i32) -> String {
