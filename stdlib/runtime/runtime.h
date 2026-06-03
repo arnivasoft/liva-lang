@@ -562,6 +562,24 @@ void *liva_sqlite_column_blob(int64_t stmt, int32_t col, int64_t *out_len);
 /// Release the statement.
 void liva_sqlite_finalize(int64_t stmt);
 
+// === PostgreSQL (dynamic-loaded libpq; fail-closed when absent) ===
+//
+// libpq resolved at runtime (PATH, then standard install dirs newest-first,
+// then $LIVA_LIBPQ_PATH). Missing libpq/symbol => every entry fails closed.
+
+/// Open a connection from a conninfo string ("host=... dbname=... user=...").
+/// Returns opaque i64 handle (0 on failure).
+int64_t liva_pg_connect(const char *conninfo);
+
+/// Close the connection.
+void liva_pg_close(int64_t handle);
+
+/// Run a no-result command. Returns 0 on success, nonzero on error.
+int32_t liva_pg_exec(int64_t handle, const char *sql);
+
+/// Last error message on the connection (caller frees).
+char *liva_pg_errmsg(int64_t handle);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {

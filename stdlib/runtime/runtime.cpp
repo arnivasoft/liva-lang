@@ -3309,6 +3309,147 @@ void liva_sqlite_finalize(int64_t stmt) {
 #endif
 }
 
+// === PostgreSQL (dynamic-loaded libpq; fail-closed when absent) ===
+//
+// libpq is NOT a link-time dependency. We resolve it at runtime:
+//   - Windows: LoadLibrary("libpq.dll") (PATH), then standard install dirs
+//     newest-first (PostgreSQL\18\bin, \17\bin, \14\bin), then $LIVA_LIBPQ_PATH.
+//   - POSIX: dlopen libpq.so / libpq.so.5 / libpq.dylib, then $LIVA_LIBPQ_PATH.
+// If libpq or any required symbol is missing, every entry point fails closed
+// (connect -> 0, exec -> false, query -> 0, accessors -> empty/0).
+
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#endif
+
+namespace {
+
+// PGRES_COMMAND_OK = 1, PGRES_TUPLES_OK = 2, CONNECTION_OK = 0.
+constexpr int LIVA_PGRES_COMMAND_OK = 1;
+constexpr int LIVA_PGRES_TUPLES_OK = 2;
+constexpr int LIVA_PG_CONNECTION_OK = 0;
+
+struct PgApi {
+    bool loaded = false;
+    void *(*connectdb)(const char *) = nullptr;
+    int   (*status)(void *) = nullptr;
+    void  (*finish)(void *) = nullptr;
+    void *(*exec)(void *, const char *) = nullptr;
+    void *(*execParams)(void *, const char *, int, const void *,
+                        const char *const *, const int *, const int *, int) = nullptr;
+    int   (*resultStatus)(void *) = nullptr;
+    int   (*ntuples)(void *) = nullptr;
+    int   (*nfields)(void *) = nullptr;
+    char *(*getvalue)(void *, int, int) = nullptr;
+    int   (*getisnull)(void *, int, int) = nullptr;
+    char *(*fname)(void *, int) = nullptr;
+    char *(*cmdTuples)(void *) = nullptr;
+    char *(*errorMessage)(void *) = nullptr;
+    void  (*clear)(void *) = nullptr;
+};
+
+#ifdef _WIN32
+static HMODULE pg_load_library() {
+    if (HMODULE h = LoadLibraryA("libpq.dll")) return h;
+    const char *vers[] = {"18", "17", "16", "15", "14", "13"};
+    char path[256];
+    for (const char *v : vers) {
+        snprintf(path, sizeof(path),
+                 "C:\\Program Files\\PostgreSQL\\%s\\bin\\libpq.dll", v);
+        if (HMODULE h = LoadLibraryA(path)) return h;
+    }
+    if (const char *env = getenv("LIVA_LIBPQ_PATH")) {
+        if (HMODULE h = LoadLibraryA(env)) return h;
+    }
+    return nullptr;
+}
+#else
+static void *pg_load_library() {
+    const char *names[] = {"libpq.so", "libpq.so.5", "libpq.dylib"};
+    for (const char *n : names) {
+        if (void *h = dlopen(n, RTLD_NOW | RTLD_GLOBAL)) return h;
+    }
+    if (const char *env = getenv("LIVA_LIBPQ_PATH")) {
+        if (void *h = dlopen(env, RTLD_NOW | RTLD_GLOBAL)) return h;
+    }
+    return nullptr;
+}
+#endif
+
+static PgApi &pg_api() {
+    static PgApi api;
+    static std::once_flag flag;
+    std::call_once(flag, [&]() {
+#ifdef _WIN32
+        HMODULE h = pg_load_library();
+        if (!h) return;
+        auto resolve = [&](const char *name) -> FARPROC { return GetProcAddress(h, name); };
+#else
+        void *h = pg_load_library();
+        if (!h) return;
+        auto resolve = [&](const char *name) -> void * { return dlsym(h, name); };
+#endif
+        api.connectdb    = (decltype(api.connectdb))resolve("PQconnectdb");
+        api.status       = (decltype(api.status))resolve("PQstatus");
+        api.finish       = (decltype(api.finish))resolve("PQfinish");
+        api.exec         = (decltype(api.exec))resolve("PQexec");
+        api.execParams   = (decltype(api.execParams))resolve("PQexecParams");
+        api.resultStatus = (decltype(api.resultStatus))resolve("PQresultStatus");
+        api.ntuples      = (decltype(api.ntuples))resolve("PQntuples");
+        api.nfields      = (decltype(api.nfields))resolve("PQnfields");
+        api.getvalue     = (decltype(api.getvalue))resolve("PQgetvalue");
+        api.getisnull    = (decltype(api.getisnull))resolve("PQgetisnull");
+        api.fname        = (decltype(api.fname))resolve("PQfname");
+        api.cmdTuples    = (decltype(api.cmdTuples))resolve("PQcmdTuples");
+        api.errorMessage = (decltype(api.errorMessage))resolve("PQerrorMessage");
+        api.clear        = (decltype(api.clear))resolve("PQclear");
+        api.loaded = api.connectdb && api.status && api.finish && api.exec &&
+                     api.resultStatus && api.errorMessage;
+    });
+    return api;
+}
+
+} // namespace
+
+int64_t liva_pg_connect(const char *conninfo) {
+    if (!conninfo) return 0;
+    auto &api = pg_api();
+    if (!api.loaded) return 0;
+    void *conn = api.connectdb(conninfo);
+    if (!conn) return 0;
+    if (api.status(conn) != LIVA_PG_CONNECTION_OK) {
+        api.finish(conn);
+        return 0;
+    }
+    return (int64_t)(uintptr_t)conn;
+}
+
+void liva_pg_close(int64_t handle) {
+    if (!handle) return;
+    auto &api = pg_api();
+    if (api.finish) api.finish((void *)(uintptr_t)handle);
+}
+
+// Run a no-result command. Returns 0 on success (COMMAND_OK or TUPLES_OK), -1 otherwise.
+int32_t liva_pg_exec(int64_t handle, const char *sql) {
+    if (!handle || !sql) return -1;
+    auto &api = pg_api();
+    if (!api.loaded || !api.exec || !api.clear) return -1;
+    void *res = api.exec((void *)(uintptr_t)handle, sql);
+    if (!res) return -1;
+    int st = api.resultStatus(res);
+    api.clear(res);
+    return (st == LIVA_PGRES_COMMAND_OK || st == LIVA_PGRES_TUPLES_OK) ? 0 : -1;
+}
+
+char *liva_pg_errmsg(int64_t handle) {
+    if (!handle) return nullptr;
+    auto &api = pg_api();
+    if (!api.loaded || !api.errorMessage) return strdup_safe("");
+    const char *m = api.errorMessage((void *)(uintptr_t)handle);
+    return strdup_safe(m ? m : "");
+}
+
 // === Async/Coroutine Runtime ===
 
 // --- Dynamic ready queue (resizable circular buffer) ---
