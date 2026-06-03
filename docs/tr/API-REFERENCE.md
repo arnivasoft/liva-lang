@@ -939,9 +939,10 @@ Windows'ta yükleyici `C:\Program Files\PostgreSQL\<sürüm>\bin\libpq.dll`'i
 ## 29. DB Katmanı (db::db)
 
 Sürücü-bağımsız katman. Her yerde `?` yer tutucusu yazın; PostgreSQL adapteri
-bunları `$1,$2,...`'e çevirir (tek tırnaklı literal'ler atlanır; SQL yorumları
-ve dollar-quoting atlanmaz — bu kenar durumlar için sürücünün `queryParams`'ını
-doğrudan kullanın).
+bunları `$1,$2,...`'e çevirir. Çevirici şunların içindeki `?`'leri atlar: tek
+tırnaklı string literal'ler (`'...'`, `''` escape), satır yorumları (`-- ...`),
+blok yorumları (`/* ... */`) ve dollar-quote'lu string'ler (`$$...$$`,
+`$tag$...$tag$`); rakamla başlayan `$1` olduğu gibi bırakılır.
 
 - `protocol Database { exec; query(sql, [String]) -> [Row]; lastInsertId;
   errorMessage; close }`

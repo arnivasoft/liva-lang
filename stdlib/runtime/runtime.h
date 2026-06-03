@@ -581,7 +581,9 @@ int32_t liva_pg_exec(int64_t handle, const char *sql);
 char *liva_pg_errmsg(int64_t handle);
 
 /// Rewrite '?' placeholders to '$1','$2',... (PostgreSQL style), skipping '?'
-/// inside single-quoted string literals. Caller frees. libpq-independent.
+/// inside single-quoted string literals ('' escape), line comments (-- ...),
+/// block comments (/* ... */), and dollar-quoted strings ($$...$$, $tag$...$tag$).
+/// A '$' followed by a digit (e.g. $1) is left as-is. Caller frees. libpq-independent.
 char *liva_pg_normalize_params(const char *sql);
 
 /// Run a query; returns opaque PGresult* i64 handle (0 on failure). Caller must

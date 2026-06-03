@@ -963,9 +963,10 @@ absent, `PgConn.open` returns `nil`, `exec` returns `false`, queries return `nil
 ## 29. DB Layer (db::db)
 
 Driver-agnostic layer. Write `?` placeholders everywhere; the PostgreSQL
-adapter rewrites them to `$1,$2,...` (single-quoted literals are skipped;
-SQL comments and dollar-quoting are NOT — use the driver's `queryParams`
-directly for those edge cases).
+adapter rewrites them to `$1,$2,...`. The rewriter skips `?` inside single-quoted
+string literals (`'...'`, `''` escape), line comments (`-- ...`), block comments
+(`/* ... */`), and dollar-quoted strings (`$$...$$`, `$tag$...$tag$`); a `$`
+followed by a digit (`$1`) is left as-is.
 
 - `protocol Database { exec; query(sql, [String]) -> [Row]; lastInsertId;
   errorMessage; close }`

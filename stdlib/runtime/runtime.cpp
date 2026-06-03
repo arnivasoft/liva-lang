@@ -3457,20 +3457,102 @@ char *liva_pg_errmsg(int64_t handle) {
 char *liva_pg_normalize_params(const char *sql) {
     if (!sql) return strdup_safe("");
     std::string out;
-    bool inQuote = false;
     int n = 0;
-    for (const char *p = sql; *p; ++p) {
-        char c = *p;
+    size_t len = strlen(sql);
+    size_t i = 0;
+    while (i < len) {
+        char c = sql[i];
+
+        // Single-quoted string literal: '...' with '' as an escaped quote.
         if (c == '\'') {
-            inQuote = !inQuote;
             out.push_back(c);
-        } else if (c == '?' && !inQuote) {
+            i++;
+            while (i < len) {
+                out.push_back(sql[i]);
+                if (sql[i] == '\'') {
+                    if (i + 1 < len && sql[i + 1] == '\'') {  // '' escape — stay inside
+                        out.push_back(sql[i + 1]);
+                        i += 2;
+                        continue;
+                    }
+                    i++;  // closing quote consumed
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+
+        // Line comment: -- ... to end of line.
+        if (c == '-' && i + 1 < len && sql[i + 1] == '-') {
+            while (i < len && sql[i] != '\n') { out.push_back(sql[i]); i++; }
+            continue;
+        }
+
+        // Block comment: /* ... */ (non-nested).
+        if (c == '/' && i + 1 < len && sql[i + 1] == '*') {
+            out.push_back(sql[i]);
+            out.push_back(sql[i + 1]);
+            i += 2;
+            while (i < len) {
+                if (sql[i] == '*' && i + 1 < len && sql[i + 1] == '/') {
+                    out.push_back(sql[i]);
+                    out.push_back(sql[i + 1]);
+                    i += 2;
+                    break;
+                }
+                out.push_back(sql[i]);
+                i++;
+            }
+            continue;
+        }
+
+        // Dollar-quoted string: $tag$ ... $tag$ where tag is empty or
+        // [A-Za-z_][A-Za-z0-9_]*. A '$' followed by a digit (e.g. $1) is NOT a
+        // tag, so existing positional placeholders pass through untouched.
+        if (c == '$') {
+            size_t j = i + 1;
+            bool validTag = true;
+            while (j < len && sql[j] != '$') {
+                char tc = sql[j];
+                bool ok = (tc == '_') || (tc >= 'A' && tc <= 'Z') ||
+                          (tc >= 'a' && tc <= 'z') ||
+                          ((tc >= '0' && tc <= '9') && j > i + 1);
+                if (!ok) { validTag = false; break; }
+                j++;
+            }
+            if (validTag && j < len && sql[j] == '$') {
+                std::string tag(sql + i, j - i + 1);  // "$$" or "$tag$"
+                out.append(tag);
+                i = j + 1;
+                while (i < len) {
+                    if (sql[i] == '$' && i + tag.size() <= len &&
+                        strncmp(sql + i, tag.c_str(), tag.size()) == 0) {
+                        out.append(tag);
+                        i += tag.size();
+                        break;
+                    }
+                    out.push_back(sql[i]);
+                    i++;
+                }
+                continue;
+            }
+            out.push_back(c);  // lone '$' (or '$1' etc.) — literal
+            i++;
+            continue;
+        }
+
+        // Placeholder.
+        if (c == '?') {
             ++n;
             out.push_back('$');
             out.append(std::to_string(n));
-        } else {
-            out.push_back(c);
+            i++;
+            continue;
         }
+
+        out.push_back(c);
+        i++;
     }
     char *res = (char *)malloc(out.size() + 1);
     if (!res) return nullptr;

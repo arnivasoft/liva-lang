@@ -819,13 +819,23 @@ TEST(RuntimeExecTest, PgNormalizeParams) {
         "    println(pgNormalizeParams(\"SELECT * FROM t WHERE a=? AND b=?\"))\n"
         "    println(pgNormalizeParams(\"INSERT INTO t VALUES (?, '?lit?', ?)\"))\n"
         "    println(pgNormalizeParams(\"no params here\"))\n"
+        "    println(pgNormalizeParams(\"SELECT ? -- ? stays\"))\n"
+        "    println(pgNormalizeParams(\"a=? /* ? */ b=?\"))\n"
+        "    println(pgNormalizeParams(\"x=$$a?b$$ y=?\"))\n"
+        "    println(pgNormalizeParams(\"$tag$?$tag$ ?\"))\n"
+        "    println(pgNormalizeParams(\"SELECT $1, ?\"))\n"
         "}\n",
         "pg_normalize");
     EXPECT_EQ(r.exit_code, 0);
     EXPECT_EQ(r.stdout_output,
         "SELECT * FROM t WHERE a=$1 AND b=$2\n"
         "INSERT INTO t VALUES ($1, '?lit?', $2)\n"
-        "no params here\n");
+        "no params here\n"
+        "SELECT $1 -- ? stays\n"
+        "a=$1 /* ? */ b=$2\n"
+        "x=$$a?b$$ y=$1\n"
+        "$tag$?$tag$ $1\n"
+        "SELECT $1, $1\n");
 }
 
 TEST(RuntimeExecTest, PgConnectFailClosed) {
