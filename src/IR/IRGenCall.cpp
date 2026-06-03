@@ -3296,6 +3296,73 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return r;
     }
 
+    // pgQuery(handle, sql) -> i64 (result handle)
+    if (funcName == "pgQuery" && node->getArgs().size() >= 2) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *sql = visit(node->getArgs()[1].get());
+        if (!h || !sql) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_pg_query"), {h, sql}, "pg.query");
+    }
+
+    // pgClear(result) -> void
+    if (funcName == "pgClear" && !node->getArgs().empty()) {
+        auto *res = visit(node->getArgs()[0].get());
+        if (!res) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_pg_clear"), {res});
+        return nullptr;
+    }
+
+    // pgResultRows(result) -> i32  /  pgResultCols(result) -> i32
+    if ((funcName == "pgResultRows" || funcName == "pgResultCols") &&
+        !node->getArgs().empty()) {
+        auto *res = visit(node->getArgs()[0].get());
+        if (!res) return nullptr;
+        auto *fn = getOrPanic(funcName == "pgResultRows"
+                              ? "liva_pg_ntuples" : "liva_pg_nfields");
+        return builder_->CreateCall(fn, {res}, "pg.rescount");
+    }
+
+    // pgResultText(result, row, col) -> string
+    if (funcName == "pgResultText" && node->getArgs().size() >= 3) {
+        auto *res = visit(node->getArgs()[0].get());
+        auto *row = visit(node->getArgs()[1].get());
+        auto *col = visit(node->getArgs()[2].get());
+        if (!res || !row || !col) return nullptr;
+        if (row->getType()->isIntegerTy(64))
+            row = builder_->CreateTrunc(row, builder_->getInt32Ty());
+        if (col->getType()->isIntegerTy(64))
+            col = builder_->CreateTrunc(col, builder_->getInt32Ty());
+        auto *r = builder_->CreateCall(getOrPanic("liva_pg_getvalue"), {res, row, col}, "pg.getval");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // pgResultIsNull(result, row, col) -> bool
+    if (funcName == "pgResultIsNull" && node->getArgs().size() >= 3) {
+        auto *res = visit(node->getArgs()[0].get());
+        auto *row = visit(node->getArgs()[1].get());
+        auto *col = visit(node->getArgs()[2].get());
+        if (!res || !row || !col) return nullptr;
+        if (row->getType()->isIntegerTy(64))
+            row = builder_->CreateTrunc(row, builder_->getInt32Ty());
+        if (col->getType()->isIntegerTy(64))
+            col = builder_->CreateTrunc(col, builder_->getInt32Ty());
+        auto *rc = builder_->CreateCall(getOrPanic("liva_pg_getisnull"), {res, row, col}, "pg.isnull.rc");
+        return builder_->CreateICmpNE(rc, builder_->getInt32(0), "pg.isnull");
+    }
+
+    // pgColumnName(result, col) -> string
+    if (funcName == "pgColumnName" && node->getArgs().size() >= 2) {
+        auto *res = visit(node->getArgs()[0].get());
+        auto *col = visit(node->getArgs()[1].get());
+        if (!res || !col) return nullptr;
+        if (col->getType()->isIntegerTy(64))
+            col = builder_->CreateTrunc(col, builder_->getInt32Ty());
+        auto *r = builder_->CreateCall(getOrPanic("liva_pg_fname"), {res, col}, "pg.fname");
+        trackStringTemp(r);
+        return r;
+    }
+
     // sqliteOpen(path) -> i64
     if (funcName == "sqliteOpen" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

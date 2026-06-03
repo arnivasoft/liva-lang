@@ -865,6 +865,28 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_pg_errmsg",
         llvm::FunctionType::get(i8PtrTy, {i64Ty}, false));
 
+    // pgQuery(handle, sql) -> i64 (PGresult* handle)
+    module_->getOrInsertFunction("liva_pg_query",
+        llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy}, false));
+    // pgClear(result) -> void
+    module_->getOrInsertFunction("liva_pg_clear",
+        llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false));
+    // pgNtuples(result) -> i32
+    module_->getOrInsertFunction("liva_pg_ntuples",
+        llvm::FunctionType::get(i32Ty, {i64Ty}, false));
+    // pgNfields(result) -> i32
+    module_->getOrInsertFunction("liva_pg_nfields",
+        llvm::FunctionType::get(i32Ty, {i64Ty}, false));
+    // pgGetvalue(result, row, col) -> i8*
+    module_->getOrInsertFunction("liva_pg_getvalue",
+        llvm::FunctionType::get(i8PtrTy, {i64Ty, i32Ty, i32Ty}, false));
+    // pgGetisnull(result, row, col) -> i32
+    module_->getOrInsertFunction("liva_pg_getisnull",
+        llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty, i32Ty}, false));
+    // pgFname(result, col) -> i8*
+    module_->getOrInsertFunction("liva_pg_fname",
+        llvm::FunctionType::get(i8PtrTy, {i64Ty, i32Ty}, false));
+
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
     auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);

@@ -1613,3 +1613,26 @@ TEST_F(StdlibModuleTest, ImportPostgresModule) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "import postgres::postgres should resolve PgConn";
 }
+
+TEST_F(StdlibModuleTest, PostgresResultMethods) {
+    auto r = check(
+        "import postgres::postgres\n"
+        "func main() {\n"
+        "    if let c = PgConn.open(\"host=localhost\") {\n"
+        "        var conn = c\n"
+        "        if let res = conn.query(\"SELECT 1\") {\n"
+        "            var rs = res\n"
+        "            let n = rs.rowCount()\n"
+        "            let m = rs.colCount()\n"
+        "            let t = rs.getText(0, 0)\n"
+        "            let i = rs.getInt(0, 0)\n"
+        "            let nul = rs.isNull(0, 0)\n"
+        "            let name = rs.columnName(0)\n"
+        "            rs.clear()\n"
+        "        }\n"
+        "        conn.close()\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "PgResult methods should type-check";
+}

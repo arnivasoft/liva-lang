@@ -6,11 +6,59 @@
 // libpq ships with PostgreSQL 14/17/18 under C:\Program Files\PostgreSQL.
 
 import std::postgres
+import convert::convert
 
 // Rewrite '?' placeholders to PostgreSQL '$1','$2',... (skips quoted literals).
 // Exposed for the db::db layer; libpq-independent.
 pub func normalizeParams(sql: String) -> String {
     return pgNormalizeParams(sql)
+}
+
+// =============================================================
+// PgResult — a fully-materialized query result (PGresult*)
+// Row and column indices are 0-based.
+//
+// Declared first so PgConn.query can return PgResult? — the import
+// loader is single-pass over declarations and resolves struct names
+// in source order.
+// =============================================================
+
+pub struct PgResult {
+    var handle: i64
+}
+
+impl PgResult {
+    pub func rowCount(ref self) -> i32 {
+        return pgResultRows(self.handle)
+    }
+
+    pub func colCount(ref self) -> i32 {
+        return pgResultCols(self.handle)
+    }
+
+    pub func getText(ref self, row: i32, col: i32) -> String {
+        return pgResultText(self.handle, row, col)
+    }
+
+    pub func getInt(ref self, row: i32, col: i32) -> i64 {
+        let s = pgResultText(self.handle, row, col)
+        let parsed = toInt64(s)
+        if let v = parsed { return v }
+        return 0 as i64
+    }
+
+    pub func isNull(ref self, row: i32, col: i32) -> bool {
+        return pgResultIsNull(self.handle, row, col)
+    }
+
+    pub func columnName(ref self, col: i32) -> String {
+        return pgColumnName(self.handle, col)
+    }
+
+    pub func clear(mut self) {
+        pgClear(self.handle)
+        self.handle = 0 as i64
+    }
 }
 
 // =============================================================
@@ -34,6 +82,12 @@ impl PgConn {
     // Run a statement that produces no rows: CREATE, INSERT, UPDATE, etc.
     pub func exec(ref self, sql: String) -> bool {
         return pgExec(self.handle, sql)
+    }
+
+    pub func query(ref self, sql: String) -> PgResult? {
+        let h: i64 = pgQuery(self.handle, sql)
+        if h == 0 as i64 { return nil }
+        return PgResult { handle: h }
     }
 
     pub func errorMessage(ref self) -> String {
