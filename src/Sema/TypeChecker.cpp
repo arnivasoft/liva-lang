@@ -3321,9 +3321,13 @@ void TypeChecker::visitIndexExpr(IndexExpr *node) {
         }
     }
 
-    // Array element access: arr[i] -> element type T for dynamic arrays.
+    // Array element access: arr[i] -> element type T for dynamic arrays,
+    // but ONLY when the element is a Named struct (Row/Date/Time/DateTime/etc).
     // Without this, `let x = arr[i]` leaves x untyped, which breaks chained
     // method calls like `arr[i].method().method()` (they silently emit nothing).
+    // Restricting to Named avoids assigning a resolved type to primitive-element
+    // arrays like [u8]/[i32]; doing so changed byte sign/zero-extension and broke
+    // self-hosted gzip (0x8B read as signed -117 instead of unsigned 139).
     if (!node->getResolvedType() &&
         node->getIndex()->getKind() != ASTNode::NodeKind::RangeExpr &&
         node->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
@@ -3331,7 +3335,8 @@ void TypeChecker::visitIndexExpr(IndexExpr *node) {
         auto *sym = scopes_.lookup(ident->getName());
         if (sym && sym->type && sym->type->getKind() == TypeRepr::Kind::Array) {
             auto *arrType = static_cast<const ArrayTypeRepr *>(sym->type);
-            if (arrType->isDynamic() && arrType->getElement())
+            if (arrType->isDynamic() && arrType->getElement() &&
+                arrType->getElement()->getKind() == TypeRepr::Kind::Named)
                 node->setResolvedType(cloneTypeRepr(arrType->getElement()));
         }
     }
