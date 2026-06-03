@@ -606,6 +606,11 @@ int32_t liva_pg_getisnull(int64_t result, int32_t row, int32_t col);
 /// Column name (caller frees).
 char *liva_pg_fname(int64_t result, int32_t col);
 
+/// Parameterized query. `values` holds `nparams` text C-strings (NULL = SQL
+/// NULL). Returns opaque PGresult* i64 (0 on failure). Caller frees via clear.
+int64_t liva_pg_query_params(int64_t handle, const char *sql,
+                             const char *const *values, int64_t nparams);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {

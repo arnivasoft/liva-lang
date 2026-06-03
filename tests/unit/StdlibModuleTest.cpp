@@ -1636,3 +1636,21 @@ TEST_F(StdlibModuleTest, PostgresResultMethods) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "PgResult methods should type-check";
 }
+
+TEST_F(StdlibModuleTest, PostgresQueryParams) {
+    auto r = check(
+        "import postgres::postgres\n"
+        "func main() {\n"
+        "    if let c = PgConn.open(\"host=localhost\") {\n"
+        "        var conn = c\n"
+        "        let args: [String] = [\"1\", \"abc\"]\n"
+        "        if let res = conn.queryParams(\"SELECT $1, $2\", args) {\n"
+        "            var rs = res\n"
+        "            rs.clear()\n"
+        "        }\n"
+        "        conn.close()\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "queryParams should type-check";
+}

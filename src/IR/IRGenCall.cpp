@@ -3363,6 +3363,26 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return r;
     }
 
+    // pgQueryParams(handle, sql, params: [String]) -> i64 (result handle)
+    if (funcName == "pgQueryParams" && node->getArgs().size() >= 3) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *sql = visit(node->getArgs()[1].get());
+        auto *arr = visit(node->getArgs()[2].get());
+        if (!h || !sql || !arr) return nullptr;
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "pgp.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        // .data is the contiguous buffer of char* (string pointers).
+        auto *data = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(daTy, src, 0));
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1));
+        auto *fn = getOrPanic("liva_pg_query_params");
+        return builder_->CreateCall(fn, {h, sql, data, len}, "pg.queryparams");
+    }
+
     // sqliteOpen(path) -> i64
     if (funcName == "sqliteOpen" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

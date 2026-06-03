@@ -90,6 +90,15 @@ impl PgConn {
         return PgResult { handle: h }
     }
 
+    // Parameterized query. Use '$1','$2',... placeholders directly here (this
+    // method does NOT rewrite '?'). All params are sent as text; the server
+    // coerces by column type.
+    pub func queryParams(ref self, sql: String, params: [String]) -> PgResult? {
+        let h: i64 = pgQueryParams(self.handle, sql, params)
+        if h == 0 as i64 { return nil }
+        return PgResult { handle: h }
+    }
+
     pub func errorMessage(ref self) -> String {
         return pgErrmsg(self.handle)
     }

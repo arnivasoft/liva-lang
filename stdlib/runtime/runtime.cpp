@@ -3538,6 +3538,26 @@ char *liva_pg_fname(int64_t result, int32_t col) {
     return strdup_safe(n ? n : "");
 }
 
+// Parameterized query via PQexecParams. `values` is an array of `nparams`
+// C-string pointers (all text format; server coerces by column type). NULL
+// entries bind SQL NULL. Returns an opaque PGresult* (0 on failure); only
+// TUPLES_OK / COMMAND_OK is returned.
+int64_t liva_pg_query_params(int64_t handle, const char *sql,
+                             const char *const *values, int64_t nparams) {
+    if (!handle || !sql) return 0;
+    auto &api = pg_api();
+    if (!api.loaded || !api.execParams) return 0;
+    void *res = api.execParams((void *)(uintptr_t)handle, sql, (int)nparams,
+                               nullptr, values, nullptr, nullptr, 0);
+    if (!res) return 0;
+    int st = api.resultStatus(res);
+    if (st != LIVA_PGRES_TUPLES_OK && st != LIVA_PGRES_COMMAND_OK) {
+        if (api.clear) api.clear(res);
+        return 0;
+    }
+    return (int64_t)(uintptr_t)res;
+}
+
 // === Async/Coroutine Runtime ===
 
 // --- Dynamic ready queue (resizable circular buffer) ---

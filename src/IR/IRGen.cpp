@@ -886,6 +886,9 @@ void IRGen::createRuntimeDecls() {
     // pgFname(result, col) -> i8*
     module_->getOrInsertFunction("liva_pg_fname",
         llvm::FunctionType::get(i8PtrTy, {i64Ty, i32Ty}, false));
+    // pgQueryParams(handle, sql, values, nparams) -> i64
+    module_->getOrInsertFunction("liva_pg_query_params",
+        llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy, i8PtrTy, i64Ty}, false));
 
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
