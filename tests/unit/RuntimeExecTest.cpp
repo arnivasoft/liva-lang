@@ -757,4 +757,36 @@ TEST(RuntimeExecTest, SqliteColumnTypeAndNull) {
     EXPECT_EQ(r.stdout_output, "1\nnull\n");
 }
 
+TEST(RuntimeExecTest, SqliteBlobRoundTrip) {
+    auto r = compileAndRun(
+        "import sqlite::sqlite\n"
+        "func main() {\n"
+        "    let payload: [u8] = [104, 105, 0, 1, 255]\n"
+        "    if let db = SqliteDB.openMemory() {\n"
+        "        var d = db\n"
+        "        d.exec(\"CREATE TABLE t(b BLOB)\")\n"
+        "        if let s = d.prepare(\"INSERT INTO t(b) VALUES (?)\") {\n"
+        "            var stmt = s\n"
+        "            stmt.bindBlob(1, payload)\n"
+        "            stmt.step()\n"
+        "            stmt.finalize()\n"
+        "        }\n"
+        "        if let s2 = d.prepare(\"SELECT b FROM t\") {\n"
+        "            var stmt2 = s2\n"
+        "            if stmt2.step() {\n"
+        "                let got = stmt2.columnBlob(0)\n"
+        "                println(got.length)\n"
+        "                println(got[2])\n"
+        "                println(got[4])\n"
+        "            }\n"
+        "            stmt2.finalize()\n"
+        "        }\n"
+        "        d.close()\n"
+        "    }\n"
+        "}\n",
+        "sqlite_blob");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "5\n0\n255\n");
+}
+
 #endif // LIVA_HAS_LLVM

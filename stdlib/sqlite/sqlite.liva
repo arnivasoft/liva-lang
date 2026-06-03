@@ -56,6 +56,14 @@ impl Stmt {
         return sqliteBindByName(self.handle, name, val)
     }
 
+    pub func bindBlob(ref self, idx: i32, data: [u8]) -> bool {
+        return sqliteBindBlob(self.handle, idx, data)
+    }
+
+    pub func columnBlob(ref self, col: i32) -> [u8] {
+        return sqliteColumnBlob(self.handle, col)
+    }
+
     //Advance to the next row. Returns true if a row is available, false
     //when the statement is done or hit an error.
     pub func step(ref self) -> bool {

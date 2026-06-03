@@ -836,6 +836,13 @@ void IRGen::createRuntimeDecls() {
     auto *sqliteBindNameTy = llvm::FunctionType::get(i32Ty, {i64Ty, i8PtrTy, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_sqlite_bind_by_name", sqliteBindNameTy);
 
+    // sqliteBindBlob(stmt, idx, data, len) -> i32
+    auto *sqliteBindBlobTy = llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty, i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_sqlite_bind_blob", sqliteBindBlobTy);
+    // sqliteColumnBlob(stmt, col, out_len) -> i8*
+    auto *sqliteColBlobTy = llvm::FunctionType::get(i8PtrTy, {i64Ty, i32Ty, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_sqlite_column_blob", sqliteColBlobTy);
+
     // sqliteFinalize(stmt) -> void
     auto *sqliteFinTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
     module_->getOrInsertFunction("liva_sqlite_finalize", sqliteFinTy);

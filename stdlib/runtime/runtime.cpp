@@ -2780,6 +2780,9 @@ struct SqliteApi {
     const char *(*column_name)(void *, int) = nullptr;
     int  (*column_type)(void *, int) = nullptr;
     int  (*bind_parameter_index)(void *, const char *) = nullptr;
+    int  (*bind_blob)(void *, int, const void *, int, void (*)(void *)) = nullptr;
+    const void *(*column_blob)(void *, int) = nullptr;
+    int  (*column_bytes)(void *, int) = nullptr;
     int  (*bind_text)(void *, int, const char *, int, void (*)(void *)) = nullptr;
     int  (*bind_int64)(void *, int, long long) = nullptr;
     int  (*bind_double)(void *, int, double) = nullptr;
@@ -2814,6 +2817,9 @@ static SqliteApi &sqlite_api() {
         api.column_name = (decltype(api.column_name))resolve("sqlite3_column_name");
         api.column_type = (decltype(api.column_type))resolve("sqlite3_column_type");
         api.bind_parameter_index = (decltype(api.bind_parameter_index))resolve("sqlite3_bind_parameter_index");
+        api.bind_blob = (decltype(api.bind_blob))resolve("sqlite3_bind_blob");
+        api.column_blob = (decltype(api.column_blob))resolve("sqlite3_column_blob");
+        api.column_bytes = (decltype(api.column_bytes))resolve("sqlite3_column_bytes");
         api.bind_text = (decltype(api.bind_text))resolve("sqlite3_bind_text");
         api.bind_int64 = (decltype(api.bind_int64))resolve("sqlite3_bind_int64");
         api.bind_double = (decltype(api.bind_double))resolve("sqlite3_bind_double");
@@ -2840,6 +2846,9 @@ static SqliteApi &sqlite_api() {
         api.column_name = reinterpret_cast<decltype(api.column_name)>(&sqlite3_column_name);
         api.column_type = reinterpret_cast<decltype(api.column_type)>(&sqlite3_column_type);
         api.bind_parameter_index = reinterpret_cast<decltype(api.bind_parameter_index)>(&sqlite3_bind_parameter_index);
+        api.bind_blob = reinterpret_cast<decltype(api.bind_blob)>(&sqlite3_bind_blob);
+        api.column_blob = reinterpret_cast<decltype(api.column_blob)>(&sqlite3_column_blob);
+        api.column_bytes = reinterpret_cast<decltype(api.column_bytes)>(&sqlite3_column_bytes);
         api.bind_text = reinterpret_cast<decltype(api.bind_text)>(&sqlite3_bind_text);
         api.bind_int64 = reinterpret_cast<decltype(api.bind_int64)>(&sqlite3_bind_int64);
         api.bind_double = reinterpret_cast<decltype(api.bind_double)>(&sqlite3_bind_double);
@@ -3250,6 +3259,43 @@ int32_t liva_sqlite_bind_by_name(int64_t stmt, const char *name, const char *val
     (void)name;
     (void)val;
     return -1;
+#endif
+}
+
+int32_t liva_sqlite_bind_blob(int64_t stmt, int32_t idx, const void *data, int64_t len) {
+    if (!stmt) return -1;
+#ifdef LIVA_HAS_SQLITE
+    auto &api = sqlite_api();
+    if (!api.bind_blob) return -1;
+    auto *transient = (void (*)(void *))(intptr_t)-1;  // SQLITE_TRANSIENT
+    int rc = api.bind_blob((void *)(uintptr_t)stmt, idx,
+                           data ? data : "", (int)len, transient);
+    return rc == LIVA_SQLITE_OK ? 0 : -1;
+#else
+    (void)stmt; (void)idx; (void)data; (void)len;
+    return -1;
+#endif
+}
+
+// Returns a freshly malloc'd copy of the column's blob bytes; *out_len gets the
+// byte count. Returns nullptr (and *out_len = 0) if empty/unavailable. Caller frees.
+void *liva_sqlite_column_blob(int64_t stmt, int32_t col, int64_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (!stmt) return nullptr;
+#ifdef LIVA_HAS_SQLITE
+    auto &api = sqlite_api();
+    if (!api.column_blob || !api.column_bytes) return nullptr;
+    const void *src = api.column_blob((void *)(uintptr_t)stmt, col);
+    int n = api.column_bytes((void *)(uintptr_t)stmt, col);
+    if (n <= 0 || !src) return nullptr;
+    void *out = malloc((size_t)n);
+    if (!out) return nullptr;
+    memcpy(out, src, (size_t)n);
+    if (out_len) *out_len = n;
+    return out;
+#else
+    (void)stmt; (void)col;
+    return nullptr;
 #endif
 }
 

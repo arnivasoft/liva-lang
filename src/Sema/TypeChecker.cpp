@@ -83,6 +83,7 @@ void TypeChecker::registerBuiltins() {
                         "sqliteColumnText", "sqliteColumnInt", "sqliteColumnDouble",
                         "sqliteColumnName", "sqliteColumnType", "sqliteColumnIsNull",
                         "sqliteBindByName",
+                        "sqliteBindBlob", "sqliteColumnBlob",
                         "sqliteFinalize"}) {
         Symbol sym;
         sym.name = name;
@@ -344,6 +345,30 @@ void TypeChecker::check(TranslationUnit &tu) {
                 if (mod) {
                     for (auto &sym : mod->exportedSymbols) {
                         scopes_.declare(sym.name, sym);
+                    }
+                    // Propagate impl method return types from the module's TU
+                    // into this TypeChecker, but only for methods returning array
+                    // or optional types ([T] / T?). This enables instance method
+                    // calls like stmt2.columnBlob(0) -> [u8] to get their resolved
+                    // type set correctly in visitCallExpr so varDynArrayTypes is
+                    // populated. Also enables propagation through Optional-returning
+                    // methods (e.g. db.prepare() -> Stmt?) for multi-step chains.
+                    // Restricting to Array/Optional avoids regressions from
+                    // broader Named-type propagation.
+                    if (mod->tu) {
+                        for (auto &topDecl : mod->tu->getDeclarations()) {
+                            if (topDecl->getKind() == ASTNode::NodeKind::ImplDecl) {
+                                auto *implD = static_cast<ImplDecl *>(topDecl.get());
+                                for (auto &method : implD->getMethods()) {
+                                    auto *rt = method->getReturnType();
+                                    if (rt && (rt->getKind() == TypeRepr::Kind::Array ||
+                                               rt->getKind() == TypeRepr::Kind::Optional)) {
+                                        std::string key = implD->getTypeName() + "::" + method->getName();
+                                        typeMethodReturnTypes_[key] = rt;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2364,6 +2389,12 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI32Type());
         } else if (ident->getName() == "sqliteColumnIsNull") {
             node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "sqliteBindBlob") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "sqliteColumnBlob") {
+            // [u8]
+            auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
+            node->setResolvedType(std::make_unique<ArrayTypeRepr>(std::move(u8), -1));
         } else if (ident->getName() == "sqliteFinalize") {
             // void
         // Stdlib: Directory operations
@@ -2908,11 +2939,23 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             }
 
             // User-defined struct/class static method: TypeName.method(args)
+            // Also handles instance method calls: varName.method(args) where
+            // varName has a Named struct type — look up TypeName::method.
             if (!node->getResolvedType()) {
                 std::string key = ident->getName() + "::" + methodName;
                 auto retIt = typeMethodReturnTypes_.find(key);
                 if (retIt != typeMethodReturnTypes_.end() && retIt->second) {
                     node->setResolvedType(cloneTypeRepr(retIt->second));
+                }
+                // Fall back: if the variable has a Named struct type, try StructName::method
+                if (!node->getResolvedType() && sym && sym->type &&
+                    sym->type->getKind() == TypeRepr::Kind::Named) {
+                    auto *namedTy = static_cast<const NamedTypeRepr *>(sym->type);
+                    std::string instanceKey = namedTy->getName() + "::" + methodName;
+                    auto iRetIt = typeMethodReturnTypes_.find(instanceKey);
+                    if (iRetIt != typeMethodReturnTypes_.end() && iRetIt->second) {
+                        node->setResolvedType(cloneTypeRepr(iRetIt->second));
+                    }
                 }
             }
 

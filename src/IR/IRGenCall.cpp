@@ -3495,6 +3495,50 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.bindname.ok");
     }
 
+    // sqliteBindBlob(stmt, idx, data: [u8]) -> bool
+    if (funcName == "sqliteBindBlob" && node->getArgs().size() >= 3) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *idxArg = visit(node->getArgs()[1].get());
+        auto *arr = visit(node->getArgs()[2].get());
+        if (!stmtArg || !idxArg || !arr) return nullptr;
+        if (idxArg->getType()->isIntegerTy(64))
+            idxArg = builder_->CreateTrunc(idxArg, builder_->getInt32Ty());
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "blob.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *data = builder_->CreateLoad(ptrTy,
+            builder_->CreateStructGEP(daTy, src, 0));
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1));
+        auto *fn = getOrPanic("liva_sqlite_bind_blob");
+        auto *rc = builder_->CreateCall(fn, {stmtArg, idxArg, data, len}, "sqlite.bindblob.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.bindblob.ok");
+    }
+
+    // sqliteColumnBlob(stmt, col) -> [u8]
+    if (funcName == "sqliteColumnBlob" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *colArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !colArg) return nullptr;
+        if (colArg->getType()->isIntegerTy(64))
+            colArg = builder_->CreateTrunc(colArg, builder_->getInt32Ty());
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *outLenAlloca = createEntryBlockAlloca(funcCur, "blob.olen",
+            builder_->getInt64Ty());
+        builder_->CreateStore(builder_->getInt64(0), outLenAlloca);
+        auto *fn = getOrPanic("liva_sqlite_column_blob");
+        auto *dataPtr = builder_->CreateCall(fn, {stmtArg, colArg, outLenAlloca}, "blob.data");
+        auto *outLen = builder_->CreateLoad(builder_->getInt64Ty(), outLenAlloca, "blob.olen.v");
+        auto *daTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(funcCur, "blob.da", daTy);
+        builder_->CreateStore(dataPtr, builder_->CreateStructGEP(daTy, daAlloca, 0));
+        builder_->CreateStore(outLen, builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(outLen, builder_->CreateStructGEP(daTy, daAlloca, 2));
+        return builder_->CreateLoad(daTy, daAlloca, "blob.val");
+    }
+
     // sqliteColumnText(stmt, col) -> string
     if (funcName == "sqliteColumnText" && node->getArgs().size() >= 2) {
         auto *stmtArg = visit(node->getArgs()[0].get());

@@ -551,6 +551,14 @@ int32_t liva_sqlite_column_type(int64_t stmt, int32_t col);
 /// success, -1 if the name is unknown or the bind fails.
 int32_t liva_sqlite_bind_by_name(int64_t stmt, const char *name, const char *val);
 
+/// Bind `len` raw bytes from `data` to parameter `idx` (1-based, BLOB).
+/// Returns 0 on success.
+int32_t liva_sqlite_bind_blob(int64_t stmt, int32_t idx, const void *data, int64_t len);
+
+/// Read column `col` (0-based) as a blob: returns a fresh malloc'd byte buffer
+/// and writes the length to *out_len. nullptr/0 if empty. Caller frees.
+void *liva_sqlite_column_blob(int64_t stmt, int32_t col, int64_t *out_len);
+
 /// Release the statement.
 void liva_sqlite_finalize(int64_t stmt);
 
