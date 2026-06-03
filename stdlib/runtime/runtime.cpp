@@ -3489,7 +3489,7 @@ int64_t liva_pg_query(int64_t handle, const char *sql) {
     void *res = api.exec((void *)(uintptr_t)handle, sql);
     if (!res) return 0;
     if (api.resultStatus(res) != LIVA_PGRES_TUPLES_OK) {
-        api.clear(res);
+        if (api.clear) api.clear(res);
         return 0;
     }
     return (int64_t)(uintptr_t)res;
