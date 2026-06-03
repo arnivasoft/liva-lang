@@ -315,6 +315,9 @@ endif()
 # Standard library modules
 install(DIRECTORY stdlib/core/ DESTINATION lib/liva/stdlib/core FILES_MATCHING PATTERN "*.liva")
 install(DIRECTORY stdlib/io/ DESTINATION lib/liva/stdlib/io FILES_MATCHING PATTERN "*.liva")
+install(DIRECTORY stdlib/sqlite/ DESTINATION lib/liva/stdlib/sqlite FILES_MATCHING PATTERN "*.liva")
+install(DIRECTORY stdlib/postgres/ DESTINATION lib/liva/stdlib/postgres FILES_MATCHING PATTERN "*.liva")
+install(DIRECTORY stdlib/db/ DESTINATION lib/liva/stdlib/db FILES_MATCHING PATTERN "*.liva")
 install(FILES stdlib/runtime/runtime.h DESTINATION lib/liva/stdlib/runtime)
 
 # Examples
