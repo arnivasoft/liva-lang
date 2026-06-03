@@ -50,6 +50,12 @@ impl Stmt {
         return sqliteBindNull(self.handle, idx)
     }
 
+    // Bind text to a named parameter (":name", "@name", "$name").
+    // Returns false if the name is not present in the statement.
+    pub func bindByName(ref self, name: String, val: String) -> bool {
+        return sqliteBindByName(self.handle, name, val)
+    }
+
     //Advance to the next row. Returns true if a row is available, false
     //when the statement is done or hit an error.
     pub func step(ref self) -> bool {

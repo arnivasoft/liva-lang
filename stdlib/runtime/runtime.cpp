@@ -2779,6 +2779,7 @@ struct SqliteApi {
     double (*column_double)(void *, int) = nullptr;
     const char *(*column_name)(void *, int) = nullptr;
     int  (*column_type)(void *, int) = nullptr;
+    int  (*bind_parameter_index)(void *, const char *) = nullptr;
     int  (*bind_text)(void *, int, const char *, int, void (*)(void *)) = nullptr;
     int  (*bind_int64)(void *, int, long long) = nullptr;
     int  (*bind_double)(void *, int, double) = nullptr;
@@ -2812,6 +2813,7 @@ static SqliteApi &sqlite_api() {
         api.column_double = (decltype(api.column_double))resolve("sqlite3_column_double");
         api.column_name = (decltype(api.column_name))resolve("sqlite3_column_name");
         api.column_type = (decltype(api.column_type))resolve("sqlite3_column_type");
+        api.bind_parameter_index = (decltype(api.bind_parameter_index))resolve("sqlite3_bind_parameter_index");
         api.bind_text = (decltype(api.bind_text))resolve("sqlite3_bind_text");
         api.bind_int64 = (decltype(api.bind_int64))resolve("sqlite3_bind_int64");
         api.bind_double = (decltype(api.bind_double))resolve("sqlite3_bind_double");
@@ -2837,6 +2839,7 @@ static SqliteApi &sqlite_api() {
         api.column_double = reinterpret_cast<decltype(api.column_double)>(&sqlite3_column_double);
         api.column_name = reinterpret_cast<decltype(api.column_name)>(&sqlite3_column_name);
         api.column_type = reinterpret_cast<decltype(api.column_type)>(&sqlite3_column_type);
+        api.bind_parameter_index = reinterpret_cast<decltype(api.bind_parameter_index)>(&sqlite3_bind_parameter_index);
         api.bind_text = reinterpret_cast<decltype(api.bind_text)>(&sqlite3_bind_text);
         api.bind_int64 = reinterpret_cast<decltype(api.bind_int64)>(&sqlite3_bind_int64);
         api.bind_double = reinterpret_cast<decltype(api.bind_double)>(&sqlite3_bind_double);
@@ -3224,6 +3227,29 @@ int32_t liva_sqlite_column_type(int64_t stmt, int32_t col) {
     (void)stmt;
     (void)col;
     return 0;
+#endif
+}
+
+// Resolve a named parameter (":name", "@name", "$name") to its 1-based index,
+// then bind `val` as text there. Returns 0 on success, -1 if the name is
+// unknown or binding fails.
+int32_t liva_sqlite_bind_by_name(int64_t stmt, const char *name, const char *val) {
+    if (!stmt || !name) return -1;
+#ifdef LIVA_HAS_SQLITE
+    auto &api = sqlite_api();
+    if (!api.bind_parameter_index || !api.bind_text) return -1;
+    int idx = api.bind_parameter_index((void *)(uintptr_t)stmt, name);
+    if (idx <= 0) return -1;
+    auto *transient = (void (*)(void *))(intptr_t)-1;
+    int rc = api.bind_text((void *)(uintptr_t)stmt, idx,
+                           val ? val : "",
+                           val ? (int)strlen(val) : 0, transient);
+    return rc == LIVA_SQLITE_OK ? 0 : -1;
+#else
+    (void)stmt;
+    (void)name;
+    (void)val;
+    return -1;
 #endif
 }
 

@@ -710,6 +710,29 @@ TEST(RuntimeExecTest, SqliteColumnName) {
     EXPECT_EQ(r.stdout_output, "alpha\nbeta\n");
 }
 
+TEST(RuntimeExecTest, SqliteBindByName) {
+    auto r = compileAndRun(
+        "import sqlite::sqlite\n"
+        "func main() {\n"
+        "    if let db = SqliteDB.openMemory() {\n"
+        "        var d = db\n"
+        "        d.exec(\"CREATE TABLE t(name TEXT)\")\n"
+        "        if let s = d.prepare(\"INSERT INTO t(name) VALUES (:n)\") {\n"
+        "            var stmt = s\n"
+        "            let ok = stmt.bindByName(\":n\", \"Ada\")\n"
+        "            if ok { println(\"bound\") } else { println(\"fail\") }\n"
+        "            stmt.step()\n"
+        "            stmt.finalize()\n"
+        "        }\n"
+        "        if let v = d.queryString(\"SELECT name FROM t\") { println(v) }\n"
+        "        d.close()\n"
+        "    }\n"
+        "}\n",
+        "sqlite_bind_by_name");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "bound\nAda\n");
+}
+
 TEST(RuntimeExecTest, SqliteColumnTypeAndNull) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

@@ -82,6 +82,7 @@ void TypeChecker::registerBuiltins() {
                         "sqliteStep", "sqliteReset", "sqliteColumnCount",
                         "sqliteColumnText", "sqliteColumnInt", "sqliteColumnDouble",
                         "sqliteColumnName", "sqliteColumnType", "sqliteColumnIsNull",
+                        "sqliteBindByName",
                         "sqliteFinalize"}) {
         Symbol sym;
         sym.name = name;
@@ -2346,7 +2347,8 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "sqliteBindDouble" ||
                    ident->getName() == "sqliteBindNull" ||
                    ident->getName() == "sqliteStep" ||
-                   ident->getName() == "sqliteReset") {
+                   ident->getName() == "sqliteReset" ||
+                   ident->getName() == "sqliteBindByName") {
             node->setResolvedType(makeBoolType());
         } else if (ident->getName() == "sqliteColumnCount") {
             node->setResolvedType(makeI32Type());

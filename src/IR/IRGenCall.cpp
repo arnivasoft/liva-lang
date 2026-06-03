@@ -3484,6 +3484,17 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateICmpEQ(t, builder_->getInt32(5), "sqlite.isnull");
     }
 
+    // sqliteBindByName(stmt, name, val) -> bool
+    if (funcName == "sqliteBindByName" && node->getArgs().size() >= 3) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *nameArg = visit(node->getArgs()[1].get());
+        auto *valArg = visit(node->getArgs()[2].get());
+        if (!stmtArg || !nameArg || !valArg) return nullptr;
+        auto *fn = getOrPanic("liva_sqlite_bind_by_name");
+        auto *rc = builder_->CreateCall(fn, {stmtArg, nameArg, valArg}, "sqlite.bindname.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "sqlite.bindname.ok");
+    }
+
     // sqliteColumnText(stmt, col) -> string
     if (funcName == "sqliteColumnText" && node->getArgs().size() >= 2) {
         auto *stmtArg = visit(node->getArgs()[0].get());

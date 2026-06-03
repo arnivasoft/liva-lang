@@ -547,6 +547,10 @@ char *liva_sqlite_column_name(int64_t stmt, int32_t col);
 /// 3=TEXT, 4=BLOB, 5=NULL. 0 if unavailable.
 int32_t liva_sqlite_column_type(int64_t stmt, int32_t col);
 
+/// Bind text `val` to the named parameter `name` (e.g. ":id"). Returns 0 on
+/// success, -1 if the name is unknown or the bind fails.
+int32_t liva_sqlite_bind_by_name(int64_t stmt, const char *name, const char *val);
+
 /// Release the statement.
 void liva_sqlite_finalize(int64_t stmt);
 
