@@ -12,3 +12,36 @@ import std::postgres
 pub func normalizeParams(sql: String) -> String {
     return pgNormalizeParams(sql)
 }
+
+// =============================================================
+// PgConn — a single PostgreSQL connection (PGconn*)
+//
+// Lifetime: PgConn.open() returns the only owner; .close() releases it.
+// Subsequent calls fail closed.
+// =============================================================
+
+pub struct PgConn {
+    var handle: i64
+}
+
+impl PgConn {
+    pub func open(connString: String) -> PgConn? {
+        let h: i64 = pgConnect(connString)
+        if h == 0 as i64 { return nil }
+        return PgConn { handle: h }
+    }
+
+    // Run a statement that produces no rows: CREATE, INSERT, UPDATE, etc.
+    pub func exec(ref self, sql: String) -> bool {
+        return pgExec(self.handle, sql)
+    }
+
+    pub func errorMessage(ref self) -> String {
+        return pgErrmsg(self.handle)
+    }
+
+    pub func close(mut self) {
+        pgClose(self.handle)
+        self.handle = 0 as i64
+    }
+}

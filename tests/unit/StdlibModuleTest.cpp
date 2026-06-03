@@ -1598,3 +1598,18 @@ TEST_F(StdlibModuleTest, BTreeMapStrI64Type) {
         true, "stdlib");
     EXPECT_TRUE(r.passed);
 }
+
+TEST_F(StdlibModuleTest, ImportPostgresModule) {
+    auto r = check(
+        "import postgres::postgres\n"
+        "func main() {\n"
+        "    if let c = PgConn.open(\"host=localhost\") {\n"
+        "        var conn = c\n"
+        "        conn.exec(\"SELECT 1\")\n"
+        "        let e = conn.errorMessage()\n"
+        "        conn.close()\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import postgres::postgres should resolve PgConn";
+}

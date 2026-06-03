@@ -3262,6 +3262,40 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return r;
     }
 
+    // pgConnect(conninfo) -> i64
+    if (funcName == "pgConnect" && !node->getArgs().empty()) {
+        auto *s = visit(node->getArgs()[0].get());
+        if (!s) return nullptr;
+        auto *fn = getOrPanic("liva_pg_connect");
+        return builder_->CreateCall(fn, {s}, "pg.connect");
+    }
+
+    // pgClose(handle) -> void
+    if (funcName == "pgClose" && !node->getArgs().empty()) {
+        auto *h = visit(node->getArgs()[0].get());
+        if (!h) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_pg_close"), {h});
+        return nullptr;
+    }
+
+    // pgExec(handle, sql) -> bool
+    if (funcName == "pgExec" && node->getArgs().size() >= 2) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *sql = visit(node->getArgs()[1].get());
+        if (!h || !sql) return nullptr;
+        auto *rc = builder_->CreateCall(getOrPanic("liva_pg_exec"), {h, sql}, "pg.exec.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "pg.exec.ok");
+    }
+
+    // pgErrmsg(handle) -> string
+    if (funcName == "pgErrmsg" && !node->getArgs().empty()) {
+        auto *h = visit(node->getArgs()[0].get());
+        if (!h) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_pg_errmsg"), {h}, "pg.errmsg");
+        trackStringTemp(r);
+        return r;
+    }
+
     // sqliteOpen(path) -> i64
     if (funcName == "sqliteOpen" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

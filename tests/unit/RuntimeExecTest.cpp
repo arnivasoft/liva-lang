@@ -828,4 +828,21 @@ TEST(RuntimeExecTest, PgNormalizeParams) {
         "no params here\n");
 }
 
+TEST(RuntimeExecTest, PgConnectFailClosed) {
+    auto r = compileAndRun(
+        "import postgres::postgres\n"
+        "func main() {\n"
+        "    if let c = PgConn.open(\"host=256.256.256.256 dbname=nope connect_timeout=1\") {\n"
+        "        var conn = c\n"
+        "        println(\"connected\")\n"
+        "        conn.close()\n"
+        "    } else {\n"
+        "        println(\"failclosed\")\n"
+        "    }\n"
+        "}\n",
+        "pg_failclosed");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "failclosed\n");
+}
+
 #endif // LIVA_HAS_LLVM

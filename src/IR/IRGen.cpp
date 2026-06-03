@@ -852,6 +852,19 @@ void IRGen::createRuntimeDecls() {
     auto *pgNormParamsTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_pg_normalize_params", pgNormParamsTy);
 
+    // pgConnect(conninfo) -> i64
+    module_->getOrInsertFunction("liva_pg_connect",
+        llvm::FunctionType::get(i64Ty, {i8PtrTy}, false));
+    // pgClose(handle) -> void
+    module_->getOrInsertFunction("liva_pg_close",
+        llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false));
+    // pgExec(handle, sql) -> i32
+    module_->getOrInsertFunction("liva_pg_exec",
+        llvm::FunctionType::get(i32Ty, {i64Ty, i8PtrTy}, false));
+    // pgErrmsg(handle) -> i8*
+    module_->getOrInsertFunction("liva_pg_errmsg",
+        llvm::FunctionType::get(i8PtrTy, {i64Ty}, false));
+
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
     auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);
