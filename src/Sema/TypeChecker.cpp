@@ -91,6 +91,17 @@ void TypeChecker::registerBuiltins() {
         scopes_.declare(name, sym);
     }
 
+    // Stdlib: PostgreSQL
+    for (const char *name : {"pgConnect", "pgClose", "pgExec", "pgErrmsg",
+                             "pgNormalizeParams", "pgQuery", "pgQueryParams",
+                             "pgResultRows", "pgResultCols", "pgResultText",
+                             "pgResultIsNull", "pgColumnName", "pgClear"}) {
+        Symbol sym;
+        sym.name = name;
+        sym.kind = Symbol::Kind::Function;
+        scopes_.declare(name, sym);
+    }
+
     // Stdlib: Directory and Path operations
     for (auto &name : {"dirList", "dirCreate", "dirRemove", "dirExists",
                         "pathJoin", "pathDirname", "pathBasename",
@@ -2397,6 +2408,26 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(std::make_unique<ArrayTypeRepr>(std::move(u8), -1));
         } else if (ident->getName() == "sqliteFinalize") {
             // void
+        // Stdlib: PostgreSQL
+        } else if (ident->getName() == "pgConnect") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "pgClose" || ident->getName() == "pgClear") {
+            // void
+        } else if (ident->getName() == "pgExec") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "pgErrmsg" ||
+                   ident->getName() == "pgNormalizeParams" ||
+                   ident->getName() == "pgResultText" ||
+                   ident->getName() == "pgColumnName") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "pgQuery" ||
+                   ident->getName() == "pgQueryParams") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "pgResultRows" ||
+                   ident->getName() == "pgResultCols") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "pgResultIsNull") {
+            node->setResolvedType(makeBoolType());
         // Stdlib: Directory operations
         } else if (ident->getName() == "dirList") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);

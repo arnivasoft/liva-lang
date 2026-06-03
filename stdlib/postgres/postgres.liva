@@ -1,0 +1,14 @@
+// postgres::postgres — PostgreSQL client (libpq, dynamic, fail-closed)
+// Import with: import postgres::postgres
+//
+// libpq is resolved at runtime; if it (or a running server) is absent, open
+// returns nil, exec returns false, and queries return nil. On this dev machine
+// libpq ships with PostgreSQL 14/17/18 under C:\Program Files\PostgreSQL.
+
+import std::postgres
+
+// Rewrite '?' placeholders to PostgreSQL '$1','$2',... (skips quoted literals).
+// Exposed for the db::db layer; libpq-independent.
+pub func normalizeParams(sql: String) -> String {
+    return pgNormalizeParams(sql)
+}

@@ -812,4 +812,20 @@ TEST(RuntimeExecTest, SqliteBlobRoundTrip) {
     EXPECT_EQ(r.stdout_output, "5\n0\n255\n");
 }
 
+TEST(RuntimeExecTest, PgNormalizeParams) {
+    auto r = compileAndRun(
+        "import postgres::postgres\n"
+        "func main() {\n"
+        "    println(pgNormalizeParams(\"SELECT * FROM t WHERE a=? AND b=?\"))\n"
+        "    println(pgNormalizeParams(\"INSERT INTO t VALUES (?, '?lit?', ?)\"))\n"
+        "    println(pgNormalizeParams(\"no params here\"))\n"
+        "}\n",
+        "pg_normalize");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output,
+        "SELECT * FROM t WHERE a=$1 AND b=$2\n"
+        "INSERT INTO t VALUES ($1, '?lit?', $2)\n"
+        "no params here\n");
+}
+
 #endif // LIVA_HAS_LLVM

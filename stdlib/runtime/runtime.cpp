@@ -3450,6 +3450,35 @@ char *liva_pg_errmsg(int64_t handle) {
     return strdup_safe(m ? m : "");
 }
 
+// Rewrite '?' placeholders to PostgreSQL '$1','$2',... left to right. '?'
+// inside single-quoted string literals ('...' with '' escape) is left alone.
+// Known limitation: does NOT skip SQL comments (-- /* */) or dollar-quoting.
+// Returns a fresh malloc'd string.
+char *liva_pg_normalize_params(const char *sql) {
+    if (!sql) return strdup_safe("");
+    std::string out;
+    bool inQuote = false;
+    int n = 0;
+    for (const char *p = sql; *p; ++p) {
+        char c = *p;
+        if (c == '\'') {
+            inQuote = !inQuote;
+            out.push_back(c);
+        } else if (c == '?' && !inQuote) {
+            ++n;
+            out.push_back('$');
+            out.append(std::to_string(n));
+        } else {
+            out.push_back(c);
+        }
+    }
+    char *res = (char *)malloc(out.size() + 1);
+    if (!res) return nullptr;
+    memcpy(res, out.data(), out.size());
+    res[out.size()] = '\0';
+    return res;
+}
+
 // === Async/Coroutine Runtime ===
 
 // --- Dynamic ready queue (resizable circular buffer) ---

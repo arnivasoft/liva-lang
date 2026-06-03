@@ -580,6 +580,10 @@ int32_t liva_pg_exec(int64_t handle, const char *sql);
 /// Last error message on the connection (caller frees).
 char *liva_pg_errmsg(int64_t handle);
 
+/// Rewrite '?' placeholders to '$1','$2',... (PostgreSQL style), skipping '?'
+/// inside single-quoted string literals. Caller frees. libpq-independent.
+char *liva_pg_normalize_params(const char *sql);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {

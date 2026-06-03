@@ -3252,6 +3252,16 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateICmpNE(r, builder_->getInt32(0), "ws.isopen.bool");
     }
 
+    // pgNormalizeParams(sql) -> string
+    if (funcName == "pgNormalizeParams" && !node->getArgs().empty()) {
+        auto *sqlArg = visit(node->getArgs()[0].get());
+        if (!sqlArg) return nullptr;
+        auto *fn = getOrPanic("liva_pg_normalize_params");
+        auto *r = builder_->CreateCall(fn, {sqlArg}, "pg.normparams");
+        trackStringTemp(r);
+        return r;
+    }
+
     // sqliteOpen(path) -> i64
     if (funcName == "sqliteOpen" && !node->getArgs().empty()) {
         auto *pathArg = visit(node->getArgs()[0].get());

@@ -847,6 +847,11 @@ void IRGen::createRuntimeDecls() {
     auto *sqliteFinTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
     module_->getOrInsertFunction("liva_sqlite_finalize", sqliteFinTy);
 
+    // === Stdlib: PostgreSQL ===
+    // pgNormalizeParams(sql) -> char*
+    auto *pgNormParamsTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_pg_normalize_params", pgNormParamsTy);
+
     // === File I/O: seek/tell/size ===
     // liva_file_seek(fp, offset, whence) -> i32
     auto *fileSeekTy = llvm::FunctionType::get(i32Ty, {i8PtrTy, i64Ty, i32Ty}, false);

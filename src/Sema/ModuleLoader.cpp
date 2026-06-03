@@ -86,6 +86,11 @@ void ModuleLoader::registerBuiltinModules() {
          "sqliteBindBlob", "sqliteColumnBlob",
          "sqliteFinalize"});
 
+    cache_["std::postgres"] = createBuiltinModule("std::postgres",
+        {"pgConnect", "pgClose", "pgExec", "pgErrmsg", "pgNormalizeParams",
+         "pgQuery", "pgQueryParams", "pgResultRows", "pgResultCols",
+         "pgResultText", "pgResultIsNull", "pgColumnName", "pgClear"});
+
     cache_["std::json"] = createBuiltinModule("std::json",
         {"jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
          "jsonIsValid", "jsonKeys",
