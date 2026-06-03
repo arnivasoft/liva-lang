@@ -3321,6 +3321,21 @@ void TypeChecker::visitIndexExpr(IndexExpr *node) {
         }
     }
 
+    // Array element access: arr[i] -> element type T for dynamic arrays.
+    // Without this, `let x = arr[i]` leaves x untyped, which breaks chained
+    // method calls like `arr[i].method().method()` (they silently emit nothing).
+    if (!node->getResolvedType() &&
+        node->getIndex()->getKind() != ASTNode::NodeKind::RangeExpr &&
+        node->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(const_cast<Expr *>(node->getBase()));
+        auto *sym = scopes_.lookup(ident->getName());
+        if (sym && sym->type && sym->type->getKind() == TypeRepr::Kind::Array) {
+            auto *arrType = static_cast<const ArrayTypeRepr *>(sym->type);
+            if (arrType->isDynamic() && arrType->getElement())
+                node->setResolvedType(cloneTypeRepr(arrType->getElement()));
+        }
+    }
+
 
 }
 

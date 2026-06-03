@@ -1014,5 +1014,27 @@ TEST(RuntimeExecTest, DbRowTypedAccessors) {
     EXPECT_EQ(r.stdout_output, "price-ok\nactive\n2024\n");
 }
 
+TEST(RuntimeExecTest, ArrayElementChainedCall) {
+    auto r = compileAndRun(
+        "import db::db\n"
+        "func main() {\n"
+        "    if let d = SqliteDatabase.openMemory() {\n"
+        "        var db = d\n"
+        "        db.exec(\"CREATE TABLE t(ts TEXT)\")\n"
+        "        db.exec(\"INSERT INTO t VALUES ('2024-06-15 13:45:30')\")\n"
+        "        let noargs: [String] = []\n"
+        "        let rows = db.query(\"SELECT ts FROM t\", noargs)\n"
+        "        if rows.length > (0 as i64) {\n"
+        "            let row = rows[0 as i64]\n"
+        "            println(row.getDateTime(0).year())\n"
+        "        }\n"
+        "        db.close()\n"
+        "    }\n"
+        "}\n",
+        "array_elem_chained");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "2024\n");
+}
+
 
 #endif // LIVA_HAS_LLVM
