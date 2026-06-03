@@ -123,3 +123,73 @@ impl SqliteDatabase: Database {
         self.db.close()
     }
 }
+
+import postgres::postgres
+
+// =============================================================
+// PgDatabase — Database backed by postgres::PgConn. Rewrites '?' to '$n'.
+// PostgreSQL has no implicit last-insert id; lastInsertId() returns 0 — use
+// "INSERT ... RETURNING id" with query() instead.
+// =============================================================
+
+pub struct PgDatabase {
+    var conn: PgConn
+}
+
+impl PgDatabase {
+    pub func open(connString: String) -> PgDatabase? {
+        if let c = PgConn.open(connString) {
+            return PgDatabase { conn: c }
+        }
+        return nil
+    }
+}
+
+impl PgDatabase: Database {
+    func exec(ref self, sql: String) -> bool {
+        return self.conn.exec(normalizeParams(sql))
+    }
+
+    func query(ref self, sql: String, params: [String]) -> [Row] {
+        var rows: [Row] = []
+        let pgSql = normalizeParams(sql)
+        if let res = self.conn.queryParams(pgSql, params) {
+            var rs = res
+            let nrows = rs.rowCount()
+            let ncols = rs.colCount()
+            var names: [String] = []
+            var c: i32 = 0
+            while c < ncols {
+                names.push(rs.columnName(c))
+                c = c + 1
+            }
+            var r: i32 = 0
+            while r < nrows {
+                var vals: [String] = []
+                var nulls: [bool] = []
+                var cc: i32 = 0
+                while cc < ncols {
+                    vals.push(rs.getText(r, cc))
+                    nulls.push(rs.isNull(r, cc))
+                    cc = cc + 1
+                }
+                rows.push(Row { names: names, vals: vals, nulls: nulls })
+                r = r + 1
+            }
+            rs.clear()
+        }
+        return rows
+    }
+
+    func lastInsertId(ref self) -> i64 {
+        return 0 as i64
+    }
+
+    func errorMessage(ref self) -> String {
+        return self.conn.errorMessage()
+    }
+
+    func close(mut self) {
+        self.conn.close()
+    }
+}

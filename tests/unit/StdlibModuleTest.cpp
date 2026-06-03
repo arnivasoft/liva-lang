@@ -1671,3 +1671,19 @@ TEST_F(StdlibModuleTest, ImportDbRow) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "db::db Row should type-check";
 }
+
+TEST_F(StdlibModuleTest, DbPgAdapterTypeCheck) {
+    auto r = check(
+        "import db::db\n"
+        "func main() {\n"
+        "    if let d = PgDatabase.open(\"host=localhost\") {\n"
+        "        var db: dyn Database = d\n"
+        "        db.exec(\"CREATE TABLE t(id INT)\")\n"
+        "        let rows = db.query(\"SELECT id FROM t WHERE id > ?\", [\"0\"])\n"
+        "        let n = rows.length\n"
+        "        db.close()\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "PgDatabase should satisfy dyn Database";
+}
