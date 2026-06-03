@@ -3251,6 +3251,8 @@ void TypeChecker::visitIndexExpr(IndexExpr *node) {
             node->setResolvedType(cloneTypeRepr(sym->type));
         }
     }
+
+
 }
 
 void TypeChecker::visitAssignExpr(AssignExpr *node) {

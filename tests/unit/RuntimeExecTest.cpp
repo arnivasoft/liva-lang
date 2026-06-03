@@ -870,4 +870,26 @@ TEST(RuntimeExecTest, PgRealRoundTrip) {
     EXPECT_EQ(r.stdout_output, "Ada\n");
 }
 
+TEST(RuntimeExecTest, DbLayerSqliteAdapter) {
+    auto r = compileAndRun(
+        "import db::db\n"
+        "func main() {\n"
+        "    if let d = SqliteDatabase.openMemory() {\n"
+        "        var db = d\n"
+        "        db.exec(\"CREATE TABLE u(id INTEGER, name TEXT)\")\n"
+        "        db.exec(\"INSERT INTO u VALUES (1, 'Ada')\")\n"
+        "        db.exec(\"INSERT INTO u VALUES (2, 'Lin')\")\n"
+        "        let rows = db.query(\"SELECT id, name FROM u WHERE id > ?\", [\"0\"])\n"
+        "        println(rows.length)\n"
+        "        for row in rows { println(row.getText(1)) }\n"
+        "        if let r0 = rows[0].byName(\"name\") { println(r0) }\n"
+        "        db.close()\n"
+        "    }\n"
+        "}\n",
+        "db_sqlite_adapter");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "2\nAda\nLin\nAda\n");
+}
+
+
 #endif // LIVA_HAS_LLVM

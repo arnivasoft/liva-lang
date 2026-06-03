@@ -1584,6 +1584,36 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Array element method call: arr[i].method() — IndexExpr base
+        // e.g. rows[0].byName("name") where rows is [Row]
+        if (!objAlloca && structTypeName.empty() &&
+            memberExpr->getObject()->getKind() == ASTNode::NodeKind::IndexExpr) {
+            auto *idxExpr = static_cast<IndexExpr *>(memberExpr->getObject());
+            if (idxExpr->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *baseIdent = static_cast<const IdentifierExpr *>(idxExpr->getBase());
+                auto daIt = vars_.varDynArrayTypes.find(baseIdent->getName());
+                if (daIt != vars_.varDynArrayTypes.end()) {
+                    // Find which struct type matches the element LLVM type
+                    llvm::Type *elemTy = daIt->second.elementType;
+                    for (auto &[sName, sLLVMTy] : structTypes_) {
+                        if (sLLVMTy == elemTy) {
+                            structTypeName = sName;
+                            break;
+                        }
+                    }
+                    if (!structTypeName.empty()) {
+                        // Evaluate the index expression to get the struct value
+                        auto *elemVal = visit(idxExpr);
+                        if (elemVal) {
+                            auto *func = builder_->GetInsertBlock()->getParent();
+                            objAlloca = createEntryBlockAlloca(func, "arr.elem.tmp", elemTy);
+                            builder_->CreateStore(elemVal, objAlloca);
+                        }
+                    }
+                }
+            }
+        }
+
         // Static method call: Type.method() (e.g., Student.new("Alice"))
         if (!objAlloca && structTypeName.empty()) {
             auto typeIt = structTypes_.find(objName);

@@ -6,6 +6,7 @@
 // write '?' placeholders; the postgres adapter rewrites them to '$1','$2',...
 
 import convert::convert
+import sqlite::sqlite
 
 // =============================================================
 // Row — one materialized result row. Column indices are 0-based.
@@ -39,5 +40,86 @@ impl Row {
             }
         }
         return nil
+    }
+}
+
+// =============================================================
+// Database — driver-agnostic protocol. Always use '?' placeholders;
+// adapters translate to the driver's native style.
+// =============================================================
+
+pub protocol Database {
+    func exec(ref self, sql: String) -> bool
+    func query(ref self, sql: String, params: [String]) -> [Row]
+    func lastInsertId(ref self) -> i64
+    func errorMessage(ref self) -> String
+    func close(mut self)
+}
+
+// =============================================================
+// SqliteDatabase — Database backed by sqlite::SqliteDB.
+// =============================================================
+
+pub struct SqliteDatabase {
+    var db: SqliteDB
+}
+
+impl SqliteDatabase {
+    pub func open(path: String) -> SqliteDatabase? {
+        if let d = SqliteDB.open(path) {
+            return SqliteDatabase { db: d }
+        }
+        return nil
+    }
+
+    pub func openMemory() -> SqliteDatabase? {
+        return SqliteDatabase.open(":memory:")
+    }
+}
+
+impl SqliteDatabase: Database {
+    func exec(ref self, sql: String) -> bool {
+        return self.db.exec(sql)
+    }
+
+    func query(ref self, sql: String, params: [String]) -> [Row] {
+        var rows: [Row] = []
+        // SQLite uses '?' natively — no rewrite needed.
+        if let s = self.db.prepare(sql) {
+            var stmt = s
+            var i: i32 = 0
+            for p in params {
+                i = i + 1
+                stmt.bindText(i, p)
+            }
+            let cols = stmt.columnCount()
+            while stmt.step() {
+                var names: [String] = []
+                var vals: [String] = []
+                var nulls: [bool] = []
+                var c: i32 = 0
+                while c < cols {
+                    names.push(stmt.columnName(c))
+                    vals.push(stmt.columnText(c))
+                    nulls.push(stmt.columnIsNull(c))
+                    c = c + 1
+                }
+                rows.push(Row { names: names, vals: vals, nulls: nulls })
+            }
+            stmt.finalize()
+        }
+        return rows
+    }
+
+    func lastInsertId(ref self) -> i64 {
+        return self.db.lastInsertId()
+    }
+
+    func errorMessage(ref self) -> String {
+        return self.db.errorMessage()
+    }
+
+    func close(mut self) {
+        self.db.close()
     }
 }

@@ -155,9 +155,30 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
         }
     }
 
-    // Check for string operations via resolved type
-    bool isString = node->getLHS()->getResolvedType() &&
-        node->getLHS()->getResolvedType()->getKind() == TypeRepr::Kind::String;
+    // Check for string operations via resolved type.
+    // Also treat the comparison as a string comparison when the RHS has a String
+    // resolved type and both LLVM values are pointers — this covers cases like
+    // `arr[i] == name` where `arr` is a [String] DynArray and the subscript
+    // result has no resolved type (the TypeChecker didn't propagate the element
+    // type) but both sides are ptr-typed strings.
+    // Helper: returns true when tr is a String type (either the lowercase
+    // primitive `string` keyword or the uppercase-identifier alias `String`).
+    auto isStringType = [](const TypeRepr *tr) -> bool {
+        if (!tr) return false;
+        if (tr->getKind() == TypeRepr::Kind::String) return true;
+        if (tr->getKind() == TypeRepr::Kind::Named) {
+            auto *n = static_cast<const NamedTypeRepr *>(tr);
+            return n->getName() == "String";
+        }
+        return false;
+    };
+
+    bool isString = isStringType(node->getLHS()->getResolvedType());
+    if (!isString &&
+        isStringType(node->getRHS() ? node->getRHS()->getResolvedType() : nullptr) &&
+        lhs && rhs && lhs->getType()->isPointerTy() && rhs->getType()->isPointerTy()) {
+        isString = true;
+    }
 
     if (isString) {
         switch (node->getOp()) {
@@ -981,24 +1002,67 @@ llvm::Value *IRGen::visitRangeExpr(RangeExpr *) {
 
 llvm::Value *IRGen::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     auto &elements = node->getElements();
-    if (elements.empty()) return nullptr;
+    // Empty array literal passed as function argument: build an empty DynArray.
+    // The element type is unknown without context; use ptr (8 bytes) as a safe
+    // default — the caller's loop will not execute (len=0) so elem type is moot.
+    if (elements.empty()) {
+        constexpr uint64_t PTR_SIZE = 8;
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *func = builder_->GetInsertBlock()->getParent();
+        auto *newFn = getOrPanic("liva_array_new");
+        auto *dataPtr = builder_->CreateCall(newFn,
+            {builder_->getInt64(PTR_SIZE), builder_->getInt64(0)}, "arrlit.empty.data");
+        auto *structTy = getDynArrayStructTy();
+        auto *arrAlloca = createEntryBlockAlloca(func, "arrlit.empty", structTy);
+        builder_->CreateStore(dataPtr,
+            builder_->CreateStructGEP(structTy, arrAlloca, 0, "arrlit.empty.data.f"));
+        builder_->CreateStore(builder_->getInt64(0),
+            builder_->CreateStructGEP(structTy, arrAlloca, 1, "arrlit.empty.len.f"));
+        builder_->CreateStore(builder_->getInt64(0),
+            builder_->CreateStructGEP(structTy, arrAlloca, 2, "arrlit.empty.cap.f"));
+        (void)ptrTy;
+        return builder_->CreateLoad(structTy, arrAlloca, "arrlit.empty.val");
+    }
     auto *firstVal = visit(elements[0].get());
     if (!firstVal) return nullptr;
     auto *elemType = firstVal->getType();
     uint64_t numElements = elements.size();
-    auto *arrayType = llvm::ArrayType::get(elemType, numElements);
+
+    // Build a DynArray (the Liva runtime array representation) so that
+    // array literals passed as function arguments match the [T] parameter
+    // type, which is always lowered to %DynArray = { ptr, i64, i64 }.
+    const llvm::DataLayout &DL = module_->getDataLayout();
+    uint64_t elemSize = DL.getTypeAllocSize(elemType);
     auto *func = builder_->GetInsertBlock()->getParent();
-    auto *alloca = createEntryBlockAlloca(func, "arr.tmp", arrayType);
-    auto *gep0 = builder_->CreateConstInBoundsGEP2_64(arrayType, alloca, 0, 0, "arr.elem.0");
-    builder_->CreateStore(firstVal, gep0);
+
+    // Allocate backing storage via liva_array_new(elem_size, capacity)
+    auto *newFn = getOrPanic("liva_array_new");
+    auto *dataPtr = builder_->CreateCall(newFn,
+        {builder_->getInt64(elemSize), builder_->getInt64(numElements)},
+        "arrlit.data");
+
+    // Store elements into the backing storage
+    auto *ep0 = builder_->CreateGEP(elemType, dataPtr,
+        builder_->getInt64(0), "arrlit.e0");
+    builder_->CreateStore(firstVal, ep0);
     for (uint64_t i = 1; i < numElements; ++i) {
         auto *val = visit(elements[i].get());
         if (!val) continue;
-        auto *gep = builder_->CreateConstInBoundsGEP2_64(
-            arrayType, alloca, 0, i, "arr.elem." + std::to_string(i));
-        builder_->CreateStore(val, gep);
+        auto *ep = builder_->CreateGEP(elemType, dataPtr,
+            builder_->getInt64(i), "arrlit.e" + std::to_string(i));
+        builder_->CreateStore(val, ep);
     }
-    return builder_->CreateLoad(arrayType, alloca, "arr.val");
+
+    // Build DynArray struct { ptr, i64, i64 } = { data, length, capacity }
+    auto *structTy = getDynArrayStructTy();
+    auto *arrAlloca = createEntryBlockAlloca(func, "arrlit.arr", structTy);
+    builder_->CreateStore(dataPtr,
+        builder_->CreateStructGEP(structTy, arrAlloca, 0, "arrlit.data.f"));
+    builder_->CreateStore(builder_->getInt64(numElements),
+        builder_->CreateStructGEP(structTy, arrAlloca, 1, "arrlit.len.f"));
+    builder_->CreateStore(builder_->getInt64(numElements),
+        builder_->CreateStructGEP(structTy, arrAlloca, 2, "arrlit.cap.f"));
+    return builder_->CreateLoad(structTy, arrAlloca, "arrlit.val");
 }
 
 llvm::Value *IRGen::visitTupleLiteralExpr(TupleLiteralExpr *node) {

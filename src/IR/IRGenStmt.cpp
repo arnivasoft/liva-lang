@@ -743,9 +743,21 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
         if (!startVal || !endVal)
             return nullptr;
 
+        // Choose loop variable integer type: use i64 if either bound is i64
+        // (e.g. 0..arr.length where arr.length returns i64), otherwise i32.
+        bool use64 = (endVal->getType()->isIntegerTy(64) ||
+                      startVal->getType()->isIntegerTy(64));
+        llvm::Type *loopTy = use64 ? builder_->getInt64Ty()
+                                   : builder_->getInt32Ty();
+
+        // Widen start/end to loopTy if needed
+        if (use64 && startVal->getType()->isIntegerTy(32))
+            startVal = builder_->CreateSExt(startVal, builder_->getInt64Ty(), "for.start.ext");
+        if (use64 && endVal->getType()->isIntegerTy(32))
+            endVal = builder_->CreateSExt(endVal, builder_->getInt64Ty(), "for.end.ext");
+
         // Create loop variable alloca
-        auto *loopVar = createEntryBlockAlloca(func, node->getVarName(),
-                                                builder_->getInt32Ty());
+        auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), loopTy);
         builder_->CreateStore(startVal, loopVar);
         vars_.namedValues[node->getVarName()] = loopVar;
 
@@ -759,8 +771,7 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
         // Condition: i < end (exclusive) or i <= end (inclusive)
         builder_->SetInsertPoint(condBB);
-        auto *curVal = builder_->CreateLoad(builder_->getInt32Ty(), loopVar,
-                                             node->getVarName());
+        auto *curVal = builder_->CreateLoad(loopTy, loopVar, node->getVarName());
         auto *cond = range->isInclusive()
                          ? builder_->CreateICmpSLE(curVal, endVal, "for.cmp")
                          : builder_->CreateICmpSLT(curVal, endVal, "for.cmp");
@@ -776,9 +787,9 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
         // Latch: increment and loop back
         builder_->SetInsertPoint(latchBB);
-        auto *cur = builder_->CreateLoad(builder_->getInt32Ty(), loopVar,
-                                          node->getVarName());
-        auto *next = builder_->CreateAdd(cur, builder_->getInt32(1), "for.inc");
+        auto *cur = builder_->CreateLoad(loopTy, loopVar, node->getVarName());
+        auto *one = use64 ? builder_->getInt64(1) : builder_->getInt32(1);
+        auto *next = builder_->CreateAdd(cur, one, "for.inc");
         builder_->CreateStore(next, loopVar);
         builder_->CreateBr(condBB);
 
@@ -813,6 +824,15 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             // Loop variable
             auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
             vars_.namedValues[node->getVarName()] = loopVar;
+
+            // If the element type is a struct, register loop var in varStructTypes
+            // so that body method calls like `row.getText(i)` can dispatch.
+            for (auto &[sName, sTy] : structTypes_) {
+                if (sTy == elemType) {
+                    vars_.varStructTypes[node->getVarName()] = sName;
+                    break;
+                }
+            }
 
             // If iterating [dyn Protocol], register loop var for dyn dispatch
             auto dapIt = vars_.varDynArrayProtocol.find(iterName);
