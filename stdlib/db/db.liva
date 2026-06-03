@@ -7,6 +7,7 @@
 
 import convert::convert
 import sqlite::sqlite
+import time::time
 
 // =============================================================
 // Row — one materialized result row. Column indices are 0-based.
@@ -40,6 +41,28 @@ impl Row {
             }
         }
         return nil
+    }
+
+    pub func getDouble(ref self, col: i32) -> f64 {
+        let p = toFloat(self.vals[col as i64])
+        if let v = p { return v }
+        return 0.0
+    }
+
+    pub func getBool(ref self, col: i32) -> bool {
+        return toBool(self.vals[col as i64])
+    }
+
+    pub func getDate(ref self, col: i32) -> Date {
+        return Date.parse(self.vals[col as i64])
+    }
+
+    pub func getTime(ref self, col: i32) -> Time {
+        return Time.parse(self.vals[col as i64])
+    }
+
+    pub func getDateTime(ref self, col: i32) -> DateTime {
+        return DateTime.parse(self.vals[col as i64], "%Y-%m-%d %H:%M:%S")
     }
 }
 

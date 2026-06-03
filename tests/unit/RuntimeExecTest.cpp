@@ -989,5 +989,30 @@ TEST(RuntimeExecTest, SqliteTypedColumns) {
     EXPECT_EQ(r.stdout_output, "price-ok\nactive\n2024\n30\n2024\n");
 }
 
+TEST(RuntimeExecTest, DbRowTypedAccessors) {
+    auto r = compileAndRun(
+        "import db::db\n"
+        "func main() {\n"
+        "    if let d = SqliteDatabase.openMemory() {\n"
+        "        var db = d\n"
+        "        db.exec(\"CREATE TABLE t(price REAL, active INTEGER, ts TEXT)\")\n"
+        "        db.exec(\"INSERT INTO t VALUES (19.99, 1, '2024-06-15 13:45:30')\")\n"
+        "        let noargs: [String] = []\n"
+        "        let rows = db.query(\"SELECT price, active, ts FROM t\", noargs)\n"
+        "        if rows.length > (0 as i64) {\n"
+        "            let row = rows[0 as i64]\n"
+        "            if row.getDouble(0) > 19.0 { println(\"price-ok\") } else { println(\"price-bad\") }\n"
+        "            if row.getBool(1) { println(\"active\") } else { println(\"inactive\") }\n"
+        "            let dt = row.getDateTime(2)\n"
+        "            println(dt.year())\n"
+        "        }\n"
+        "        db.close()\n"
+        "    }\n"
+        "}\n",
+        "db_row_typed");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "price-ok\nactive\n2024\n");
+}
+
 
 #endif // LIVA_HAS_LLVM
