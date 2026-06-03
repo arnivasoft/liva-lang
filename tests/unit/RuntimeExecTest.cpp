@@ -845,4 +845,29 @@ TEST(RuntimeExecTest, PgConnectFailClosed) {
     EXPECT_EQ(r.stdout_output, "failclosed\n");
 }
 
+TEST(RuntimeExecTest, PgRealRoundTrip) {
+    const char *conn = std::getenv("LIVA_PG_TEST_CONN");
+    if (!conn) GTEST_SKIP() << "LIVA_PG_TEST_CONN not set — skipping real PG test";
+    std::string src =
+        "import postgres::postgres\n"
+        "func main() {\n"
+        "    if let c = PgConn.open(\"" + std::string(conn) + "\") {\n"
+        "        var conn = c\n"
+        "        conn.exec(\"DROP TABLE IF EXISTS liva_pg_test\")\n"
+        "        conn.exec(\"CREATE TABLE liva_pg_test(id INT, name TEXT)\")\n"
+        "        conn.exec(\"INSERT INTO liva_pg_test VALUES (1, 'Ada')\")\n"
+        "        if let res = conn.query(\"SELECT name FROM liva_pg_test WHERE id = 1\") {\n"
+        "            var rs = res\n"
+        "            println(rs.getText(0, 0))\n"
+        "            rs.clear()\n"
+        "        }\n"
+        "        conn.exec(\"DROP TABLE liva_pg_test\")\n"
+        "        conn.close()\n"
+        "    } else { println(\"noconn\") }\n"
+        "}\n";
+    auto r = compileAndRun(src, "pg_real");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "Ada\n");
+}
+
 #endif // LIVA_HAS_LLVM
