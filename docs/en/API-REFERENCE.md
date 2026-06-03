@@ -33,10 +33,12 @@ Complete reference for all standard library modules. Functions listed as "built-
 25. [Regex (OOP)](#25-regex-regexregex)
 26. [Networking (OOP)](#26-networking-netnet)
 27. [SQLite](#27-sqlite-sqlitesqlite)
-28. [WebSocket](#28-websocket-websocketwebsocket)
-29. [JWT](#29-jwt-jwtjwt)
-30. [TOML](#30-toml-tomltoml)
-31. [Encoding](#31-encoding-encodingencoding)
+28. [PostgreSQL](#28-postgresql-postgrespostgres)
+29. [DB Layer](#29-db-layer-dbdb)
+30. [WebSocket](#30-websocket-websocketwebsocket)
+31. [JWT](#31-jwt-jwtjwt)
+32. [TOML](#32-toml-tomltoml)
+33. [Encoding](#33-encoding-encodingencoding)
 
 ---
 
@@ -931,9 +933,51 @@ input — Liva strings can move or be freed without breaking the
 prepared statement. This makes prepared statements safe against SQL
 injection even with values containing `'; DROP TABLE; --`.
 
+### New SQLite methods
+
+- `Stmt.columnName(col) -> String` — result column name.
+- `Stmt.columnType(col) -> i32` — 1=INTEGER, 2=FLOAT, 3=TEXT, 4=BLOB, 5=NULL.
+- `Stmt.columnIsNull(col) -> bool` — true when the cell is NULL.
+- `Stmt.bindByName(name, val) -> bool` — bind text to `:name`/`@name`/`$name`.
+- `Stmt.bindBlob(idx, [u8]) -> bool`, `Stmt.columnBlob(col) -> [u8]` — binary data.
+- `SqliteDB.begin()/commit()/rollback() -> bool` — transaction control.
+
 ---
 
-## 28. WebSocket (websocket::websocket)
+## 28. PostgreSQL (postgres::postgres)
+
+libpq-backed client, resolved dynamically at runtime. If libpq or a server is
+absent, `PgConn.open` returns `nil`, `exec` returns `false`, queries return `nil`
+(fail-closed). On Windows the loader probes `C:\Program Files\PostgreSQL\<ver>\bin\libpq.dll`
+(newest first) and `$LIVA_LIBPQ_PATH`.
+
+- `PgConn.open(connString) -> PgConn?` — `"host=... dbname=... user=..."`.
+- `PgConn.exec(sql) -> bool` — no-result command.
+- `PgConn.query(sql) -> PgResult?` / `queryParams(sql, [String]) -> PgResult?`.
+- `PgConn.errorMessage() -> String`, `close()`.
+- `PgResult.rowCount()/colCount() -> i32`, `getText(r,c)/getInt(r,c)`,
+  `isNull(r,c) -> bool`, `columnName(c) -> String`, `clear()`.
+
+---
+
+## 29. DB Layer (db::db)
+
+Driver-agnostic layer. Write `?` placeholders everywhere; the PostgreSQL
+adapter rewrites them to `$1,$2,...` (single-quoted literals are skipped;
+SQL comments and dollar-quoting are NOT — use the driver's `queryParams`
+directly for those edge cases).
+
+- `protocol Database { exec; query(sql, [String]) -> [Row]; lastInsertId;
+  errorMessage; close }`
+- `SqliteDatabase.open(path)? / openMemory()?` — `impl Database`.
+- `PgDatabase.open(connString)?` — `impl Database` (`lastInsertId` returns 0;
+  use `RETURNING`).
+- `Row.getText(col)/getInt(col)/isNull(col)/byName(name) -> String?`.
+- Use `dyn Database` for code that works across both drivers.
+
+---
+
+## 30. WebSocket (websocket::websocket)
 
 WebSocket client backed by `WinHTTP` on Windows; URLs use the `ws://`
 or `wss://` scheme. Stub on platforms without WinHTTP (every call
@@ -965,7 +1009,7 @@ reason)` lets you send a custom code and reason.
 
 ---
 
-## 29. JWT (jwt::jwt)
+## 31. JWT (jwt::jwt)
 
 JSON Web Tokens with HMAC-SHA256 (HS256) and HMAC-SHA512 (HS512).
 Verify uses constant-time HMAC comparison via runtime `constTimeEq`.
@@ -996,7 +1040,7 @@ signature/structure failure.
 
 ---
 
-## 30. TOML (toml::toml)
+## 32. TOML (toml::toml)
 
 TOML 1.0 parser with optional accessors. Returns a document that you
 query by section and key.
@@ -1032,7 +1076,7 @@ this module for `liva.toml`.
 
 ---
 
-## 31. Encoding (encoding::encoding)
+## 33. Encoding (encoding::encoding)
 
 Text encodings (Base64, Base64URL, Hex, URL percent-encoding) and
 RFC 1952 gzip compression with the encoder running LZ77 + a fixed

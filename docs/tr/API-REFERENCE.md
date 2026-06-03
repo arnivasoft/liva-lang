@@ -33,10 +33,12 @@ Tüm standart kütüphane modülleri için eksiksiz referans. "Yerleşik" olarak
 25. [Regex (OOP)](#25-regex-regexregex)
 26. [Ağ (OOP)](#26-ag-netnet)
 27. [SQLite](#27-sqlite-sqlitesqlite)
-28. [WebSocket](#28-websocket-websocketwebsocket)
-29. [JWT](#29-jwt-jwtjwt)
-30. [TOML](#30-toml-tomltoml)
-31. [Encoding](#31-encoding-encodingencoding)
+28. [PostgreSQL](#28-postgresql-postgrespostgres)
+29. [DB Katmanı](#29-db-katmanı-dbdb)
+30. [WebSocket](#30-websocket-websocketwebsocket)
+31. [JWT](#31-jwt-jwtjwt)
+32. [TOML](#32-toml-tomltoml)
+33. [Encoding](#33-encoding-encodingencoding)
 
 ---
 
@@ -907,9 +909,51 @@ hareket etse veya serbest bırakılsa da prepared statement bozulmaz.
 Bu sayede `'; DROP TABLE; --` içeren değerler bile güvenle
 saklanabilir.
 
+### Yeni SQLite metotları
+
+- `Stmt.columnName(col) -> String` — sonuç kolon adı.
+- `Stmt.columnType(col) -> i32` — 1=INTEGER, 2=FLOAT, 3=TEXT, 4=BLOB, 5=NULL.
+- `Stmt.columnIsNull(col) -> bool` — hücre NULL ise true.
+- `Stmt.bindByName(name, val) -> bool` — `:name`/`@name`/`$name` parametresine text bağlar.
+- `Stmt.bindBlob(idx, [u8]) -> bool`, `Stmt.columnBlob(col) -> [u8]` — ikili veri.
+- `SqliteDB.begin()/commit()/rollback() -> bool` — transaction kontrolü.
+
 ---
 
-## 28. WebSocket (websocket::websocket)
+## 28. PostgreSQL (postgres::postgres)
+
+libpq tabanlı istemci, çalışma anında dinamik çözülür. libpq veya sunucu yoksa
+`PgConn.open` `nil`, `exec` `false`, sorgular `nil` döndürür (fail-closed).
+Windows'ta yükleyici `C:\Program Files\PostgreSQL\<sürüm>\bin\libpq.dll`'i
+(en yeni önce) ve `$LIVA_LIBPQ_PATH`'i yoklar.
+
+- `PgConn.open(connString) -> PgConn?` — `"host=... dbname=... user=..."`.
+- `PgConn.exec(sql) -> bool` — satır döndürmeyen komut.
+- `PgConn.query(sql) -> PgResult?` / `queryParams(sql, [String]) -> PgResult?`.
+- `PgConn.errorMessage() -> String`, `close()`.
+- `PgResult.rowCount()/colCount() -> i32`, `getText(r,c)/getInt(r,c)`,
+  `isNull(r,c) -> bool`, `columnName(c) -> String`, `clear()`.
+
+---
+
+## 29. DB Katmanı (db::db)
+
+Sürücü-bağımsız katman. Her yerde `?` yer tutucusu yazın; PostgreSQL adapteri
+bunları `$1,$2,...`'e çevirir (tek tırnaklı literal'ler atlanır; SQL yorumları
+ve dollar-quoting atlanmaz — bu kenar durumlar için sürücünün `queryParams`'ını
+doğrudan kullanın).
+
+- `protocol Database { exec; query(sql, [String]) -> [Row]; lastInsertId;
+  errorMessage; close }`
+- `SqliteDatabase.open(path)? / openMemory()?` — `impl Database`.
+- `PgDatabase.open(connString)?` — `impl Database` (`lastInsertId` 0 döndürür;
+  `RETURNING` kullanın).
+- `Row.getText(col)/getInt(col)/isNull(col)/byName(name) -> String?`.
+- İki sürücüde de çalışan kod için `dyn Database` kullanın.
+
+---
+
+## 30. WebSocket (websocket::websocket)
 
 Windows üzerinde `WinHTTP` ile çalışan WebSocket istemcisi; URL'ler
 `ws://` veya `wss://` şemasıyla başlar. WinHTTP bulunmayan
@@ -941,7 +985,7 @@ göndermenize izin verir.
 
 ---
 
-## 29. JWT (jwt::jwt)
+## 31. JWT (jwt::jwt)
 
 HMAC-SHA256 (HS256) ve HMAC-SHA512 (HS512) ile imzalanan JSON Web
 Token'lar. Doğrulama, runtime `constTimeEq` kullanarak sabit zamanda
@@ -973,7 +1017,7 @@ JSON'unu, başarısız imza/yapıda `nil` döner.
 
 ---
 
-## 30. TOML (toml::toml)
+## 32. TOML (toml::toml)
 
 TOML 1.0 ayrıştırıcı, isteğe bağlı erişim metotlarıyla. Sorgular
 bölüm + anahtar üzerinden yapılır.
@@ -1009,7 +1053,7 @@ kullanın. Eksik bölüm/anahtar `nil` döner. Paket yöneticisi
 
 ---
 
-## 31. Encoding (encoding::encoding)
+## 33. Encoding (encoding::encoding)
 
 Metin kodlamaları (Base64, Base64URL, Hex, URL percent-encoding) ve
 RFC 1952 gzip sıkıştırma. Encoder LZ77 + sabit Huffman bloğu ile
