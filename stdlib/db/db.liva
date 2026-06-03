@@ -1,0 +1,43 @@
+// db::db — driver-agnostic database layer over sqlite and postgres.
+// Import with: import db::db
+//
+// Provides a `Database` protocol (dynamic dispatch via `dyn Database`), a
+// materialized `Row`, and adapters SqliteDatabase / PgDatabase. Callers always
+// write '?' placeholders; the postgres adapter rewrites them to '$1','$2',...
+
+import convert::convert
+
+// =============================================================
+// Row — one materialized result row. Column indices are 0-based.
+// =============================================================
+
+pub struct Row {
+    var names: [String]
+    var vals:  [String]
+    var nulls: [bool]
+}
+
+impl Row {
+    pub func getText(ref self, col: i32) -> String {
+        return self.vals[col as i64]
+    }
+
+    pub func getInt(ref self, col: i32) -> i64 {
+        let parsed = toInt64(self.vals[col as i64])
+        if let v = parsed { return v }
+        return 0 as i64
+    }
+
+    pub func isNull(ref self, col: i32) -> bool {
+        return self.nulls[col as i64]
+    }
+
+    pub func byName(ref self, name: String) -> String? {
+        for i in 0..self.names.length {
+            if self.names[i] == name {
+                return self.vals[i]
+            }
+        }
+        return nil
+    }
+}

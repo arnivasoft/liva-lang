@@ -1654,3 +1654,20 @@ TEST_F(StdlibModuleTest, PostgresQueryParams) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "queryParams should type-check";
 }
+
+TEST_F(StdlibModuleTest, ImportDbRow) {
+    auto r = check(
+        "import db::db\n"
+        "func main() {\n"
+        "    let names: [String] = [\"id\", \"name\"]\n"
+        "    let vals: [String] = [\"7\", \"Ada\"]\n"
+        "    let nulls: [bool] = [false, false]\n"
+        "    let row = Row { names: names, vals: vals, nulls: nulls }\n"
+        "    let t = row.getText(1)\n"
+        "    let i = row.getInt(0)\n"
+        "    let nul = row.isNull(0)\n"
+        "    let bn = row.byName(\"name\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "db::db Row should type-check";
+}
