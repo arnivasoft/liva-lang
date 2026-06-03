@@ -367,6 +367,16 @@ import std::time
 | `clock` | `() -> f64` | High-resolution clock (seconds) |
 | `clockMs` | `() -> i64` | High-resolution clock (milliseconds) |
 
+### Calendar Types (time::time)
+
+```liva
+import time::time
+```
+
+- `Date.parse(s) -> Date` (parses `"YYYY-MM-DD"`), `.year()/.month()/.day() -> i32`, `.toString() -> String`.
+- `Time.parse(s) -> Time` (parses `"HH:MM:SS"`), `.hour()/.minute()/.second() -> i32`, `.toString() -> String`.
+- `DateTime` combines both; used as a return type by the typed DB accessors.
+
 ### Example
 
 ```liva
@@ -632,6 +642,7 @@ import std::convert
 | `parseInt` | `(string) -> i32` | Parse string to 32-bit integer |
 | `parseInt64` | `(string) -> i64` | Parse string to 64-bit integer |
 | `parseFloat` | `(string) -> f64` | Parse string to 64-bit float |
+| `toBool` | `(string) -> bool` | Flexible boolean parse: `1/t/true/yes/on` (any case) → `true`; anything else → `false` (convert::convert) |
 
 ### Example
 
@@ -941,6 +952,9 @@ injection even with values containing `'; DROP TABLE; --`.
 - `Stmt.bindByName(name, val) -> bool` — bind text to `:name`/`@name`/`$name`.
 - `Stmt.bindBlob(idx, [u8]) -> bool`, `Stmt.columnBlob(col) -> [u8]` — binary data.
 - `SqliteDB.begin()/commit()/rollback() -> bool` — transaction control.
+- `Stmt.columnBool(col) -> bool`, `columnDate(col) -> Date`, `columnTime(col) -> Time`, `columnDateTime(col) -> DateTime` — typed column reads parsed from the cell text (`columnDouble` already exists).
+
+Typed accessors are non-optional and return a default (`0.0`/`false`/epoch) on unparseable text; `columnBool` accepts `1/t/true/yes/on` (any case).
 
 ---
 
@@ -957,6 +971,7 @@ absent, `PgConn.open` returns `nil`, `exec` returns `false`, queries return `nil
 - `PgConn.errorMessage() -> String`, `close()`.
 - `PgResult.rowCount()/colCount() -> i32`, `getText(r,c)/getInt(r,c)`,
   `isNull(r,c) -> bool`, `columnName(c) -> String`, `clear()`.
+  Plus typed reads: `getDouble(r,c) -> f64`, `getBool(r,c) -> bool`, `getDate(r,c) -> Date`, `getTime(r,c) -> Time`, `getDateTime(r,c) -> DateTime`.
 
 ---
 
@@ -974,7 +989,10 @@ followed by a digit (`$1`) is left as-is.
 - `PgDatabase.open(connString)?` — `impl Database` (`lastInsertId` returns 0;
   use `RETURNING`).
 - `Row.getText(col)/getInt(col)/isNull(col)/byName(name) -> String?`.
+  Plus typed reads: `getDouble(col) -> f64`, `getBool(col) -> bool`, `getDate(col) -> Date`, `getTime(col) -> Time`, `getDateTime(col) -> DateTime`.
 - Use `dyn Database` for code that works across both drivers.
+
+Typed accessors are non-optional and return a default (`0.0`/`false`/epoch) on unparseable text; `getBool` accepts `1/t/true/yes/on` (any case).
 
 ---
 

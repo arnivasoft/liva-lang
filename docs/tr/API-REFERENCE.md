@@ -367,6 +367,16 @@ import std::time
 | `clock` | `() -> f64` | Yüksek çözünürlüklü saat (saniye) |
 | `clockMs` | `() -> i64` | Yüksek çözünürlüklü saat (milisaniye) |
 
+### Takvim Tipleri (time::time)
+
+```liva
+import time::time
+```
+
+- `Date.parse(s) -> Date` (`"YYYY-MM-DD"` ayrıştırır), `.year()/.month()/.day() -> i32`, `.toString() -> String`.
+- `Time.parse(s) -> Time` (`"HH:MM:SS"` ayrıştırır), `.hour()/.minute()/.second() -> i32`, `.toString() -> String`.
+- `DateTime` her ikisini birleştirir; tipli DB accessor'ları tarafından dönüş tipi olarak kullanılır.
+
 ### Örnek
 
 ```liva
@@ -632,6 +642,7 @@ import std::convert
 | `parseInt` | `(string) -> i32` | String'i 32-bit tam sayıya dönüştür |
 | `parseInt64` | `(string) -> i64` | String'i 64-bit tam sayıya dönüştür |
 | `parseFloat` | `(string) -> f64` | String'i 64-bit ondalık sayıya dönüştür |
+| `toBool` | `(string) -> bool` | Esnek bool ayrıştırma: `1/t/true/yes/on` (her durum) → `true`; diğerleri → `false` (convert::convert) |
 
 ### Örnek
 
@@ -917,6 +928,9 @@ saklanabilir.
 - `Stmt.bindByName(name, val) -> bool` — `:name`/`@name`/`$name` parametresine text bağlar.
 - `Stmt.bindBlob(idx, [u8]) -> bool`, `Stmt.columnBlob(col) -> [u8]` — ikili veri.
 - `SqliteDB.begin()/commit()/rollback() -> bool` — transaction kontrolü.
+- `Stmt.columnBool(col) -> bool`, `columnDate(col) -> Date`, `columnTime(col) -> Time`, `columnDateTime(col) -> DateTime` — hücre metninden ayrıştırılan tipli kolon okuma (`columnDouble` zaten vardı).
+
+Tipli accessor'lar non-optional; ayrıştırılamayan metinde varsayılan (`0.0`/`false`/epoch) döner. `columnBool` `1/t/true/yes/on` değerlerini (her durum) kabul eder.
 
 ---
 
@@ -933,6 +947,7 @@ Windows'ta yükleyici `C:\Program Files\PostgreSQL\<sürüm>\bin\libpq.dll`'i
 - `PgConn.errorMessage() -> String`, `close()`.
 - `PgResult.rowCount()/colCount() -> i32`, `getText(r,c)/getInt(r,c)`,
   `isNull(r,c) -> bool`, `columnName(c) -> String`, `clear()`.
+  Ayrıca tipli okumalar: `getDouble(r,c) -> f64`, `getBool(r,c) -> bool`, `getDate(r,c) -> Date`, `getTime(r,c) -> Time`, `getDateTime(r,c) -> DateTime`.
 
 ---
 
@@ -950,7 +965,10 @@ blok yorumları (`/* ... */`) ve dollar-quote'lu string'ler (`$$...$$`,
 - `PgDatabase.open(connString)?` — `impl Database` (`lastInsertId` 0 döndürür;
   `RETURNING` kullanın).
 - `Row.getText(col)/getInt(col)/isNull(col)/byName(name) -> String?`.
+  Ayrıca tipli okumalar: `getDouble(col) -> f64`, `getBool(col) -> bool`, `getDate(col) -> Date`, `getTime(col) -> Time`, `getDateTime(col) -> DateTime`.
 - İki sürücüde de çalışan kod için `dyn Database` kullanın.
+
+Tipli accessor'lar non-optional; ayrıştırılamayan metinde varsayılan (`0.0`/`false`/epoch) döner. `getBool` `1/t/true/yes/on` değerlerini (her durum) kabul eder.
 
 ---
 
