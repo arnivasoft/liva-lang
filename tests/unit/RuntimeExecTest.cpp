@@ -757,6 +757,29 @@ TEST(RuntimeExecTest, SqliteColumnTypeAndNull) {
     EXPECT_EQ(r.stdout_output, "1\nnull\n");
 }
 
+TEST(RuntimeExecTest, SqliteTransactionRollback) {
+    auto r = compileAndRun(
+        "import sqlite::sqlite\n"
+        "func main() {\n"
+        "    if let db = SqliteDB.openMemory() {\n"
+        "        var d = db\n"
+        "        d.exec(\"CREATE TABLE t(n INTEGER)\")\n"
+        "        d.begin()\n"
+        "        d.exec(\"INSERT INTO t(n) VALUES (1)\")\n"
+        "        d.rollback()\n"
+        "        d.begin()\n"
+        "        d.exec(\"INSERT INTO t(n) VALUES (2)\")\n"
+        "        d.commit()\n"
+        "        if let c = d.queryInt(\"SELECT COUNT(*) FROM t\") { println(c) }\n"
+        "        if let v = d.queryInt(\"SELECT n FROM t\") { println(v) }\n"
+        "        d.close()\n"
+        "    }\n"
+        "}\n",
+        "sqlite_txn");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "1\n2\n");
+}
+
 TEST(RuntimeExecTest, SqliteBlobRoundTrip) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

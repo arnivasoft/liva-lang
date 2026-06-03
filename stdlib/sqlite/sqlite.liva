@@ -172,6 +172,20 @@ impl SqliteDB {
         self.handle = 0 as i64
     }
 
+    // --- Transactions ---
+
+    pub func begin(ref self) -> bool {
+        return self.exec("BEGIN")
+    }
+
+    pub func commit(ref self) -> bool {
+        return self.exec("COMMIT")
+    }
+
+    pub func rollback(ref self) -> bool {
+        return self.exec("ROLLBACK")
+    }
+
     //Compile a parameterised SQL statement. Use ?, ?N, or :name in the
     //SQL and bind values via stmt.bindText / bindInt / bindDouble /
     //bindNull (1-indexed). Returns nil if SQL fails to compile.
