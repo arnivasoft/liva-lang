@@ -3479,6 +3479,65 @@ char *liva_pg_normalize_params(const char *sql) {
     return res;
 }
 
+// Run a query, return an opaque PGresult* handle (0 on failure). Caller must
+// call liva_pg_clear when done. Only TUPLES_OK results are returned; anything
+// else is cleared and reported as failure.
+int64_t liva_pg_query(int64_t handle, const char *sql) {
+    if (!handle || !sql) return 0;
+    auto &api = pg_api();
+    if (!api.loaded || !api.exec) return 0;
+    void *res = api.exec((void *)(uintptr_t)handle, sql);
+    if (!res) return 0;
+    if (api.resultStatus(res) != LIVA_PGRES_TUPLES_OK) {
+        api.clear(res);
+        return 0;
+    }
+    return (int64_t)(uintptr_t)res;
+}
+
+void liva_pg_clear(int64_t result) {
+    if (!result) return;
+    auto &api = pg_api();
+    if (api.clear) api.clear((void *)(uintptr_t)result);
+}
+
+int32_t liva_pg_ntuples(int64_t result) {
+    if (!result) return 0;
+    auto &api = pg_api();
+    if (!api.ntuples) return 0;
+    return (int32_t)api.ntuples((void *)(uintptr_t)result);
+}
+
+int32_t liva_pg_nfields(int64_t result) {
+    if (!result) return 0;
+    auto &api = pg_api();
+    if (!api.nfields) return 0;
+    return (int32_t)api.nfields((void *)(uintptr_t)result);
+}
+
+char *liva_pg_getvalue(int64_t result, int32_t row, int32_t col) {
+    if (!result) return nullptr;
+    auto &api = pg_api();
+    if (!api.getvalue) return strdup_safe("");
+    const char *v = api.getvalue((void *)(uintptr_t)result, row, col);
+    return strdup_safe(v ? v : "");
+}
+
+int32_t liva_pg_getisnull(int64_t result, int32_t row, int32_t col) {
+    if (!result) return 1;
+    auto &api = pg_api();
+    if (!api.getisnull) return 1;
+    return api.getisnull((void *)(uintptr_t)result, row, col) ? 1 : 0;
+}
+
+char *liva_pg_fname(int64_t result, int32_t col) {
+    if (!result) return nullptr;
+    auto &api = pg_api();
+    if (!api.fname) return strdup_safe("");
+    const char *n = api.fname((void *)(uintptr_t)result, col);
+    return strdup_safe(n ? n : "");
+}
+
 // === Async/Coroutine Runtime ===
 
 // --- Dynamic ready queue (resizable circular buffer) ---

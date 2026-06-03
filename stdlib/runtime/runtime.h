@@ -584,6 +584,28 @@ char *liva_pg_errmsg(int64_t handle);
 /// inside single-quoted string literals. Caller frees. libpq-independent.
 char *liva_pg_normalize_params(const char *sql);
 
+/// Run a query; returns opaque PGresult* i64 handle (0 on failure). Caller must
+/// liva_pg_clear it. Only row-returning (TUPLES_OK) results are returned.
+int64_t liva_pg_query(int64_t handle, const char *sql);
+
+/// Release a result handle.
+void liva_pg_clear(int64_t result);
+
+/// Row count of a result.
+int32_t liva_pg_ntuples(int64_t result);
+
+/// Column count of a result.
+int32_t liva_pg_nfields(int64_t result);
+
+/// Cell value as text (caller frees). Empty string if NULL/unavailable.
+char *liva_pg_getvalue(int64_t result, int32_t row, int32_t col);
+
+/// 1 if the cell is NULL, else 0.
+int32_t liva_pg_getisnull(int64_t result, int32_t row, int32_t col);
+
+/// Column name (caller frees).
+char *liva_pg_fname(int64_t result, int32_t col);
+
 // === Async/Coroutine Runtime ===
 
 typedef struct LivaTask {
