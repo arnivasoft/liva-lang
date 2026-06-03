@@ -3461,6 +3461,29 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return r;
     }
 
+    // sqliteColumnType(stmt, col) -> i32
+    if (funcName == "sqliteColumnType" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *colArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !colArg) return nullptr;
+        if (colArg->getType()->isIntegerTy(64))
+            colArg = builder_->CreateTrunc(colArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_column_type");
+        return builder_->CreateCall(fn, {stmtArg, colArg}, "sqlite.coltype");
+    }
+
+    // sqliteColumnIsNull(stmt, col) -> bool  (column_type == 5)
+    if (funcName == "sqliteColumnIsNull" && node->getArgs().size() >= 2) {
+        auto *stmtArg = visit(node->getArgs()[0].get());
+        auto *colArg = visit(node->getArgs()[1].get());
+        if (!stmtArg || !colArg) return nullptr;
+        if (colArg->getType()->isIntegerTy(64))
+            colArg = builder_->CreateTrunc(colArg, builder_->getInt32Ty());
+        auto *fn = getOrPanic("liva_sqlite_column_type");
+        auto *t = builder_->CreateCall(fn, {stmtArg, colArg}, "sqlite.coltype.n");
+        return builder_->CreateICmpEQ(t, builder_->getInt32(5), "sqlite.isnull");
+    }
+
     // sqliteColumnText(stmt, col) -> string
     if (funcName == "sqliteColumnText" && node->getArgs().size() >= 2) {
         auto *stmtArg = visit(node->getArgs()[0].get());

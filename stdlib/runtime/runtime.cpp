@@ -2778,6 +2778,7 @@ struct SqliteApi {
     long long (*column_int64)(void *, int) = nullptr;
     double (*column_double)(void *, int) = nullptr;
     const char *(*column_name)(void *, int) = nullptr;
+    int  (*column_type)(void *, int) = nullptr;
     int  (*bind_text)(void *, int, const char *, int, void (*)(void *)) = nullptr;
     int  (*bind_int64)(void *, int, long long) = nullptr;
     int  (*bind_double)(void *, int, double) = nullptr;
@@ -2810,6 +2811,7 @@ static SqliteApi &sqlite_api() {
         api.column_int64 = (decltype(api.column_int64))resolve("sqlite3_column_int64");
         api.column_double = (decltype(api.column_double))resolve("sqlite3_column_double");
         api.column_name = (decltype(api.column_name))resolve("sqlite3_column_name");
+        api.column_type = (decltype(api.column_type))resolve("sqlite3_column_type");
         api.bind_text = (decltype(api.bind_text))resolve("sqlite3_bind_text");
         api.bind_int64 = (decltype(api.bind_int64))resolve("sqlite3_bind_int64");
         api.bind_double = (decltype(api.bind_double))resolve("sqlite3_bind_double");
@@ -2834,6 +2836,7 @@ static SqliteApi &sqlite_api() {
         api.column_int64 = reinterpret_cast<decltype(api.column_int64)>(&sqlite3_column_int64);
         api.column_double = reinterpret_cast<decltype(api.column_double)>(&sqlite3_column_double);
         api.column_name = reinterpret_cast<decltype(api.column_name)>(&sqlite3_column_name);
+        api.column_type = reinterpret_cast<decltype(api.column_type)>(&sqlite3_column_type);
         api.bind_text = reinterpret_cast<decltype(api.bind_text)>(&sqlite3_bind_text);
         api.bind_int64 = reinterpret_cast<decltype(api.bind_int64)>(&sqlite3_bind_int64);
         api.bind_double = reinterpret_cast<decltype(api.bind_double)>(&sqlite3_bind_double);
@@ -3206,6 +3209,21 @@ char *liva_sqlite_column_name(int64_t stmt, int32_t col) {
     (void)stmt;
     (void)col;
     return nullptr;
+#endif
+}
+
+// SQLite column type code: 1=INT, 2=FLOAT, 3=TEXT, 4=BLOB, 5=NULL. Returns 0
+// if unavailable (treated as "unknown", never NULL).
+int32_t liva_sqlite_column_type(int64_t stmt, int32_t col) {
+    if (!stmt) return 0;
+#ifdef LIVA_HAS_SQLITE
+    auto &api = sqlite_api();
+    if (!api.column_type) return 0;
+    return (int32_t)api.column_type((void *)(uintptr_t)stmt, col);
+#else
+    (void)stmt;
+    (void)col;
+    return 0;
 #endif
 }
 

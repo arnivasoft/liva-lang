@@ -82,6 +82,15 @@ impl Stmt {
         return sqliteColumnName(self.handle, col)
     }
 
+    // SQLite type code: 1=INTEGER, 2=FLOAT, 3=TEXT, 4=BLOB, 5=NULL.
+    pub func columnType(ref self, col: i32) -> i32 {
+        return sqliteColumnType(self.handle, col)
+    }
+
+    pub func columnIsNull(ref self, col: i32) -> bool {
+        return sqliteColumnIsNull(self.handle, col)
+    }
+
     pub func finalize(mut self) {
         sqliteFinalize(self.handle)
         self.handle = 0 as i64

@@ -81,7 +81,7 @@ void TypeChecker::registerBuiltins() {
                         "sqliteBindDouble", "sqliteBindNull",
                         "sqliteStep", "sqliteReset", "sqliteColumnCount",
                         "sqliteColumnText", "sqliteColumnInt", "sqliteColumnDouble",
-                        "sqliteColumnName",
+                        "sqliteColumnName", "sqliteColumnType", "sqliteColumnIsNull",
                         "sqliteFinalize"}) {
         Symbol sym;
         sym.name = name;
@@ -2358,6 +2358,10 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeF64Type());
         } else if (ident->getName() == "sqliteColumnName") {
             node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "sqliteColumnType") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "sqliteColumnIsNull") {
+            node->setResolvedType(makeBoolType());
         } else if (ident->getName() == "sqliteFinalize") {
             // void
         // Stdlib: Directory operations

@@ -710,4 +710,28 @@ TEST(RuntimeExecTest, SqliteColumnName) {
     EXPECT_EQ(r.stdout_output, "alpha\nbeta\n");
 }
 
+TEST(RuntimeExecTest, SqliteColumnTypeAndNull) {
+    auto r = compileAndRun(
+        "import sqlite::sqlite\n"
+        "func main() {\n"
+        "    if let db = SqliteDB.openMemory() {\n"
+        "        var d = db\n"
+        "        d.exec(\"CREATE TABLE t(a INTEGER, b TEXT)\")\n"
+        "        d.exec(\"INSERT INTO t(a, b) VALUES (7, NULL)\")\n"
+        "        if let s = d.prepare(\"SELECT a, b FROM t\") {\n"
+        "            var stmt = s\n"
+        "            if stmt.step() {\n"
+        "                println(stmt.columnType(0))\n"
+        "                if stmt.columnIsNull(1) { println(\"null\") } else { println(\"notnull\") }\n"
+        "            }\n"
+        "            stmt.finalize()\n"
+        "        }\n"
+        "        d.close()\n"
+        "    }\n"
+        "}\n",
+        "sqlite_column_type");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_EQ(r.stdout_output, "1\nnull\n");
+}
+
 #endif // LIVA_HAS_LLVM

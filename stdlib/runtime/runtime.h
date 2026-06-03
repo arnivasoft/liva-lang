@@ -543,6 +543,10 @@ double  liva_sqlite_column_double(int64_t stmt, int32_t col);
 /// Name of result column `col` (0-based). Caller frees.
 char *liva_sqlite_column_name(int64_t stmt, int32_t col);
 
+/// SQLite type code of column `col` in the current row: 1=INTEGER, 2=FLOAT,
+/// 3=TEXT, 4=BLOB, 5=NULL. 0 if unavailable.
+int32_t liva_sqlite_column_type(int64_t stmt, int32_t col);
+
 /// Release the statement.
 void liva_sqlite_finalize(int64_t stmt);
 
