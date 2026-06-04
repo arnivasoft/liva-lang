@@ -135,7 +135,8 @@ void TypeChecker::registerBuiltins() {
                         "jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
                         "jsonNodeAsInt", "jsonNodeAsFloat", "jsonNodeAsBool", "jsonNodeAsString",
                         "jsonToString", "jsonToStringPretty",
-                        "jsonObjGet", "jsonObjHas", "jsonObjCount"}) {
+                        "jsonObjGet", "jsonObjHas", "jsonObjCount",
+                        "jsonArrCount", "jsonArrAt"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2566,6 +2567,10 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "jsonObjHas") {
             node->setResolvedType(makeBoolType());
         } else if (ident->getName() == "jsonObjCount") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "jsonArrAt") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "jsonArrCount") {
             node->setResolvedType(makeI32Type());
         // Stdlib: Logging (all void)
         } else if (ident->getName() == "logDebug" || ident->getName() == "logInfo" ||

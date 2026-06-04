@@ -1077,4 +1077,24 @@ func main() {
     EXPECT_NE(r.stdout_output.find("izmir"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonArrayRead) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    let doc = Json.parse("{\"nums\":[10,20,30],\"objs\":[{\"x\":1},{\"x\":2}]}")
+    let o = doc.object()
+    let nums = o.getArray("nums")
+    println(nums.count())
+    println(nums.getInt(0 as i64))
+    println(nums.getInt(2 as i64))
+    let objs = o.getArray("objs")
+    println(objs.getObject(1 as i64).getInt("x"))
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_arrread");
+    EXPECT_NE(r.stdout_output.find("10"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("30"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("2"), std::string::npos) << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

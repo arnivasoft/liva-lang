@@ -4295,6 +4295,15 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *h = visit(node->getArgs()[0].get());
         return builder_->CreateCall(getOrPanic("liva_json_obj_count"), {h}, "json.objcount");
     }
+    if (funcName == "jsonArrCount" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_arr_count"), {h}, "json.arrcount");
+    }
+    if (funcName == "jsonArrAt" && node->getArgs().size() >= 2) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *idx = visit(node->getArgs()[1].get());
+        return builder_->CreateCall(getOrPanic("liva_json_arr_at"), {h, idx}, "json.arrat");
+    }
 
     // === Logging ===
     if (funcName == "logDebug" && !node->getArgs().empty()) {

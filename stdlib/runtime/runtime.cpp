@@ -4391,6 +4391,19 @@ int32_t liva_json_obj_count(int64_t nodeH) {
     Node* n = asNode(nodeH);
     return n->kind==K_Object ? (int32_t)n->obj.size() : 0;
 }
+int32_t liva_json_arr_count(int64_t nodeH) {
+    using namespace livajson;
+    if (!nodeH) return 0;
+    Node* n = asNode(nodeH);
+    return n->kind==K_Array ? (int32_t)n->arr.size() : 0;
+}
+int64_t liva_json_arr_at(int64_t nodeH, int64_t idx) {
+    using namespace livajson;
+    if (!nodeH) return 0;
+    Node* n = asNode(nodeH);
+    if (n->kind != K_Array || idx < 0 || (size_t)idx >= n->arr.size()) return 0;
+    return reinterpret_cast<int64_t>(n->arr[idx]);
+}
 
 } // end DOM extern "C"
 
