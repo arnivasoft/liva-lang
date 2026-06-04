@@ -16,7 +16,7 @@ Complete reference for all standard library modules. Functions listed as "built-
 8. [Time](#8-time)
 9. [Regex](#9-regex)
 10. [Networking](#10-networking)
-11. [JSON](#11-json)
+11. [JSON (json::json)](#11-json-jsonjson)
 12. [Random](#12-random)
 13. [Channel](#13-channel)
 14. [Task](#14-task)
@@ -461,30 +461,233 @@ func main() {
 
 ---
 
-## 11. JSON
+## 11. JSON (json::json)
 
 ```liva
-import std::json
+import json::json
 ```
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `jsonParse` | `(string) -> any` | Parse JSON string to value |
-| `jsonStringify` | `(any) -> string` | Convert value to JSON string |
+`json::json` is a parse-tree (DOM) JSON library. Parse a document once and navigate the in-memory tree at full speed using typed accessors, `obj["key"]`/`arr[i]` indexers, dot-path reads, and auto-vivifying path writes. Fluent building lets you construct fresh objects and arrays with a single call to `Json.object()` or `Json.array()` and then layer in values with `set*`/`add*` helpers.
+
+### Ownership contract
+
+The value returned by `Json.parse`, `Json.object`, or `Json.array` is the **sole owner** of the document tree and must be bound to a `let` or `var`. Every value reached from the owner — via `obj["k"]`, `arr[i]`, `.getObject()`, `.getArray()`, `.object()`, `.array()`, `.path()` — is a **borrow** that is valid only while the owner is alive. The document is freed automatically when the owner goes out of scope (the `Drop` protocol). Do **not** chain off a parse temporary (e.g. `Json.parse(s).object()`) — the temporary is the owner, it is dropped immediately, and the resulting borrow is a dangling reference (memory leak/use-after-free).
+
+```liva
+// CORRECT — owner bound to a variable
+let doc = Json.parse(myJson)
+let root = doc.object()          // borrow: valid for the lifetime of doc
+println(root.getString("name"))
+
+// WRONG — parse result is a temporary; owner destroyed before use
+// let root = Json.parse(myJson).object()   // do NOT do this
+```
+
+### enum JsonKind
+
+| Case | Description |
+|------|-------------|
+| `Null` | JSON `null` |
+| `Bool` | JSON boolean |
+| `Int` | JSON integer number |
+| `Double` | JSON floating-point number |
+| `Str` | JSON string |
+| `Arr` | JSON array |
+| `Obj` | JSON object |
+
+### struct Json
+
+Static factory — creates or parses a document. The returned value owns the document.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `parse` | `(s: String) -> JsonValue` | Parse a JSON string; returns the root node as the owner |
+| `object` | `() -> JsonObject` | Create a new empty JSON object document |
+| `array` | `() -> JsonArray` | Create a new empty JSON array document |
+
+### struct JsonValue
+
+A single JSON node. When `owns` is `true` it is the document owner and frees the tree on drop; otherwise it is a borrow.
+
+**Kind checks**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `kind` | `() -> JsonKind` | Return the node's kind |
+| `isNull` | `() -> bool` | True if the node is JSON null |
+| `isBool` | `() -> bool` | True if the node is a boolean |
+| `isInt` | `() -> bool` | True if the node is an integer |
+| `isDouble` | `() -> bool` | True if the node is a float |
+| `isString` | `() -> bool` | True if the node is a string |
+| `isArray` | `() -> bool` | True if the node is an array |
+| `isObject` | `() -> bool` | True if the node is an object |
+
+**Scalar reads** (degrade to default on wrong kind: `""`, `0`, `0.0`, `false`)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `asString` | `() -> String` | Read as string |
+| `asInt` | `() -> i64` | Read as integer |
+| `asFloat` | `() -> f64` | Read as float (also accepts JSON ints) |
+| `asBool` | `() -> bool` | Read as boolean |
+
+**Navigation (borrows)**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `object` | `() -> JsonObject` | Reinterpret this node as an object borrow |
+| `array` | `() -> JsonArray` | Reinterpret this node as an array borrow |
+
+**Serialization**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `toString` | `() -> String` | Compact JSON string |
+| `toStringPretty` | `(indent: i32) -> String` | Indented JSON string |
+
+### struct JsonObject
+
+A borrowed (or owning) handle to a JSON object node.
+
+**Subscript indexer** — `obj["key"]` returns a `JsonValue` borrow.
+
+**Inspection**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `has` | `(key: String) -> bool` | True if the key exists |
+| `count` | `() -> i32` | Number of keys |
+| `keys` | `() -> [String]` | All keys as a string array |
+
+**Read — get\* (degrade to default on missing/wrong kind)**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `get` | `(key: String) -> JsonValue` | Raw node borrow for the key |
+| `getString` | `(key: String) -> String` | String value or `""` |
+| `getInt` | `(key: String) -> i64` | Integer value or `0` |
+| `getFloat` | `(key: String) -> f64` | Float value or `0.0` (accepts JSON ints too) |
+| `getBool` | `(key: String) -> bool` | Boolean value or `false` |
+| `getObject` | `(key: String) -> JsonObject` | Object borrow for the key |
+| `getArray` | `(key: String) -> JsonArray` | Array borrow for the key |
+
+**Read — try\* (return nil on missing/wrong kind)**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `tryString` | `(key: String) -> String?` | String or `nil` |
+| `tryInt` | `(key: String) -> i64?` | Integer or `nil` |
+| `tryFloat` | `(key: String) -> f64?` | Float or `nil` (accepts JSON ints too) |
+| `tryBool` | `(key: String) -> bool?` | Boolean or `nil` |
+
+**Write**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `setString` | `(key: String, val: String)` | Set a string value |
+| `setInt` | `(key: String, val: i64)` | Set an integer value |
+| `setFloat` | `(key: String, val: f64)` | Set a float value |
+| `setBool` | `(key: String, val: bool)` | Set a boolean value |
+| `setNull` | `(key: String)` | Set a null value |
+| `setObject` | `(key: String) -> JsonObject` | Create/replace with an empty object; returns borrow |
+| `setArray` | `(key: String) -> JsonArray` | Create/replace with an empty array; returns borrow |
+| `remove` | `(key: String)` | Remove a key |
+
+**Path access**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `path` | `(p: String) -> JsonValue` | Read by dot-separated path, e.g. `"user.name"` |
+| `setPathString` | `(p: String, val: String)` | Write by path; auto-creates intermediate objects |
+| `setPathInt` | `(p: String, val: i64)` | Write integer by path |
+| `setPathFloat` | `(p: String, val: f64)` | Write float by path |
+| `setPathBool` | `(p: String, val: bool)` | Write boolean by path |
+
+**Serialization**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `toString` | `() -> String` | Compact JSON string |
+| `toStringPretty` | `(indent: i32) -> String` | Indented JSON string |
+
+### struct JsonArray
+
+A borrowed (or owning) handle to a JSON array node.
+
+**Subscript indexer** — `arr[i]` (where `i: i64`) returns a `JsonValue` borrow.
+
+**Inspection**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `count` | `() -> i32` | Number of elements |
+| `length` | `() -> i32` | Alias for `count` |
+
+**Read**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `at` | `(i: i64) -> JsonValue` | Raw node borrow at index |
+| `getString` | `(i: i64) -> String` | String at index or `""` |
+| `getInt` | `(i: i64) -> i64` | Integer at index or `0` |
+| `getFloat` | `(i: i64) -> f64` | Float at index or `0.0` |
+| `getBool` | `(i: i64) -> bool` | Boolean at index or `false` |
+| `getObject` | `(i: i64) -> JsonObject` | Object borrow at index |
+| `getArray` | `(i: i64) -> JsonArray` | Array borrow at index |
+
+**Write**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `addString` | `(val: String)` | Append a string element |
+| `addInt` | `(val: i64)` | Append an integer element |
+| `addFloat` | `(val: f64)` | Append a float element |
+| `addBool` | `(val: bool)` | Append a boolean element |
+| `addNull` | `()` | Append a null element |
+| `addObject` | `() -> JsonObject` | Append an empty object; returns borrow |
+| `addArray` | `() -> JsonArray` | Append an empty array; returns borrow |
+
+**Serialization**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `toString` | `() -> String` | Compact JSON string |
+| `toStringPretty` | `(indent: i32) -> String` | Indented JSON string |
+
+### Degrade-to-default vs. try\* semantics
+
+`getString`/`getInt`/`getFloat`/`getBool` on `JsonObject` and the equivalent indexed reads on `JsonArray` always return a value — `""`, `0`, `0.0`, or `false` when the key is absent or the node has the wrong kind. Use the `try*` variants (`tryString`, `tryInt`, `tryFloat`, `tryBool`) when you need to distinguish "key absent" from "key present with default value". `asFloat`/`tryFloat` also accept JSON integer nodes (they convert automatically).
 
 ### Example
 
 ```liva
-import std::json
+import json::json
 
 func main() {
-    let data = jsonParse("{\"name\": \"Alice\", \"age\": 30}")
-    println(data)
+    // Parse and read
+    let doc = Json.parse("{\"user\":{\"name\":\"liva\",\"age\":3},\"tags\":[\"a\",\"b\"]}")
+    let root = doc.object()
+    println(root.path("user.name").asString())        // liva
+    println(root.getObject("user").getInt("age"))      // 3
+    println(root.getArray("tags").getString(0 as i64)) // a
+    println(root["user"]["name"].asString())           // liva (indexer)
 
-    let json = jsonStringify([1, 2, 3])
-    println(json)  // [1,2,3]
+    // Build and serialize
+    var out = Json.object()
+    out.setString("name", "yeni")
+    var tags = out.setArray("tags")
+    tags.addString("x")
+    out.setPathInt("meta.count", 1)
+    println(out.toString())
 }
 ```
+
+### v1 limitations
+
+- Strict JSON only: comments and trailing commas are parse errors.
+- `setPath*` auto-creates intermediate nodes as **objects**; numeric path segments (e.g. `"items.0.name"`) are treated as object keys, not array indices.
+- `\uXXXX` surrogate pairs in string literals are not combined into a single code point.
+- Subscript assignment (`obj["k"] = v`) is not supported; use `setString`, `setInt`, etc.
 
 ---
 

@@ -16,7 +16,7 @@ Tüm standart kütüphane modülleri için eksiksiz referans. "Yerleşik" olarak
 8. [Time (Zaman)](#8-time-zaman)
 9. [Regex (Düzenli İfadeler)](#9-regex-düzenli-i̇fadeler)
 10. [Ağ İletişimi](#10-ağ-i̇letişimi)
-11. [JSON](#11-json)
+11. [JSON (json::json)](#11-json-jsonjson)
 12. [Random (Rastgele)](#12-random-rastgele)
 13. [Kanal](#13-kanal)
 14. [Görev](#14-görev)
@@ -461,30 +461,233 @@ func main() {
 
 ---
 
-## 11. JSON
+## 11. JSON (json::json)
 
 ```liva
-import std::json
+import json::json
 ```
 
-| Fonksiyon | İmza | Açıklama |
-|-----------|------|----------|
-| `jsonParse` | `(string) -> any` | JSON string'ini değere dönüştür |
-| `jsonStringify` | `(any) -> string` | Değeri JSON string'ine dönüştür |
+`json::json`, bir ayrıştırma-ağacı (DOM) JSON kütüphanesidir. Belgeyi bir kez ayrıştırın ve bellek içi ağaçta hızlıca gezinin: tipli accessor'lar, `obj["anahtar"]`/`arr[i]` indeksleyiciler, nokta-yolu okumaları ve otomatik oluşturma (auto-vivifying) yolu yazmaları mevcuttur. `Json.object()` veya `Json.array()` çağrısıyla taze nesneler ve diziler oluşturup `set*`/`add*` yardımcılarıyla değer ekleyerek akıcı biçimde JSON yapılandırabilirsiniz.
+
+### Sahiplik sözleşmesi
+
+`Json.parse`, `Json.object` veya `Json.array` tarafından döndürülen değer, belge ağacının **tek sahibidir** ve bir `let` ya da `var`'a bağlanmalıdır. Sahibinden ulaşılan her değer — `obj["k"]`, `arr[i]`, `.getObject()`, `.getArray()`, `.object()`, `.array()`, `.path()` aracılığıyla — yalnızca sahibi yaşadığı sürece geçerli bir **ödünçtür**. Belge, sahibi kapsam dışına çıktığında otomatik olarak serbest bırakılır (`Drop` protokolü). Bir parse geçicisini (`temporary`) zincirlemeyin (örn. `Json.parse(s).object()`) — geçici sahibi hemen serbest bırakılır ve elde edilen ödünç sarkan bir referans olur (bellek sızıntısı/use-after-free).
+
+```liva
+// DOĞRU — sahip bir değişkene bağlandı
+let doc = Json.parse(benimJsonum)
+let root = doc.object()          // ödünç: doc yaşadığı sürece geçerli
+println(root.getString("name"))
+
+// YANLIŞ — parse sonucu geçicidir; kullanılmadan önce sahip yok edilir
+// let root = Json.parse(benimJsonum).object()   // bunu yapmayın
+```
+
+### enum JsonKind
+
+| Durum | Açıklama |
+|-------|----------|
+| `Null` | JSON `null` |
+| `Bool` | JSON boolean |
+| `Int` | JSON tam sayı |
+| `Double` | JSON ondalık sayı |
+| `Str` | JSON string |
+| `Arr` | JSON dizi |
+| `Obj` | JSON nesne |
+
+### struct Json
+
+Statik fabrika — bir belge oluşturur veya ayrıştırır. Döndürülen değer belgenin sahibidir.
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `parse` | `(s: String) -> JsonValue` | JSON string'ini ayrıştırır; kök düğümü sahip olarak döndürür |
+| `object` | `() -> JsonObject` | Yeni boş bir JSON nesne belgesi oluşturur |
+| `array` | `() -> JsonArray` | Yeni boş bir JSON dizi belgesi oluşturur |
+
+### struct JsonValue
+
+Tek bir JSON düğümü. `owns` `true` ise belgenin sahibidir ve bırakılınca ağacı serbest bırakır; aksi hâlde bir ödünçtür.
+
+**Tür kontrolü**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `kind` | `() -> JsonKind` | Düğümün türünü döndürür |
+| `isNull` | `() -> bool` | Düğüm JSON null ise true |
+| `isBool` | `() -> bool` | Düğüm boolean ise true |
+| `isInt` | `() -> bool` | Düğüm tam sayı ise true |
+| `isDouble` | `() -> bool` | Düğüm ondalık ise true |
+| `isString` | `() -> bool` | Düğüm string ise true |
+| `isArray` | `() -> bool` | Düğüm dizi ise true |
+| `isObject` | `() -> bool` | Düğüm nesne ise true |
+
+**Skaler okuma** (yanlış türde varsayılana düşer: `""`, `0`, `0.0`, `false`)
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `asString` | `() -> String` | String olarak oku |
+| `asInt` | `() -> i64` | Tam sayı olarak oku |
+| `asFloat` | `() -> f64` | Ondalık olarak oku (JSON tam sayıları da kabul eder) |
+| `asBool` | `() -> bool` | Boolean olarak oku |
+
+**Gezinme (ödünç)**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `object` | `() -> JsonObject` | Bu düğümü nesne ödüncü olarak yeniden yorumla |
+| `array` | `() -> JsonArray` | Bu düğümü dizi ödüncü olarak yeniden yorumla |
+
+**Serileştirme**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `toString` | `() -> String` | Sıkıştırılmış JSON string'i |
+| `toStringPretty` | `(indent: i32) -> String` | Girintili JSON string'i |
+
+### struct JsonObject
+
+Bir JSON nesne düğümüne ödünç (ya da sahip) tutamaç.
+
+**Abonelik indeksleyici** — `obj["anahtar"]` bir `JsonValue` ödüncü döndürür.
+
+**İnceleme**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `has` | `(key: String) -> bool` | Anahtar mevcutsa true |
+| `count` | `() -> i32` | Anahtar sayısı |
+| `keys` | `() -> [String]` | Tüm anahtarlar string dizisi olarak |
+
+**Okuma — get\* (eksik/yanlış türde varsayılana düşer)**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `get` | `(key: String) -> JsonValue` | Anahtarın ham düğüm ödüncü |
+| `getString` | `(key: String) -> String` | String değer veya `""` |
+| `getInt` | `(key: String) -> i64` | Tam sayı değer veya `0` |
+| `getFloat` | `(key: String) -> f64` | Ondalık değer veya `0.0` (JSON tam sayıları da kabul eder) |
+| `getBool` | `(key: String) -> bool` | Boolean değer veya `false` |
+| `getObject` | `(key: String) -> JsonObject` | Anahtar için nesne ödüncü |
+| `getArray` | `(key: String) -> JsonArray` | Anahtar için dizi ödüncü |
+
+**Okuma — try\* (eksik/yanlış türde nil döner)**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `tryString` | `(key: String) -> String?` | String veya `nil` |
+| `tryInt` | `(key: String) -> i64?` | Tam sayı veya `nil` |
+| `tryFloat` | `(key: String) -> f64?` | Ondalık veya `nil` (JSON tam sayıları da kabul eder) |
+| `tryBool` | `(key: String) -> bool?` | Boolean veya `nil` |
+
+**Yazma**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `setString` | `(key: String, val: String)` | String değer yaz |
+| `setInt` | `(key: String, val: i64)` | Tam sayı değer yaz |
+| `setFloat` | `(key: String, val: f64)` | Ondalık değer yaz |
+| `setBool` | `(key: String, val: bool)` | Boolean değer yaz |
+| `setNull` | `(key: String)` | Null değer yaz |
+| `setObject` | `(key: String) -> JsonObject` | Boş nesne oluştur/değiştir; ödünç döndürür |
+| `setArray` | `(key: String) -> JsonArray` | Boş dizi oluştur/değiştir; ödünç döndürür |
+| `remove` | `(key: String)` | Anahtarı kaldır |
+
+**Yol erişimi**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `path` | `(p: String) -> JsonValue` | Nokta ile ayrılmış yolla oku, örn. `"kullanici.isim"` |
+| `setPathString` | `(p: String, val: String)` | Yolla yaz; ara nesneleri otomatik oluşturur |
+| `setPathInt` | `(p: String, val: i64)` | Yolla tam sayı yaz |
+| `setPathFloat` | `(p: String, val: f64)` | Yolla ondalık yaz |
+| `setPathBool` | `(p: String, val: bool)` | Yolla boolean yaz |
+
+**Serileştirme**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `toString` | `() -> String` | Sıkıştırılmış JSON string'i |
+| `toStringPretty` | `(indent: i32) -> String` | Girintili JSON string'i |
+
+### struct JsonArray
+
+Bir JSON dizi düğümüne ödünç (ya da sahip) tutamaç.
+
+**Abonelik indeksleyici** — `arr[i]` (`i: i64`) bir `JsonValue` ödüncü döndürür.
+
+**İnceleme**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `count` | `() -> i32` | Eleman sayısı |
+| `length` | `() -> i32` | `count` için takma ad |
+
+**Okuma**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `at` | `(i: i64) -> JsonValue` | İndeksteki ham düğüm ödüncü |
+| `getString` | `(i: i64) -> String` | İndeksteki string veya `""` |
+| `getInt` | `(i: i64) -> i64` | İndeksteki tam sayı veya `0` |
+| `getFloat` | `(i: i64) -> f64` | İndeksteki ondalık veya `0.0` |
+| `getBool` | `(i: i64) -> bool` | İndeksteki boolean veya `false` |
+| `getObject` | `(i: i64) -> JsonObject` | İndeksteki nesne ödüncü |
+| `getArray` | `(i: i64) -> JsonArray` | İndeksteki dizi ödüncü |
+
+**Yazma**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `addString` | `(val: String)` | String eleman ekle |
+| `addInt` | `(val: i64)` | Tam sayı eleman ekle |
+| `addFloat` | `(val: f64)` | Ondalık eleman ekle |
+| `addBool` | `(val: bool)` | Boolean eleman ekle |
+| `addNull` | `()` | Null eleman ekle |
+| `addObject` | `() -> JsonObject` | Boş nesne ekle; ödünç döndürür |
+| `addArray` | `() -> JsonArray` | Boş dizi ekle; ödünç döndürür |
+
+**Serileştirme**
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `toString` | `() -> String` | Sıkıştırılmış JSON string'i |
+| `toStringPretty` | `(indent: i32) -> String` | Girintili JSON string'i |
+
+### Varsayılana düşme ile try\* semantiği
+
+`JsonObject` üzerindeki `getString`/`getInt`/`getFloat`/`getBool` ve `JsonArray` üzerindeki eşdeğer indeksli okumalar her zaman bir değer döndürür — anahtar yoksa ya da düğüm yanlış türdeyse `""`, `0`, `0.0` veya `false`. "Anahtar yok" ile "varsayılan değerli anahtar mevcut" arasında ayrım yapmanız gerektiğinde `try*` varyantlarını (`tryString`, `tryInt`, `tryFloat`, `tryBool`) kullanın. `asFloat`/`tryFloat` ayrıca JSON tam sayı düğümlerini de kabul eder (otomatik dönüşüm yapar).
 
 ### Örnek
 
 ```liva
-import std::json
+import json::json
 
 func main() {
-    let data = jsonParse("{\"name\": \"Alice\", \"age\": 30}")
-    println(data)
+    // Ayrıştırma ve okuma
+    let doc = Json.parse("{\"user\":{\"name\":\"liva\",\"age\":3},\"tags\":[\"a\",\"b\"]}")
+    let root = doc.object()
+    println(root.path("user.name").asString())        // liva
+    println(root.getObject("user").getInt("age"))      // 3
+    println(root.getArray("tags").getString(0 as i64)) // a
+    println(root["user"]["name"].asString())           // liva (indeksleyici)
 
-    let json = jsonStringify([1, 2, 3])
-    println(json)  // [1,2,3]
+    // Oluşturma ve serileştirme
+    var out = Json.object()
+    out.setString("name", "yeni")
+    var tags = out.setArray("tags")
+    tags.addString("x")
+    out.setPathInt("meta.count", 1)
+    println(out.toString())
 }
 ```
+
+### v1 sınırlamaları
+
+- Yalnızca katı JSON: yorumlar ve sondaki virgüller ayrıştırma hatasıdır.
+- `setPath*` ara düğümleri otomatik olarak **nesne** olarak oluşturur; sayısal yol segmentleri (örn. `"items.0.name"`) dizi indeksi değil, nesne anahtarı olarak işlenir.
+- String literal'lerdeki `\uXXXX` vekil çiftleri tek bir kod noktasına birleştirilmez.
+- Abonelik atama (`obj["k"] = v`) desteklenmez; `setString`, `setInt` vb. kullanın.
 
 ---
 
