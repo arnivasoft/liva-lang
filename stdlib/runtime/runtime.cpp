@@ -4404,6 +4404,19 @@ int64_t liva_json_arr_at(int64_t nodeH, int64_t idx) {
     if (n->kind != K_Array || idx < 0 || (size_t)idx >= n->arr.size()) return 0;
     return reinterpret_cast<int64_t>(n->arr[idx]);
 }
+char** liva_json_obj_keys(int64_t nodeH, int64_t* count) {
+    using namespace livajson;
+    if (count) *count = 0;
+    if (!nodeH || !count) return nullptr;
+    Node* n = asNode(nodeH);
+    if (n->kind != K_Object || n->obj.empty()) return nullptr;
+    *count = (int64_t)n->obj.size();
+    char** result = (char**)malloc(n->obj.size() * sizeof(char*));
+    if (!result) { *count = 0; return nullptr; }
+    for (size_t i = 0; i < n->obj.size(); i++)
+        result[i] = strdup_safe(n->obj[i].first.c_str());
+    return result;
+}
 
 } // end DOM extern "C"
 

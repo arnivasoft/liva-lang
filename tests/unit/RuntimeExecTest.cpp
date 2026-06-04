@@ -1097,4 +1097,20 @@ func main() {
     EXPECT_NE(r.stdout_output.find("2"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonObjectKeys) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    let doc = Json.parse("{\"a\":1,\"b\":2,\"c\":3}")
+    let o = doc.object()
+    let ks = o.keys()
+    for k in ks { println(k) }
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_keys");
+    EXPECT_NE(r.stdout_output.find("a"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("b"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("c"), std::string::npos) << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

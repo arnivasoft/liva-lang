@@ -136,6 +136,7 @@ impl JsonObject {
     }
     pub func toString(ref self) -> String { return jsonToString(self.nodeHandle) }
     pub func toStringPretty(ref self, indent: i32) -> String { return jsonToStringPretty(self.nodeHandle, indent) }
+    pub func keys(ref self) -> [String] { return jsonObjKeys(self.nodeHandle) }
 }
 
 pub struct Json {}

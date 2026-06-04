@@ -4116,6 +4116,24 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(daTy, daAlloca, "jsonkeys.da.val");
     }
 
+    if (funcName == "jsonObjKeys" && !node->getArgs().empty()) {
+        auto *nodeArg = visit(node->getArgs()[0].get());
+        if (!nodeArg) return nullptr;
+        auto *fn = getOrPanic("liva_json_obj_keys");
+        auto *i64Ty = builder_->getInt64Ty();
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *countAlloca = createEntryBlockAlloca(curFunc, "jsonkeys.count", i64Ty);
+        builder_->CreateStore(builder_->getInt64(0), countAlloca);
+        auto *rawArr = builder_->CreateCall(fn, {nodeArg, countAlloca}, "jsonkeys.raw");
+        auto *count = builder_->CreateLoad(i64Ty, countAlloca, "jsonkeys.count");
+        auto *daTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(curFunc, "jsonkeys.da", daTy);
+        builder_->CreateStore(rawArr, builder_->CreateStructGEP(daTy, daAlloca, 0));
+        builder_->CreateStore(count, builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(count, builder_->CreateStructGEP(daTy, daAlloca, 2));
+        return builder_->CreateLoad(daTy, daAlloca, "jsonkeys.da.val");
+    }
+
     if (funcName == "jsonCreate" && node->getArgs().empty()) {
         auto *fn = getOrPanic("liva_json_create");
         auto *r = builder_->CreateCall(fn, {}, "json.create");

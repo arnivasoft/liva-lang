@@ -1060,6 +1060,8 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_json_arr_count", llvm::FunctionType::get(i32Ty, {i64Ty}, false));
     // liva_json_arr_at(nodeH, idx) -> i64
     module_->getOrInsertFunction("liva_json_arr_at", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty}, false));
+    // liva_json_obj_keys(nodeH, &count) -> char**
+    module_->getOrInsertFunction("liva_json_obj_keys", llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy}, false));
 
     // === Logging ===
     auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);

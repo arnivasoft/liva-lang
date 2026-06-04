@@ -136,7 +136,8 @@ void TypeChecker::registerBuiltins() {
                         "jsonNodeAsInt", "jsonNodeAsFloat", "jsonNodeAsBool", "jsonNodeAsString",
                         "jsonToString", "jsonToStringPretty",
                         "jsonObjGet", "jsonObjHas", "jsonObjCount",
-                        "jsonArrCount", "jsonArrAt"}) {
+                        "jsonArrCount", "jsonArrAt",
+                        "jsonObjKeys"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2534,6 +2535,9 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "jsonGetBool" || ident->getName() == "jsonIsValid") {
             node->setResolvedType(makeBoolType());
         } else if (ident->getName() == "jsonKeys") {
+            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
+            node->setResolvedType(std::move(arrType));
+        } else if (ident->getName() == "jsonObjKeys") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
             node->setResolvedType(std::move(arrType));
         } else if (ident->getName() == "jsonCreate" || ident->getName() == "jsonSet" ||

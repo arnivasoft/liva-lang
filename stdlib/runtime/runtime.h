@@ -758,6 +758,9 @@ int32_t liva_json_arr_count(int64_t nodeH);
 /// Return the node handle for element at index idx of an array node (0 if out of bounds).
 int64_t liva_json_arr_at(int64_t nodeH, int64_t idx);
 
+/// Return all keys of an object node as a malloc'd char** array; *count set to length.
+char**  liva_json_obj_keys(int64_t nodeH, int64_t* count);
+
 // === JSON (legacy string-based) ===
 
 /// Get string value by key from JSON object, returns malloc'd string or NULL
