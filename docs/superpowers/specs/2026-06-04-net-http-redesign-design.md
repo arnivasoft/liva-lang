@@ -26,9 +26,12 @@ Two cooperating modules:
 
 `net::net` has no dependency on `http`; `http::http` imports `net::net` and `json::json`.
 
-### Critical compiler constraint (verified 2026-06-04)
+### Compiler constraints discovered while planning (verified 2026-06-04)
 
-`return self` from a `mut self` method that returns the struct **by value** fails LLVM verification (`ret ptr %self` vs struct return type) — the receiver is a pointer and is returned as-is instead of being loaded. **Therefore all chainable builder methods take `self` by value (NOT `mut self`) and return a freshly-constructed struct** copying all fields and modifying one. This immutable-builder pattern was compiled and run successfully:
+Three friction points surfaced when prototyping the wrappers. Two are worked around in stdlib; one is fixed as a general compiler capability.
+
+**1. `return self` (by value) is broken — work around with an immutable builder.**
+`return self` from a `mut self` method returning the struct **by value** fails LLVM verification (`ret ptr %self` vs struct return type) — the receiver pointer is returned instead of a loaded value. **Therefore all chainable builder methods take `self` by value (NOT `mut self`) and return a freshly-constructed struct** copying all fields and modifying one. Compiled and run successfully:
 
 ```liva
 pub func header(self, name: String, value: String) -> HttpRequest {
@@ -37,8 +40,12 @@ pub func header(self, name: String, value: String) -> HttpRequest {
                          timeoutMs: self.timeoutMs }
 }
 ```
+We do **not** fix the `return self` limitation (out of scope; immutable builder is idiomatic).
 
-We do **not** fix the compiler `return self` limitation here (out of scope; the immutable pattern is idiomatic and sufficient).
+**2. Integer literals are strictly i32 and do not widen to i64 — FIXED here (general capability).**
+`len()`/`indexOf()` return i64; mixing their result with an i32 literal in a binary op (`len(s) - 1`, `len(s) > 0`, `ci + 1`) fails LLVM verification (`add i64, i32`). Sema permits the mix; only codegen mismatches. **Fix:** in `IRGen::visitBinaryExpr`, after evaluating both operands, when both are integers of different widths **and one operand is an `llvm::ConstantInt` (a literal)**, sign-extend that constant to the wider type. Constant-only widening covers every friction case (the narrow side is always a small signed literal) while avoiding the unsigned-value sign-extension hazard from the JSON work (a non-constant unsigned operand is left untouched → still requires an explicit `as i64`). This is the first task and lands before the stdlib rewrites so `len(x) > 0` compiles cleanly.
+
+**3. `String` has no `==`/`!=` (no `Eq`).** Emptiness is tested with `len(x) > 0` (clean once #2 lands). String equality is not needed by this design.
 
 ---
 
@@ -56,9 +63,9 @@ pub struct Url {
 ```
 
 **Static / construction**
-- `Url.parse(s: String) -> Url` — splits `scheme://host:port/path?query#fragment` using Liva string operations. Missing components become empty / port 0. Robust to no-scheme, no-port, no-query, no-fragment.
-- `Url.encode(s: String) -> String` — percent-encode a single component (native `urlEncode`).
-- `Url.decode(s: String) -> String` — percent-decode (native `urlDecode`).
+- `Url.parse(s: String) -> Url` — **native-backed**: populates the six fields by calling component-accessor natives (`urlScheme/urlHost/urlPort/urlPath/urlQuery/urlFragment`) once. Parsing lives in `runtime.cpp` (a shared `parse_url_parts` helper), consistent with the JSON parser being native. Missing components become empty / port 0. Robust to no-scheme, no-port, no-query, no-fragment. (Pure-Liva parsing was rejected: it hit constraints #2/#3 above plus a `parseInt(substring(...))` inference glitch — native parsing is robust and avoids all of it.)
+- `Url.encode(s: String) -> String` — percent-encode a single component. The native `urlEncode`/`urlDecode` builtins **already exist and are fully bound** (`liva_url_encode`/`liva_url_decode`, space → `%20`, RFC 3986 unreserved kept); the wrapper just calls them.
+- `Url.decode(s: String) -> String` — percent-decode (existing native `urlDecode`).
 
 **Builder (immutable, chainable — `self` by value, returns new `Url`)**
 - `withScheme(scheme: String) -> Url`
@@ -69,9 +76,9 @@ pub struct Url {
 - `withQuery(key: String, value: String) -> Url` — appends `encode(key)=encode(value)` to `query`, joining with `&` when `query` is non-empty.
 
 **Serialization**
-- `toString() -> String` — reassembles: `scheme://host[:port][path][?query][#fragment]`. Omits empty parts. If `scheme` is empty, emits `host`/`path` without `scheme://`.
+- `toString() -> String` — reassembles in pure Liva string concat: `scheme://host[:port][path][?query][#fragment]`. Omits empty parts (tested via `len(x) > 0`). If `scheme` is empty, emits `host`/`path` without `scheme://`.
 
-Parsing and reassembly are pure Liva string code; only `encode`/`decode` are native (hex conversion is error-prone in-language).
+Parsing is native (`parse_url_parts` + six accessors); reassembly and the immutable builders are pure Liva string concat (no index arithmetic). `encode`/`decode` reuse the pre-existing `urlEncode`/`urlDecode` builtins.
 
 ---
 
@@ -168,13 +175,20 @@ HttpRequest{method,url,body,headers,timeoutMs}
 ### New
 | Liva builtin | C symbol | Signature | Notes |
 |---|---|---|---|
-| `urlEncode` | `liva_url_encode` | `(char* s) -> char*` | percent-encode a component (RFC 3986 unreserved kept) |
-| `urlDecode` | `liva_url_decode` | `(char* s) -> char*` | percent-decode |
+| `urlScheme` | `liva_url_scheme` | `(char* url) -> char*` | scheme without `://` (empty if none) |
+| `urlHost` | `liva_url_host` | `(char* url) -> char*` | host only (no port) |
+| `urlPort` | `liva_url_port` | `(char* url) -> i32` | port, `0` if unspecified |
+| `urlPath` | `liva_url_path` | `(char* url) -> char*` | path incl. leading `/` (empty if none) |
+| `urlQuery` | `liva_url_query` | `(char* url) -> char*` | raw query without leading `?` |
+| `urlFragment` | `liva_url_fragment` | `(char* url) -> char*` | fragment without leading `#` |
 | `httpRequestEx` | `liva_http_req_ex` | `(char* method, char* url, char* body, char* headersBlob, i64 timeout) -> i64` | splits `headersBlob` on `\r\n` into name/value pairs, calls existing `curl_request_full`/`winhttp_request_full`; returns handle (0 on failure) |
 | `httpRawHeaders` | `liva_http_raw_headers` | `(i64 handle) -> char*` | CRLF-joined header block from the parsed response |
 | `httpHeaderLookup` | `liva_http_header_lookup` | `(char* blob, char* name) -> char*` | case-insensitive lookup in a CRLF header blob; `nullptr` if absent (→ `String?`) |
 
-`httpRequestEx` reuses the already-present full-request implementations (`curl_request_full` takes `const char **headers, int64_t header_count`; the new native builds that array by splitting the blob). The header blob format (`Name: Value\r\n`) is shared between request assembly and response capture.
+The six `url*` accessors share one static `parse_url_parts(const char*)` helper in `runtime.cpp` (uses `atoi` for the port per the MinGW `-fno-exceptions` rule). `httpRequestEx` reuses the already-present full-request implementations (`curl_request_full` takes `const char **headers, int64_t header_count`; the new native builds that array by splitting the blob). The header blob format (`Name: Value\r\n`) is shared between request assembly and response capture.
+
+### Already exist (reuse, do not re-create)
+`urlEncode`/`urlDecode` → `liva_url_encode`/`liva_url_decode` are already implemented and bound across all six layers (space → `%20`, RFC 3986 unreserved kept). `Url.encode`/`Url.decode` simply call them.
 
 ### Retained
 - `httpStatus` → `liva_http_req_status`
@@ -253,3 +267,5 @@ Update every consumer of the old API:
 - WebSocket (separate module).
 - Fixing the compiler `return self` limitation (use the immutable-builder pattern instead).
 - `Url` userinfo (`user:pass@`) parsing.
+
+**In scope (added during planning):** a general compiler fix so i32 **literals** widen to i64 in mixed-width binary ops (constant-operand-only, see constraint #2). This is the first task and is broadly useful beyond net/http.
