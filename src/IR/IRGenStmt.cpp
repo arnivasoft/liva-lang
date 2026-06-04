@@ -315,7 +315,7 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
             vars_.movedVars.insert(retIdent->getName());
         }
         // When the return expression wraps a temp string in Optional<string>
-        // (e.g. `return jsonGet(...)`), the raw pointer is still in
+        // (e.g. `return convert::toStr(...)`), the raw pointer is still in
         // vars_.tempStrings but is now logically owned by the Optional we return.
         // Clear the list to avoid emitting `free(raw)` *after* our ret in the
         // surrounding visitBlockStmt's per-statement cleanup pass.
