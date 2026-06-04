@@ -401,110 +401,61 @@ TEST_F(StdlibModuleTest, ImportHttpModule) {
     EXPECT_TRUE(r.passed) << "import http::http should resolve HttpClient";
 }
 
-TEST_F(StdlibModuleTest, HttpClientMethods) {
+TEST_F(StdlibModuleTest, HttpRequestBuilderChain) {
     auto r = check(
         "import http::http\n"
         "func main() {\n"
-        "    let client = HttpClient.withBaseUrl(\"https://api.example.com\")\n"
-        "    let resp = client.get(\"/users\")\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpClient get should type-check";
-}
-
-TEST_F(StdlibModuleTest, HttpClientPostPutPatchDelete) {
-    auto r = check(
-        "import http::http\n"
-        "func main() {\n"
-        "    let client = HttpClient.new()\n"
-        "    let r1 = client.post(\"/api\", \"{\\\"key\\\": 1}\")\n"
-        "    let r2 = client.put(\"/api/1\", \"{}\")\n"
-        "    let r3 = client.patch(\"/api/1\", \"{}\")\n"
-        "    let r4 = client.delete(\"/api/1\")\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpClient post/put/patch/delete should type-check";
-}
-
-TEST_F(StdlibModuleTest, HttpResponseStruct) {
-    auto r = check(
-        "import http::http\n"
-        "func main() {\n"
-        "    let resp = HttpResponse { handle: 0, status: 200, body: \"hello\", ok: true }\n"
-        "    let t = resp.text()\n"
-        "    let o = resp.isOk()\n"
-        "    let c = resp.statusCode()\n"
-        "    let ok2 = resp.is2xx()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpResponse struct should type-check";
-}
-
-TEST_F(StdlibModuleTest, HttpResponseStatusCategories) {
-    auto r = check(
-        "import http::http\n"
-        "func main() {\n"
-        "    let resp = HttpResponse { handle: 0, status: 404, body: \"\", ok: false }\n"
-        "    let c4 = resp.is4xx()\n"
-        "    let c5 = resp.is5xx()\n"
-        "    let c3 = resp.is3xx()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpResponse status category methods should type-check";
-}
-
-TEST_F(StdlibModuleTest, HttpClientSend) {
-    auto r = check(
-        "import http::http\n"
-        "func main() {\n"
-        "    var c = HttpClient.new()\n"
-        "    c.withTimeout(5000)\n"
-        "    let resp = c.send(\"GET\", \"http://example.com\", \"\")\n"
+        "    let resp = HttpRequest.get(\"http://x.com\")\n"
+        "        .header(\"Accept\", \"application/json\")\n"
+        "        .query(\"page\", \"2\")\n"
+        "        .timeout(5000)\n"
+        "        .send()\n"
         "    let s = resp.statusCode()\n"
-        "    let h = resp.header(\"Content-Type\")\n"
+        "    let ok = resp.isOk()\n"
+        "    let body = resp.text()\n"
+        "    let ct = resp.header(\"Content-Type\")\n"
         "}\n",
         true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpClient.send + response header should type-check";
+    EXPECT_TRUE(r.passed) << "HttpRequest builder chain should type-check";
 }
 
-TEST_F(StdlibModuleTest, HttpClientFullMethods) {
+TEST_F(StdlibModuleTest, HttpRequestJsonBody) {
     auto r = check(
         "import http::http\n"
         "func main() {\n"
-        "    let c = HttpClient.new()\n"
-        "    let r1 = c.getFull(\"http://example.com\")\n"
-        "    let r2 = c.postFull(\"http://example.com\", \"data\")\n"
-        "    let r3 = c.putFull(\"http://example.com/1\", \"data\")\n"
-        "    let r4 = c.patchFull(\"http://example.com/1\", \"{}\")\n"
-        "    let r5 = c.deleteFull(\"http://example.com/1\")\n"
+        "    let resp = HttpRequest.post(\"http://x.com/api\").json(\"{\\\"a\\\":1}\").send()\n"
+        "    let cat = resp.is2xx()\n"
         "}\n",
         true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpClient full methods should type-check";
+    EXPECT_TRUE(r.passed) << "HttpRequest.json + send should type-check";
 }
 
-TEST_F(StdlibModuleTest, HttpConvenienceFunctions) {
-    // Use HttpClient directly — convenience wrapper for simple HTTP calls
+TEST_F(StdlibModuleTest, HttpResponseJsonParse) {
+    auto r = check(
+        "import http::http\n"
+        "import json::json\n"
+        "func main() {\n"
+        "    let resp = HttpRequest.get(\"http://x.com\").send()\n"
+        "    let doc = resp.json()\n"
+        "    let k = doc.kind()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "HttpResponse.json() should type-check as JsonValue";
+}
+
+TEST_F(StdlibModuleTest, HttpClientDefaultsAndRequest) {
     auto r = check(
         "import http::http\n"
         "func main() {\n"
-        "    let client = HttpClient.new()\n"
-        "    let r1 = client.get(\"https://example.com\")\n"
-        "    let r2 = client.post(\"https://example.com\", \"data\")\n"
+        "    let c = HttpClient.withBaseUrl(\"https://api.example.com\")\n"
+        "        .withTimeout(5000)\n"
+        "        .withHeader(\"Authorization\", \"Bearer t\")\n"
+        "    let r1 = c.get(\"/users\")\n"
+        "    let r2 = c.post(\"/users\", \"{}\")\n"
+        "    let req = c.request(\"GET\", \"/items\").query(\"page\", \"1\").send()\n"
         "}\n",
         true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpClient convenience calls should type-check";
-}
-
-TEST_F(StdlibModuleTest, HttpHeadersBuilder) {
-    auto r = check(
-        "import http::http\n"
-        "func main() {\n"
-        "    var headers = HttpHeaders.new()\n"
-        "    headers.set(\"Content-Type\", \"application/json\")\n"
-        "    let s = headers.toString()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "HttpHeaders builder should type-check";
+    EXPECT_TRUE(r.passed) << "HttpClient defaults + request seed should type-check";
 }
 
 // ============================================================

@@ -1308,4 +1308,23 @@ func main() {
     EXPECT_NE(r.stdout_output.find("absent"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, HttpRequestBuilderAssemblesHeaders) {
+    std::string source = R"LIVA(
+import http::http
+func main() {
+    let req = HttpRequest.post("http://x.com")
+        .header("Authorization", "Bearer t")
+        .json("{}")
+    print(req.headers)
+    print(req.body)
+    print(req.method)
+}
+)LIVA";
+    auto r = compileAndRun(source, "http_req_headers");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("Authorization: Bearer t"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("application/json"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("POST"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM

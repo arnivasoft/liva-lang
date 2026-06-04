@@ -1,26 +1,28 @@
-// http::http — Ergonomic HTTP client wrapper API
+// http::http — ergonomic HTTP client (fluent builder + handle-free response)
 // Import with: import http::http
 
 import std::net
+import net::net
+import json::json
 
 // =============================================================
-// HttpResponse — rich response with status, body, headers
+// HttpResponse — handle-free; send() eager-copies everything
 // =============================================================
 
 pub struct HttpResponse {
-    var handle: i64
     var status: i32
     var body: String
+    var rawHeaders: String
     var ok: bool
 }
 
 impl HttpResponse {
-    pub func text(ref self) -> String {
-        return self.body
-    }
-
     pub func statusCode(ref self) -> i32 {
         return self.status
+    }
+
+    pub func text(ref self) -> String {
+        return self.body
     }
 
     pub func isOk(ref self) -> bool {
@@ -44,111 +46,148 @@ impl HttpResponse {
     }
 
     pub func header(ref self, name: String) -> String? {
-        return httpHeader(self.handle, name)
+        return httpHeaderLookup(self.rawHeaders, name)
     }
 
-    pub func close(mut self) {
-        httpClose(self.handle)
-    }
-}
-
-// =============================================================
-// HttpHeaders — simple builder (builds header-line strings)
-// =============================================================
-
-pub struct HttpHeaders {
-    var data: String
-}
-
-impl HttpHeaders {
-    pub func new() -> HttpHeaders {
-        return HttpHeaders { data: "" }
-    }
-
-    pub func set(mut self, name: String, value: String) {
-        self.data = "" + self.data + name + ": " + value + "\r\n"
-    }
-
-    pub func toString(ref self) -> String {
-        return self.data
+    pub func json(ref self) -> JsonValue {
+        return Json.parse(self.body)
     }
 }
 
 // =============================================================
-// HttpClient — request execution with timeout
+// HttpRequest — fluent immutable builder
+// =============================================================
+
+pub struct HttpRequest {
+    var method: String
+    var url: String
+    var body: String
+    var headers: String
+    var timeoutMs: i64
+}
+
+impl HttpRequest {
+    pub func get(url: String) -> HttpRequest {
+        return HttpRequest { method: "GET", url: url, body: "", headers: "", timeoutMs: 30000 }
+    }
+
+    pub func post(url: String) -> HttpRequest {
+        return HttpRequest { method: "POST", url: url, body: "", headers: "", timeoutMs: 30000 }
+    }
+
+    pub func put(url: String) -> HttpRequest {
+        return HttpRequest { method: "PUT", url: url, body: "", headers: "", timeoutMs: 30000 }
+    }
+
+    pub func patch(url: String) -> HttpRequest {
+        return HttpRequest { method: "PATCH", url: url, body: "", headers: "", timeoutMs: 30000 }
+    }
+
+    pub func delete(url: String) -> HttpRequest {
+        return HttpRequest { method: "DELETE", url: url, body: "", headers: "", timeoutMs: 30000 }
+    }
+
+    pub func header(ref self, name: String, value: String) -> HttpRequest {
+        let h = "" + self.headers + name + ": " + value + "\r\n"
+        return HttpRequest { method: self.method, url: self.url, body: self.body,
+                             headers: h, timeoutMs: self.timeoutMs }
+    }
+
+    pub func query(ref self, key: String, value: String) -> HttpRequest {
+        let pair = "" + urlEncode(key) + "=" + urlEncode(value)
+        if self.url.contains("?") {
+            return HttpRequest { method: self.method, url: "" + self.url + "&" + pair,
+                                 body: self.body, headers: self.headers, timeoutMs: self.timeoutMs }
+        }
+        return HttpRequest { method: self.method, url: "" + self.url + "?" + pair,
+                             body: self.body, headers: self.headers, timeoutMs: self.timeoutMs }
+    }
+
+    pub func body(ref self, content: String) -> HttpRequest {
+        return HttpRequest { method: self.method, url: self.url, body: content,
+                             headers: self.headers, timeoutMs: self.timeoutMs }
+    }
+
+    pub func json(ref self, content: String) -> HttpRequest {
+        let h = "" + self.headers + "Content-Type: application/json\r\n"
+        return HttpRequest { method: self.method, url: self.url, body: content,
+                             headers: h, timeoutMs: self.timeoutMs }
+    }
+
+    pub func timeout(ref self, ms: i64) -> HttpRequest {
+        return HttpRequest { method: self.method, url: self.url, body: self.body,
+                             headers: self.headers, timeoutMs: ms }
+    }
+
+    pub func send(ref self) -> HttpResponse {
+        let handle = httpRequestEx(self.method, self.url, self.body, self.headers, self.timeoutMs)
+        if handle == 0 {
+            return HttpResponse { status: 0, body: "", rawHeaders: "", ok: false }
+        }
+        let status = httpStatus(handle)
+        let body = httpBody(handle)
+        let rawHeaders = httpRawHeaders(handle)
+        httpClose(handle)
+        return HttpResponse {
+            status: status,
+            body: body,
+            rawHeaders: rawHeaders,
+            ok: status >= 200 && status < 300,
+        }
+    }
+}
+
+// =============================================================
+// HttpClient — reusable defaults (baseUrl, headers, timeout)
 // =============================================================
 
 pub struct HttpClient {
     var baseUrl: String
     var timeoutMs: i64
+    var defaultHeaders: String
 }
 
 impl HttpClient {
     pub func new() -> HttpClient {
-        return HttpClient { baseUrl: "", timeoutMs: 30000 }
+        return HttpClient { baseUrl: "", timeoutMs: 30000, defaultHeaders: "" }
     }
 
     pub func withBaseUrl(url: String) -> HttpClient {
-        return HttpClient { baseUrl: url, timeoutMs: 30000 }
+        return HttpClient { baseUrl: url, timeoutMs: 30000, defaultHeaders: "" }
     }
 
-    pub func withTimeout(mut self, ms: i64) {
-        self.timeoutMs = ms
+    pub func withTimeout(ref self, ms: i64) -> HttpClient {
+        return HttpClient { baseUrl: self.baseUrl, timeoutMs: ms, defaultHeaders: self.defaultHeaders }
     }
 
-    // === Simple body-only accessors (legacy, returns String?) ===
-
-    pub func get(ref self, url: String) -> String? {
-        return httpGet(url)
+    pub func withHeader(ref self, name: String, value: String) -> HttpClient {
+        let h = "" + self.defaultHeaders + name + ": " + value + "\r\n"
+        return HttpClient { baseUrl: self.baseUrl, timeoutMs: self.timeoutMs, defaultHeaders: h }
     }
 
-    pub func post(ref self, url: String, body: String) -> String? {
-        return httpPost(url, body)
+    pub func request(ref self, method: String, path: String) -> HttpRequest {
+        let fullUrl = "" + self.baseUrl + path
+        return HttpRequest { method: method, url: fullUrl, body: "",
+                             headers: self.defaultHeaders, timeoutMs: self.timeoutMs }
     }
 
-    pub func put(ref self, url: String, body: String) -> String? {
-        return httpPut(url, body)
+    pub func get(ref self, path: String) -> HttpResponse {
+        return self.request("GET", path).send()
     }
 
-    pub func patch(ref self, url: String, body: String) -> String? {
-        return httpPatch(url, body)
+    pub func post(ref self, path: String, body: String) -> HttpResponse {
+        return self.request("POST", path).body(body).send()
     }
 
-    pub func delete(ref self, url: String) -> String? {
-        return httpDelete(url)
+    pub func put(ref self, path: String, body: String) -> HttpResponse {
+        return self.request("PUT", path).body(body).send()
     }
 
-    // === Full request API with status/headers ===
-
-    pub func send(ref self, method: String, url: String, body: String) -> HttpResponse {
-        let h = httpRequest(method, url, body, self.timeoutMs)
-        let status = httpStatus(h)
-        let text = httpBody(h)
-        return HttpResponse {
-            handle: h,
-            status: status,
-            body: text,
-            ok: status >= 200 && status < 300,
-        }
+    pub func patch(ref self, path: String, body: String) -> HttpResponse {
+        return self.request("PATCH", path).body(body).send()
     }
 
-    pub func getFull(ref self, url: String) -> HttpResponse {
-        return self.send("GET", url, "")
-    }
-
-    pub func postFull(ref self, url: String, body: String) -> HttpResponse {
-        return self.send("POST", url, body)
-    }
-
-    pub func putFull(ref self, url: String, body: String) -> HttpResponse {
-        return self.send("PUT", url, body)
-    }
-
-    pub func patchFull(ref self, url: String, body: String) -> HttpResponse {
-        return self.send("PATCH", url, body)
-    }
-
-    pub func deleteFull(ref self, url: String) -> HttpResponse {
-        return self.send("DELETE", url, "")
+    pub func delete(ref self, path: String) -> HttpResponse {
+        return self.request("DELETE", path).send()
     }
 }
