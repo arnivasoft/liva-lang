@@ -306,7 +306,7 @@ import std::os        // env, args, exit, exec, processStart/Wait/Kill/Read
 import std::random    // randInt, randFloat, randSeed, randI64, randUuid
 import std::regex     // regexMatch, regexFind/FindAll, regexSplit, derlenmiş regex
 import std::net       // httpGet/Post/Put/Patch/Delete, httpRequest (+status/başlık)
-import std::json      // jsonGet/Set/Parse + jsonStringifyPretty
+import std::json      // jsonParse + DOM düğüm builtin'leri (jsonObjGet, jsonArrAt, jsonToString, ...)
 import std::datetime  // dateNow, dateParse, dateAdd, dateDiff, dateFormat
 import std::compress  // base64/hex/urlEncode+Decode, crc32
 import std::crypto    // sha256, md5, hmacSha256, base64, hex
@@ -337,7 +337,7 @@ import fs::fs                 // FileInfo (size, modifiedTime, isDir), Dir işle
 import path::path             // Path manipülasyonu
 import http::http             // HttpClient (timeout, send), HttpResponse (status/header)
 import net::net               // Url, Request
-import json::json             // JsonObject builder + stringifyPretty
+import json::json             // Json/JsonValue/JsonObject/JsonArray ayrıştırma ağacı (tipli get, path, obj["k"])
 import crypto::crypto         // Hash/Hmac struct'ları
 import sync::sync             // Mutex, AtomicI64, Channel, TaskGroup
 import async::async           // withTaskGroup, withTimeout, raceIndex
