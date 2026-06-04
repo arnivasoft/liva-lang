@@ -289,8 +289,9 @@ let value = find([1, 2, 3], 2) ?? 0    // nil coalescing
 
 ```liva
 async func fetchData(url: string) -> string {
-    let response = await httpGet(url)
-    return response
+    // Ağ istekleri için http::http kullanın
+    let resp = HttpRequest.get(url).send()
+    return resp.text()
 }
 ```
 
@@ -305,7 +306,7 @@ import std::convert   // parseInt, parseInt64, parseFloat, toString, charToStrin
 import std::os        // env, args, exit, exec, processStart/Wait/Kill/Read
 import std::random    // randInt, randFloat, randSeed, randI64, randUuid
 import std::regex     // regexMatch, regexFind/FindAll, regexSplit, derlenmiş regex
-import std::net       // httpGet/Post/Put/Patch/Delete, httpRequest (+status/başlık)
+import std::net       // düşük seviyeli HTTP builtin'leri (httpRequestEx, httpStatus, httpBody, …)
 import std::json      // jsonParse + DOM düğüm builtin'leri (jsonObjGet, jsonArrAt, jsonToString, ...)
 import std::datetime  // dateNow, dateParse, dateAdd, dateDiff, dateFormat
 import std::compress  // base64/hex/urlEncode+Decode, crc32
@@ -335,8 +336,8 @@ import io::io                 // LineReader, LineWriter, readLines, writeLines
 import time::time             // Duration, Instant, Timer, DateTime (+ add/sub/diff gün/saat)
 import fs::fs                 // FileInfo (size, modifiedTime, isDir), Dir işlemleri
 import path::path             // Path manipülasyonu
-import http::http             // HttpClient (timeout, send), HttpResponse (status/header)
-import net::net               // Url, Request
+import http::http             // HttpRequest (akıcı oluşturucu), HttpResponse (eager-copy), HttpClient
+import net::net               // Url (ayrıştır/oluştur/kodla/çöz)
 import json::json             // Json/JsonValue/JsonObject/JsonArray ayrıştırma ağacı (tipli get, path, obj["k"])
 import crypto::crypto         // Hash/Hmac struct'ları
 import sync::sync             // Mutex, AtomicI64, Channel, TaskGroup

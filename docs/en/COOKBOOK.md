@@ -352,27 +352,55 @@ func main() {
 
 ---
 
-## 7. Async HTTP Requests
+## 7. HTTP Requests
 
-Fetch data from APIs using async/await.
+Fetch data from REST APIs using the `http::http` module.
 
 ```liva
-import std::net
-import std::json
+import http::http
+import json::json
 
-async func fetchUser(id: i32) -> string {
+// Simple GET
+func fetchUser(id: i32) -> string {
     let url = format("https://api.example.com/users/{}", id)
-    let body = await httpGet(url)
-    return body
+    let resp = HttpRequest.get(url).send()
+    if resp.is2xx() {
+        return resp.text()
+    }
+    return ""
 }
 
-async func fetchMultipleUsers(ids: [i32]) -> [string] {
+// POST with JSON body
+func createUser(name: string) -> bool {
+    let r = HttpRequest.post("https://api.example.com/users")
+        .json(format("{{\"name\":\"{}\"}}", name))
+        .send()
+    return r.is2xx()
+}
+
+// Reusable client with shared base URL, auth, and timeout
+func fetchMultipleUsers(ids: [i32]) -> [string] {
+    let client = HttpClient.withBaseUrl("https://api.example.com")
+        .withHeader("Authorization", "Bearer TOKEN")
+        .withTimeout(5000)
     var results: [string] = []
     for id in ids {
-        let user = await fetchUser(id)
-        results.push(user)
+        let r = client.get(format("/users/{}", id))
+        if r.is2xx() {
+            results.push(r.text())
+        }
     }
     return results
+}
+
+// Parse a JSON response — bind to a let; json() owns the DOM
+func fetchAndParse() {
+    let resp = HttpRequest.get("https://api.example.com/items").send()
+    if resp.is2xx() {
+        let doc = resp.json()                 // JsonValue owns the DOM
+        let root = doc.object()
+        println(root.getString("name"))
+    }
 }
 
 func main() {
@@ -384,9 +412,11 @@ func main() {
 ```
 
 **Key points:**
-- Mark functions with `async` to use `await`
-- `await` suspends until the operation completes
-- Async functions use LLVM coroutines under the hood
+- `HttpRequest` is a fluent immutable builder; each method returns a new value
+- `send()` performs the request eagerly and returns an `HttpResponse` value (no handle)
+- `HttpResponse` holds no native resource — safe to copy, return, and chain
+- `resp.json()` returns a `JsonValue` that **owns its DOM**; always bind it to a `let`
+- `HttpClient` bundles reusable defaults (base URL, headers, timeout)
 
 ---
 

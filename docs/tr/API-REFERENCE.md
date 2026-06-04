@@ -430,34 +430,11 @@ func main() {
 
 ## 10. Ağ İletişimi
 
-```liva
-import std::net
-```
+> **Not:** Düşük seviyeli `std::net` builtin'leri (`httpGet`, `httpPost` vb.) kaldırılmıştır.
+> Bunların yerine `http::http` ve `net::net` sarmalayıcı modülleri kullanın.
 
-| Fonksiyon | İmza | Açıklama |
-|-----------|------|----------|
-| `httpGet` | `(string) -> string` | HTTP GET isteği, gövdeyi döndürür |
-| `httpPost` | `(string, string) -> string` | Gövdeli HTTP POST, yanıtı döndürür |
-| `httpPut` | `(string, string) -> string` | Gövdeli HTTP PUT, yanıtı döndürür |
-| `httpDelete` | `(string) -> string` | HTTP DELETE isteği, yanıtı döndürür |
-
-### Örnek
-
-```liva
-import std::net
-
-func main() {
-    let body = httpGet("https://httpbin.org/get")
-    println(body)
-
-    let response = httpPost("https://httpbin.org/post", "{\"key\": \"value\"}")
-    println(response)
-}
-```
-
-**Platform notları:**
-- Windows: WinHTTP kullanır
-- Linux/macOS: libcurl kullanır (kurulu olmalıdır)
+Güncel API için [§22 HTTP İstemcisi (http::http)](#22-http-client-httphttp) ve
+[§26 Ağ İletişimi (net::net)](#26-networking-netnet) bölümlerine bakın.
 
 ---
 
@@ -982,21 +959,88 @@ func main() {
 
 ---
 
-## 22. HTTP Client (http::http)
+## 22. HTTP İstemcisi (http::http)
 
 ```liva
 import http::http
+import json::json
 
-let client = HttpClient.new()
-let resp = client.get("/api/users")
+// HttpRequest akıcı oluşturucusu ile tek seferlik istekler
+let resp = HttpRequest.get("https://api.example.com/users")
+    .header("Authorization", "Bearer TOKEN")
+    .query("page", "2")
+    .timeout(5000)
+    .send()                        // -> HttpResponse (eager-copy; native tanıtıcı içermez)
 
-let client2 = HttpClient.withBaseUrl("https://api.example.com")
-let r = client2.post("/data", "{}")
-let r2 = client2.put("/data/1", "{}")
-let r3 = client2.delete("/data/1")
+if resp.is2xx() {
+    let body = resp.text()
+    let ct = resp.header("Content-Type")   // -> String?
+    let doc = resp.json()                  // -> JsonValue (let'e bağlayın; DOM'a sahiptir)
+}
+
+// JSON gövdeli POST
+let r2 = HttpRequest.post("https://api.example.com/users")
+    .json("{\"name\":\"ali\"}")
+    .send()
+
+// Varsayılan temel URL, zaman aşımı ve başlıkları olan yeniden kullanılabilir HttpClient
+let client = HttpClient.withBaseUrl("https://api.example.com")
+    .withTimeout(5000)
+    .withHeader("Authorization", "Bearer TOKEN")
+let r3 = client.get("/users")                 // -> HttpResponse
+let r4 = client.post("/users", "{}")          // -> HttpResponse
+let r5 = client.request("GET", "/items").query("page", "1").send()
 ```
 
-**HttpClient**: new(), withBaseUrl(url), get(url), post(url, body), put(url, body), patch(url, body), delete(url)
+### Sahiplik / yaşam döngüsü
+
+`HttpResponse` bir **eager-copy değeridir**: `send()`, durumu, gövdeyi ve başlıkları
+yerel katmandan hemen okur, ardından bağlantıyı kapatır. Döndürülen `HttpResponse`
+hiçbir yerel tanıtıcı tutmaz; kopyalanması, döndürülmesi veya zincirlenmesi güvenlidir.
+
+`resp.json()`, yanıt gövdesini ayrıştırır ve DOM'a **sahip olan** bir `JsonValue` döndürür.
+Üzerinde metot çağırmadan önce bir `let`'e bağlayın — çağrı ifadesini zincirlemeyin.
+
+### struct HttpRequest
+
+| Metot | Açıklama |
+|-------|----------|
+| `get(url: String) -> HttpRequest` | GET isteği başlatır |
+| `post(url: String) -> HttpRequest` | POST isteği başlatır |
+| `put(url: String) -> HttpRequest` | PUT isteği başlatır |
+| `patch(url: String) -> HttpRequest` | PATCH isteği başlatır |
+| `delete(url: String) -> HttpRequest` | DELETE isteği başlatır |
+| `header(name, value) -> HttpRequest` | İstek başlığı ekler |
+| `query(key, value) -> HttpRequest` | Sorgu parametresi ekler (URL kodlamalı) |
+| `body(content: String) -> HttpRequest` | Ham istek gövdesini ayarlar |
+| `json(content: String) -> HttpRequest` | Gövdeyi ayarlar ve `Content-Type: application/json` ekler |
+| `timeout(ms: i64) -> HttpRequest` | Milisaniye cinsinden zaman aşımı ayarlar (varsayılan 30 000) |
+| `send() -> HttpResponse` | İsteği çalıştırır ve eager-copy yanıt döndürür |
+
+### struct HttpResponse
+
+| Metot | Açıklama |
+|-------|----------|
+| `statusCode() -> i32` | HTTP durum kodu (ağ hatasında 0) |
+| `text() -> String` | Yanıt gövdesi string olarak |
+| `header(name: String) -> String?` | Büyük/küçük harfe duyarsız başlık araması; yoksa `nil` |
+| `json() -> JsonValue` | Gövdeyi JSON olarak ayrıştırır — sonucu `let`'e bağlayın |
+| `isOk() -> bool` | `statusCode == 200` ise `true` |
+| `is2xx() -> bool` | `200 ≤ statusCode < 300` ise `true` |
+| `is3xx() -> bool` | `300 ≤ statusCode < 400` ise `true` |
+| `is4xx() -> bool` | `400 ≤ statusCode < 500` ise `true` |
+| `is5xx() -> bool` | `500 ≤ statusCode < 600` ise `true` |
+
+### struct HttpClient
+
+| Metot | Açıklama |
+|-------|----------|
+| `withBaseUrl(url: String) -> HttpClient` | Temel URL ile istemci oluşturur |
+| `withTimeout(ms: i64) -> HttpClient` | Varsayılan zaman aşımı ayarlar |
+| `withHeader(name, value) -> HttpClient` | Her isteğe uygulanacak varsayılan başlık ekler |
+| `get(path: String) -> HttpResponse` | `baseUrl + path` üzerinde GET çalıştırır |
+| `post(path: String, body: String) -> HttpResponse` | Gövdeli POST çalıştırır |
+| `request(method, path) -> HttpRequest` | Temel URL + varsayılanlarla oluşturucu başlatır |
 
 ## 23. Sync Primitives (sync::sync)
 
@@ -1056,18 +1100,42 @@ let replaced = re.replace("abc123", "NUM")
 
 **Regex**: new(pattern), isMatch(text), find(text), findAll(text), replace(text, replacement), groups(text), toString()
 
-## 26. Ag (net::net)
+## 26. Ağ İletişimi (net::net)
 
 ```liva
 import net::net
 
-let url = Url.parse("https://example.com")
-let req = Request.get("https://api.example.com")
-let req2 = Request.post("https://api.example.com", "data")
+// URL'yi ayrıştır ve bileşenlerini oku
+let u = Url.parse("https://api.example.com:8080/path?page=2#top")
+// u.scheme -> "https", u.host -> "api.example.com", u.port -> 8080
+// u.path -> "/path", u.query -> "page=2", u.fragment -> "top"
+
+// Değiştirilemez oluşturucu metotlar
+let u2 = u.withQuery("q", "merhaba dünya").withPath("/v2")
+let s  = u2.toString()
+
+// Yüzde kodlama yardımcıları
+let enc = Url.encode("a b&c")    // -> "a%20b%26c"
+let dec = Url.decode(enc)        // -> String?  (hatalı biçimde nil)
 ```
 
-**Url**: parse(s), toString()
-**Request**: get(url), post(url, body), put(url, body), delete(url)
+### struct Url
+
+| Metot | Açıklama |
+|-------|----------|
+| `parse(s: String) -> Url` | URL string'ini bileşenlerine ayrıştırır |
+| `encode(s: String) -> String` | String'i yüzde kodlar |
+| `decode(s: String) -> String?` | Yüzde kodlu string'i çözer; hata durumunda `nil` |
+| `toString() -> String` | URL'yi string olarak yeniden oluşturur |
+| `withScheme(v: String) -> Url` | Şema değiştirilmiş yeni Url döndürür |
+| `withHost(v: String) -> Url` | Sunucu değiştirilmiş yeni Url döndürür |
+| `withPort(v: i32) -> Url` | Port değiştirilmiş yeni Url döndürür |
+| `withPath(v: String) -> Url` | Yol değiştirilmiş yeni Url döndürür |
+| `withQuery(key, value: String) -> Url` | Sorgu parametresi ekler veya değiştirir |
+| `withFragment(v: String) -> Url` | Parça değiştirilmiş yeni Url döndürür |
+
+Alanlar: `scheme: String`, `host: String`, `port: i32`, `path: String`,
+`query: String`, `fragment: String`.
 
 ---
 

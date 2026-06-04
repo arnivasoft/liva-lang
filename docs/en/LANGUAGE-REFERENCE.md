@@ -529,9 +529,11 @@ The `pub` keyword makes a function visible to other modules.
 ### Async Functions
 
 ```liva
+import http::http
+
 async func fetchData(url: string) -> string {
-    let response = await httpGet(url)
-    return response
+    let resp = HttpRequest.get(url).send()
+    return resp.text()
 }
 ```
 
@@ -1349,7 +1351,7 @@ import std::convert       // import conversion functions
 | `std::os` | `env`, `exit`, `args`, `exec`, `cwd`, `sleep` |
 | `std::random` | `randInt`, `randFloat`, `random`, `randomChoice` |
 | `std::regex` | `regexMatch`, `regexFind`, `regexFindAll`, `regexReplace` |
-| `std::net` | `httpGet`, `httpPost`, `httpPut`, `httpDelete` |
+| `std::net` | `httpRequestEx`, `httpStatus`, `httpBody`, `httpRawHeaders`, `httpHeaderLookup`, `httpClose` |
 | `std::json` | `jsonParse`, `jsonStringify` |
 | `std::time` | `now`, `clock`, `clockMs`, `sleep` |
 | `std::channel` | `channelCreate`, `channelSend`, `channelRecv`, `channelClose` |
@@ -1395,9 +1397,11 @@ pub struct PublicStruct { var x: i32 }
 ### Async Functions
 
 ```liva
+import http::http
+
 async func fetchUser(id: i32) -> string {
-    let response = await httpGet(format("/users/{}", id))
-    return response
+    let resp = HttpRequest.get(format("https://api.example.com/users/{}", id)).send()
+    return resp.text()
 }
 ```
 
@@ -1693,13 +1697,25 @@ let replaced = regexReplace("foo bar", "bar", "baz")    // "foo baz"
 ### Networking
 
 ```liva
-import std::net
+import http::http
 
-let body = httpGet("https://example.com")
-let response = httpPost("https://api.example.com/data", "{\"key\":\"value\"}")
+// GET request
+let resp = HttpRequest.get("https://example.com").send()
+let body = resp.text()
+
+// POST with JSON body
+let r2 = HttpRequest.post("https://api.example.com/data")
+    .json("{\"key\":\"value\"}")
+    .send()
+
+// Reusable client
+let client = HttpClient.withBaseUrl("https://api.example.com")
+    .withTimeout(5000)
+let r3 = client.get("/users")      // -> HttpResponse
 ```
 
-On Windows, networking uses WinHTTP. On Linux/macOS, it uses libcurl (if available).
+`HttpResponse` is an eager-copy value — it holds no native handle, so it is safe to
+copy and return freely. On Windows, networking uses WinHTTP; on Linux/macOS, libcurl.
 
 ---
 

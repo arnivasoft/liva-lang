@@ -430,34 +430,11 @@ func main() {
 
 ## 10. Networking
 
-```liva
-import std::net
-```
+> **Note:** The low-level `std::net` builtins (`httpGet`, `httpPost`, etc.) have been
+> replaced by the `http::http` and `net::net` wrapper modules. Use those instead.
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `httpGet` | `(string) -> string` | HTTP GET request, returns body |
-| `httpPost` | `(string, string) -> string` | HTTP POST with body, returns response |
-| `httpPut` | `(string, string) -> string` | HTTP PUT with body, returns response |
-| `httpDelete` | `(string) -> string` | HTTP DELETE request, returns response |
-
-### Example
-
-```liva
-import std::net
-
-func main() {
-    let body = httpGet("https://httpbin.org/get")
-    println(body)
-
-    let response = httpPost("https://httpbin.org/post", "{\"key\": \"value\"}")
-    println(response)
-}
-```
-
-**Platform notes:**
-- Windows: Uses WinHTTP
-- Linux/macOS: Uses libcurl (must be installed)
+See [§22 HTTP Client (http::http)](#22-http-client-httphttp) and
+[§26 Networking (net::net)](#26-networking-netnet) for the current API.
 
 ---
 
@@ -1001,23 +978,92 @@ func main() {
 
 ```liva
 import http::http
+import json::json
 
-let client = HttpClient.new()
-let resp = client.get("/api/users")
+// One-shot requests via HttpRequest fluent builder
+let resp = HttpRequest.get("https://api.example.com/users")
+    .header("Authorization", "Bearer TOKEN")
+    .query("page", "2")
+    .timeout(5000)
+    .send()                        // -> HttpResponse (eager-copy; holds no native handle)
 
-let client2 = HttpClient.withBaseUrl("https://api.example.com")
-let r = client2.post("/data", "{\"key\": 1}")
-let r2 = client2.put("/data/1", "{}")
-let r3 = client2.delete("/data/1")
+if resp.is2xx() {
+    let body = resp.text()
+    let ct = resp.header("Content-Type")   // -> String?
+    let doc = resp.json()                  // -> JsonValue (bind to let; owns its DOM)
+}
+
+// POST with a JSON body
+let r2 = HttpRequest.post("https://api.example.com/users")
+    .json("{\"name\":\"alice\"}")
+    .send()
+
+// Reusable HttpClient with default base URL, timeout, and headers
+let client = HttpClient.withBaseUrl("https://api.example.com")
+    .withTimeout(5000)
+    .withHeader("Authorization", "Bearer TOKEN")
+let r3 = client.get("/users")                 // -> HttpResponse
+let r4 = client.post("/users", "{}")          // -> HttpResponse
+let r5 = client.request("GET", "/items").query("page", "1").send()
 ```
 
-### Structs
+### Ownership / lifecycle
 
-| Struct | Methods | Description |
-|--------|---------|-------------|
-| `HttpClient` | `new`, `withBaseUrl`, `get`, `post`, `put`, `patch`, `delete` | HTTP client for making requests |
-| `HttpResponse` | `body`, `ok` | Response from an HTTP request |
-| `HttpHeaders` | `new`, `set`, `toString` | HTTP header collection |
+`HttpResponse` is an **eager-copy value**: `send()` reads the status, body, and headers
+from the native layer immediately, then closes the connection. The returned
+`HttpResponse` holds no native handle and is safe to copy, return, or chain without
+worrying about lifetimes or `Drop`.
+
+`resp.json()` parses the response body and returns a `JsonValue` that **owns its DOM**.
+Bind it to a `let` before calling methods on it — do not chain off the call expression.
+
+### struct HttpRequest
+
+Static constructors (all return an `HttpRequest` builder):
+
+| Method | Description |
+|--------|-------------|
+| `get(url: String) -> HttpRequest` | Start a GET request |
+| `post(url: String) -> HttpRequest` | Start a POST request |
+| `put(url: String) -> HttpRequest` | Start a PUT request |
+| `patch(url: String) -> HttpRequest` | Start a PATCH request |
+| `delete(url: String) -> HttpRequest` | Start a DELETE request |
+
+Builder methods (each returns a new `HttpRequest`):
+
+| Method | Description |
+|--------|-------------|
+| `header(name, value) -> HttpRequest` | Add a request header |
+| `query(key, value) -> HttpRequest` | Append a query parameter (URL-encoded) |
+| `body(content: String) -> HttpRequest` | Set the raw request body |
+| `json(content: String) -> HttpRequest` | Set body and add `Content-Type: application/json` |
+| `timeout(ms: i64) -> HttpRequest` | Set timeout in milliseconds (default 30 000) |
+| `send() -> HttpResponse` | Execute the request and return an eager-copy response |
+
+### struct HttpResponse
+
+| Method | Description |
+|--------|-------------|
+| `statusCode() -> i32` | HTTP status code (0 on network failure) |
+| `text() -> String` | Response body as a string |
+| `header(name: String) -> String?` | Case-insensitive header lookup; `nil` if absent |
+| `json() -> JsonValue` | Parse body as JSON — bind the result to a `let` |
+| `isOk() -> bool` | `true` if `statusCode == 200` |
+| `is2xx() -> bool` | `true` if `200 ≤ statusCode < 300` |
+| `is3xx() -> bool` | `true` if `300 ≤ statusCode < 400` |
+| `is4xx() -> bool` | `true` if `400 ≤ statusCode < 500` |
+| `is5xx() -> bool` | `true` if `500 ≤ statusCode < 600` |
+
+### struct HttpClient
+
+| Method | Description |
+|--------|-------------|
+| `withBaseUrl(url: String) -> HttpClient` | Create a client with a base URL |
+| `withTimeout(ms: i64) -> HttpClient` | Set default timeout |
+| `withHeader(name, value) -> HttpClient` | Add a default header applied to every request |
+| `get(path: String) -> HttpResponse` | GET `baseUrl + path` |
+| `post(path: String, body: String) -> HttpResponse` | POST `baseUrl + path` with body |
+| `request(method, path) -> HttpRequest` | Seed a builder with base URL + defaults |
 
 ---
 
@@ -1086,12 +1132,37 @@ let groups = re.groups("(hello) (world)")
 ```liva
 import net::net
 
-let url = Url.parse("https://example.com")
-let s = url.toString()
+// Parse a URL and read its components
+let u = Url.parse("https://api.example.com:8080/path?page=2#top")
+// u.scheme -> "https", u.host -> "api.example.com", u.port -> 8080
+// u.path -> "/path", u.query -> "page=2", u.fragment -> "top"
 
-let req = Request.get("https://api.example.com")
-let req2 = Request.post("https://api.example.com", "data")
+// Immutable builder methods
+let u2 = u.withQuery("q", "hello world").withPath("/v2")
+let s  = u2.toString()
+
+// Percent-encoding helpers
+let enc = Url.encode("a b&c")    // -> "a%20b%26c"
+let dec = Url.decode(enc)        // -> String?  (nil if malformed)
 ```
+
+### struct Url
+
+| Method | Description |
+|--------|-------------|
+| `parse(s: String) -> Url` | Parse a URL string into its components |
+| `encode(s: String) -> String` | Percent-encode a string |
+| `decode(s: String) -> String?` | Decode a percent-encoded string; `nil` on error |
+| `toString() -> String` | Reconstruct the URL as a string |
+| `withScheme(v: String) -> Url` | Return a new Url with the scheme replaced |
+| `withHost(v: String) -> Url` | Return a new Url with the host replaced |
+| `withPort(v: i32) -> Url` | Return a new Url with the port replaced |
+| `withPath(v: String) -> Url` | Return a new Url with the path replaced |
+| `withQuery(key, value: String) -> Url` | Append (or replace) a query parameter |
+| `withFragment(v: String) -> Url` | Return a new Url with the fragment replaced |
+
+Fields: `scheme: String`, `host: String`, `port: i32`, `path: String`,
+`query: String`, `fragment: String`.
 
 ---
 

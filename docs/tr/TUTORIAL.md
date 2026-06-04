@@ -1715,7 +1715,7 @@ import std::convert   // parseInt, parseInt64, parseFloat, toString
 import std::os        // env, args, exit, exec
 import std::random    // randInt, randFloat
 import std::regex     // Regex.new, match, replace, split
-import std::net       // httpGet, httpPost
+import http::http     // HttpRequest, HttpResponse, HttpClient
 import std::json      // jsonParse, jsonStringify
 import std::time      // now, clock, clockMs, sleep
 import std::crypto    // sha256, md5, hmacSha256
@@ -1786,9 +1786,11 @@ Liva, `async` ve `await` ile asenkron programlamayı destekler.
 ### Async fonksiyonlar
 
 ```liva
+import http::http
+
 async func fetchData(url: string) -> string {
-    let response = await httpGet(url)
-    return response
+    let resp = HttpRequest.get(url).send()
+    return resp.text()
 }
 
 async func fetchMultiple() {
@@ -1823,11 +1825,13 @@ Not: `for await` sadece `async` fonksiyonların içinde kullanılabilir.
 ### Ağ örneği
 
 ```liva
-import std::net
+import http::http
 
-async func main() {
-    let response = await httpGet("https://api.example.com/data")
-    println(response)
+func main() {
+    let resp = HttpRequest.get("https://api.example.com/data").send()
+    if resp.is2xx() {
+        println(resp.text())
+    }
 }
 ```
 

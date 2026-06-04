@@ -1327,4 +1327,24 @@ func main() {
     EXPECT_NE(r.stdout_output.find("POST"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, HttpLiveRoundTrip) {
+    if (std::getenv("LIVA_HTTP_TEST") == nullptr) {
+        GTEST_SKIP() << "Set LIVA_HTTP_TEST=1 to run the live HTTP round-trip test";
+    }
+    std::string source = R"LIVA(
+import http::http
+func main() {
+    let resp = HttpRequest.get("https://example.com").send()
+    if resp.is2xx() {
+        if len(resp.text()) > 0 {
+            print("OK")
+        }
+    }
+}
+)LIVA";
+    auto r = compileAndRun(source, "http_live");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("OK"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM

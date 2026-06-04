@@ -352,27 +352,55 @@ func main() {
 
 ---
 
-## 7. Asenkron HTTP İstekleri
+## 7. HTTP İstekleri
 
-async/await kullanarak API'lerden veri çekin.
+`http::http` modülü ile REST API'lerinden veri çekin.
 
 ```liva
-import std::net
-import std::json
+import http::http
+import json::json
 
-async func fetchUser(id: i32) -> string {
+// Basit GET
+func fetchUser(id: i32) -> string {
     let url = format("https://api.example.com/users/{}", id)
-    let body = await httpGet(url)
-    return body
+    let resp = HttpRequest.get(url).send()
+    if resp.is2xx() {
+        return resp.text()
+    }
+    return ""
 }
 
-async func fetchMultipleUsers(ids: [i32]) -> [string] {
+// JSON gövdeli POST
+func createUser(name: string) -> bool {
+    let r = HttpRequest.post("https://api.example.com/users")
+        .json(format("{{\"name\":\"{}\"}}", name))
+        .send()
+    return r.is2xx()
+}
+
+// Ortak temel URL, kimlik doğrulama ve zaman aşımı ile yeniden kullanılabilir istemci
+func fetchMultipleUsers(ids: [i32]) -> [string] {
+    let client = HttpClient.withBaseUrl("https://api.example.com")
+        .withHeader("Authorization", "Bearer TOKEN")
+        .withTimeout(5000)
     var results: [string] = []
     for id in ids {
-        let user = await fetchUser(id)
-        results.push(user)
+        let r = client.get(format("/users/{}", id))
+        if r.is2xx() {
+            results.push(r.text())
+        }
     }
     return results
+}
+
+// JSON yanıtını ayrıştır — let'e bağlayın; json() DOM'a sahiptir
+func fetchAndParse() {
+    let resp = HttpRequest.get("https://api.example.com/items").send()
+    if resp.is2xx() {
+        let doc = resp.json()                 // JsonValue DOM'a sahiptir
+        let root = doc.object()
+        println(root.getString("name"))
+    }
 }
 
 func main() {
@@ -384,9 +412,11 @@ func main() {
 ```
 
 **Önemli noktalar:**
-- `await` kullanmak için fonksiyonları `async` ile işaretleyin
-- `await` işlem tamamlanana kadar askıya alır
-- Asenkron fonksiyonlar arka planda LLVM coroutine'lerini kullanır
+- `HttpRequest` akıcı değiştirilemez bir oluşturucudur; her metot yeni bir değer döndürür
+- `send()` isteği anında gerçekleştirir ve `HttpResponse` değeri döndürür (tanıtıcı yok)
+- `HttpResponse` yerel kaynak tutmaz — kopyalanması, döndürülmesi ve zincire alınması güvenlidir
+- `resp.json()`, **DOM'a sahip** bir `JsonValue` döndürür; her zaman `let`'e bağlayın
+- `HttpClient`, yeniden kullanılabilir varsayılanları (temel URL, başlıklar, zaman aşımı) paketler
 
 ---
 
