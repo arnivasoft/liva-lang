@@ -1117,18 +1117,28 @@ TEST(RuntimeExecTest, JsonTryGetters) {
     std::string src = R"LIVA(
 import json::json
 func main() {
-    let doc = Json.parse("{\"name\":\"liva\",\"age\":3}")
+    let doc = Json.parse("{\"name\":\"liva\",\"age\":3,\"pi\":2.5,\"ok\":true}")
     let o = doc.object()
     if let n = o.tryString("name") { println(n) }
-    if let a = o.tryInt("age") { println(a) }
+    if let a = o.tryInt("age") { println("int-ok") }
+    if let f = o.tryFloat("pi") { println("flt-ok") }
+    if let fi = o.tryFloat("age") { println("fltint-ok") }
+    if let b = o.tryBool("ok") { if b { println("bool-true") } }
     if let m = o.tryString("missing") { println(m) } else { println("none") }
     if let w = o.tryInt("name") { println(w) } else { println("wrongkind") }
+    if let wb = o.tryBool("age") { println("bad") } else { println("bool-none") }
 }
 )LIVA";
     auto r = compileAndRun(src, "json_try");
     EXPECT_NE(r.stdout_output.find("liva"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("int-ok"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("flt-ok"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("fltint-ok"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("bool-true"), std::string::npos) << r.stdout_output;
     EXPECT_NE(r.stdout_output.find("none"), std::string::npos) << r.stdout_output;
     EXPECT_NE(r.stdout_output.find("wrongkind"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("bool-none"), std::string::npos) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output.find("bad"), std::string::npos) << r.stdout_output;
 }
 
 #endif // LIVA_HAS_LLVM
