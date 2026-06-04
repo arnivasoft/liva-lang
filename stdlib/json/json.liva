@@ -59,6 +59,9 @@ impl JsonArray {
     pub func at(ref self, i: i64) -> JsonValue {
         return JsonValue { docHandle: self.docHandle, nodeHandle: jsonArrAt(self.nodeHandle, i), owns: false }
     }
+    pub func subscript(ref self, i: i64) -> JsonValue {
+        return JsonValue { docHandle: self.docHandle, nodeHandle: jsonArrAt(self.nodeHandle, i), owns: false }
+    }
     pub func getString(ref self, i: i64) -> String { return jsonNodeAsString(jsonArrAt(self.nodeHandle, i)) }
     pub func getInt(ref self, i: i64) -> i64 { return jsonNodeAsInt(jsonArrAt(self.nodeHandle, i)) }
     pub func getFloat(ref self, i: i64) -> f64 { return jsonNodeAsFloat(jsonArrAt(self.nodeHandle, i)) }
@@ -126,6 +129,9 @@ impl JsonObject {
     pub func count(ref self) -> i32 { return jsonObjCount(self.nodeHandle) }
 
     pub func get(ref self, key: String) -> JsonValue {
+        return JsonValue { docHandle: self.docHandle, nodeHandle: jsonObjGet(self.nodeHandle, key), owns: false }
+    }
+    pub func subscript(ref self, key: String) -> JsonValue {
         return JsonValue { docHandle: self.docHandle, nodeHandle: jsonObjGet(self.nodeHandle, key), owns: false }
     }
     pub func getString(ref self, key: String) -> String {

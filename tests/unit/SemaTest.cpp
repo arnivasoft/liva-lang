@@ -10013,3 +10013,20 @@ TEST_F(SemaTest, ClassDecl_OverrideParamTypeMismatch) {
     )--");
     EXPECT_TRUE(result.diag.hasErrors()) << "override with different param type should fail";
 }
+
+TEST_F(SemaTest, StructDecl_SubscriptReturnTypeResolves) {
+    auto result = check(R"--(
+        struct Bag {
+            var n: i32
+        }
+        impl Bag {
+            func subscript(ref self, key: string) -> i32 {
+                return self.n
+            }
+        }
+        func use(b: Bag) -> i32 {
+            return b["x"]
+        }
+    )--");
+    EXPECT_FALSE(result.diag.hasErrors()) << "struct subscript should type-check and resolve return type";
+}

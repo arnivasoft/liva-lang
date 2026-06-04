@@ -1614,6 +1614,30 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             }
         }
 
+        // Chained subscript call: obj[k].method() / arr[i].method() where the
+        // index expression resolves to a Named struct (e.g. JsonObject["k"] ->
+        // JsonValue, then .asString()). The subscript value is materialised into
+        // a temp alloca and the method dispatched on it. The TypeChecker sets the
+        // IndexExpr's resolved type to the subscript method's return type.
+        if (!objAlloca && structTypeName.empty() &&
+            memberExpr->getObject()->getKind() == ASTNode::NodeKind::IndexExpr) {
+            const TypeRepr *recvTy = memberExpr->getObject()->getResolvedType();
+            if (recvTy && recvTy->getKind() == TypeRepr::Kind::Named) {
+                auto *named = static_cast<const NamedTypeRepr *>(recvTy);
+                const std::string &sName = named->getName();
+                auto stIt = structTypes_.find(sName);
+                if (stIt != structTypes_.end()) {
+                    auto *structVal = visit(memberExpr->getObject());
+                    if (structVal) {
+                        auto *func = builder_->GetInsertBlock()->getParent();
+                        objAlloca = createEntryBlockAlloca(func, "subchain.tmp", stIt->second);
+                        builder_->CreateStore(structVal, objAlloca);
+                        structTypeName = sName;
+                    }
+                }
+            }
+        }
+
         // Chained struct call: expr.method() where expr is a CallExpr returning
         // a Named struct. e.g. stmt.columnDate(i).year() — columnDate returns
         // Date, so we materialise the Date value in a temp alloca and dispatch

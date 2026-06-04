@@ -3398,7 +3398,23 @@ void TypeChecker::visitIndexExpr(IndexExpr *node) {
         }
     }
 
-
+    // Struct/class subscript: base[idx] -> the `subscript` method's return type.
+    // Fires ONLY when the base is an identifier of a Named struct/class type that
+    // actually declares a `subscript` method (recorded in typeMethodReturnTypes_
+    // from its impl block / class body). Strictly guarded by !getResolvedType() so
+    // String-indexing and array-element handling above remain untouched.
+    if (!node->getResolvedType() &&
+        node->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(const_cast<Expr *>(node->getBase()));
+        auto *sym = scopes_.lookup(ident->getName());
+        if (sym && sym->type && sym->type->getKind() == TypeRepr::Kind::Named) {
+            auto *named = static_cast<const NamedTypeRepr *>(sym->type);
+            std::string key = named->getName() + "::subscript";
+            auto retIt = typeMethodReturnTypes_.find(key);
+            if (retIt != typeMethodReturnTypes_.end() && retIt->second)
+                node->setResolvedType(cloneTypeRepr(retIt->second));
+        }
+    }
 }
 
 void TypeChecker::visitAssignExpr(AssignExpr *node) {

@@ -1111,6 +1111,45 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
         }
     }
 
+    // Struct subscript: obj[i] → StructName_subscript(selfPtr, i)
+    // Struct methods receive self as a pointer to the struct alloca. The alloca
+    // (nvIt->second) IS that pointer for a local struct var; for a `self`-bound
+    // param the alloca stores a pointer, so we load it first (mirrors the
+    // ordinary struct method-call self convention in IRGenCall.cpp).
+    if (node->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *baseIdent = static_cast<const IdentifierExpr *>(node->getBase());
+        auto svIt = vars_.varStructTypes.find(baseIdent->getName());
+        if (svIt != vars_.varStructTypes.end()) {
+            std::string subName = svIt->second + "_subscript";
+            auto *subFn = module_->getFunction(subName);
+            if (subFn) {
+                auto nvIt = vars_.namedValues.find(baseIdent->getName());
+                if (nvIt != vars_.namedValues.end()) {
+                    auto *selfAlloca = nvIt->second;
+                    llvm::Value *selfPtr = selfAlloca;
+                    if (selfAlloca->getAllocatedType()->isPointerTy()) {
+                        selfPtr = builder_->CreateLoad(selfAlloca->getAllocatedType(),
+                                                       selfAlloca, baseIdent->getName());
+                    }
+                    auto *idxVal = visit(const_cast<Expr *>(node->getIndex()));
+                    if (idxVal) {
+                        // Coerce i32 index to i64 when the subscript expects i64
+                        // (e.g. arr[i] indexer). Sign-extend (index literals are
+                        // signed i32 by default).
+                        auto *fnTy = subFn->getFunctionType();
+                        if (fnTy->getNumParams() >= 2 &&
+                            idxVal->getType()->isIntegerTy(32) &&
+                            fnTy->getParamType(1)->isIntegerTy(64)) {
+                            idxVal = builder_->CreateSExt(idxVal, builder_->getInt64Ty(),
+                                                          "struct.sub.idx.ext");
+                        }
+                        return builder_->CreateCall(subFn, {selfPtr, idxVal}, "struct.sub.call");
+                    }
+                }
+            }
+        }
+    }
+
     // DynArray index on struct member field: self.grades[i]
     if (node->getBase()->getKind() == ASTNode::NodeKind::MemberExpr) {
         auto *memberBase = static_cast<MemberExpr *>(const_cast<Expr *>(node->getBase()));

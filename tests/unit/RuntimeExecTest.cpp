@@ -1097,6 +1097,22 @@ func main() {
     EXPECT_NE(r.stdout_output.find("2"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonSubscriptIndexer) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    let doc = Json.parse("{\"name\":\"liva\",\"nums\":[5,6,7]}")
+    let o = doc.object()
+    println(o["name"].asString())
+    let arr = o.getArray("nums")
+    println(arr[1 as i64].asInt())
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_subscript");
+    EXPECT_NE(r.stdout_output.find("liva"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("6"), std::string::npos) << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, JsonObjectKeys) {
     std::string src = R"LIVA(
 import json::json
