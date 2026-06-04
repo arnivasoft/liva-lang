@@ -1036,7 +1036,7 @@ TEST(RuntimeExecTest, ArrayElementChainedCall) {
     EXPECT_EQ(r.stdout_output, "2024\n");
 }
 
-TEST(RuntimeExecTest, JsonParseScalarAndSerialize) {
+TEST(RuntimeExecTest, JsonParseObjectAndSerialize) {
     std::string src = R"LIVA(
 import json::json
 func main() {
@@ -1051,6 +1051,8 @@ func main() {
     EXPECT_NE(r.stdout_output.find("\"n\":7"), std::string::npos) << r.stdout_output;
     EXPECT_NE(r.stdout_output.find("\"name\":\"liva\""), std::string::npos) << r.stdout_output;
     EXPECT_NE(r.stdout_output.find("isobj"), std::string::npos) << r.stdout_output;
+    // Pretty output: 2-space indented key with ": " separator.
+    EXPECT_NE(r.stdout_output.find("  \"n\": 7"), std::string::npos) << r.stdout_output;
 }
 
 #endif // LIVA_HAS_LLVM

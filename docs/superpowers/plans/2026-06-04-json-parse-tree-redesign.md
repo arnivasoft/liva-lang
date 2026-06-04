@@ -1623,6 +1623,8 @@ Expected: no matches (the new `json.liva` uses none of them; old tests were repl
 
 - [ ] **Step 6: Remove old ModuleLoader names** (`ModuleLoader.cpp` ~lines 95–100 old entries; keep only the new `json*` names).
 
+- [ ] **Step 6b: Update the LSP auto-import mapping** — `src/LSP/LSPServer.cpp` (~line 2681) maps `{"JsonObject", "json::json"}`. By now the exported types are `Json`, `JsonValue`, `JsonObject`, `JsonArray`, `JsonKind`. Add mappings for the new types (at minimum `Json`, `JsonValue`, `JsonArray`, `JsonKind`) so auto-import suggestions resolve. Update the LSP test (`tests/unit/LSPTest.cpp` `CodeActionAutoImportJsonObject`, ~line 2168) if its expectations change. (Flagged by Task 1 code-quality review.)
+
 - [ ] **Step 7: Build**
 Run: `build_clang.bat`
 Expected: clean build (no references to removed symbols).
