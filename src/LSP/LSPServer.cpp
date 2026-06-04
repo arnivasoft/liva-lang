@@ -1184,7 +1184,7 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "pathJoin", "pathDirname", "pathBasename", "pathExtension",
             "pathExists", "pathAbsolute",
             // Network
-            "httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
+            "httpRequestEx", "httpStatus", "httpBody", "httpRawHeaders", "httpHeaderLookup", "httpClose",
             // JSON (DOM API)
             "jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
             "jsonNodeAsInt", "jsonNodeAsFloat", "jsonNodeAsBool", "jsonNodeAsString",
@@ -2714,7 +2714,9 @@ JSONValue LSPServer::handleCodeAction(const JSONValue &id,
                     {"Hash", "crypto::crypto"}, {"Hmac", "crypto::crypto"},
                     // http::http wrapper types
                     {"HttpClient", "http::http"}, {"HttpResponse", "http::http"},
-                    {"HttpHeaders", "http::http"},
+                    {"HttpRequest", "http::http"},
+                    // net::net wrapper types
+                    {"Url", "net::net"},
                     // sync::sync wrapper types
                     {"Mutex", "sync::sync"}, {"AtomicI64", "sync::sync"},
                     {"Channel", "sync::sync"}, {"TaskGroup", "sync::sync"},

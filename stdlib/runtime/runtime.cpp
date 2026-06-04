@@ -2104,61 +2104,6 @@ static bool parse_url(const char *url, std::wstring &host, std::wstring &path,
     return !host.empty();
 }
 
-// Simple body-only request (backward compat)
-static char *winhttp_request_simple(const char *url, const char *method, const char *body) {
-    std::wstring host, path;
-    int port;
-    bool https;
-    if (!parse_url(url, host, path, port, https)) return nullptr;
-
-    HINTERNET hSession = WinHttpOpen(L"Liva/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession) return nullptr;
-
-    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), (INTERNET_PORT)port, 0);
-    if (!hConnect) { WinHttpCloseHandle(hSession); return nullptr; }
-
-    std::wstring wmethod(method, method + strlen(method));
-    DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, wmethod.c_str(), path.c_str(),
-                                             nullptr, WINHTTP_NO_REFERER,
-                                             WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!hRequest) {
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return nullptr;
-    }
-
-    DWORD bodyLen = body ? (DWORD)strlen(body) : 0;
-    BOOL sent = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                                    body ? (LPVOID)body : WINHTTP_NO_REQUEST_DATA,
-                                    bodyLen, bodyLen, 0);
-    if (!sent || !WinHttpReceiveResponse(hRequest, nullptr)) {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return nullptr;
-    }
-
-    // Read response body
-    std::string response;
-    DWORD bytesRead = 0;
-    char readBuf[8192];
-    while (WinHttpReadData(hRequest, readBuf, sizeof(readBuf), &bytesRead) && bytesRead > 0) {
-        response.append(readBuf, bytesRead);
-        bytesRead = 0;
-    }
-
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-
-    char *result = (char *)malloc(response.size() + 1);
-    if (!result) return nullptr;
-    memcpy(result, response.c_str(), response.size() + 1);
-    return result;
-}
-
 // Full request with headers, timeout, status code
 static LivaHttpResponse *winhttp_request_full(
     const char *method, const char *url, const char *body,
@@ -2288,29 +2233,6 @@ static size_t curl_header_cb(char *buffer, size_t size, size_t nitems, void *use
     return total;
 }
 
-// Simple body-only request (backward compat)
-static char *curl_request_simple(const char *url, const char *method, const char *body) {
-    CURL *curl = curl_easy_init();
-    if (!curl) return nullptr;
-    std::string response;
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    if (strcmp(method, "GET") != 0)
-        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
-    if (body) {
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-    }
-    CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
-    if (res != CURLE_OK) return nullptr;
-    char *result = (char *)malloc(response.size() + 1);
-    if (!result) return nullptr;
-    memcpy(result, response.c_str(), response.size() + 1);
-    return result;
-}
-
 // Full request with headers, timeout, status code
 static LivaHttpResponse *curl_request_full(
     const char *method, const char *url, const char *body,
@@ -2379,69 +2301,6 @@ static LivaHttpResponse *curl_request_full(
 
 // === Public HTTP API ===
 
-char *liva_http_get(const char *url) {
-    if (!url) return nullptr;
-#ifdef _WIN32
-    return winhttp_request_simple(url, "GET", nullptr);
-#elif defined(LIVA_HAS_CURL)
-    return curl_request_simple(url, "GET", nullptr);
-#else
-    (void)url;
-    return nullptr;
-#endif
-}
-
-char *liva_http_post(const char *url, const char *body) {
-    if (!url) return nullptr;
-#ifdef _WIN32
-    return winhttp_request_simple(url, "POST", body);
-#elif defined(LIVA_HAS_CURL)
-    return curl_request_simple(url, "POST", body);
-#else
-    (void)url;
-    (void)body;
-    return nullptr;
-#endif
-}
-
-char *liva_http_put(const char *url, const char *body) {
-    if (!url) return nullptr;
-#ifdef _WIN32
-    return winhttp_request_simple(url, "PUT", body);
-#elif defined(LIVA_HAS_CURL)
-    return curl_request_simple(url, "PUT", body);
-#else
-    (void)url;
-    (void)body;
-    return nullptr;
-#endif
-}
-
-char *liva_http_patch(const char *url, const char *body) {
-    if (!url) return nullptr;
-#ifdef _WIN32
-    return winhttp_request_simple(url, "PATCH", body);
-#elif defined(LIVA_HAS_CURL)
-    return curl_request_simple(url, "PATCH", body);
-#else
-    (void)url;
-    (void)body;
-    return nullptr;
-#endif
-}
-
-char *liva_http_delete(const char *url) {
-    if (!url) return nullptr;
-#ifdef _WIN32
-    return winhttp_request_simple(url, "DELETE", nullptr);
-#elif defined(LIVA_HAS_CURL)
-    return curl_request_simple(url, "DELETE", nullptr);
-#else
-    (void)url;
-    return nullptr;
-#endif
-}
-
 LivaHttpResponse *liva_http_request(const char *method, const char *url,
                                      const char *body,
                                      const char **headers, int64_t header_count,
@@ -2484,15 +2343,6 @@ char *liva_http_response_body(const LivaHttpResponse *resp) {
 
 // === Handle-based public API (i64 handle — exposed to Liva userland) ===
 
-int64_t liva_http_req(const char *method, const char *url,
-                      const char *body, int64_t timeout_ms) {
-    // Allow nullptr body for GET/DELETE; no extra headers from userland for now.
-    auto *resp = liva_http_request(method, url, body,
-                                   /*headers=*/nullptr, /*header_count=*/0,
-                                   timeout_ms);
-    return (int64_t)(uintptr_t)resp;
-}
-
 int32_t liva_http_req_status(int64_t handle) {
     auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
     return liva_http_response_status(resp);
@@ -2501,11 +2351,6 @@ int32_t liva_http_req_status(int64_t handle) {
 char *liva_http_req_body(int64_t handle) {
     auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
     return liva_http_response_body(resp);
-}
-
-char *liva_http_req_header(int64_t handle, const char *name) {
-    auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
-    return liva_http_response_header(resp, name);
 }
 
 void liva_http_req_close(int64_t handle) {

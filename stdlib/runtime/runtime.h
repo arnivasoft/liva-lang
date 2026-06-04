@@ -399,21 +399,6 @@ typedef struct LivaHttpResponse {
     int64_t header_count;     // Number of headers
 } LivaHttpResponse;
 
-/// HTTP GET request, returns malloc'd response body or NULL on failure
-char *liva_http_get(const char *url);
-
-/// HTTP POST request, returns malloc'd response body or NULL on failure
-char *liva_http_post(const char *url, const char *body);
-
-/// HTTP PUT request, returns malloc'd response body or NULL on failure
-char *liva_http_put(const char *url, const char *body);
-
-/// HTTP PATCH request, returns malloc'd response body or NULL on failure
-char *liva_http_patch(const char *url, const char *body);
-
-/// HTTP DELETE request, returns malloc'd response body or NULL on failure
-char *liva_http_delete(const char *url);
-
 /// Full HTTP request with method, headers, timeout, and structured response.
 /// method: "GET", "POST", "PUT", "PATCH", "DELETE"
 /// headers: alternating name/value strings (name1, val1, name2, val2, ...)
@@ -439,19 +424,11 @@ char *liva_http_response_header(const LivaHttpResponse *resp, const char *name);
 
 // === Handle-based HTTP API (i64 handle exposed to Liva) ===
 
-/// Perform full HTTP request (method, url, body, timeout_ms).
-/// Returns opaque i64 handle (0 on failure); caller must free via liva_http_req_close.
-int64_t liva_http_req(const char *method, const char *url,
-                      const char *body, int64_t timeout_ms);
-
 /// Returns HTTP status code (e.g. 200, 404) or 0 for invalid handle.
 int32_t liva_http_req_status(int64_t handle);
 
 /// Returns response body as fresh malloc'd string (may be empty, never nullptr for valid handle).
 char *liva_http_req_body(int64_t handle);
-
-/// Returns header value or nullptr if not found (case-insensitive name match).
-char *liva_http_req_header(int64_t handle, const char *name);
 
 /// Release the response buffer.
 void liva_http_req_close(int64_t handle);

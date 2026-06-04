@@ -67,9 +67,8 @@ void ModuleLoader::registerBuiltinModules() {
          "regexExecGroups", "regexReplaceCompiled", "regexFree"});
 
     cache_["std::net"] = createBuiltinModule("std::net",
-        {"httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
-         "httpRequest", "httpRequestEx", "httpStatus", "httpBody",
-         "httpHeader", "httpRawHeaders", "httpHeaderLookup", "httpClose"});
+        {"httpRequestEx", "httpStatus", "httpBody",
+         "httpRawHeaders", "httpHeaderLookup", "httpClose"});
 
     cache_["std::websocket"] = createBuiltinModule("std::websocket",
         {"wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen"});

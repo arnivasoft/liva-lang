@@ -69,10 +69,8 @@ void TypeChecker::registerBuiltins() {
                         "regexFindGroups", "regexSplit",
                         "regexCompile", "regexTest", "regexExec",
                         "regexExecGroups", "regexReplaceCompiled", "regexFree",
-                        "httpGet", "httpPost",
-                        "httpPut", "httpPatch", "httpDelete",
-                        "httpRequest", "httpRequestEx", "httpStatus", "httpBody",
-                        "httpHeader", "httpRawHeaders", "httpHeaderLookup", "httpClose",
+                        "httpRequestEx", "httpStatus", "httpBody",
+                        "httpRawHeaders", "httpHeaderLookup", "httpClose",
                         "wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen",
                         "sqliteOpen", "sqliteClose", "sqliteExec",
                         "sqliteQueryFirst", "sqliteQueryInt", "sqliteQueryColumn",
@@ -2378,13 +2376,6 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "regexFree") {
             // void
         // Stdlib: Networking
-        } else if (ident->getName() == "httpGet" || ident->getName() == "httpPost" ||
-                   ident->getName() == "httpPut" || ident->getName() == "httpPatch" ||
-                   ident->getName() == "httpDelete") {
-            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
-            node->setResolvedType(std::move(optType));
-        } else if (ident->getName() == "httpRequest") {
-            node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "httpRequestEx") {
             node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "httpRawHeaders") {
@@ -2396,9 +2387,6 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI32Type());
         } else if (ident->getName() == "httpBody") {
             node->setResolvedType(makeStringType());
-        } else if (ident->getName() == "httpHeader") {
-            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
-            node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "httpClose") {
             // void
         // Stdlib: WebSocket

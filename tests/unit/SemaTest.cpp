@@ -1365,7 +1365,7 @@ TEST_F(SemaTest, StdNetImport) {
     auto result = checkWithModules(R"--(
         import std::net
         func main() {
-            let r = httpGet("http://example.com")
+            let h = httpRequestEx("GET", "http://example.com", "", "", 0)
         }
     )--", {});
     EXPECT_TRUE(result.passed);
@@ -1381,7 +1381,7 @@ TEST_F(SemaTest, StdUmbrellaImport) {
             let t = clock()
             let r = randInt(1, 10)
             let m = regexMatch("abc", "a.*")
-            let h = httpGet("http://example.com")
+            let h = httpRequestEx("GET", "http://example.com", "", "", 0)
             let n = len("hello")
         }
     )--", {});
@@ -3886,46 +3886,54 @@ TEST_F(SemaTest, RegexReplaceType) {
 
 // === Stdlib: Networking ===
 
-TEST_F(SemaTest, HttpGetType) {
+TEST_F(SemaTest, HttpRequestExType) {
     auto result = check(R"--(
         func main() {
-            let r: string? = httpGet("https://example.com")
+            let h: i64 = httpRequestEx("GET", "https://example.com", "", "", 0)
         }
     )--");
     EXPECT_TRUE(result.passed);
 }
 
-TEST_F(SemaTest, HttpPostType) {
+TEST_F(SemaTest, HttpStatusType) {
     auto result = check(R"--(
         func main() {
-            let r: string? = httpPost("https://example.com", "data")
+            let h = httpRequestEx("GET", "https://example.com", "", "", 0)
+            let s: i32 = httpStatus(h)
         }
     )--");
     EXPECT_TRUE(result.passed);
 }
 
-TEST_F(SemaTest, HttpPutType) {
+TEST_F(SemaTest, HttpBodyType) {
     auto result = check(R"--(
         func main() {
-            let r: string? = httpPut("https://example.com/1", "{\"name\":\"test\"}")
+            let h = httpRequestEx("POST", "https://example.com", "data", "", 0)
+            let b: string = httpBody(h)
+            httpClose(h)
         }
     )--");
     EXPECT_TRUE(result.passed);
 }
 
-TEST_F(SemaTest, HttpPatchType) {
+TEST_F(SemaTest, HttpRawHeadersType) {
     auto result = check(R"--(
         func main() {
-            let r: string? = httpPatch("https://example.com/1", "{\"name\":\"updated\"}")
+            let h = httpRequestEx("GET", "https://example.com", "", "", 0)
+            let raw: string = httpRawHeaders(h)
+            httpClose(h)
         }
     )--");
     EXPECT_TRUE(result.passed);
 }
 
-TEST_F(SemaTest, HttpDeleteType) {
+TEST_F(SemaTest, HttpHeaderLookupType) {
     auto result = check(R"--(
         func main() {
-            let r: string? = httpDelete("https://example.com/1")
+            let h = httpRequestEx("GET", "https://example.com", "", "", 0)
+            let raw = httpRawHeaders(h)
+            let val: string? = httpHeaderLookup(raw, "Content-Type")
+            httpClose(h)
         }
     )--");
     EXPECT_TRUE(result.passed);
@@ -3935,11 +3943,10 @@ TEST_F(SemaTest, HttpMethodsViaStdNet) {
     auto result = checkWithModules(R"--(
         import std::net
         func main() {
-            let g = httpGet("http://example.com")
-            let p = httpPost("http://example.com", "data")
-            let u = httpPut("http://example.com/1", "body")
-            let a = httpPatch("http://example.com/1", "body")
-            let d = httpDelete("http://example.com/1")
+            let h = httpRequestEx("GET", "http://example.com", "", "", 0)
+            let s = httpStatus(h)
+            let b = httpBody(h)
+            httpClose(h)
         }
     )--", {});
     EXPECT_TRUE(result.passed);

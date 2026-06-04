@@ -172,15 +172,9 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_regex_free);
 
     // HTTP
-    REG(liva_http_get);
-    REG(liva_http_post);
-    REG(liva_http_put);
-    REG(liva_http_patch);
-    REG(liva_http_delete);
     REG(liva_http_response_free);
     REG(liva_http_response_status);
     REG(liva_http_response_body);
-    REG(liva_http_response_header);
     REG(liva_url_scheme);
     REG(liva_url_host);
     REG(liva_url_port);
