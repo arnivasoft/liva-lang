@@ -27,10 +27,30 @@ pub struct JsonValue {
     var owns: bool
 }
 
+pub struct JsonObject {
+    var docHandle: i64
+    var nodeHandle: i64
+    var owns: bool
+}
+
+pub struct JsonArray {
+    var docHandle: i64
+    var nodeHandle: i64
+    var owns: bool
+}
+
 impl JsonValue: Drop {
     func drop(mut self) {
         if self.owns { jsonFreeDoc(self.docHandle) }
     }
+}
+
+impl JsonObject: Drop {
+    func drop(mut self) { if self.owns { jsonFreeDoc(self.docHandle) } }
+}
+
+impl JsonArray: Drop {
+    func drop(mut self) { if self.owns { jsonFreeDoc(self.docHandle) } }
 }
 
 impl JsonValue {
@@ -61,6 +81,41 @@ impl JsonValue {
     pub func toStringPretty(ref self, indent: i32) -> String {
         return jsonToStringPretty(self.nodeHandle, indent)
     }
+    pub func object(ref self) -> JsonObject {
+        return JsonObject { docHandle: self.docHandle, nodeHandle: self.nodeHandle, owns: false }
+    }
+    pub func array(ref self) -> JsonArray {
+        return JsonArray { docHandle: self.docHandle, nodeHandle: self.nodeHandle, owns: false }
+    }
+}
+
+impl JsonObject {
+    pub func has(ref self, key: String) -> bool { return jsonObjHas(self.nodeHandle, key) }
+    pub func count(ref self) -> i32 { return jsonObjCount(self.nodeHandle) }
+
+    pub func get(ref self, key: String) -> JsonValue {
+        return JsonValue { docHandle: self.docHandle, nodeHandle: jsonObjGet(self.nodeHandle, key), owns: false }
+    }
+    pub func getString(ref self, key: String) -> String {
+        return jsonNodeAsString(jsonObjGet(self.nodeHandle, key))
+    }
+    pub func getInt(ref self, key: String) -> i64 {
+        return jsonNodeAsInt(jsonObjGet(self.nodeHandle, key))
+    }
+    pub func getFloat(ref self, key: String) -> f64 {
+        return jsonNodeAsFloat(jsonObjGet(self.nodeHandle, key))
+    }
+    pub func getBool(ref self, key: String) -> bool {
+        return jsonNodeAsBool(jsonObjGet(self.nodeHandle, key))
+    }
+    pub func getObject(ref self, key: String) -> JsonObject {
+        return JsonObject { docHandle: self.docHandle, nodeHandle: jsonObjGet(self.nodeHandle, key), owns: false }
+    }
+    pub func getArray(ref self, key: String) -> JsonArray {
+        return JsonArray { docHandle: self.docHandle, nodeHandle: jsonObjGet(self.nodeHandle, key), owns: false }
+    }
+    pub func toString(ref self) -> String { return jsonToString(self.nodeHandle) }
+    pub func toStringPretty(ref self, indent: i32) -> String { return jsonToStringPretty(self.nodeHandle, indent) }
 }
 
 pub struct Json {}

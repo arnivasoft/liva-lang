@@ -743,6 +743,15 @@ char*   liva_json_to_string(int64_t nodeH);
 /// Serialize node to pretty-printed JSON string with given indent width; caller frees.
 char*   liva_json_to_string_pretty(int64_t nodeH, int32_t indent);
 
+/// Return child node handle for the given object key (0 if not found or not an object).
+int64_t liva_json_obj_get(int64_t nodeH, const char* key);
+
+/// Return 1 if the object node has the given key, 0 otherwise.
+int8_t  liva_json_obj_has(int64_t nodeH, const char* key);
+
+/// Return the number of key-value pairs in an object node (0 if not an object).
+int32_t liva_json_obj_count(int64_t nodeH);
+
 // === JSON (legacy string-based) ===
 
 /// Get string value by key from JSON object, returns malloc'd string or NULL

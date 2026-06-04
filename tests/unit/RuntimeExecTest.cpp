@@ -1055,4 +1055,26 @@ func main() {
     EXPECT_NE(r.stdout_output.find("  \"n\": 7"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonObjectTypedRead) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    let doc = Json.parse("{\"name\":\"liva\",\"age\":3,\"pi\":3.5,\"ok\":true,\"addr\":{\"city\":\"izmir\"}}")
+    let o = doc.object()
+    println(o.getString("name"))
+    println(o.getInt("age"))
+    println(o.getFloat("pi"))
+    if o.getBool("ok") { println("ok-true") }
+    if o.has("age") { println("has-age") }
+    println(o.count())
+    let addr = o.getObject("addr")
+    println(addr.getString("city"))
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_objread");
+    EXPECT_NE(r.stdout_output.find("liva"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("ok-true"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("izmir"), std::string::npos) << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

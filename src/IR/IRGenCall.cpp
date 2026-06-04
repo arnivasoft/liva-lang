@@ -4280,6 +4280,21 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             ind = builder_->CreateTrunc(ind, builder_->getInt32Ty());
         return builder_->CreateCall(getOrPanic("liva_json_to_string_pretty"), {h, ind}, "json.tostrp");
     }
+    if (funcName == "jsonObjGet" && node->getArgs().size() >= 2) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *key = visit(node->getArgs()[1].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_get"), {h, key}, "json.objget");
+    }
+    if (funcName == "jsonObjHas" && node->getArgs().size() >= 2) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *key = visit(node->getArgs()[1].get());
+        auto *r = builder_->CreateCall(getOrPanic("liva_json_obj_has"), {h, key}, "json.objhas");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "json.objhas.bool");
+    }
+    if (funcName == "jsonObjCount" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_count"), {h}, "json.objcount");
+    }
 
     // === Logging ===
     if (funcName == "logDebug" && !node->getArgs().empty()) {

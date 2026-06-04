@@ -4373,6 +4373,25 @@ char* liva_json_to_string_pretty(int64_t nodeH, int32_t indent) {
     return strdup_safe(out.c_str());
 }
 
+// === JSON DOM Object navigation ===
+int64_t liva_json_obj_get(int64_t nodeH, const char* key) {
+    using namespace livajson;
+    if (!nodeH || !key) return 0;
+    Node* n = asNode(nodeH);
+    if (n->kind != K_Object) return 0;
+    for (auto& kv : n->obj) if (kv.first == key) return reinterpret_cast<int64_t>(kv.second);
+    return 0;
+}
+int8_t liva_json_obj_has(int64_t nodeH, const char* key) {
+    return liva_json_obj_get(nodeH, key) != 0 ? 1 : 0;
+}
+int32_t liva_json_obj_count(int64_t nodeH) {
+    using namespace livajson;
+    if (!nodeH) return 0;
+    Node* n = asNode(nodeH);
+    return n->kind==K_Object ? (int32_t)n->obj.size() : 0;
+}
+
 } // end DOM extern "C"
 
 extern "C" {
