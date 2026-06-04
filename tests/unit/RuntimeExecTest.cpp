@@ -1113,4 +1113,22 @@ func main() {
     EXPECT_NE(r.stdout_output.find("c"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonTryGetters) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    let doc = Json.parse("{\"name\":\"liva\",\"age\":3}")
+    let o = doc.object()
+    if let n = o.tryString("name") { println(n) }
+    if let a = o.tryInt("age") { println(a) }
+    if let m = o.tryString("missing") { println(m) } else { println("none") }
+    if let w = o.tryInt("name") { println(w) } else { println("wrongkind") }
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_try");
+    EXPECT_NE(r.stdout_output.find("liva"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("none"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("wrongkind"), std::string::npos) << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

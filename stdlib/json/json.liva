@@ -137,6 +137,29 @@ impl JsonObject {
     pub func toString(ref self) -> String { return jsonToString(self.nodeHandle) }
     pub func toStringPretty(ref self, indent: i32) -> String { return jsonToStringPretty(self.nodeHandle, indent) }
     pub func keys(ref self) -> [String] { return jsonObjKeys(self.nodeHandle) }
+
+    pub func tryString(ref self, key: String) -> String? {
+        let h = jsonObjGet(self.nodeHandle, key)
+        if jsonNodeKind(h) == 4 { return jsonNodeAsString(h) }
+        return nil
+    }
+    pub func tryInt(ref self, key: String) -> i64? {
+        let h = jsonObjGet(self.nodeHandle, key)
+        if jsonNodeKind(h) == 2 { return jsonNodeAsInt(h) }
+        return nil
+    }
+    pub func tryFloat(ref self, key: String) -> f64? {
+        let h = jsonObjGet(self.nodeHandle, key)
+        let k = jsonNodeKind(h)
+        if k == 3 { return jsonNodeAsFloat(h) }
+        if k == 2 { return jsonNodeAsFloat(h) }
+        return nil
+    }
+    pub func tryBool(ref self, key: String) -> bool? {
+        let h = jsonObjGet(self.nodeHandle, key)
+        if jsonNodeKind(h) == 1 { return jsonNodeAsBool(h) }
+        return nil
+    }
 }
 
 pub struct Json {}
