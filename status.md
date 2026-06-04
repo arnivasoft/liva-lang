@@ -126,10 +126,10 @@
 - `std::async`, `std::ui`
 
 **Yeni eklenen (15):**
-- `http::http` — HttpClient, HttpResponse, HttpHeaders (status codes, headers, timeout)
+- `http::http` — HttpRequest (akıcı oluşturucu), HttpResponse (handle-free eager-copy), HttpClient (baseUrl/header/timeout varsayılanları), JSON entegrasyonu
 - `sync::sync` — Mutex, AtomicI64, Channel, TaskGroup
 - `fs::fs` — FileInfo, Dir
-- `net::net` — Url, Request
+- `net::net` — Url (parser/builder: scheme/host/port/path/query/fragment, withQuery, encode/decode)
 - `io::io` — LineReader, LineWriter, line helpers
 - `log::log` — Debug/Info/Warn/Error + level
 - `errors::errors` — Result context chaining

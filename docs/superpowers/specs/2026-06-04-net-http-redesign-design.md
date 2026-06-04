@@ -1,7 +1,7 @@
 # net + http Redesign — Design Spec
 
 **Date:** 2026-06-04
-**Status:** Approved (brainstorming complete)
+**Status:** Implemented & merged (2026-06-05). Two justified deviations from the design below, discovered during implementation: (1) all chainable builder methods take **`ref self`** (not `self` by value) — by-value `self` triggers an OwnershipChecker partial-move miscompile when reading String fields; `ref self` + fresh-struct returns (String fields deep-copied via `liva_str_dup`) is safe and was enabled by the unplanned `IRGenCall` LLVM-type fallback for same-type builder chains. (2) `Url.decode` returns **`String?`** (not `String`) because the underlying `urlDecode` native is nullable. The user-facing `docs/{en,tr}/API-REFERENCE.md` reflect the as-built API.
 **Scope:** Replace the stub `net::net` and the thin `http::http` wrapper with a cohesive HTTP-client + URL subsystem: a real URL parser/builder, a fluent request builder, request-header support, JSON integration, and a leak-free response model.
 
 ---
