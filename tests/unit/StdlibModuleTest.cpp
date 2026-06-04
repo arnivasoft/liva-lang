@@ -57,41 +57,23 @@ TEST_F(StdlibModuleTest, ImportJsonModule) {
     auto r = check(
         "import json::json\n"
         "func main() {\n"
-        "    let obj = JsonObject.create()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import json::json should resolve JsonObject";
+        "    let doc = Json.parse(\"{\\\"a\\\":1}\")\n"
+        "    let k = doc.kind()\n"
+        "}\n", true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import json::json should resolve Json/JsonValue";
 }
 
-TEST_F(StdlibModuleTest, JsonObjectMethods) {
+TEST_F(StdlibModuleTest, JsonValueAccessors) {
     auto r = check(
         "import json::json\n"
         "func main() {\n"
-        "    var obj = JsonObject.parse(\"{}\")\n"
-        "    obj.set(\"key\", \"value\")\n"
-        "    let v = obj.get(\"key\")\n"
-        "    let n = obj.count()\n"
-        "    let valid = obj.isValid()\n"
-        "    let s = obj.stringify()\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "JsonObject methods should type-check";
-}
-
-TEST_F(StdlibModuleTest, JsonObjectNumericMethods) {
-    auto r = check(
-        "import json::json\n"
-        "func main() {\n"
-        "    var obj = JsonObject.create()\n"
-        "    obj.setInt(\"age\", 25)\n"
-        "    obj.setFloat(\"score\", 3.14)\n"
-        "    obj.setBool(\"active\", true)\n"
-        "    let age = obj.getInt(\"age\")\n"
-        "    let score = obj.getFloat(\"score\")\n"
-        "    let active = obj.getBool(\"active\")\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "JsonObject numeric methods should type-check";
+        "    let doc = Json.parse(\"42\")\n"
+        "    let i: i64 = doc.asInt()\n"
+        "    let f: f64 = doc.asFloat()\n"
+        "    let s: String = doc.toString()\n"
+        "    let b: bool = doc.isInt()\n"
+        "}\n", true, "stdlib");
+    EXPECT_TRUE(r.passed) << "JsonValue accessors should type-check";
 }
 
 // ============================================================
@@ -986,12 +968,11 @@ TEST_F(StdlibModuleTest, JsonStringifyPretty) {
     auto r = check(
         "import json::json\n"
         "func main() {\n"
-        "    var obj = JsonObject.create()\n"
-        "    obj.setInt(\"age\", 25)\n"
-        "    let pretty = obj.stringifyPretty(2)\n"
+        "    let doc = Json.parse(\"{\\\"age\\\":25}\")\n"
+        "    let pretty = doc.toStringPretty(2)\n"
         "}\n",
         true, "stdlib");
-    EXPECT_TRUE(r.passed) << "JsonObject stringifyPretty should type-check";
+    EXPECT_TRUE(r.passed) << "JsonValue toStringPretty should type-check";
 }
 
 // ============================================================

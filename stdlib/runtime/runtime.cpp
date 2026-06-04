@@ -4138,6 +4138,245 @@ static char *json_extract_string(const char *p) {
     return buf;
 }
 
+} // end extern "C" (temporarily close to allow C++ namespace)
+
+// ===== JSON DOM (parse-tree) =====
+namespace livajson {
+
+enum Kind { K_Null=0, K_Bool=1, K_Int=2, K_Double=3, K_String=4, K_Array=5, K_Object=6 };
+
+struct Node {
+    int kind = K_Null;
+    bool b = false;
+    int64_t i = 0;
+    double d = 0.0;
+    std::string str;
+    std::vector<Node*> arr;
+    std::vector<std::pair<std::string, Node*>> obj;
+};
+
+struct Doc {
+    Node* root = nullptr;
+    std::vector<Node*> arena;
+    Node* make(int kind) { Node* n = new Node(); n->kind = kind; arena.push_back(n); return n; }
+    ~Doc() { for (Node* n : arena) delete n; }
+};
+
+// --- Parser (strict JSON) ---
+struct Parser {
+    const char* p;
+    Doc* doc;
+    bool ok = true;
+    void ws() { while (*p==' '||*p=='\t'||*p=='\n'||*p=='\r') p++; }
+    Node* parseValue() {
+        ws();
+        switch (*p) {
+            case '{': return parseObject();
+            case '[': return parseArray();
+            case '"': { Node* n = doc->make(K_String); n->str = parseString(); return n; }
+            case 't': if (!strncmp(p,"true",4)) { p+=4; Node* n=doc->make(K_Bool); n->b=true; return n; } ok=false; return nullptr;
+            case 'f': if (!strncmp(p,"false",5)) { p+=5; Node* n=doc->make(K_Bool); n->b=false; return n; } ok=false; return nullptr;
+            case 'n': if (!strncmp(p,"null",4)) { p+=4; return doc->make(K_Null); } ok=false; return nullptr;
+            default: return parseNumber();
+        }
+    }
+    std::string parseString() {
+        std::string out;
+        if (*p != '"') { ok=false; return out; }
+        p++;
+        while (*p && *p != '"') {
+            if (*p == '\\') {
+                p++;
+                switch (*p) {
+                    case '"': out+='"'; break;  case '\\': out+='\\'; break; case '/': out+='/'; break;
+                    case 'n': out+='\n'; break; case 'r': out+='\r'; break; case 't': out+='\t'; break;
+                    case 'b': out+='\b'; break; case 'f': out+='\f'; break;
+                    case 'u': { // \uXXXX -> UTF-8
+                        unsigned cp = 0; for (int k=0;k<4 && p[1];k++){ p++; char c=*p; cp<<=4;
+                            if(c>='0'&&c<='9')cp|=c-'0'; else if(c>='a'&&c<='f')cp|=c-'a'+10; else if(c>='A'&&c<='F')cp|=c-'A'+10; }
+                        if (cp<0x80) out+=(char)cp;
+                        else if (cp<0x800){ out+=(char)(0xC0|(cp>>6)); out+=(char)(0x80|(cp&0x3F)); }
+                        else { out+=(char)(0xE0|(cp>>12)); out+=(char)(0x80|((cp>>6)&0x3F)); out+=(char)(0x80|(cp&0x3F)); }
+                        break;
+                    }
+                    default: out+=*p; break;
+                }
+                p++;
+            } else { out += *p++; }
+        }
+        if (*p == '"') p++; else ok=false;
+        return out;
+    }
+    Node* parseNumber() {
+        const char* start = p;
+        if (*p=='-') p++;
+        while (*p>='0'&&*p<='9') p++;
+        bool isDouble = false;
+        if (*p=='.') { isDouble=true; p++; while(*p>='0'&&*p<='9')p++; }
+        if (*p=='e'||*p=='E') { isDouble=true; p++; if(*p=='+'||*p=='-')p++; while(*p>='0'&&*p<='9')p++; }
+        if (p==start) { ok=false; return nullptr; }
+        std::string num(start, p);
+        if (isDouble) { Node* n=doc->make(K_Double); n->d=strtod(num.c_str(),nullptr); return n; }
+        Node* n=doc->make(K_Int); n->i=strtoll(num.c_str(),nullptr,10); return n;
+    }
+    Node* parseArray() {
+        Node* n = doc->make(K_Array); p++; ws();
+        if (*p==']') { p++; return n; }
+        while (ok) {
+            Node* v = parseValue(); if(!ok) break; n->arr.push_back(v); ws();
+            if (*p==',') { p++; continue; }
+            if (*p==']') { p++; break; }
+            ok=false;
+        }
+        return n;
+    }
+    Node* parseObject() {
+        Node* n = doc->make(K_Object); p++; ws();
+        if (*p=='}') { p++; return n; }
+        while (ok) {
+            ws(); if (*p!='"'){ ok=false; break; }
+            std::string key = parseString(); ws();
+            if (*p!=':'){ ok=false; break; } p++;
+            Node* v = parseValue(); if(!ok) break;
+            n->obj.push_back({key, v}); ws();
+            if (*p==',') { p++; continue; }
+            if (*p=='}') { p++; break; }
+            ok=false;
+        }
+        return n;
+    }
+};
+
+// --- Serializer ---
+static void dom_escape(std::string& out, const std::string& s) {
+    out += '"';
+    for (char c : s) switch (c) {
+        case '"': out+="\\\""; break; case '\\': out+="\\\\"; break;
+        case '\b': out+="\\b"; break; case '\f': out+="\\f"; break;
+        case '\n': out+="\\n"; break; case '\r': out+="\\r"; break; case '\t': out+="\\t"; break;
+        default: out += c;
+    }
+    out += '"';
+}
+static void dom_numToStr(std::string& out, Node* n) {
+    char buf[64];
+    if (n->kind==K_Int) snprintf(buf,sizeof(buf),"%lld",(long long)n->i);
+    else snprintf(buf,sizeof(buf),"%.17g",n->d);
+    out += buf;
+}
+static void dom_serialize(std::string& out, Node* n, int indent, int depth) {
+    auto nl = [&](int d){ if(indent>0){ out+='\n'; for(int k=0;k<d*indent;k++) out+=' '; } };
+    if (!n) { out += "null"; return; }
+    switch (n->kind) {
+        case K_Null: out += "null"; break;
+        case K_Bool: out += n->b ? "true" : "false"; break;
+        case K_Int: case K_Double: dom_numToStr(out, n); break;
+        case K_String: dom_escape(out, n->str); break;
+        case K_Array:
+            if (n->arr.empty()) { out += "[]"; break; }
+            out += '['; for (size_t k=0;k<n->arr.size();k++){ if(k) out+=','; nl(depth+1); dom_serialize(out,n->arr[k],indent,depth+1);} nl(depth); out += ']';
+            break;
+        case K_Object:
+            if (n->obj.empty()) { out += "{}"; break; }
+            out += '{'; for (size_t k=0;k<n->obj.size();k++){ if(k) out+=','; nl(depth+1); dom_escape(out,n->obj[k].first); out+=indent>0?": ":":"; dom_serialize(out,n->obj[k].second,indent,depth+1);} nl(depth); out += '}';
+            break;
+    }
+}
+
+inline Doc* asDoc(int64_t h) { return reinterpret_cast<Doc*>(h); }
+inline Node* asNode(int64_t h) { return reinterpret_cast<Node*>(h); }
+
+} // namespace livajson
+
+extern "C" {
+
+// JSON DOM native functions (exposed to Liva programs via createRuntimeDecls)
+int64_t liva_json_parse(const char* s) {
+    using namespace livajson;
+    if (!s) return 0;
+    Doc* doc = new Doc();
+    Parser ps{ s, doc, true };
+    Node* root = ps.parseValue();
+    ps.ws();
+    if (!ps.ok || *ps.p != '\0' || !root) { delete doc; return 0; }
+    doc->root = root;
+    return reinterpret_cast<int64_t>(doc);
+}
+
+void liva_json_free_doc(int64_t docH) {
+    using namespace livajson;
+    if (docH) delete asDoc(docH);
+}
+
+int64_t liva_json_root(int64_t docH) {
+    using namespace livajson;
+    if (!docH) return 0;
+    return reinterpret_cast<int64_t>(asDoc(docH)->root);
+}
+
+int32_t liva_json_node_kind(int64_t nodeH) {
+    using namespace livajson;
+    if (!nodeH) return K_Null;
+    return asNode(nodeH)->kind;
+}
+
+int64_t liva_json_node_as_int(int64_t nodeH) {
+    using namespace livajson;
+    if (!nodeH) return 0;
+    Node* n = asNode(nodeH);
+    if (n->kind==K_Int) return n->i;
+    if (n->kind==K_Double) return (int64_t)n->d;
+    if (n->kind==K_Bool) return n->b ? 1 : 0;
+    if (n->kind==K_String) return strtoll(n->str.c_str(),nullptr,10);
+    return 0;
+}
+
+double liva_json_node_as_float(int64_t nodeH) {
+    using namespace livajson;
+    if (!nodeH) return 0.0;
+    Node* n = asNode(nodeH);
+    if (n->kind==K_Double) return n->d;
+    if (n->kind==K_Int) return (double)n->i;
+    if (n->kind==K_String) return strtod(n->str.c_str(),nullptr);
+    return 0.0;
+}
+
+int8_t liva_json_node_as_bool(int64_t nodeH) {
+    using namespace livajson;
+    if (!nodeH) return 0;
+    Node* n = asNode(nodeH);
+    if (n->kind==K_Bool) return n->b ? 1 : 0;
+    if (n->kind==K_Int) return n->i != 0;
+    if (n->kind==K_String) return (n->str=="true"||n->str=="1") ? 1 : 0;
+    return 0;
+}
+
+char* liva_json_node_as_string(int64_t nodeH) {
+    using namespace livajson;
+    if (!nodeH) return strdup_safe("");
+    Node* n = asNode(nodeH);
+    if (n->kind==K_String) return strdup_safe(n->str.c_str());
+    std::string out; dom_serialize(out, n, 0, 0);
+    return strdup_safe(out.c_str());
+}
+
+char* liva_json_to_string(int64_t nodeH) {
+    using namespace livajson;
+    std::string out; dom_serialize(out, asNode(nodeH), 0, 0);
+    return strdup_safe(out.c_str());
+}
+
+char* liva_json_to_string_pretty(int64_t nodeH, int32_t indent) {
+    using namespace livajson;
+    if (indent<0) indent=2; if (indent>16) indent=16;
+    std::string out; dom_serialize(out, asNode(nodeH), indent, 0);
+    return strdup_safe(out.c_str());
+}
+
+} // end DOM extern "C"
+
+extern "C" {
+
 // Helper: find value for key in top-level JSON object.
 // Returns pointer to start of value (after whitespace), or NULL.
 static const char *json_find_key(const char *json, const char *key) {

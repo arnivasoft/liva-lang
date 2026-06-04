@@ -131,7 +131,10 @@ void TypeChecker::registerBuiltins() {
                         "jsonCreate", "jsonSet", "jsonSetInt",
                         "jsonSetFloat", "jsonSetBool", "jsonRemove",
                         "jsonGetArray", "jsonGetObject", "jsonCount",
-                        "jsonStringifyPretty"}) {
+                        "jsonStringifyPretty",
+                        "jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
+                        "jsonNodeAsInt", "jsonNodeAsFloat", "jsonNodeAsBool", "jsonNodeAsString",
+                        "jsonToString", "jsonToStringPretty"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2542,6 +2545,21 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI32Type());
         } else if (ident->getName() == "jsonStringifyPretty") {
             node->setResolvedType(makeStringType());
+        // Stdlib: JSON DOM (parse-tree)
+        } else if (ident->getName() == "jsonParse" || ident->getName() == "jsonRoot" ||
+                   ident->getName() == "jsonNodeAsInt") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "jsonNodeKind") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "jsonNodeAsFloat") {
+            node->setResolvedType(makeF64Type());
+        } else if (ident->getName() == "jsonNodeAsBool") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "jsonNodeAsString" || ident->getName() == "jsonToString" ||
+                   ident->getName() == "jsonToStringPretty") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "jsonFreeDoc") {
+            // void — no resolved type needed
         // Stdlib: Logging (all void)
         } else if (ident->getName() == "logDebug" || ident->getName() == "logInfo" ||
                    ident->getName() == "logWarn" || ident->getName() == "logError" ||

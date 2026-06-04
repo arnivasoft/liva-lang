@@ -4235,6 +4235,52 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return result;
     }
 
+    // === JSON DOM (parse-tree) ===
+    if (funcName == "jsonParse" && node->getArgs().size() >= 1) {
+        auto *sArg = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_parse"), {sArg}, "json.parse");
+    }
+    if (funcName == "jsonFreeDoc" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_free_doc"), {h});
+    }
+    if (funcName == "jsonRoot" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_root"), {h}, "json.root");
+    }
+    if (funcName == "jsonNodeKind" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_node_kind"), {h}, "json.kind");
+    }
+    if (funcName == "jsonNodeAsInt" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_node_as_int"), {h}, "json.asint");
+    }
+    if (funcName == "jsonNodeAsFloat" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_node_as_float"), {h}, "json.asfloat");
+    }
+    if (funcName == "jsonNodeAsBool" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *r = builder_->CreateCall(getOrPanic("liva_json_node_as_bool"), {h}, "json.asbool");
+        return builder_->CreateTrunc(r, builder_->getInt1Ty(), "json.asbool.bool");
+    }
+    if (funcName == "jsonNodeAsString" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_node_as_string"), {h}, "json.asstr");
+    }
+    if (funcName == "jsonToString" && node->getArgs().size() >= 1) {
+        auto *h = visit(node->getArgs()[0].get());
+        return builder_->CreateCall(getOrPanic("liva_json_to_string"), {h}, "json.tostr");
+    }
+    if (funcName == "jsonToStringPretty" && node->getArgs().size() >= 2) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *ind = visit(node->getArgs()[1].get());
+        if (ind->getType()->isIntegerTy(64))
+            ind = builder_->CreateTrunc(ind, builder_->getInt32Ty());
+        return builder_->CreateCall(getOrPanic("liva_json_to_string_pretty"), {h, ind}, "json.tostrp");
+    }
+
     // === Logging ===
     if (funcName == "logDebug" && !node->getArgs().empty()) {
         auto *msgArg = visit(node->getArgs()[0].get());

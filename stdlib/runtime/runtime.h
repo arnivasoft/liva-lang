@@ -711,7 +711,39 @@ void liva_task_group_cancel_all(int64_t group);
 int64_t liva_task_group_count(int64_t group);
 void liva_task_group_free(int64_t group);
 
-// === JSON ===
+// === JSON DOM (parse-tree) ===
+
+/// Parse JSON text; returns opaque Doc handle (0 on failure). Caller must free via liva_json_free_doc.
+int64_t liva_json_parse(const char *s);
+
+/// Free a document returned by liva_json_parse.
+void    liva_json_free_doc(int64_t docH);
+
+/// Return the root node handle of a parsed document (0 if invalid).
+int64_t liva_json_root(int64_t docH);
+
+/// Return the kind of a node: 0=null,1=bool,2=int,3=double,4=string,5=array,6=object.
+int32_t liva_json_node_kind(int64_t nodeH);
+
+/// Coerce node to i64.
+int64_t liva_json_node_as_int(int64_t nodeH);
+
+/// Coerce node to f64.
+double  liva_json_node_as_float(int64_t nodeH);
+
+/// Coerce node to bool (returns 0 or 1 as i8).
+int8_t  liva_json_node_as_bool(int64_t nodeH);
+
+/// Coerce node to string; caller frees.
+char*   liva_json_node_as_string(int64_t nodeH);
+
+/// Serialize node to compact JSON string; caller frees.
+char*   liva_json_to_string(int64_t nodeH);
+
+/// Serialize node to pretty-printed JSON string with given indent width; caller frees.
+char*   liva_json_to_string_pretty(int64_t nodeH, int32_t indent);
+
+// === JSON (legacy string-based) ===
 
 /// Get string value by key from JSON object, returns malloc'd string or NULL
 char *liva_json_get(const char *json, const char *key);

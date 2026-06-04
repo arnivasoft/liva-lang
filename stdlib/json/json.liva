@@ -1,78 +1,73 @@
-// json::json — Ergonomic JSON wrapper API
+// json::json — Parse-tree JSON (JsonDataObjects-style)
 // Import with: import json::json
+//
+// Ownership: the value returned by Json.parse is the SOLE owner of
+// the document; bind it to a let/var. Do NOT chain off a parse temporary
+// (e.g. Json.parse(s).toString()) — the temporary owner is never dropped -> leak.
 
 import std::json
 
-pub struct JsonObject {
-    var data: String
+pub protocol Drop {
+    func drop(mut self)
 }
 
-impl JsonObject {
-    pub func parse(s: String) -> JsonObject {
-        return JsonObject { data: s }
-    }
+pub enum JsonKind {
+    case Null
+    case Bool
+    case Int
+    case Double
+    case Str
+    case Arr
+    case Obj
+}
 
-    pub func create() -> JsonObject {
-        return JsonObject { data: jsonCreate() }
-    }
+pub struct JsonValue {
+    var docHandle: i64
+    var nodeHandle: i64
+    var owns: bool
+}
 
-    pub func get(ref self, key: String) -> String? {
-        return jsonGet(self.data, key)
+impl JsonValue: Drop {
+    func drop(mut self) {
+        if self.owns { jsonFreeDoc(self.docHandle) }
     }
+}
 
-    pub func getInt(ref self, key: String) -> i64 {
-        return jsonGetInt(self.data, key)
+impl JsonValue {
+    pub func kind(ref self) -> JsonKind {
+        let k = jsonNodeKind(self.nodeHandle)
+        if k == 1 { return JsonKind.Bool }
+        if k == 2 { return JsonKind.Int }
+        if k == 3 { return JsonKind.Double }
+        if k == 4 { return JsonKind.Str }
+        if k == 5 { return JsonKind.Arr }
+        if k == 6 { return JsonKind.Obj }
+        return JsonKind.Null
     }
+    pub func isNull(ref self) -> bool { return jsonNodeKind(self.nodeHandle) == 0 }
+    pub func isBool(ref self) -> bool { return jsonNodeKind(self.nodeHandle) == 1 }
+    pub func isInt(ref self) -> bool { return jsonNodeKind(self.nodeHandle) == 2 }
+    pub func isDouble(ref self) -> bool { return jsonNodeKind(self.nodeHandle) == 3 }
+    pub func isString(ref self) -> bool { return jsonNodeKind(self.nodeHandle) == 4 }
+    pub func isArray(ref self) -> bool { return jsonNodeKind(self.nodeHandle) == 5 }
+    pub func isObject(ref self) -> bool { return jsonNodeKind(self.nodeHandle) == 6 }
 
-    pub func getFloat(ref self, key: String) -> f64 {
-        return jsonGetFloat(self.data, key)
+    pub func asString(ref self) -> String { return jsonNodeAsString(self.nodeHandle) }
+    pub func asInt(ref self) -> i64 { return jsonNodeAsInt(self.nodeHandle) }
+    pub func asFloat(ref self) -> f64 { return jsonNodeAsFloat(self.nodeHandle) }
+    pub func asBool(ref self) -> bool { return jsonNodeAsBool(self.nodeHandle) }
+
+    pub func toString(ref self) -> String { return jsonToString(self.nodeHandle) }
+    pub func toStringPretty(ref self, indent: i32) -> String {
+        return jsonToStringPretty(self.nodeHandle, indent)
     }
+}
 
-    pub func getBool(ref self, key: String) -> bool {
-        return jsonGetBool(self.data, key)
-    }
+pub struct Json {}
 
-    pub func set(mut self, key: String, value: String) {
-        self.data = jsonSet(self.data, key, value)
-    }
-
-    pub func setInt(mut self, key: String, value: i64) {
-        self.data = jsonSetInt(self.data, key, value)
-    }
-
-    pub func setFloat(mut self, key: String, value: f64) {
-        self.data = jsonSetFloat(self.data, key, value)
-    }
-
-    pub func setBool(mut self, key: String, value: bool) {
-        self.data = jsonSetBool(self.data, key, value)
-    }
-
-    pub func remove(mut self, key: String) {
-        self.data = jsonRemove(self.data, key)
-    }
-
-    pub func isValid(ref self) -> bool {
-        return jsonIsValid(self.data)
-    }
-
-    pub func count(ref self) -> i32 {
-        return jsonCount(self.data)
-    }
-
-    pub func getArray(ref self, key: String) -> String? {
-        return jsonGetArray(self.data, key)
-    }
-
-    pub func getObject(ref self, key: String) -> String? {
-        return jsonGetObject(self.data, key)
-    }
-
-    pub func stringify(ref self) -> String {
-        return self.data
-    }
-
-    pub func stringifyPretty(ref self, indent: i32) -> String {
-        return jsonStringifyPretty(self.data, indent)
+impl Json {
+    pub func parse(s: String) -> JsonValue {
+        let doc = jsonParse(s)
+        return JsonValue { docHandle: doc, nodeHandle: jsonRoot(doc), owns: true }
     }
 }

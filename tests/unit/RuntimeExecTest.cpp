@@ -1036,5 +1036,21 @@ TEST(RuntimeExecTest, ArrayElementChainedCall) {
     EXPECT_EQ(r.stdout_output, "2024\n");
 }
 
+TEST(RuntimeExecTest, JsonParseScalarAndSerialize) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    let doc = Json.parse("{\"n\":7,\"name\":\"liva\",\"ok\":true}")
+    println(doc.toString())
+    let pretty = doc.toStringPretty(2)
+    println(pretty)
+    if doc.isObject() { println("isobj") }
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_scalar");
+    EXPECT_NE(r.stdout_output.find("\"n\":7"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("\"name\":\"liva\""), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("isobj"), std::string::npos) << r.stdout_output;
+}
 
 #endif // LIVA_HAS_LLVM

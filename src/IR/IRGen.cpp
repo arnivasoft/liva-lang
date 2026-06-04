@@ -1029,6 +1029,28 @@ void IRGen::createRuntimeDecls() {
     auto *jsonPrettyTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i32Ty}, false);
     module_->getOrInsertFunction("liva_json_stringify_pretty", jsonPrettyTy);
 
+    // === JSON DOM (parse-tree) natives ===
+    // liva_json_parse(s) -> i64
+    module_->getOrInsertFunction("liva_json_parse", llvm::FunctionType::get(i64Ty, {i8PtrTy}, false));
+    // liva_json_free_doc(docH) -> void
+    module_->getOrInsertFunction("liva_json_free_doc", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false));
+    // liva_json_root(docH) -> i64
+    module_->getOrInsertFunction("liva_json_root", llvm::FunctionType::get(i64Ty, {i64Ty}, false));
+    // liva_json_node_kind(nodeH) -> i32
+    module_->getOrInsertFunction("liva_json_node_kind", llvm::FunctionType::get(i32Ty, {i64Ty}, false));
+    // liva_json_node_as_int(nodeH) -> i64
+    module_->getOrInsertFunction("liva_json_node_as_int", llvm::FunctionType::get(i64Ty, {i64Ty}, false));
+    // liva_json_node_as_float(nodeH) -> f64
+    module_->getOrInsertFunction("liva_json_node_as_float", llvm::FunctionType::get(f64Ty, {i64Ty}, false));
+    // liva_json_node_as_bool(nodeH) -> i8
+    module_->getOrInsertFunction("liva_json_node_as_bool", llvm::FunctionType::get(i8Ty, {i64Ty}, false));
+    // liva_json_node_as_string(nodeH) -> char*
+    module_->getOrInsertFunction("liva_json_node_as_string", llvm::FunctionType::get(i8PtrTy, {i64Ty}, false));
+    // liva_json_to_string(nodeH) -> char*
+    module_->getOrInsertFunction("liva_json_to_string", llvm::FunctionType::get(i8PtrTy, {i64Ty}, false));
+    // liva_json_to_string_pretty(nodeH, indent) -> char*
+    module_->getOrInsertFunction("liva_json_to_string_pretty", llvm::FunctionType::get(i8PtrTy, {i64Ty, i32Ty}, false));
+
     // === Logging ===
     auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_log_debug", logMsgTy);

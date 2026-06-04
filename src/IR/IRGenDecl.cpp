@@ -1245,7 +1245,15 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                                     vars_.varStructTypes[node->getName()] = ident->getName();
                                 }
                             } else {
-                                vars_.varStructTypes[node->getName()] = ident->getName();
+                                // The method may return a DIFFERENT struct type than the
+                                // receiver (e.g. Json::parse -> JsonValue, not Json).
+                                // Use the LLVM struct type's name when it differs.
+                                std::string structName = ident->getName();
+                                if (!st->getName().empty() &&
+                                    st->getName() != ident->getName()) {
+                                    structName = st->getName().str();
+                                }
+                                vars_.varStructTypes[node->getName()] = structName;
                             }
                         } else {
                             vars_.varStructTypes[node->getName()] = ident->getName();
