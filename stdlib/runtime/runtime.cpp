@@ -4883,6 +4883,43 @@ char *liva_hex_decode(const char *data) {
     return out;
 }
 
+// Shared URL splitter: scheme://host:port/path?query#fragment (best-effort, no panic).
+struct LivaUrlParts {
+    std::string scheme, host, path, query, fragment;
+    int port = 0;
+};
+
+static LivaUrlParts liva_parse_url_parts(const char *url) {
+    LivaUrlParts p;
+    if (!url) return p;
+    std::string s(url);
+    size_t hash = s.find('#');
+    if (hash != std::string::npos) { p.fragment = s.substr(hash + 1); s = s.substr(0, hash); }
+    size_t q = s.find('?');
+    if (q != std::string::npos) { p.query = s.substr(q + 1); s = s.substr(0, q); }
+    size_t sc = s.find("://");
+    if (sc != std::string::npos) { p.scheme = s.substr(0, sc); s = s.substr(sc + 3); }
+    std::string authority;
+    size_t slash = s.find('/');
+    if (slash != std::string::npos) { p.path = s.substr(slash); authority = s.substr(0, slash); }
+    else { authority = s; }
+    size_t colon = authority.find(':');
+    if (colon != std::string::npos) {
+        p.host = authority.substr(0, colon);
+        p.port = atoi(authority.substr(colon + 1).c_str());
+    } else {
+        p.host = authority;
+    }
+    return p;
+}
+
+char *liva_url_scheme(const char *url)   { return strdup_safe(liva_parse_url_parts(url).scheme.c_str()); }
+char *liva_url_host(const char *url)     { return strdup_safe(liva_parse_url_parts(url).host.c_str()); }
+int32_t liva_url_port(const char *url)   { return (int32_t)liva_parse_url_parts(url).port; }
+char *liva_url_path(const char *url)     { return strdup_safe(liva_parse_url_parts(url).path.c_str()); }
+char *liva_url_query(const char *url)    { return strdup_safe(liva_parse_url_parts(url).query.c_str()); }
+char *liva_url_fragment(const char *url) { return strdup_safe(liva_parse_url_parts(url).fragment.c_str()); }
+
 // === URL encoding (percent-encoding, RFC 3986) ===
 
 char *liva_url_encode(const char *data) {

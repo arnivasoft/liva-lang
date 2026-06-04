@@ -911,6 +911,14 @@ char *liva_hex_encode(const char *data);
 /// Hex decode (hex string to bytes), returns malloc'd string or NULL
 char *liva_hex_decode(const char *data);
 
+/// URL component accessors (best-effort parse of scheme://host:port/path?query#fragment).
+char *liva_url_scheme(const char *url);
+char *liva_url_host(const char *url);
+int32_t liva_url_port(const char *url);
+char *liva_url_path(const char *url);
+char *liva_url_query(const char *url);
+char *liva_url_fragment(const char *url);
+
 /// URL percent-encode (RFC 3986 unreserved set), returns malloc'd string
 char *liva_url_encode(const char *data);
 

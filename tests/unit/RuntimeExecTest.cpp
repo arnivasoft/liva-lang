@@ -1238,4 +1238,26 @@ func main() {
     EXPECT_NE(r.stdout_output.find("3"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, UrlComponentAccessors) {
+    std::string source = R"LIVA(
+func main() {
+    let u = "https://api.example.com:8080/v1/users?page=2#top"
+    print(urlScheme(u))
+    print(urlHost(u))
+    print(toString(urlPort(u)))
+    print(urlPath(u))
+    print(urlQuery(u))
+    print(urlFragment(u))
+}
+)LIVA";
+    auto r = compileAndRun(source, "url_accessors");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("https"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("api.example.com"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("8080"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("/v1/users"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("page=2"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("top"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM

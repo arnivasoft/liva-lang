@@ -722,6 +722,16 @@ void IRGen::createRuntimeDecls() {
     auto *httpCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
     module_->getOrInsertFunction("liva_http_req_close", httpCloseTy);
 
+    // URL component accessors: (ptr) -> ptr, except port (ptr) -> i32
+    auto *urlStrTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_url_scheme", urlStrTy);
+    module_->getOrInsertFunction("liva_url_host", urlStrTy);
+    module_->getOrInsertFunction("liva_url_path", urlStrTy);
+    module_->getOrInsertFunction("liva_url_query", urlStrTy);
+    module_->getOrInsertFunction("liva_url_fragment", urlStrTy);
+    auto *urlPortTy = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_url_port", urlPortTy);
+
     // === Stdlib: WebSocket ===
     // wsConnect(url) -> i64
     auto *wsConnectTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);

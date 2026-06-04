@@ -179,6 +179,8 @@ void TypeChecker::registerBuiltins() {
     // Stdlib: Encoding/Compression
     for (auto &name : {"base64Encode", "base64Decode", "hexEncode",
                         "hexDecode", "urlEncode", "urlDecode", "crc32",
+                        "urlScheme", "urlHost", "urlPort", "urlPath",
+                        "urlQuery", "urlFragment",
                         "base64UrlEncode", "base64UrlDecode",
                         "strToBytes", "bytesToStr",
                         "hexEncodeBytes", "hexDecodeBytes",
@@ -2630,6 +2632,12 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
             auto arr = std::make_unique<ArrayTypeRepr>(std::move(u8), -1);
             node->setResolvedType(std::make_unique<OptionalTypeRepr>(std::move(arr)));
+        } else if (ident->getName() == "urlScheme" || ident->getName() == "urlHost" ||
+                   ident->getName() == "urlPath" || ident->getName() == "urlQuery" ||
+                   ident->getName() == "urlFragment") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "urlPort") {
+            node->setResolvedType(makeI32Type());
         } else if (ident->getName() == "crc32") {
             node->setResolvedType(makeI64Type());
         // Stdlib: Crypto
