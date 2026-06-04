@@ -187,6 +187,12 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_url_path);
     REG(liva_url_query);
     REG(liva_url_fragment);
+    REG(liva_http_req_ex);
+    REG(liva_http_raw_headers);
+    REG(liva_http_header_lookup);
+    REG(liva_http_req_status);
+    REG(liva_http_req_body);
+    REG(liva_http_req_close);
 
     // Async/Coroutine
     REG(liva_task_complete);

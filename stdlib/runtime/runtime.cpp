@@ -2513,6 +2513,90 @@ void liva_http_req_close(int64_t handle) {
     liva_http_response_free(resp);
 }
 
+// Full request with a CRLF "Name: Value\r\n" header blob (userland-facing).
+// Returns i64 handle (0 on failure); caller frees via liva_http_req_close.
+int64_t liva_http_req_ex(const char *method, const char *url, const char *body,
+                         const char *headers_blob, int64_t timeout_ms) {
+    std::vector<std::string> hstore;   // name,value,name,value,... (stable backing)
+    if (headers_blob && *headers_blob) {
+        std::string raw(headers_blob);
+        size_t pos = 0;
+        while (pos < raw.size()) {
+            size_t eol = raw.find('\n', pos);
+            if (eol == std::string::npos) eol = raw.size();
+            std::string line = raw.substr(pos, eol - pos);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            pos = eol + 1;
+            size_t colon = line.find(':');
+            if (line.empty() || colon == std::string::npos) continue;
+            std::string name = line.substr(0, colon);
+            std::string value = line.substr(colon + 1);
+            size_t vs = 0;
+            while (vs < value.size() && value[vs] == ' ') vs++;
+            if (vs > 0) value = value.substr(vs);
+            hstore.push_back(name);
+            hstore.push_back(value);
+        }
+    }
+    int64_t header_count = (int64_t)(hstore.size() / 2);
+    std::vector<const char *> hptrs;
+    for (auto &s : hstore) hptrs.push_back(s.c_str());
+    auto *resp = liva_http_request(method, url, body,
+                                   header_count > 0 ? hptrs.data() : nullptr,
+                                   header_count, timeout_ms);
+    return (int64_t)(uintptr_t)resp;
+}
+
+// Reconstruct a CRLF "Name: Value\r\n" header blob from a response handle.
+char *liva_http_raw_headers(int64_t handle) {
+    auto *resp = (LivaHttpResponse *)(uintptr_t)handle;
+    std::string out;
+    if (resp) {
+        for (int64_t i = 0; i < resp->header_count; i++) {
+            if (resp->header_names[i] && resp->header_values[i]) {
+                out += resp->header_names[i];
+                out += ": ";
+                out += resp->header_values[i];
+                out += "\r\n";
+            }
+        }
+    }
+    char *r = (char *)malloc(out.size() + 1);
+    if (r) memcpy(r, out.c_str(), out.size() + 1);
+    return r;
+}
+
+// Case-insensitive lookup of `name` in a CRLF header blob; malloc'd value or NULL.
+char *liva_http_header_lookup(const char *blob, const char *name) {
+    if (!blob || !name) return nullptr;
+    auto lower = [](std::string s) {
+        for (auto &c : s) if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        return s;
+    };
+    std::string target = lower(std::string(name));
+    std::string raw(blob);
+    size_t pos = 0;
+    while (pos < raw.size()) {
+        size_t eol = raw.find('\n', pos);
+        if (eol == std::string::npos) eol = raw.size();
+        std::string line = raw.substr(pos, eol - pos);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        pos = eol + 1;
+        size_t colon = line.find(':');
+        if (colon == std::string::npos) continue;
+        if (lower(line.substr(0, colon)) == target) {
+            std::string value = line.substr(colon + 1);
+            size_t vs = 0;
+            while (vs < value.size() && value[vs] == ' ') vs++;
+            if (vs > 0) value = value.substr(vs);
+            char *r = (char *)malloc(value.size() + 1);
+            if (r) memcpy(r, value.c_str(), value.size() + 1);
+            return r;
+        }
+    }
+    return nullptr;
+}
+
 char *liva_http_response_header(const LivaHttpResponse *resp, const char *name) {
     if (!resp || !name) return nullptr;
     for (int64_t i = 0; i < resp->header_count; i++) {

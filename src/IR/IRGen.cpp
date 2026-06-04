@@ -722,6 +722,16 @@ void IRGen::createRuntimeDecls() {
     auto *httpCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
     module_->getOrInsertFunction("liva_http_req_close", httpCloseTy);
 
+    // httpRequestEx(method, url, body, headersBlob, timeout) -> i64 handle
+    auto *httpReqExTy = llvm::FunctionType::get(i64Ty,
+        {i8PtrTy, i8PtrTy, i8PtrTy, i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_http_req_ex", httpReqExTy);
+    // httpRawHeaders(handle) -> char*
+    module_->getOrInsertFunction("liva_http_raw_headers", httpBodyTy);
+    // httpHeaderLookup(blob, name) -> char* (nullable)
+    auto *httpHdrLookupTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+    module_->getOrInsertFunction("liva_http_header_lookup", httpHdrLookupTy);
+
     // URL component accessors: (ptr) -> ptr, except port (ptr) -> i32
     auto *urlStrTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_url_scheme", urlStrTy);

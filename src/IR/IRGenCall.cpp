@@ -3282,6 +3282,49 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateLoad(optTy, optAlloca, "http.header.result");
     }
 
+    // httpRequestEx(method, url, body, headersBlob, timeout_ms) -> i64 handle
+    if (funcName == "httpRequestEx" && node->getArgs().size() >= 5) {
+        auto *methodArg = visit(node->getArgs()[0].get());
+        auto *urlArg = visit(node->getArgs()[1].get());
+        auto *bodyArg = visit(node->getArgs()[2].get());
+        auto *hdrArg = visit(node->getArgs()[3].get());
+        auto *timeoutArg = visit(node->getArgs()[4].get());
+        if (!methodArg || !urlArg || !bodyArg || !hdrArg || !timeoutArg) return nullptr;
+        if (timeoutArg->getType()->isIntegerTy(32))
+            timeoutArg = builder_->CreateSExt(timeoutArg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_http_req_ex");
+        return builder_->CreateCall(fn, {methodArg, urlArg, bodyArg, hdrArg, timeoutArg},
+                                    "http.reqex.handle");
+    }
+
+    // httpRawHeaders(handle) -> string
+    if (funcName == "httpRawHeaders" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_http_raw_headers"), {handleArg}, "http.rawhdr");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // httpHeaderLookup(blob, name) -> string?
+    if (funcName == "httpHeaderLookup" && node->getArgs().size() >= 2) {
+        auto *blobArg = visit(node->getArgs()[0].get());
+        auto *nameArg = visit(node->getArgs()[1].get());
+        if (!blobArg || !nameArg) return nullptr;
+        auto *result = builder_->CreateCall(getOrPanic("liva_http_header_lookup"),
+                                            {blobArg, nameArg}, "http.hdrlookup.raw");
+        trackStringTemp(result);
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
+            llvm::PointerType::getUnqual(*context_)), "http.hdrlookup.isnull");
+        auto *hasVal = builder_->CreateNot(isNull, "http.hdrlookup.hasval");
+        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "http.hdrlookup.opt", optTy);
+        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
+        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
+        return builder_->CreateLoad(optTy, optAlloca, "http.hdrlookup.result");
+    }
+
     // httpClose(handle) -> void
     if (funcName == "httpClose" && !node->getArgs().empty()) {
         auto *handleArg = visit(node->getArgs()[0].get());

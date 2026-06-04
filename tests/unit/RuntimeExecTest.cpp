@@ -1260,4 +1260,25 @@ func main() {
     EXPECT_NE(r.stdout_output.find("top"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, HttpHeaderLookupCaseInsensitive) {
+    std::string source = R"LIVA(
+import std::net
+func main() {
+    let blob = "Content-Type: application/json\r\nX-Count: 7\r\n"
+    if let ct = httpHeaderLookup(blob, "content-type") {
+        print(ct)
+    }
+    if let missing = httpHeaderLookup(blob, "Nope") {
+        print("FOUND")
+    } else {
+        print("absent")
+    }
+}
+)LIVA";
+    auto r = compileAndRun(source, "http_header_lookup");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("application/json"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("absent"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM

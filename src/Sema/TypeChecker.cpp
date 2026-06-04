@@ -71,8 +71,8 @@ void TypeChecker::registerBuiltins() {
                         "regexExecGroups", "regexReplaceCompiled", "regexFree",
                         "httpGet", "httpPost",
                         "httpPut", "httpPatch", "httpDelete",
-                        "httpRequest", "httpStatus", "httpBody",
-                        "httpHeader", "httpClose",
+                        "httpRequest", "httpRequestEx", "httpStatus", "httpBody",
+                        "httpHeader", "httpRawHeaders", "httpHeaderLookup", "httpClose",
                         "wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen",
                         "sqliteOpen", "sqliteClose", "sqliteExec",
                         "sqliteQueryFirst", "sqliteQueryInt", "sqliteQueryColumn",
@@ -2385,6 +2385,13 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "httpRequest") {
             node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "httpRequestEx") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "httpRawHeaders") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "httpHeaderLookup") {
+            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
+            node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "httpStatus") {
             node->setResolvedType(makeI32Type());
         } else if (ident->getName() == "httpBody") {

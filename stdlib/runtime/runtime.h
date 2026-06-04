@@ -456,6 +456,14 @@ char *liva_http_req_header(int64_t handle, const char *name);
 /// Release the response buffer.
 void liva_http_req_close(int64_t handle);
 
+/// Full HTTP request with a CRLF header blob; returns i64 handle (0 on failure).
+int64_t liva_http_req_ex(const char *method, const char *url, const char *body,
+                         const char *headers_blob, int64_t timeout_ms);
+/// Reconstruct a CRLF header blob from a response handle (malloc'd).
+char *liva_http_raw_headers(int64_t handle);
+/// Case-insensitive header lookup in a CRLF blob; malloc'd value or NULL.
+char *liva_http_header_lookup(const char *blob, const char *name);
+
 // === WebSocket (WinHTTP-backed on Windows; returns 0 on platforms without support) ===
 
 /// Open a WebSocket. URL must be ws:// or wss://. Returns opaque handle (0 on failure).
