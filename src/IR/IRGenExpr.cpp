@@ -2,6 +2,7 @@
 
 #ifdef LIVA_HAS_LLVM
 
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/Intrinsics.h>
 
 namespace liva {
@@ -224,6 +225,20 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
         }
         default:
             break;
+        }
+    }
+
+    // Widen a constant i32 operand to match an i64 operand (e.g. len()/indexOf()
+    // results mixed with an integer literal). Constant-only: a non-constant
+    // operand is left untouched to avoid unsigned sign-extension hazards.
+    if (lhs && rhs && lhs->getType()->isIntegerTy() && rhs->getType()->isIntegerTy() &&
+        lhs->getType() != rhs->getType()) {
+        unsigned lw = lhs->getType()->getIntegerBitWidth();
+        unsigned rw = rhs->getType()->getIntegerBitWidth();
+        if (lw < rw && llvm::isa<llvm::ConstantInt>(lhs)) {
+            lhs = builder_->CreateSExt(lhs, rhs->getType(), "binop.lwiden");
+        } else if (rw < lw && llvm::isa<llvm::ConstantInt>(rhs)) {
+            rhs = builder_->CreateSExt(rhs, lhs->getType(), "binop.rwiden");
         }
     }
 

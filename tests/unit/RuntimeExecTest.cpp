@@ -1217,4 +1217,25 @@ func main() {
     EXPECT_NE(r.stdout_output.find("9"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, IntLiteralWidensToI64InBinaryOps) {
+    std::string source = R"LIVA(
+func main() {
+    let s = "hello"
+    let n = len(s) - 1
+    print(toString(n))
+    if len(s) > 0 {
+        print("nonempty")
+    }
+    let idx = s.indexOf("l")
+    let after = idx + 1
+    print(toString(after))
+}
+)LIVA";
+    auto r = compileAndRun(source, "int_literal_widen");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("4"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("nonempty"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("3"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM
