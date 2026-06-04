@@ -71,6 +71,18 @@ impl JsonArray {
     }
     pub func toString(ref self) -> String { return jsonToString(self.nodeHandle) }
     pub func toStringPretty(ref self, indent: i32) -> String { return jsonToStringPretty(self.nodeHandle, indent) }
+
+    pub func addString(mut self, val: String) { jsonArrAddString(self.docHandle, self.nodeHandle, val) }
+    pub func addInt(mut self, val: i64) { jsonArrAddInt(self.docHandle, self.nodeHandle, val) }
+    pub func addFloat(mut self, val: f64) { jsonArrAddFloat(self.docHandle, self.nodeHandle, val) }
+    pub func addBool(mut self, val: bool) { jsonArrAddBool(self.docHandle, self.nodeHandle, val) }
+    pub func addNull(mut self) { jsonArrAddNull(self.docHandle, self.nodeHandle) }
+    pub func addObject(mut self) -> JsonObject {
+        return JsonObject { docHandle: self.docHandle, nodeHandle: jsonArrAddObject(self.docHandle, self.nodeHandle), owns: false }
+    }
+    pub func addArray(mut self) -> JsonArray {
+        return JsonArray { docHandle: self.docHandle, nodeHandle: jsonArrAddArray(self.docHandle, self.nodeHandle), owns: false }
+    }
 }
 
 impl JsonValue {
@@ -160,6 +172,19 @@ impl JsonObject {
         if jsonNodeKind(h) == 1 { return jsonNodeAsBool(h) }
         return nil
     }
+
+    pub func setString(mut self, key: String, val: String) { jsonObjSetString(self.docHandle, self.nodeHandle, key, val) }
+    pub func setInt(mut self, key: String, val: i64) { jsonObjSetInt(self.docHandle, self.nodeHandle, key, val) }
+    pub func setFloat(mut self, key: String, val: f64) { jsonObjSetFloat(self.docHandle, self.nodeHandle, key, val) }
+    pub func setBool(mut self, key: String, val: bool) { jsonObjSetBool(self.docHandle, self.nodeHandle, key, val) }
+    pub func setNull(mut self, key: String) { jsonObjSetNull(self.docHandle, self.nodeHandle, key) }
+    pub func setObject(mut self, key: String) -> JsonObject {
+        return JsonObject { docHandle: self.docHandle, nodeHandle: jsonObjSetObject(self.docHandle, self.nodeHandle, key), owns: false }
+    }
+    pub func setArray(mut self, key: String) -> JsonArray {
+        return JsonArray { docHandle: self.docHandle, nodeHandle: jsonObjSetArray(self.docHandle, self.nodeHandle, key), owns: false }
+    }
+    pub func remove(mut self, key: String) { jsonObjRemove(self.nodeHandle, key) }
 }
 
 pub struct Json {}
@@ -168,5 +193,13 @@ impl Json {
     pub func parse(s: String) -> JsonValue {
         let doc = jsonParse(s)
         return JsonValue { docHandle: doc, nodeHandle: jsonRoot(doc), owns: true }
+    }
+    pub func object() -> JsonObject {
+        let doc = jsonNewObject()
+        return JsonObject { docHandle: doc, nodeHandle: jsonRoot(doc), owns: true }
+    }
+    pub func array() -> JsonArray {
+        let doc = jsonNewArray()
+        return JsonArray { docHandle: doc, nodeHandle: jsonRoot(doc), owns: true }
     }
 }

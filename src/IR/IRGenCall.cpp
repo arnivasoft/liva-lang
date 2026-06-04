@@ -1911,11 +1911,20 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 }
                 args.push_back(selfPtr);
 
+                auto *calleeFTy = callee->getFunctionType();
+                size_t calleeParamIdx = 1; // 0 is self
                 for (auto &arg : node->getArgs()) {
                     auto *val = visit(arg.get());
                     if (!val)
                         return nullptr;
+                    // Coerce i32 arg to i64 if callee expects i64
+                    if (calleeParamIdx < calleeFTy->getNumParams()) {
+                        auto *expectedTy = calleeFTy->getParamType(calleeParamIdx);
+                        if (val->getType()->isIntegerTy(32) && expectedTy->isIntegerTy(64))
+                            val = builder_->CreateSExt(val, builder_->getInt64Ty(), "mcall.sext");
+                    }
                     args.push_back(val);
+                    ++calleeParamIdx;
                 }
 
                 if (callee->getReturnType()->isVoidTy())
@@ -4321,6 +4330,109 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *h = visit(node->getArgs()[0].get());
         auto *idx = visit(node->getArgs()[1].get());
         return builder_->CreateCall(getOrPanic("liva_json_arr_at"), {h, idx}, "json.arrat");
+    }
+
+    // === JSON DOM Building / Mutation ===
+    if (funcName == "jsonNewObject" && node->getArgs().empty())
+        return builder_->CreateCall(getOrPanic("liva_json_new_object"), {}, "json.newobj");
+    if (funcName == "jsonNewArray" && node->getArgs().empty())
+        return builder_->CreateCall(getOrPanic("liva_json_new_array"), {}, "json.newarr");
+
+    if (funcName == "jsonObjSetString" && node->getArgs().size() >= 4) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *k = visit(node->getArgs()[2].get());
+        auto *v = visit(node->getArgs()[3].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_set_string"), {d, n, k, v});
+    }
+    if (funcName == "jsonObjSetInt" && node->getArgs().size() >= 4) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *k = visit(node->getArgs()[2].get());
+        auto *v = visit(node->getArgs()[3].get());
+        if (v->getType()->isIntegerTy(32))
+            v = builder_->CreateSExt(v, builder_->getInt64Ty(), "json.int.sext");
+        return builder_->CreateCall(getOrPanic("liva_json_obj_set_int"), {d, n, k, v});
+    }
+    if (funcName == "jsonObjSetFloat" && node->getArgs().size() >= 4) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *k = visit(node->getArgs()[2].get());
+        auto *v = visit(node->getArgs()[3].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_set_float"), {d, n, k, v});
+    }
+    if (funcName == "jsonObjSetBool" && node->getArgs().size() >= 4) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *k = visit(node->getArgs()[2].get());
+        auto *v = visit(node->getArgs()[3].get());
+        v = builder_->CreateZExt(v, builder_->getInt8Ty(), "json.bool.zext");
+        return builder_->CreateCall(getOrPanic("liva_json_obj_set_bool"), {d, n, k, v});
+    }
+    if (funcName == "jsonObjSetNull" && node->getArgs().size() >= 3) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *k = visit(node->getArgs()[2].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_set_null"), {d, n, k});
+    }
+    if (funcName == "jsonObjSetObject" && node->getArgs().size() >= 3) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *k = visit(node->getArgs()[2].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_set_object"), {d, n, k}, "json.setobj");
+    }
+    if (funcName == "jsonObjSetArray" && node->getArgs().size() >= 3) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *k = visit(node->getArgs()[2].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_set_array"), {d, n, k}, "json.setarr");
+    }
+    if (funcName == "jsonObjRemove" && node->getArgs().size() >= 2) {
+        auto *n = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        return builder_->CreateCall(getOrPanic("liva_json_obj_remove"), {n, k});
+    }
+    if (funcName == "jsonArrAddString" && node->getArgs().size() >= 3) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *v = visit(node->getArgs()[2].get());
+        return builder_->CreateCall(getOrPanic("liva_json_arr_add_string"), {d, n, v});
+    }
+    if (funcName == "jsonArrAddInt" && node->getArgs().size() >= 3) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *v = visit(node->getArgs()[2].get());
+        if (v->getType()->isIntegerTy(32))
+            v = builder_->CreateSExt(v, builder_->getInt64Ty(), "json.aint.sext");
+        return builder_->CreateCall(getOrPanic("liva_json_arr_add_int"), {d, n, v});
+    }
+    if (funcName == "jsonArrAddFloat" && node->getArgs().size() >= 3) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *v = visit(node->getArgs()[2].get());
+        return builder_->CreateCall(getOrPanic("liva_json_arr_add_float"), {d, n, v});
+    }
+    if (funcName == "jsonArrAddBool" && node->getArgs().size() >= 3) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        auto *v = visit(node->getArgs()[2].get());
+        v = builder_->CreateZExt(v, builder_->getInt8Ty(), "json.abool.zext");
+        return builder_->CreateCall(getOrPanic("liva_json_arr_add_bool"), {d, n, v});
+    }
+    if (funcName == "jsonArrAddNull" && node->getArgs().size() >= 2) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        return builder_->CreateCall(getOrPanic("liva_json_arr_add_null"), {d, n});
+    }
+    if (funcName == "jsonArrAddObject" && node->getArgs().size() >= 2) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        return builder_->CreateCall(getOrPanic("liva_json_arr_add_object"), {d, n}, "json.addobj");
+    }
+    if (funcName == "jsonArrAddArray" && node->getArgs().size() >= 2) {
+        auto *d = visit(node->getArgs()[0].get());
+        auto *n = visit(node->getArgs()[1].get());
+        return builder_->CreateCall(getOrPanic("liva_json_arr_add_array"), {d, n}, "json.addarr");
     }
 
     // === Logging ===

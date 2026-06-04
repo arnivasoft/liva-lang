@@ -137,7 +137,12 @@ void TypeChecker::registerBuiltins() {
                         "jsonToString", "jsonToStringPretty",
                         "jsonObjGet", "jsonObjHas", "jsonObjCount",
                         "jsonArrCount", "jsonArrAt",
-                        "jsonObjKeys"}) {
+                        "jsonObjKeys",
+                        "jsonNewObject", "jsonNewArray",
+                        "jsonObjSetString", "jsonObjSetInt", "jsonObjSetFloat", "jsonObjSetBool", "jsonObjSetNull",
+                        "jsonObjSetObject", "jsonObjSetArray", "jsonObjRemove",
+                        "jsonArrAddString", "jsonArrAddInt", "jsonArrAddFloat", "jsonArrAddBool", "jsonArrAddNull",
+                        "jsonArrAddObject", "jsonArrAddArray"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2576,6 +2581,18 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
             node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "jsonArrCount") {
             node->setResolvedType(makeI32Type());
+        // Stdlib: JSON DOM Building / Mutation
+        } else if (ident->getName() == "jsonNewObject" || ident->getName() == "jsonNewArray" ||
+                   ident->getName() == "jsonObjSetObject" || ident->getName() == "jsonObjSetArray" ||
+                   ident->getName() == "jsonArrAddObject" || ident->getName() == "jsonArrAddArray") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "jsonObjSetString" || ident->getName() == "jsonObjSetInt" ||
+                   ident->getName() == "jsonObjSetFloat" || ident->getName() == "jsonObjSetBool" ||
+                   ident->getName() == "jsonObjSetNull" || ident->getName() == "jsonObjRemove" ||
+                   ident->getName() == "jsonArrAddString" || ident->getName() == "jsonArrAddInt" ||
+                   ident->getName() == "jsonArrAddFloat" || ident->getName() == "jsonArrAddBool" ||
+                   ident->getName() == "jsonArrAddNull") {
+            // void — no resolved type needed
         // Stdlib: Logging (all void)
         } else if (ident->getName() == "logDebug" || ident->getName() == "logInfo" ||
                    ident->getName() == "logWarn" || ident->getName() == "logError" ||

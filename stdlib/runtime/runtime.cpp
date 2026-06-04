@@ -4418,6 +4418,80 @@ char** liva_json_obj_keys(int64_t nodeH, int64_t* count) {
     return result;
 }
 
+// === JSON DOM Building / Mutation ===
+
+int64_t liva_json_new_object() {
+    using namespace livajson;
+    Doc* doc = new Doc(); doc->root = doc->make(K_Object);
+    return reinterpret_cast<int64_t>(doc);
+}
+int64_t liva_json_new_array() {
+    using namespace livajson;
+    Doc* doc = new Doc(); doc->root = doc->make(K_Array);
+    return reinterpret_cast<int64_t>(doc);
+}
+
+// Object set helper: replace existing key or append. Returns the value node.
+static livajson::Node* objSetNode(int64_t docH, int64_t nodeH, const char* key, livajson::Node* v) {
+    using namespace livajson;
+    if (!docH || !nodeH || !key) return nullptr;
+    Node* n = asNode(nodeH);
+    if (n->kind != K_Object) return nullptr;
+    for (auto& kv : n->obj) if (kv.first == key) { kv.second = v; return v; }
+    n->obj.push_back({key, v});
+    return v;
+}
+void liva_json_obj_set_string(int64_t d, int64_t node, const char* key, const char* val) {
+    using namespace livajson; Node* v = asDoc(d)->make(K_String); v->str = val ? val : ""; objSetNode(d,node,key,v);
+}
+void liva_json_obj_set_int(int64_t d, int64_t node, const char* key, int64_t val) {
+    using namespace livajson; Node* v = asDoc(d)->make(K_Int); v->i = val; objSetNode(d,node,key,v);
+}
+void liva_json_obj_set_float(int64_t d, int64_t node, const char* key, double val) {
+    using namespace livajson; Node* v = asDoc(d)->make(K_Double); v->d = val; objSetNode(d,node,key,v);
+}
+void liva_json_obj_set_bool(int64_t d, int64_t node, const char* key, int8_t val) {
+    using namespace livajson; Node* v = asDoc(d)->make(K_Bool); v->b = val!=0; objSetNode(d,node,key,v);
+}
+void liva_json_obj_set_null(int64_t d, int64_t node, const char* key) {
+    using namespace livajson; Node* v = asDoc(d)->make(K_Null); objSetNode(d,node,key,v);
+}
+int64_t liva_json_obj_set_object(int64_t d, int64_t node, const char* key) {
+    using namespace livajson; Node* v = asDoc(d)->make(K_Object); objSetNode(d,node,key,v); return reinterpret_cast<int64_t>(v);
+}
+int64_t liva_json_obj_set_array(int64_t d, int64_t node, const char* key) {
+    using namespace livajson; Node* v = asDoc(d)->make(K_Array); objSetNode(d,node,key,v); return reinterpret_cast<int64_t>(v);
+}
+void liva_json_obj_remove(int64_t node, const char* key) {
+    using namespace livajson;
+    if (!node || !key) return;
+    Node* n = asNode(node);
+    if (n->kind != K_Object) return;
+    for (auto it = n->obj.begin(); it != n->obj.end(); ++it)
+        if (it->first == key) { n->obj.erase(it); return; }
+}
+void liva_json_arr_add_string(int64_t d, int64_t node, const char* val) {
+    using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return; Node* v=asDoc(d)->make(K_String); v->str=val?val:""; n->arr.push_back(v);
+}
+void liva_json_arr_add_int(int64_t d, int64_t node, int64_t val) {
+    using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return; Node* v=asDoc(d)->make(K_Int); v->i=val; n->arr.push_back(v);
+}
+void liva_json_arr_add_float(int64_t d, int64_t node, double val) {
+    using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return; Node* v=asDoc(d)->make(K_Double); v->d=val; n->arr.push_back(v);
+}
+void liva_json_arr_add_bool(int64_t d, int64_t node, int8_t val) {
+    using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return; Node* v=asDoc(d)->make(K_Bool); v->b=val!=0; n->arr.push_back(v);
+}
+void liva_json_arr_add_null(int64_t d, int64_t node) {
+    using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return; n->arr.push_back(asDoc(d)->make(K_Null));
+}
+int64_t liva_json_arr_add_object(int64_t d, int64_t node) {
+    using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return 0; Node* v=asDoc(d)->make(K_Object); n->arr.push_back(v); return reinterpret_cast<int64_t>(v);
+}
+int64_t liva_json_arr_add_array(int64_t d, int64_t node) {
+    using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return 0; Node* v=asDoc(d)->make(K_Array); n->arr.push_back(v); return reinterpret_cast<int64_t>(v);
+}
+
 } // end DOM extern "C"
 
 extern "C" {

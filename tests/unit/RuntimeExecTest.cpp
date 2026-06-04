@@ -1141,4 +1141,29 @@ func main() {
     EXPECT_EQ(r.stdout_output.find("bad"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonBuildRoundTrip) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    var o = Json.object()
+    o.setString("name", "liva")
+    o.setInt("age", 3)
+    o.setBool("ok", true)
+    var arr = o.setArray("tags")
+    arr.addString("a")
+    arr.addString("b")
+    var child = o.setObject("addr")
+    child.setString("city", "izmir")
+    let s = o.toString()
+    println(s)
+    let reparsed = Json.parse(s)
+    println(reparsed.object().getString("name"))
+    println(reparsed.object().getObject("addr").getString("city"))
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_build");
+    EXPECT_NE(r.stdout_output.find("\"name\":\"liva\""), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("izmir"), std::string::npos) << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

@@ -1063,6 +1063,25 @@ void IRGen::createRuntimeDecls() {
     // liva_json_obj_keys(nodeH, &count) -> char**
     module_->getOrInsertFunction("liva_json_obj_keys", llvm::FunctionType::get(i8PtrTy, {i64Ty, i8PtrTy}, false));
 
+    // === JSON DOM Building / Mutation ===
+    module_->getOrInsertFunction("liva_json_new_object", llvm::FunctionType::get(i64Ty, {}, false));
+    module_->getOrInsertFunction("liva_json_new_array", llvm::FunctionType::get(i64Ty, {}, false));
+    module_->getOrInsertFunction("liva_json_obj_set_string", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, i8PtrTy}, false));
+    module_->getOrInsertFunction("liva_json_obj_set_int", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, i64Ty}, false));
+    module_->getOrInsertFunction("liva_json_obj_set_float", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, f64Ty}, false));
+    module_->getOrInsertFunction("liva_json_obj_set_bool", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, i8Ty}, false));
+    module_->getOrInsertFunction("liva_json_obj_set_null", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy}, false));
+    module_->getOrInsertFunction("liva_json_obj_set_object", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty, i8PtrTy}, false));
+    module_->getOrInsertFunction("liva_json_obj_set_array", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty, i8PtrTy}, false));
+    module_->getOrInsertFunction("liva_json_obj_remove", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i8PtrTy}, false));
+    module_->getOrInsertFunction("liva_json_arr_add_string", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy}, false));
+    module_->getOrInsertFunction("liva_json_arr_add_int", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i64Ty}, false));
+    module_->getOrInsertFunction("liva_json_arr_add_float", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, f64Ty}, false));
+    module_->getOrInsertFunction("liva_json_arr_add_bool", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8Ty}, false));
+    module_->getOrInsertFunction("liva_json_arr_add_null", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty}, false));
+    module_->getOrInsertFunction("liva_json_arr_add_object", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty}, false));
+    module_->getOrInsertFunction("liva_json_arr_add_array", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty}, false));
+
     // === Logging ===
     auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);
     module_->getOrInsertFunction("liva_log_debug", logMsgTy);

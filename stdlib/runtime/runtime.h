@@ -761,6 +761,59 @@ int64_t liva_json_arr_at(int64_t nodeH, int64_t idx);
 /// Return all keys of an object node as a malloc'd char** array; *count set to length.
 char**  liva_json_obj_keys(int64_t nodeH, int64_t* count);
 
+// === JSON DOM Building / Mutation ===
+
+/// Create a new empty JSON object document. Caller owns and must free via liva_json_free_doc.
+int64_t liva_json_new_object();
+
+/// Create a new empty JSON array document. Caller owns and must free via liva_json_free_doc.
+int64_t liva_json_new_array();
+
+/// Set or replace a string value for key in the object node.
+void liva_json_obj_set_string(int64_t d, int64_t node, const char* key, const char* val);
+
+/// Set or replace an integer value for key in the object node.
+void liva_json_obj_set_int(int64_t d, int64_t node, const char* key, int64_t val);
+
+/// Set or replace a float value for key in the object node.
+void liva_json_obj_set_float(int64_t d, int64_t node, const char* key, double val);
+
+/// Set or replace a bool value for key in the object node. val != 0 is true.
+void liva_json_obj_set_bool(int64_t d, int64_t node, const char* key, int8_t val);
+
+/// Set or replace a null value for key in the object node.
+void liva_json_obj_set_null(int64_t d, int64_t node, const char* key);
+
+/// Set or replace a nested object for key; returns the new child node handle.
+int64_t liva_json_obj_set_object(int64_t d, int64_t node, const char* key);
+
+/// Set or replace a nested array for key; returns the new child node handle.
+int64_t liva_json_obj_set_array(int64_t d, int64_t node, const char* key);
+
+/// Remove a key from the object node (no-op if not found).
+void liva_json_obj_remove(int64_t node, const char* key);
+
+/// Append a string element to the array node.
+void liva_json_arr_add_string(int64_t d, int64_t node, const char* val);
+
+/// Append an integer element to the array node.
+void liva_json_arr_add_int(int64_t d, int64_t node, int64_t val);
+
+/// Append a float element to the array node.
+void liva_json_arr_add_float(int64_t d, int64_t node, double val);
+
+/// Append a bool element to the array node. val != 0 is true.
+void liva_json_arr_add_bool(int64_t d, int64_t node, int8_t val);
+
+/// Append a null element to the array node.
+void liva_json_arr_add_null(int64_t d, int64_t node);
+
+/// Append a new nested object to the array; returns the new child node handle.
+int64_t liva_json_arr_add_object(int64_t d, int64_t node);
+
+/// Append a new nested array to the array; returns the new child node handle.
+int64_t liva_json_arr_add_array(int64_t d, int64_t node);
+
 // === JSON (legacy string-based) ===
 
 /// Get string value by key from JSON object, returns malloc'd string or NULL
