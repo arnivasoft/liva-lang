@@ -2442,28 +2442,6 @@ char *liva_http_header_lookup(const char *blob, const char *name) {
     return nullptr;
 }
 
-char *liva_http_response_header(const LivaHttpResponse *resp, const char *name) {
-    if (!resp || !name) return nullptr;
-    for (int64_t i = 0; i < resp->header_count; i++) {
-        if (resp->header_names[i]) {
-            // Case-insensitive header name comparison
-            const char *a = resp->header_names[i];
-            const char *b = name;
-            bool match = true;
-            while (*a && *b) {
-                char ca = (*a >= 'A' && *a <= 'Z') ? (char)(*a + 32) : *a;
-                char cb = (*b >= 'A' && *b <= 'Z') ? (char)(*b + 32) : *b;
-                if (ca != cb) { match = false; break; }
-                a++;
-                b++;
-            }
-            if (match && *a == '\0' && *b == '\0')
-                return strdup_safe(resp->header_values[i]);
-        }
-    }
-    return nullptr;
-}
-
 // === WebSocket (WinHTTP-based on Windows; stub elsewhere) ===
 
 struct LivaWebSocket {

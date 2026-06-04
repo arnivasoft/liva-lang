@@ -419,9 +419,6 @@ int32_t liva_http_response_status(const LivaHttpResponse *resp);
 /// Get body from response (NULL if NULL)
 char *liva_http_response_body(const LivaHttpResponse *resp);
 
-/// Get header value by name from response (returns malloc'd copy or NULL)
-char *liva_http_response_header(const LivaHttpResponse *resp, const char *name);
-
 // === Handle-based HTTP API (i64 handle exposed to Liva) ===
 
 /// Returns HTTP status code (e.g. 200, 404) or 0 for invalid handle.
