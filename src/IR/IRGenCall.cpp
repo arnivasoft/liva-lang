@@ -1917,11 +1917,22 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                     auto *val = visit(arg.get());
                     if (!val)
                         return nullptr;
-                    // Coerce i32 arg to i64 if callee expects i64
+                    // Coerce i32 arg to i64 if callee expects i64. Zero-extend
+                    // unsigned source kinds (u8/u16/u32) to preserve the value;
+                    // sign-extend signed kinds (default for i32 literals).
                     if (calleeParamIdx < calleeFTy->getNumParams()) {
                         auto *expectedTy = calleeFTy->getParamType(calleeParamIdx);
-                        if (val->getType()->isIntegerTy(32) && expectedTy->isIntegerTy(64))
-                            val = builder_->CreateSExt(val, builder_->getInt64Ty(), "mcall.sext");
+                        if (val->getType()->isIntegerTy(32) && expectedTy->isIntegerTy(64)) {
+                            const TypeRepr *argTy = arg->getResolvedType();
+                            bool isUnsigned = argTy &&
+                                (argTy->getKind() == TypeRepr::Kind::U8 ||
+                                 argTy->getKind() == TypeRepr::Kind::U16 ||
+                                 argTy->getKind() == TypeRepr::Kind::U32 ||
+                                 argTy->getKind() == TypeRepr::Kind::U64);
+                            val = isUnsigned
+                                ? builder_->CreateZExt(val, builder_->getInt64Ty(), "mcall.zext")
+                                : builder_->CreateSExt(val, builder_->getInt64Ty(), "mcall.sext");
+                        }
                     }
                     args.push_back(val);
                     ++calleeParamIdx;
