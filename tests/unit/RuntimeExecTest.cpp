@@ -1183,4 +1183,22 @@ func main() {
     EXPECT_NE(r.stdout_output.find("izmir"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonSetPathAutoViv) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    var o = Json.object()
+    o.setPathString("a.b.c", "deep")
+    o.setPathInt("a.b.n", 9)
+    let v = o.path("a.b.c")
+    println(v.asString())
+    println(o.path("a.b.n").asInt())
+    println(o.toString())
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_setpath");
+    EXPECT_NE(r.stdout_output.find("deep"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("9"), std::string::npos) << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

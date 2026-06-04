@@ -818,6 +818,12 @@ int64_t liva_json_arr_add_array(int64_t d, int64_t node);
 /// others index object keys. Returns 0 on any miss or type mismatch.
 int64_t liva_json_path_get(int64_t nodeH, const char* path);
 
+/// Auto-vivifying path write — walk/create Object intermediates and set the leaf.
+void liva_json_path_set_string(int64_t d, int64_t node, const char* path, const char* val);
+void liva_json_path_set_int(int64_t d, int64_t node, const char* path, int64_t val);
+void liva_json_path_set_float(int64_t d, int64_t node, const char* path, double val);
+void liva_json_path_set_bool(int64_t d, int64_t node, const char* path, int8_t val);
+
 // === JSON (legacy string-based) ===
 
 /// Get string value by key from JSON object, returns malloc'd string or NULL

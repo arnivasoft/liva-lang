@@ -1083,6 +1083,11 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_json_arr_add_array", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty}, false));
     // liva_json_path_get(nodeH, path) -> i64
     module_->getOrInsertFunction("liva_json_path_get", llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy}, false));
+    // liva_json_path_set_*(docH, nodeH, path, val) -> void
+    module_->getOrInsertFunction("liva_json_path_set_string", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, i8PtrTy}, false));
+    module_->getOrInsertFunction("liva_json_path_set_int", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, i64Ty}, false));
+    module_->getOrInsertFunction("liva_json_path_set_float", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, f64Ty}, false));
+    module_->getOrInsertFunction("liva_json_path_set_bool", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty, i8PtrTy, i8Ty}, false));
 
     // === Logging ===
     auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);

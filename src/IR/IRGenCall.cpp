@@ -4450,6 +4450,27 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *path = visit(node->getArgs()[1].get());
         return builder_->CreateCall(getOrPanic("liva_json_path_get"), {h, path}, "json.pathget");
     }
+    if (funcName == "jsonPathSetString" && node->getArgs().size() >= 4) {
+        auto *d=visit(node->getArgs()[0].get()); auto *n=visit(node->getArgs()[1].get());
+        auto *pth=visit(node->getArgs()[2].get()); auto *v=visit(node->getArgs()[3].get());
+        return builder_->CreateCall(getOrPanic("liva_json_path_set_string"), {d, n, pth, v});
+    }
+    if (funcName == "jsonPathSetInt" && node->getArgs().size() >= 4) {
+        auto *d=visit(node->getArgs()[0].get()); auto *n=visit(node->getArgs()[1].get());
+        auto *pth=visit(node->getArgs()[2].get()); auto *v=visit(node->getArgs()[3].get());
+        return builder_->CreateCall(getOrPanic("liva_json_path_set_int"), {d, n, pth, v});
+    }
+    if (funcName == "jsonPathSetFloat" && node->getArgs().size() >= 4) {
+        auto *d=visit(node->getArgs()[0].get()); auto *n=visit(node->getArgs()[1].get());
+        auto *pth=visit(node->getArgs()[2].get()); auto *v=visit(node->getArgs()[3].get());
+        return builder_->CreateCall(getOrPanic("liva_json_path_set_float"), {d, n, pth, v});
+    }
+    if (funcName == "jsonPathSetBool" && node->getArgs().size() >= 4) {
+        auto *d=visit(node->getArgs()[0].get()); auto *n=visit(node->getArgs()[1].get());
+        auto *pth=visit(node->getArgs()[2].get()); auto *v=visit(node->getArgs()[3].get());
+        v = builder_->CreateZExt(v, builder_->getInt8Ty(), "json.pbool.zext");
+        return builder_->CreateCall(getOrPanic("liva_json_path_set_bool"), {d, n, pth, v});
+    }
 
     // === Logging ===
     if (funcName == "logDebug" && !node->getArgs().empty()) {

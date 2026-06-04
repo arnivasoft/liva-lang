@@ -188,6 +188,10 @@ impl JsonObject {
     pub func path(ref self, p: String) -> JsonValue {
         return JsonValue { docHandle: self.docHandle, nodeHandle: jsonPathGet(self.nodeHandle, p), owns: false }
     }
+    pub func setPathString(mut self, p: String, val: String) { jsonPathSetString(self.docHandle, self.nodeHandle, p, val) }
+    pub func setPathInt(mut self, p: String, val: i64) { jsonPathSetInt(self.docHandle, self.nodeHandle, p, val) }
+    pub func setPathFloat(mut self, p: String, val: f64) { jsonPathSetFloat(self.docHandle, self.nodeHandle, p, val) }
+    pub func setPathBool(mut self, p: String, val: bool) { jsonPathSetBool(self.docHandle, self.nodeHandle, p, val) }
 }
 
 pub struct Json {}

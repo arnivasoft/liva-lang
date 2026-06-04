@@ -143,7 +143,8 @@ void TypeChecker::registerBuiltins() {
                         "jsonObjSetObject", "jsonObjSetArray", "jsonObjRemove",
                         "jsonArrAddString", "jsonArrAddInt", "jsonArrAddFloat", "jsonArrAddBool", "jsonArrAddNull",
                         "jsonArrAddObject", "jsonArrAddArray",
-                        "jsonPathGet"}) {
+                        "jsonPathGet",
+                        "jsonPathSetString", "jsonPathSetInt", "jsonPathSetFloat", "jsonPathSetBool"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2594,7 +2595,9 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
                    ident->getName() == "jsonObjSetNull" || ident->getName() == "jsonObjRemove" ||
                    ident->getName() == "jsonArrAddString" || ident->getName() == "jsonArrAddInt" ||
                    ident->getName() == "jsonArrAddFloat" || ident->getName() == "jsonArrAddBool" ||
-                   ident->getName() == "jsonArrAddNull") {
+                   ident->getName() == "jsonArrAddNull" ||
+                   ident->getName() == "jsonPathSetString" || ident->getName() == "jsonPathSetInt" ||
+                   ident->getName() == "jsonPathSetFloat" || ident->getName() == "jsonPathSetBool") {
             // void — no resolved type needed
         // Stdlib: Logging (all void)
         } else if (ident->getName() == "logDebug" || ident->getName() == "logInfo" ||

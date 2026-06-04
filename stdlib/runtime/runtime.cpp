@@ -4519,6 +4519,63 @@ int64_t liva_json_path_get(int64_t nodeH, const char* path) {
     return reinterpret_cast<int64_t>(cur);
 }
 
+// Returns the parent object node for the final segment, creating intermediate
+// Objects as needed; writes the final segment name into leafKey.
+static livajson::Node* pathParent(int64_t docH, int64_t nodeH, const char* path, std::string& leafKey) {
+    using namespace livajson;
+    Node* cur = asNode(nodeH);
+    Doc* doc = asDoc(docH);
+    if (!cur || cur->kind != K_Object) return nullptr;
+    const char* p = path;
+    std::string seg;
+    while (true) {
+        seg.clear();
+        while (*p && *p != '.') seg += *p++;
+        bool last = (*p == '\0');
+        if (*p == '.') p++;
+        if (seg.empty()) return nullptr;
+        if (last) { leafKey = seg; return cur; }
+        // descend/create an Object child
+        Node* next = nullptr;
+        for (auto& kv : cur->obj) if (kv.first == seg) { next = kv.second; break; }
+        if (!next || next->kind != K_Object) {
+            next = doc->make(K_Object);
+            bool replaced = false;
+            for (auto& kv : cur->obj) if (kv.first == seg) { kv.second = next; replaced = true; break; }
+            if (!replaced) cur->obj.push_back({seg, next});
+        }
+        cur = next;
+    }
+}
+void liva_json_path_set_string(int64_t d, int64_t node, const char* path, const char* val) {
+    using namespace livajson; std::string key; Node* par = pathParent(d,node,path,key); if(!par) return;
+    Node* v = asDoc(d)->make(K_String); v->str = val?val:"";
+    bool found = false;
+    for (auto& kv : par->obj) if (kv.first==key){ kv.second=v; found=true; break; }
+    if (!found) par->obj.push_back({key,v});
+}
+void liva_json_path_set_int(int64_t d, int64_t node, const char* path, int64_t val) {
+    using namespace livajson; std::string key; Node* par = pathParent(d,node,path,key); if(!par) return;
+    Node* v = asDoc(d)->make(K_Int); v->i = val;
+    bool found = false;
+    for (auto& kv : par->obj) if (kv.first==key){ kv.second=v; found=true; break; }
+    if (!found) par->obj.push_back({key,v});
+}
+void liva_json_path_set_float(int64_t d, int64_t node, const char* path, double val) {
+    using namespace livajson; std::string key; Node* par = pathParent(d,node,path,key); if(!par) return;
+    Node* v = asDoc(d)->make(K_Double); v->d = val;
+    bool found = false;
+    for (auto& kv : par->obj) if (kv.first==key){ kv.second=v; found=true; break; }
+    if (!found) par->obj.push_back({key,v});
+}
+void liva_json_path_set_bool(int64_t d, int64_t node, const char* path, int8_t val) {
+    using namespace livajson; std::string key; Node* par = pathParent(d,node,path,key); if(!par) return;
+    Node* v = asDoc(d)->make(K_Bool); v->b = val!=0;
+    bool found = false;
+    for (auto& kv : par->obj) if (kv.first==key){ kv.second=v; found=true; break; }
+    if (!found) par->obj.push_back({key,v});
+}
+
 } // end DOM extern "C"
 
 extern "C" {
