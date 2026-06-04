@@ -984,51 +984,6 @@ void IRGen::createRuntimeDecls() {
     auto *procCloseTy = llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty}, false);
     module_->getOrInsertFunction("liva_process_close", procCloseTy);
 
-    // === JSON ===
-    // liva_json_get(json, key) -> char*
-    module_->getOrInsertFunction("liva_json_get", concatTy); // (ptr, ptr) -> ptr
-    // liva_json_get_int(json, key) -> i64
-    auto *jsonGetIntTy = llvm::FunctionType::get(i64Ty, {i8PtrTy, i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_json_get_int", jsonGetIntTy);
-    // liva_json_get_float(json, key) -> f64
-    auto *jsonGetFloatTy = llvm::FunctionType::get(f64Ty, {i8PtrTy, i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_json_get_float", jsonGetFloatTy);
-    // liva_json_get_bool(json, key) -> i8
-    module_->getOrInsertFunction("liva_json_get_bool", strBoolTy); // (ptr, ptr) -> i8
-    // liva_json_is_valid(json) -> i8
-    auto *jsonIsValidTy = llvm::FunctionType::get(i8Ty, {i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_json_is_valid", jsonIsValidTy);
-    // liva_json_keys(json, &count) -> char**
-    module_->getOrInsertFunction("liva_json_keys", dirListTy); // (ptr, ptr) -> ptr
-    // liva_json_create() -> char*
-    auto *jsonCreateTy = llvm::FunctionType::get(i8PtrTy, {}, false);
-    module_->getOrInsertFunction("liva_json_create", jsonCreateTy);
-    // liva_json_set(json, key, val) -> char*
-    auto *jsonSet3Ty = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_json_set", jsonSet3Ty);
-    // liva_json_set_int(json, key, i64) -> char*
-    auto *jsonSetIntTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i64Ty}, false);
-    module_->getOrInsertFunction("liva_json_set_int", jsonSetIntTy);
-    // liva_json_set_float(json, key, f64) -> char*
-    auto *jsonSetFloatTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, f64Ty}, false);
-    module_->getOrInsertFunction("liva_json_set_float", jsonSetFloatTy);
-    // liva_json_set_bool(json, key, i8) -> char*
-    auto *jsonSetBoolTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i8Ty}, false);
-    module_->getOrInsertFunction("liva_json_set_bool", jsonSetBoolTy);
-    // liva_json_remove(json, key) -> char*
-    module_->getOrInsertFunction("liva_json_remove", concatTy); // (ptr, ptr) -> ptr
-    // liva_json_get_array(json, key) -> char* (nullable)
-    module_->getOrInsertFunction("liva_json_get_array", concatTy); // (ptr, ptr) -> ptr
-    // liva_json_get_object(json, key) -> char* (nullable)
-    module_->getOrInsertFunction("liva_json_get_object", concatTy); // (ptr, ptr) -> ptr
-    // liva_json_count(json) -> i32
-    auto *jsonCountTy = llvm::FunctionType::get(i32Ty, {i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_json_count", jsonCountTy);
-
-    // liva_json_stringify_pretty(json, indent) -> char*
-    auto *jsonPrettyTy = llvm::FunctionType::get(i8PtrTy, {i8PtrTy, i32Ty}, false);
-    module_->getOrInsertFunction("liva_json_stringify_pretty", jsonPrettyTy);
-
     // === JSON DOM (parse-tree) natives ===
     // liva_json_parse(s) -> i64
     module_->getOrInsertFunction("liva_json_parse", llvm::FunctionType::get(i64Ty, {i8PtrTy}, false));

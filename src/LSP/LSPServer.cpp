@@ -1185,10 +1185,18 @@ JSONValue LSPServer::handleCompletion(const JSONValue &id,
             "pathExists", "pathAbsolute",
             // Network
             "httpGet", "httpPost", "httpPut", "httpPatch", "httpDelete",
-            // JSON
-            "jsonCreate", "jsonSet", "jsonSetInt", "jsonSetFloat", "jsonSetBool",
-            "jsonRemove", "jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
-            "jsonGetArray", "jsonGetObject", "jsonIsValid", "jsonKeys", "jsonCount",
+            // JSON (DOM API)
+            "jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
+            "jsonNodeAsInt", "jsonNodeAsFloat", "jsonNodeAsBool", "jsonNodeAsString",
+            "jsonToString", "jsonToStringPretty",
+            "jsonObjGet", "jsonObjHas", "jsonObjCount", "jsonObjKeys",
+            "jsonArrCount", "jsonArrAt",
+            "jsonNewObject", "jsonNewArray",
+            "jsonObjSetString", "jsonObjSetInt", "jsonObjSetFloat", "jsonObjSetBool", "jsonObjSetNull",
+            "jsonObjSetObject", "jsonObjSetArray", "jsonObjRemove",
+            "jsonArrAddString", "jsonArrAddInt", "jsonArrAddFloat", "jsonArrAddBool", "jsonArrAddNull",
+            "jsonArrAddObject", "jsonArrAddArray",
+            "jsonPathGet", "jsonPathSetString", "jsonPathSetInt", "jsonPathSetFloat", "jsonPathSetBool",
             // Regex
             "regexCompile", "regexTest", "regexMatch", "regexFind", "regexFindAll",
             "regexReplace", "regexExec", "regexExecGroups", "regexFindGroups",
@@ -1981,10 +1989,21 @@ JSONValue LSPServer::handleSignatureHelp(const JSONValue &id,
             {"fileRead", "func fileRead(path: string) -> string?", {"path: string"}},
             {"fileWrite", "func fileWrite(path: string, content: string) -> bool", {"path: string", "content: string"}},
             {"fileAppend", "func fileAppend(path: string, content: string) -> bool", {"path: string", "content: string"}},
-            // JSON
-            {"jsonCreate", "func jsonCreate() -> string", {}},
-            {"jsonSet", "func jsonSet(json: string, key: string, value: string) -> string", {"json: string", "key: string", "value: string"}},
-            {"jsonGet", "func jsonGet(json: string, key: string) -> string?", {"json: string", "key: string"}},
+            // JSON (DOM API)
+            {"jsonParse", "func jsonParse(s: string) -> i64", {"s: string"}},
+            {"jsonFreeDoc", "func jsonFreeDoc(doc: i64)", {"doc: i64"}},
+            {"jsonRoot", "func jsonRoot(doc: i64) -> i64", {"doc: i64"}},
+            {"jsonNodeKind", "func jsonNodeKind(node: i64) -> i32", {"node: i64"}},
+            {"jsonNodeAsString", "func jsonNodeAsString(node: i64) -> string", {"node: i64"}},
+            {"jsonToString", "func jsonToString(node: i64) -> string", {"node: i64"}},
+            {"jsonToStringPretty", "func jsonToStringPretty(node: i64, indent: i32) -> string", {"node: i64", "indent: i32"}},
+            {"jsonObjGet", "func jsonObjGet(node: i64, key: string) -> i64", {"node: i64", "key: string"}},
+            {"jsonObjHas", "func jsonObjHas(node: i64, key: string) -> bool", {"node: i64", "key: string"}},
+            {"jsonObjKeys", "func jsonObjKeys(node: i64) -> [string]", {"node: i64"}},
+            {"jsonArrCount", "func jsonArrCount(node: i64) -> i32", {"node: i64"}},
+            {"jsonArrAt", "func jsonArrAt(node: i64, idx: i64) -> i64", {"node: i64", "idx: i64"}},
+            {"jsonNewObject", "func jsonNewObject() -> i64", {}},
+            {"jsonNewArray", "func jsonNewArray() -> i64", {}},
             // Crypto
             {"sha256", "func sha256(data: string) -> string", {"data: string"}},
             {"md5", "func md5(data: string) -> string", {"data: string"}},
@@ -2678,7 +2697,11 @@ JSONValue LSPServer::handleCodeAction(const JSONValue &id,
                 // Map well-known stdlib wrapper types/functions to their modules
                 static const struct { const char *sym; const char *mod; } autoImports[] = {
                     // json::json wrapper types
+                    {"Json", "json::json"},
+                    {"JsonValue", "json::json"},
                     {"JsonObject", "json::json"},
+                    {"JsonArray", "json::json"},
+                    {"JsonKind", "json::json"},
                     // time::time wrapper types
                     {"Duration", "time::time"}, {"Instant", "time::time"},
                     {"Timer", "time::time"}, {"DateTime", "time::time"},
@@ -3582,8 +3605,8 @@ void LSPServer::collectCallParamHints(const ASTNode *node, uint32_t startLine,
             {"pow", {"base", "exp"}}, {"min", {"a", "b"}}, {"max", {"a", "b"}},
             {"randInt", {"min", "max"}}, {"assertMsg", {"condition", "msg"}},
             {"assertEq", {"a", "b"}}, {"fileWrite", {"path", "content"}},
-            {"fileAppend", {"path", "content"}}, {"jsonSet", {"json", "key", "value"}},
-            {"jsonGet", {"json", "key"}}, {"format", {"fmt", "args"}},
+            {"fileAppend", {"path", "content"}}, {"jsonObjGet", {"node", "key"}},
+            {"jsonToStringPretty", {"node", "indent"}}, {"format", {"fmt", "args"}},
         };
 
         std::vector<std::string> paramNames;

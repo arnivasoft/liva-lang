@@ -4221,60 +4221,50 @@ TEST_F(SemaTest, SubprocessViaStdOs) {
     EXPECT_TRUE(result.passed);
 }
 
-// === JSON ===
+// === JSON (DOM API) ===
 
-TEST_F(SemaTest, JsonGetReturnsOptionalString) {
+TEST_F(SemaTest, JsonParseReturnsI64) {
     auto result = check(R"--(
         func main() {
-            let val = jsonGet("{\"name\":\"liva\"}", "name")
-            if let v = val {
-                println(v)
-            }
+            let doc: i64 = jsonParse("{\"name\":\"liva\"}")
+            jsonFreeDoc(doc)
         }
     )--");
     EXPECT_TRUE(result.passed);
 }
 
-TEST_F(SemaTest, JsonGetIntReturnsI64) {
+TEST_F(SemaTest, JsonRootAndNodeKind) {
     auto result = check(R"--(
         func main() {
-            let age: i64 = jsonGetInt("{\"age\":25}", "age")
+            let doc: i64 = jsonParse("{\"a\":1}")
+            let root: i64 = jsonRoot(doc)
+            let kind: i32 = jsonNodeKind(root)
+            jsonFreeDoc(doc)
         }
     )--");
     EXPECT_TRUE(result.passed);
 }
 
-TEST_F(SemaTest, JsonGetFloatReturnsF64) {
+TEST_F(SemaTest, JsonObjGetAndHas) {
     auto result = check(R"--(
         func main() {
-            let pi: f64 = jsonGetFloat("{\"pi\":3.14}", "pi")
+            let doc: i64 = jsonParse("{\"x\":42}")
+            let root: i64 = jsonRoot(doc)
+            let hasX: bool = jsonObjHas(root, "x")
+            let node: i64 = jsonObjGet(root, "x")
+            jsonFreeDoc(doc)
         }
     )--");
     EXPECT_TRUE(result.passed);
 }
 
-TEST_F(SemaTest, JsonGetBoolReturnsBool) {
+TEST_F(SemaTest, JsonToStringReturnsString) {
     auto result = check(R"--(
         func main() {
-            let ok: bool = jsonGetBool("{\"ok\":true}", "ok")
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonIsValidReturnsBool) {
-    auto result = check(R"--(
-        func main() {
-            let valid: bool = jsonIsValid("{\"key\":\"value\"}")
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonKeysReturnsStringArray) {
-    auto result = check(R"--(
-        func main() {
-            let keys = jsonKeys("{\"a\":1,\"b\":2}")
+            let doc: i64 = jsonParse("{\"k\":\"v\"}")
+            let root: i64 = jsonRoot(doc)
+            let s: string = jsonToString(root)
+            jsonFreeDoc(doc)
         }
     )--");
     EXPECT_TRUE(result.passed);
@@ -4284,98 +4274,12 @@ TEST_F(SemaTest, JsonViaStdJson) {
     auto result = checkWithModules(R"--(
         import std::json
         func main() {
-            let v = jsonGet("{}", "key")
-            let ok = jsonIsValid("{}")
+            let doc: i64 = jsonParse("{}")
+            let root: i64 = jsonRoot(doc)
+            let s: string = jsonToString(root)
+            jsonFreeDoc(doc)
         }
     )--", {});
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonCreateReturnsString) {
-    auto result = check(R"--(
-        func main() {
-            let j: string = jsonCreate()
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonSetReturnsString) {
-    auto result = check(R"--(
-        func main() {
-            let j = jsonCreate()
-            let j2: string = jsonSet(j, "name", "Alice")
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonSetIntReturnsString) {
-    auto result = check(R"--(
-        func main() {
-            let j: string = jsonSetInt("{}", "age", 30)
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonSetFloatReturnsString) {
-    auto result = check(R"--(
-        func main() {
-            let j: string = jsonSetFloat("{}", "pi", 3.14)
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonSetBoolReturnsString) {
-    auto result = check(R"--(
-        func main() {
-            let j: string = jsonSetBool("{}", "active", true)
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonRemoveReturnsString) {
-    auto result = check(R"--(
-        func main() {
-            let j: string = jsonRemove("{\"a\":1}", "a")
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonGetArrayReturnsOptionalString) {
-    auto result = check(R"--(
-        func main() {
-            let arr = jsonGetArray("{\"items\":[1,2,3]}", "items")
-            if let a = arr {
-                println(a)
-            }
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonGetObjectReturnsOptionalString) {
-    auto result = check(R"--(
-        func main() {
-            let obj = jsonGetObject("{\"nested\":{\"a\":1}}", "nested")
-            if let o = obj {
-                println(o)
-            }
-        }
-    )--");
-    EXPECT_TRUE(result.passed);
-}
-
-TEST_F(SemaTest, JsonCountReturnsI32) {
-    auto result = check(R"--(
-        func main() {
-            let n: i32 = jsonCount("{\"a\":1,\"b\":2}")
-        }
-    )--");
     EXPECT_TRUE(result.passed);
 }
 
@@ -4599,7 +4503,8 @@ TEST_F(SemaTest, AllNewModulesViaStd) {
     auto result = checkWithModules(R"--(
         import std
         func main() {
-            let j = jsonIsValid("{}")
+            let doc: i64 = jsonParse("{}")
+            jsonFreeDoc(doc)
             logInfo("test")
             assert(true)
             let d = dateNow()

@@ -126,13 +126,7 @@ void TypeChecker::registerBuiltins() {
     }
 
     // Stdlib: JSON
-    for (auto &name : {"jsonGet", "jsonGetInt", "jsonGetFloat",
-                        "jsonGetBool", "jsonIsValid", "jsonKeys",
-                        "jsonCreate", "jsonSet", "jsonSetInt",
-                        "jsonSetFloat", "jsonSetBool", "jsonRemove",
-                        "jsonGetArray", "jsonGetObject", "jsonCount",
-                        "jsonStringifyPretty",
-                        "jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
+    for (auto &name : {"jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
                         "jsonNodeAsInt", "jsonNodeAsFloat", "jsonNodeAsBool", "jsonNodeAsString",
                         "jsonToString", "jsonToStringPretty",
                         "jsonObjGet", "jsonObjHas", "jsonObjCount",
@@ -2532,32 +2526,9 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "tomlFree") {
             // void
         // Stdlib: JSON
-        } else if (ident->getName() == "jsonGet") {
-            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
-            node->setResolvedType(std::move(optType));
-        } else if (ident->getName() == "jsonGetInt") {
-            node->setResolvedType(makeI64Type());
-        } else if (ident->getName() == "jsonGetFloat") {
-            node->setResolvedType(makeF64Type());
-        } else if (ident->getName() == "jsonGetBool" || ident->getName() == "jsonIsValid") {
-            node->setResolvedType(makeBoolType());
-        } else if (ident->getName() == "jsonKeys") {
-            auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
-            node->setResolvedType(std::move(arrType));
         } else if (ident->getName() == "jsonObjKeys") {
             auto arrType = std::make_unique<ArrayTypeRepr>(makeStringType(), true);
             node->setResolvedType(std::move(arrType));
-        } else if (ident->getName() == "jsonCreate" || ident->getName() == "jsonSet" ||
-                   ident->getName() == "jsonSetInt" || ident->getName() == "jsonSetFloat" ||
-                   ident->getName() == "jsonSetBool" || ident->getName() == "jsonRemove") {
-            node->setResolvedType(makeStringType());
-        } else if (ident->getName() == "jsonGetArray" || ident->getName() == "jsonGetObject") {
-            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
-            node->setResolvedType(std::move(optType));
-        } else if (ident->getName() == "jsonCount") {
-            node->setResolvedType(makeI32Type());
-        } else if (ident->getName() == "jsonStringifyPretty") {
-            node->setResolvedType(makeStringType());
         // Stdlib: JSON DOM (parse-tree)
         } else if (ident->getName() == "jsonParse" || ident->getName() == "jsonRoot" ||
                    ident->getName() == "jsonNodeAsInt") {

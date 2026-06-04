@@ -824,28 +824,6 @@ void liva_json_path_set_int(int64_t d, int64_t node, const char* path, int64_t v
 void liva_json_path_set_float(int64_t d, int64_t node, const char* path, double val);
 void liva_json_path_set_bool(int64_t d, int64_t node, const char* path, int8_t val);
 
-// === JSON (legacy string-based) ===
-
-/// Get string value by key from JSON object, returns malloc'd string or NULL
-char *liva_json_get(const char *json, const char *key);
-
-/// Get integer value by key from JSON object (0 if not found)
-int64_t liva_json_get_int(const char *json, const char *key);
-
-/// Get float value by key from JSON object (0.0 if not found)
-double liva_json_get_float(const char *json, const char *key);
-
-/// Get bool value by key from JSON object (false if not found)
-int8_t liva_json_get_bool(const char *json, const char *key);
-
-/// Check if string is valid JSON
-int8_t liva_json_is_valid(const char *json);
-
-/// Get all keys from JSON object, returns malloc'd array of malloc'd strings
-char **liva_json_keys(const char *json, int64_t *count);
-
-/// Pretty-print JSON with given indent width (2..16). Caller frees.
-char *liva_json_stringify_pretty(const char *json, int32_t indent);
 
 // === Logging ===
 

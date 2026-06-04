@@ -92,13 +92,7 @@ void ModuleLoader::registerBuiltinModules() {
          "pgResultText", "pgResultIsNull", "pgColumnName", "pgClear"});
 
     cache_["std::json"] = createBuiltinModule("std::json",
-        {"jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool",
-         "jsonIsValid", "jsonKeys",
-         "jsonCreate", "jsonSet", "jsonSetInt",
-         "jsonSetFloat", "jsonSetBool", "jsonRemove",
-         "jsonGetArray", "jsonGetObject", "jsonCount",
-         "jsonStringifyPretty",
-         "jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
+        {"jsonParse", "jsonFreeDoc", "jsonRoot", "jsonNodeKind",
          "jsonNodeAsInt", "jsonNodeAsFloat", "jsonNodeAsBool", "jsonNodeAsString",
          "jsonToString", "jsonToStringPretty",
          "jsonObjGet", "jsonObjHas", "jsonObjCount",

@@ -211,13 +211,7 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     REG(liva_task_group_count);
     REG(liva_task_group_free);
 
-    // JSON
-    REG(liva_json_get);
-    REG(liva_json_get_int);
-    REG(liva_json_get_float);
-    REG(liva_json_get_bool);
-    REG(liva_json_is_valid);
-    REG(liva_json_keys);
+    // JSON (DOM API — old string-based API removed)
 
     // Logging
     REG(liva_log_debug);
