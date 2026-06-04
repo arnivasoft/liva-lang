@@ -142,7 +142,8 @@ void TypeChecker::registerBuiltins() {
                         "jsonObjSetString", "jsonObjSetInt", "jsonObjSetFloat", "jsonObjSetBool", "jsonObjSetNull",
                         "jsonObjSetObject", "jsonObjSetArray", "jsonObjRemove",
                         "jsonArrAddString", "jsonArrAddInt", "jsonArrAddFloat", "jsonArrAddBool", "jsonArrAddNull",
-                        "jsonArrAddObject", "jsonArrAddArray"}) {
+                        "jsonArrAddObject", "jsonArrAddArray",
+                        "jsonPathGet"}) {
         Symbol sym;
         sym.name = name;
         sym.kind = Symbol::Kind::Function;
@@ -2582,6 +2583,8 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "jsonArrCount") {
             node->setResolvedType(makeI32Type());
         // Stdlib: JSON DOM Building / Mutation
+        } else if (ident->getName() == "jsonPathGet") {
+            node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "jsonNewObject" || ident->getName() == "jsonNewArray" ||
                    ident->getName() == "jsonObjSetObject" || ident->getName() == "jsonObjSetArray" ||
                    ident->getName() == "jsonArrAddObject" || ident->getName() == "jsonArrAddArray") {

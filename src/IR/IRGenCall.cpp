@@ -4445,6 +4445,11 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *n = visit(node->getArgs()[1].get());
         return builder_->CreateCall(getOrPanic("liva_json_arr_add_array"), {d, n}, "json.addarr");
     }
+    if (funcName == "jsonPathGet" && node->getArgs().size() >= 2) {
+        auto *h = visit(node->getArgs()[0].get());
+        auto *path = visit(node->getArgs()[1].get());
+        return builder_->CreateCall(getOrPanic("liva_json_path_get"), {h, path}, "json.pathget");
+    }
 
     // === Logging ===
     if (funcName == "logDebug" && !node->getArgs().empty()) {

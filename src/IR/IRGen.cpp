@@ -1081,6 +1081,8 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_json_arr_add_null", llvm::FunctionType::get(builder_->getVoidTy(), {i64Ty, i64Ty}, false));
     module_->getOrInsertFunction("liva_json_arr_add_object", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty}, false));
     module_->getOrInsertFunction("liva_json_arr_add_array", llvm::FunctionType::get(i64Ty, {i64Ty, i64Ty}, false));
+    // liva_json_path_get(nodeH, path) -> i64
+    module_->getOrInsertFunction("liva_json_path_get", llvm::FunctionType::get(i64Ty, {i64Ty, i8PtrTy}, false));
 
     // === Logging ===
     auto *logMsgTy = llvm::FunctionType::get(builder_->getVoidTy(), {i8PtrTy}, false);

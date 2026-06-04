@@ -108,7 +108,8 @@ void ModuleLoader::registerBuiltinModules() {
          "jsonObjSetString", "jsonObjSetInt", "jsonObjSetFloat", "jsonObjSetBool", "jsonObjSetNull",
          "jsonObjSetObject", "jsonObjSetArray", "jsonObjRemove",
          "jsonArrAddString", "jsonArrAddInt", "jsonArrAddFloat", "jsonArrAddBool", "jsonArrAddNull",
-         "jsonArrAddObject", "jsonArrAddArray"});
+         "jsonArrAddObject", "jsonArrAddArray",
+         "jsonPathGet"});
 
     cache_["std::log"] = createBuiltinModule("std::log",
         {"logDebug", "logInfo", "logWarn", "logError", "logSetLevel"});

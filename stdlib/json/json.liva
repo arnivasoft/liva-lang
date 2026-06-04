@@ -185,6 +185,9 @@ impl JsonObject {
         return JsonArray { docHandle: self.docHandle, nodeHandle: jsonObjSetArray(self.docHandle, self.nodeHandle, key), owns: false }
     }
     pub func remove(mut self, key: String) { jsonObjRemove(self.nodeHandle, key) }
+    pub func path(ref self, p: String) -> JsonValue {
+        return JsonValue { docHandle: self.docHandle, nodeHandle: jsonPathGet(self.nodeHandle, p), owns: false }
+    }
 }
 
 pub struct Json {}

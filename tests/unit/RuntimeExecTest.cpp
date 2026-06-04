@@ -1141,6 +1141,23 @@ func main() {
     EXPECT_EQ(r.stdout_output.find("bad"), std::string::npos) << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, JsonPathRead) {
+    std::string src = R"LIVA(
+import json::json
+func main() {
+    let doc = Json.parse("{\"a\":{\"b\":[{\"c\":42}]}}")
+    let o = doc.object()
+    let v = o.path("a.b.0.c")
+    println(v.asInt())
+    let missing = o.path("a.x.y")
+    if missing.isNull() { println("missing-null") }
+}
+)LIVA";
+    auto r = compileAndRun(src, "json_path");
+    EXPECT_NE(r.stdout_output.find("42"), std::string::npos) << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("missing-null"), std::string::npos) << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, JsonBuildRoundTrip) {
     std::string src = R"LIVA(
 import json::json

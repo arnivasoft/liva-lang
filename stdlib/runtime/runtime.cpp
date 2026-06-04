@@ -4492,6 +4492,33 @@ int64_t liva_json_arr_add_array(int64_t d, int64_t node) {
     using namespace livajson; Node* n=asNode(node); if(!n||n->kind!=K_Array) return 0; Node* v=asDoc(d)->make(K_Array); n->arr.push_back(v); return reinterpret_cast<int64_t>(v);
 }
 
+int64_t liva_json_path_get(int64_t nodeH, const char* path) {
+    using namespace livajson;
+    if (!nodeH || !path) return 0;
+    Node* cur = asNode(nodeH);
+    const char* p = path;
+    std::string seg;
+    while (cur && *p) {
+        seg.clear();
+        while (*p && *p != '.') seg += *p++;
+        if (*p == '.') p++;
+        if (seg.empty()) break;
+        bool allDigits = !seg.empty();
+        for (char c : seg) if (c < '0' || c > '9') { allDigits = false; break; }
+        if (cur->kind == K_Object) {
+            Node* next = nullptr;
+            for (auto& kv : cur->obj) if (kv.first == seg) { next = kv.second; break; }
+            cur = next;
+        } else if (cur->kind == K_Array && allDigits) {
+            long idx = strtol(seg.c_str(), nullptr, 10);
+            cur = (idx >= 0 && (size_t)idx < cur->arr.size()) ? cur->arr[idx] : nullptr;
+        } else {
+            cur = nullptr;
+        }
+    }
+    return reinterpret_cast<int64_t>(cur);
+}
+
 } // end DOM extern "C"
 
 extern "C" {

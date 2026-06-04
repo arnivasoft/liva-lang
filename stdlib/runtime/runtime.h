@@ -814,6 +814,10 @@ int64_t liva_json_arr_add_object(int64_t d, int64_t node);
 /// Append a new nested array to the array; returns the new child node handle.
 int64_t liva_json_arr_add_array(int64_t d, int64_t node);
 
+/// Traverse a dotted path like "a.b.0.c" — all-digit segments index arrays,
+/// others index object keys. Returns 0 on any miss or type mismatch.
+int64_t liva_json_path_get(int64_t nodeH, const char* path);
+
 // === JSON (legacy string-based) ===
 
 /// Get string value by key from JSON object, returns malloc'd string or NULL
