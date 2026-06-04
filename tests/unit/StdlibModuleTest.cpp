@@ -650,39 +650,18 @@ TEST_F(StdlibModuleTest, FsDirStruct) {
 // Module 10: net::net
 // ============================================================
 
-TEST_F(StdlibModuleTest, ImportNetModule) {
+TEST_F(StdlibModuleTest, ImportNetUrl) {
     auto r = check(
         "import net::net\n"
         "func main() {\n"
-        "    let url = Url.parse(\"https://example.com\")\n"
-        "    let s = url.toString()\n"
+        "    let u = Url.parse(\"https://x.com/a?b=1\")\n"
+        "    let s = u.scheme\n"
+        "    let u2 = u.withQuery(\"k\", \"v\").withPath(\"/c\")\n"
+        "    let out = u2.toString()\n"
+        "    let e = Url.encode(\"a b\")\n"
         "}\n",
         true, "stdlib");
-    EXPECT_TRUE(r.passed) << "import net::net should resolve Url";
-}
-
-TEST_F(StdlibModuleTest, NetRequestStruct) {
-    auto r = check(
-        "import net::net\n"
-        "func main() {\n"
-        "    let req = Request.get(\"https://api.example.com\")\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Request struct should type-check";
-}
-
-TEST_F(StdlibModuleTest, NetRequestAllMethods) {
-    auto r = check(
-        "import net::net\n"
-        "func main() {\n"
-        "    let r1 = Request.get(\"https://api.example.com\")\n"
-        "    let r2 = Request.post(\"https://api.example.com\", \"data\")\n"
-        "    let r3 = Request.put(\"https://api.example.com/1\", \"{}\")\n"
-        "    let r4 = Request.patch(\"https://api.example.com/1\", \"{}\")\n"
-        "    let r5 = Request.delete(\"https://api.example.com/1\")\n"
-        "}\n",
-        true, "stdlib");
-    EXPECT_TRUE(r.passed) << "Request put/patch/delete should type-check";
+    EXPECT_TRUE(r.passed) << "net::net Url should type-check";
 }
 
 // ============================================================

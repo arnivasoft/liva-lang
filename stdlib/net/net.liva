@@ -1,46 +1,94 @@
-// net::net — Networking utilities wrapper API
+// net::net — URL parsing and building utilities
 // Import with: import net::net
 
 import std::net
 
+// =============================================================
+// Url — parsed/buildable URL (native-backed parsing)
+// =============================================================
+
 pub struct Url {
-    var raw: String
+    var scheme: String
+    var host: String
+    var port: i32
+    var path: String
+    var query: String
+    var fragment: String
 }
 
 impl Url {
     pub func parse(s: String) -> Url {
-        return Url { raw: s }
+        return Url {
+            scheme: urlScheme(s),
+            host: urlHost(s),
+            port: urlPort(s),
+            path: urlPath(s),
+            query: urlQuery(s),
+            fragment: urlFragment(s),
+        }
+    }
+
+    pub func encode(s: String) -> String {
+        return urlEncode(s)
+    }
+
+    pub func decode(s: String) -> String? {
+        return urlDecode(s)
+    }
+
+    pub func withScheme(ref self, scheme: String) -> Url {
+        return Url { scheme: scheme, host: self.host, port: self.port,
+                     path: self.path, query: self.query, fragment: self.fragment }
+    }
+
+    pub func withHost(ref self, host: String) -> Url {
+        return Url { scheme: self.scheme, host: host, port: self.port,
+                     path: self.path, query: self.query, fragment: self.fragment }
+    }
+
+    pub func withPort(ref self, port: i32) -> Url {
+        return Url { scheme: self.scheme, host: self.host, port: port,
+                     path: self.path, query: self.query, fragment: self.fragment }
+    }
+
+    pub func withPath(ref self, path: String) -> Url {
+        return Url { scheme: self.scheme, host: self.host, port: self.port,
+                     path: path, query: self.query, fragment: self.fragment }
+    }
+
+    pub func withFragment(ref self, fragment: String) -> Url {
+        return Url { scheme: self.scheme, host: self.host, port: self.port,
+                     path: self.path, query: self.query, fragment: fragment }
+    }
+
+    pub func withQuery(ref self, key: String, value: String) -> Url {
+        let pair = "" + urlEncode(key) + "=" + urlEncode(value)
+        if len(self.query) > 0 {
+            return Url { scheme: self.scheme, host: self.host, port: self.port,
+                         path: self.path, query: "" + self.query + "&" + pair,
+                         fragment: self.fragment }
+        }
+        return Url { scheme: self.scheme, host: self.host, port: self.port,
+                     path: self.path, query: pair, fragment: self.fragment }
     }
 
     pub func toString(ref self) -> String {
-        return self.raw
-    }
-}
-
-pub struct Request {
-    var method: String
-    var url: String
-    var body: String
-}
-
-impl Request {
-    pub func get(url: String) -> Request {
-        return Request { method: "GET", url: url, body: "" }
-    }
-
-    pub func post(url: String, body: String) -> Request {
-        return Request { method: "POST", url: url, body: body }
-    }
-
-    pub func put(url: String, body: String) -> Request {
-        return Request { method: "PUT", url: url, body: body }
-    }
-
-    pub func patch(url: String, body: String) -> Request {
-        return Request { method: "PATCH", url: url, body: body }
-    }
-
-    pub func delete(url: String) -> Request {
-        return Request { method: "DELETE", url: url, body: "" }
+        var out = ""
+        if len(self.scheme) > 0 {
+            out = "" + self.scheme + "://" + self.host
+        } else {
+            out = "" + self.host
+        }
+        if self.port > 0 {
+            out = "" + out + ":" + toString(self.port)
+        }
+        out = "" + out + self.path
+        if len(self.query) > 0 {
+            out = "" + out + "?" + self.query
+        }
+        if len(self.fragment) > 0 {
+            out = "" + out + "#" + self.fragment
+        }
+        return out
     }
 }

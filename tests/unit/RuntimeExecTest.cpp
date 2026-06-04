@@ -1260,6 +1260,33 @@ func main() {
     EXPECT_NE(r.stdout_output.find("top"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, UrlParseAndBuild) {
+    std::string source = R"LIVA(
+import net::net
+func main() {
+    let u = Url.parse("https://api.example.com:8080/v1/users?page=2#top")
+    print(u.scheme)
+    print(u.host)
+    print(toString(u.port))
+    print(u.path)
+    print(u.query)
+    print(u.fragment)
+    print(u.toString())
+    let u2 = Url.parse("http://localhost/api").withQuery("q", "a b").withQuery("n", "1")
+    print(u2.toString())
+    print(Url.encode("a b&c"))
+}
+)LIVA";
+    auto r = compileAndRun(source, "url_parse_build");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("api.example.com"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("8080"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("page=2"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("q=a%20b"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("n=1"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("a%20b%26c"), std::string::npos);
+}
+
 TEST(RuntimeExecTest, HttpHeaderLookupCaseInsensitive) {
     std::string source = R"LIVA(
 import std::net

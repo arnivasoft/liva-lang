@@ -1642,6 +1642,10 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         // a Named struct. e.g. stmt.columnDate(i).year() — columnDate returns
         // Date, so we materialise the Date value in a temp alloca and dispatch
         // year() on it.  This mirrors the arr[i].method() pattern above.
+        //
+        // Also handles builder-style same-type chains: Url.parse(...).withQuery(...)
+        // where Sema doesn't propagate the Named return type across modules (to avoid
+        // ownership false-positives), but the LLVM return type IS the struct type.
         if (!objAlloca && structTypeName.empty() &&
             memberExpr->getObject()->getKind() == ASTNode::NodeKind::CallExpr) {
             const TypeRepr *recvTy = memberExpr->getObject()->getResolvedType();
@@ -1656,6 +1660,23 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                         objAlloca = createEntryBlockAlloca(func, "chain.tmp", stIt->second);
                         builder_->CreateStore(structVal, objAlloca);
                         structTypeName = sName;
+                    }
+                }
+            } else if (!recvTy) {
+                // No Sema resolved type (e.g. same-type builder methods filtered
+                // from cross-module registration). Try LLVM type inference: visit
+                // the inner call, check if its return type matches a known struct.
+                auto *structVal = visit(memberExpr->getObject());
+                if (structVal && structVal->getType()->isStructTy()) {
+                    auto *llvmStructTy = llvm::cast<llvm::StructType>(structVal->getType());
+                    for (auto &[sName, sLLVMTy] : structTypes_) {
+                        if (sLLVMTy == llvmStructTy) {
+                            auto *func = builder_->GetInsertBlock()->getParent();
+                            objAlloca = createEntryBlockAlloca(func, "chain.tmp", sLLVMTy);
+                            builder_->CreateStore(structVal, objAlloca);
+                            structTypeName = sName;
+                            break;
+                        }
                     }
                 }
             }
