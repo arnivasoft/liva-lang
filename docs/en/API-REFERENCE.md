@@ -1048,7 +1048,7 @@ Builder methods (each returns a new `HttpRequest`):
 | `text() -> String` | Response body as a string |
 | `header(name: String) -> String?` | Case-insensitive header lookup; `nil` if absent |
 | `json() -> JsonValue` | Parse body as JSON — bind the result to a `let` |
-| `isOk() -> bool` | `true` if `statusCode == 200` |
+| `isOk() -> bool` | `true` if `200 ≤ statusCode < 300` (synonym for `is2xx()`) |
 | `is2xx() -> bool` | `true` if `200 ≤ statusCode < 300` |
 | `is3xx() -> bool` | `true` if `300 ≤ statusCode < 400` |
 | `is4xx() -> bool` | `true` if `400 ≤ statusCode < 500` |
@@ -1058,11 +1058,15 @@ Builder methods (each returns a new `HttpRequest`):
 
 | Method | Description |
 |--------|-------------|
+| `new() -> HttpClient` | Create a client with no base URL (empty defaults) |
 | `withBaseUrl(url: String) -> HttpClient` | Create a client with a base URL |
 | `withTimeout(ms: i64) -> HttpClient` | Set default timeout |
 | `withHeader(name, value) -> HttpClient` | Add a default header applied to every request |
 | `get(path: String) -> HttpResponse` | GET `baseUrl + path` |
 | `post(path: String, body: String) -> HttpResponse` | POST `baseUrl + path` with body |
+| `put(path: String, body: String) -> HttpResponse` | PUT convenience |
+| `patch(path: String, body: String) -> HttpResponse` | PATCH convenience |
+| `delete(path: String) -> HttpResponse` | DELETE convenience |
 | `request(method, path) -> HttpRequest` | Seed a builder with base URL + defaults |
 
 ---
@@ -1158,7 +1162,7 @@ let dec = Url.decode(enc)        // -> String?  (nil if malformed)
 | `withHost(v: String) -> Url` | Return a new Url with the host replaced |
 | `withPort(v: i32) -> Url` | Return a new Url with the port replaced |
 | `withPath(v: String) -> Url` | Return a new Url with the path replaced |
-| `withQuery(key, value: String) -> Url` | Append (or replace) a query parameter |
+| `withQuery(key, value: String) -> Url` | Append a query parameter (url-encoded; joined with `&` if a query already exists) |
 | `withFragment(v: String) -> Url` | Return a new Url with the fragment replaced |
 
 Fields: `scheme: String`, `host: String`, `port: i32`, `path: String`,

@@ -296,6 +296,8 @@ let value = find([1, 2, 3], 2) ?? 0    // nil coalescing
 ### Async/Await
 
 ```liva
+import http::http
+
 async func fetchData(url: string) -> string {
     // Use http::http for network requests
     let resp = HttpRequest.get(url).send()

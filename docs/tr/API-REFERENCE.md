@@ -1025,7 +1025,7 @@ hiçbir yerel tanıtıcı tutmaz; kopyalanması, döndürülmesi veya zincirlenm
 | `text() -> String` | Yanıt gövdesi string olarak |
 | `header(name: String) -> String?` | Büyük/küçük harfe duyarsız başlık araması; yoksa `nil` |
 | `json() -> JsonValue` | Gövdeyi JSON olarak ayrıştırır — sonucu `let`'e bağlayın |
-| `isOk() -> bool` | `statusCode == 200` ise `true` |
+| `isOk() -> bool` | `200 ≤ statusCode < 300` ise `true` (`is2xx()` ile aynı) |
 | `is2xx() -> bool` | `200 ≤ statusCode < 300` ise `true` |
 | `is3xx() -> bool` | `300 ≤ statusCode < 400` ise `true` |
 | `is4xx() -> bool` | `400 ≤ statusCode < 500` ise `true` |
@@ -1035,11 +1035,15 @@ hiçbir yerel tanıtıcı tutmaz; kopyalanması, döndürülmesi veya zincirlenm
 
 | Metot | Açıklama |
 |-------|----------|
+| `new() -> HttpClient` | Taban URL'siz istemci oluşturur |
 | `withBaseUrl(url: String) -> HttpClient` | Temel URL ile istemci oluşturur |
 | `withTimeout(ms: i64) -> HttpClient` | Varsayılan zaman aşımı ayarlar |
 | `withHeader(name, value) -> HttpClient` | Her isteğe uygulanacak varsayılan başlık ekler |
 | `get(path: String) -> HttpResponse` | `baseUrl + path` üzerinde GET çalıştırır |
 | `post(path: String, body: String) -> HttpResponse` | Gövdeli POST çalıştırır |
+| `put(path: String, body: String) -> HttpResponse` | PUT kolaylık metodu |
+| `patch(path: String, body: String) -> HttpResponse` | PATCH kolaylık metodu |
+| `delete(path: String) -> HttpResponse` | DELETE kolaylık metodu |
 | `request(method, path) -> HttpRequest` | Temel URL + varsayılanlarla oluşturucu başlatır |
 
 ## 23. Sync Primitives (sync::sync)
@@ -1131,7 +1135,7 @@ let dec = Url.decode(enc)        // -> String?  (hatalı biçimde nil)
 | `withHost(v: String) -> Url` | Sunucu değiştirilmiş yeni Url döndürür |
 | `withPort(v: i32) -> Url` | Port değiştirilmiş yeni Url döndürür |
 | `withPath(v: String) -> Url` | Yol değiştirilmiş yeni Url döndürür |
-| `withQuery(key, value: String) -> Url` | Sorgu parametresi ekler veya değiştirir |
+| `withQuery(key, value: String) -> Url` | Sorgu parametresi ekler (URL-kodlanır; mevcut sorgu varsa `&` ile birleştirilir) |
 | `withFragment(v: String) -> Url` | Parça değiştirilmiş yeni Url döndürür |
 
 Alanlar: `scheme: String`, `host: String`, `port: i32`, `path: String`,
