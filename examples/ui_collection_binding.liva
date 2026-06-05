@@ -43,9 +43,6 @@ func main() {
     clear.setBounds(345, 90, 95, 30)
     clear.onClick(|_h: i32| { model.listClear("dosyalar") })
 
-    let countLbl = Label(root, "")
-    countLbl.setBounds(240, 130, 200, 24)
-
     win.show()
     appRun()
 }
