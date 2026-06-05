@@ -23,6 +23,7 @@ This is a **breaking** redesign (same approach as the JSON and net/http redesign
 
 - **Windows-backed only.** Implementation uses WinHTTP `WinHttpWebSocket*`. Non-Windows builds keep the existing stub (every native returns 0/nullptr/false). Adding a POSIX backend is out of scope.
 - **Manual WS ping frames are NOT possible via WinHTTP.** `WinHttpWebSocketSend` accepts only UTF8/BINARY/CLOSE buffer types — there is no "send a ping frame" call. Keepalive is therefore done via `WinHttpSetOption(hWebSocket, WINHTTP_OPTION_WEB_SOCKET_KEEPALIVE_INTERVAL, &ms, sizeof(ms))`, which makes WinHTTP emit keepalive pings automatically. **Minimum interval is 15000 ms** (WinHTTP clamps/rejects lower); the wrapper clamps any `0 < ms < 15000` to 15000 and documents it. App-level "ping messages" (a text/binary payload the server must understand) are explicitly out of scope.
+- **`Drop` reliability dictates a non-optional `connect`.** Verified by compile+run: Liva runs `drop` per **named struct variable**, but (a) unwrapping an `Optional` with `if let` does **not** run the inner value's `drop` (so a `connect() -> WebSocket?` + `if let` path would never auto-close — a leak), and (b) explicit aliasing (`let b = a`) **copies** the struct and drops **both** (double-free for a handle). Therefore `connect` returns a **non-optional `WebSocket`** (failure → `handle = 0`, `isOpen()` returns false), so the result is a plain named variable whose `drop` fires exactly once at scope end. Method calls take `ref self`/`mut self` (no copy, no extra drop — verified). The remaining footgun, copying the socket (`let b = ws`), is documented as unsupported (same single-owner contract as json's `Drop`). `recv()` still returns `WsMessage?` — safe, because `WsMessage` is a non-`Drop` view.
 - **`Drop` protocol is sourced from `json::json`.** `Drop` is declared `pub protocol Drop` in `stdlib/json/json.liva`. A duplicate `protocol Drop` in another module that ends up in the same compilation is a hard "redefinition of 'Drop'" error (verified). Since `websocket::websocket` imports `json::json` anyway (for JSON integration), it **reuses** json's `Drop` — `import json::json` brings `Drop` into scope and `impl WebSocket: Drop {…}` resolves and fires at scope end (verified by compile+run). No new core module and no change to json.liva. (Future option: hoist `Drop` to a shared core module; out of scope here.)
 - **`[u8]` bridge is proven.** `stdlib/sqlite/sqlite.liva` already passes `[u8]` into a native (`bindBlob(data: [u8])` → `sqliteBindBlob`) and returns `[u8]` from a native (`columnBlob() -> [u8]` → `sqliteColumnBlob`). The WS binary natives (`wsSendBinary`, `wsMsgBytes`) are modeled on those exact two functions.
 - **`mut self` returning a value works.** `recv(mut self) -> WsMessage?` / `send(mut self) -> bool` mutate `self.handle` (on reconnect) and return a value — verified via the existing `json` precedent `setObject(mut self) -> JsonObject`. (Only `mut self` returning the **same struct type by value** is broken — not used here.)
@@ -60,7 +61,7 @@ pub struct WsClient {
 - `subprotocol(ref self, proto: String) -> WsClient` — sets `Sec-WebSocket-Protocol`.
 - `keepAlive(ref self, ms: i64) -> WsClient` — enable WinHTTP auto-keepalive (effective ≥ 15000).
 - `autoReconnect(ref self, maxRetries: i32, backoffMs: i64) -> WsClient` — transparent reconnect policy.
-- `connect(ref self) -> WebSocket?` — calls `wsConnectEx(url, headers, subprotocol, keepAliveMs)`; returns `nil` on failure; else a `WebSocket` seeded with all stored params.
+- `connect(ref self) -> WebSocket` — calls `wsConnectEx(url, headers, subprotocol, keepAliveMs)`; returns a `WebSocket` seeded with all stored params and the resulting handle (`0` on failure). Check `isOpen()` to detect failure. (Non-optional so `Drop` fires on the named result — see feasibility notes.)
 
 ---
 
@@ -78,7 +79,8 @@ pub struct WebSocket {
 }
 ```
 
-- `WebSocket.connect(url: String) -> WebSocket?` — convenience for `WsClient.to(url).connect()` (no options).
+- `WebSocket.connect(url: String) -> WebSocket` — convenience for `WsClient.to(url).connect()` (no options); `handle = 0` on failure (`isOpen()` false).
+- `isOpen(ref self) -> bool` — `wsIsOpen(self.handle)` (false when `handle == 0`); the failure check after `connect`.
 - `send(mut self, text: String) -> bool` — send a UTF-8 text frame; on failure, transparent reconnect per policy, then retry.
 - `sendBinary(mut self, data: [u8]) -> bool` — send a binary frame (modeled on `sqliteBindBlob`).
 - `sendJson(mut self, json: JsonValue) -> bool` — serialize via the JsonValue's `toString()` then `send` as text.
@@ -169,7 +171,7 @@ Add `std::string recvBuf;` and `int recvKind = 0;` to hold the last received mes
 
 ## Error handling
 
-- **Connect failure / bad URL:** `wsConnectEx` returns 0 → `WsClient.connect()` / `WebSocket.connect()` return `nil`.
+- **Connect failure / bad URL:** `wsConnectEx` returns 0 → the returned `WebSocket` has `handle = 0`; `isOpen()` returns false (the caller's failure check). Not an `Optional`.
 - **`recv` on a closed/errored connection:** `wsRecv` returns 0; with a reconnect policy `recv` retries, else returns `nil`. `isOpen()` then reflects the live state.
 - **`send*` failure:** retries per policy, else returns `false`.
 - **`WsMessage.json()` on non-JSON text:** `Json.parse` returns a `JsonValue` of kind `Null`.
