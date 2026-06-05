@@ -1358,8 +1358,9 @@ void liva_ui_set_anchors(int32_t handle, int32_t left, int32_t top,
 
 struct LivaBinding { int32_t widget; int kind; };   // kind: 0=text, 1=int
 struct LivaModel {
-    std::unordered_map<std::string, std::string> textVals;
-    std::unordered_map<std::string, int32_t>     intVals;
+    std::unordered_map<std::string, std::string>              textVals;
+    std::unordered_map<std::string, int32_t>                  intVals;
+    std::unordered_map<std::string, std::vector<std::string>> listVals;   // Phase 6
     std::unordered_map<std::string, std::vector<LivaBinding>> bindings;
 };
 static std::unordered_map<int32_t, LivaModel> g_models;
@@ -1482,6 +1483,70 @@ void liva_ui_model_bind_int(int32_t model, const char *key, int32_t widget) {
     else if (dynamic_cast<wxCheckBox *>(w))  w->Bind(wxEVT_CHECKBOX, onChange);
     else if (dynamic_cast<wxSpinCtrl *>(w))  w->Bind(wxEVT_SPINCTRL, onChange);
     else if (dynamic_cast<wxSlider *>(w))    w->Bind(wxEVT_SLIDER, onChange);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Phase 6: collection binding (model list -> ListBox/Dropdown/ComboBox)
+   ═══════════════════════════════════════════════════════════════════ */
+
+// ListBox/wxChoice/wxComboBox hepsi wxControlWithItems'tan turer.
+static void widgetAppendItem(wxWindow *w, const wxString &s) {
+    if (auto *ci = dynamic_cast<wxControlWithItems *>(w)) ci->Append(s);
+}
+static void widgetClearItems(wxWindow *w) {
+    if (auto *ci = dynamic_cast<wxControlWithItems *>(w)) ci->Clear();
+}
+
+void liva_ui_model_bind_list(int32_t model, const char *key, int32_t widget) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return;
+    auto *w = getHandle<wxWindow>(widget);
+    if (!w) return;
+    std::string k = key ? key : "";
+    LivaModel &M = it->second;
+    M.bindings[k].push_back({widget, 2});
+    widgetClearItems(w);
+    auto vit = M.listVals.find(k);
+    if (vit != M.listVals.end())
+        for (auto &s : vit->second)
+            widgetAppendItem(w, wxString::FromUTF8(s));
+}
+
+void liva_ui_model_list_add(int32_t model, const char *key, const char *item) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return;
+    std::string k = key ? key : "";
+    std::string v = item ? item : "";
+    LivaModel &M = it->second;
+    M.listVals[k].push_back(v);
+    auto bit = M.bindings.find(k);
+    if (bit == M.bindings.end()) return;
+    for (auto &b : bit->second)
+        if (b.kind == 2)
+            if (auto *w = getHandle<wxWindow>(b.widget))
+                widgetAppendItem(w, wxString::FromUTF8(v));
+}
+
+void liva_ui_model_list_clear(int32_t model, const char *key) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return;
+    std::string k = key ? key : "";
+    LivaModel &M = it->second;
+    M.listVals[k].clear();
+    auto bit = M.bindings.find(k);
+    if (bit == M.bindings.end()) return;
+    for (auto &b : bit->second)
+        if (b.kind == 2)
+            if (auto *w = getHandle<wxWindow>(b.widget))
+                widgetClearItems(w);
+}
+
+int32_t liva_ui_model_list_count(int32_t model, const char *key) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return 0;
+    auto vit = it->second.listVals.find(key ? key : "");
+    return (vit != it->second.listVals.end())
+               ? static_cast<int32_t>(vit->second.size()) : 0;
 }
 
 } // extern "C"

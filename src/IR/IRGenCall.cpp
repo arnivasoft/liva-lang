@@ -5913,6 +5913,40 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         builder_->CreateCall(getOrPanic("liva_ui_model_bind_int"), {m, k, w});
         return llvm::Constant::getNullValue(builder_->getInt32Ty());
     }
+    // ── Phase 6: collection binding ──────────────────────────────────
+    // modelBindList(model, key, widget) -> void
+    if (funcName == "modelBindList" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        auto *w = visit(node->getArgs()[2].get());
+        if (!m || !k || !w) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_model_bind_list"), {m, k, w});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // modelListAdd(model, key, item) -> void
+    if (funcName == "modelListAdd" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        auto *v = visit(node->getArgs()[2].get());
+        if (!m || !k || !v) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_model_list_add"), {m, k, v});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // modelListClear(model, key) -> void
+    if (funcName == "modelListClear" && node->getArgs().size() >= 2) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        if (!m || !k) return nullptr;
+        builder_->CreateCall(getOrPanic("liva_ui_model_list_clear"), {m, k});
+        return llvm::Constant::getNullValue(builder_->getInt32Ty());
+    }
+    // modelListCount(model, key) -> i32
+    if (funcName == "modelListCount" && node->getArgs().size() >= 2) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        if (!m || !k) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_model_list_count"), {m, k}, "ui.mlcount");
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

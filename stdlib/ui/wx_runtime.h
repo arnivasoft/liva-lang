@@ -137,6 +137,12 @@ int32_t      liva_ui_model_get_int(int32_t model, const char *key);
 void         liva_ui_model_bind_text(int32_t model, const char *key, int32_t widget);
 void         liva_ui_model_bind_int(int32_t model, const char *key, int32_t widget);
 
+/* ── Phase 6: collection binding ────────────────────────────────────── */
+void     liva_ui_model_bind_list(int32_t model, const char *key, int32_t widget);
+void     liva_ui_model_list_add(int32_t model, const char *key, const char *item);
+void     liva_ui_model_list_clear(int32_t model, const char *key);
+int32_t  liva_ui_model_list_count(int32_t model, const char *key);
+
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);
 void     liva_ui_list_clear(int32_t handle);

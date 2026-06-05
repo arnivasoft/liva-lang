@@ -853,4 +853,34 @@ TEST(UICodegenExec, DataBindingExampleCompiles) {
     EXPECT_TRUE(emitsClean(ir));
 }
 
+// ── Phase 6: collection binding ────────────────────────────────────────
+TEST(UICodegenExec, ModelListBindCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let win = Window(400, 300, \"T\")\n"
+        "  let root = Panel(win)\n"
+        "  let model = Model()\n"
+        "  let lb = ListBox(root)\n"
+        "  model.bindList(\"items\", lb)\n"
+        "  let dd = Dropdown(root, \"\")\n"
+        "  model.bindList(\"items\", dd)\n"
+        "  let cmb = ComboBox(root, \"\")\n"
+        "  model.bindList(\"items\", cmb)\n"
+        "  model.listAdd(\"items\", \"a\")\n"
+        "  model.listAdd(\"items\", \"b\")\n"
+        "  println(model.listCount(\"items\"))\n"
+        "  model.listClear(\"items\")\n"
+        "}\n",
+        "model_list_bind");
+    ASSERT_TRUE(emitsClean(ir));
+    EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_model_bind_list"))
+        << "bindList must lower to liva_ui_model_bind_list";
+    EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_model_list_add"))
+        << "listAdd must lower to liva_ui_model_list_add";
+    EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_model_list_clear"))
+        << "listClear must lower to liva_ui_model_list_clear";
+}
+
 #endif // LIVA_HAS_LLVM

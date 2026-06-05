@@ -1705,6 +1705,12 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_model_get_int", uiI32StrRetI32Ty);
     module_->getOrInsertFunction("liva_ui_model_bind_int", uiI32StrI32VoidTy);
 
+    // ── Phase 6: collection binding ──────────────────────────────────
+    module_->getOrInsertFunction("liva_ui_model_bind_list", uiI32StrI32VoidTy);
+    module_->getOrInsertFunction("liva_ui_model_list_add", uiI32StrStrVoidTy);
+    module_->getOrInsertFunction("liva_ui_model_list_clear", uiI32StrVoidTy);
+    module_->getOrInsertFunction("liva_ui_model_list_count", uiI32StrRetI32Ty);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();

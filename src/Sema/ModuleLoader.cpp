@@ -245,7 +245,9 @@ void ModuleLoader::registerBuiltinModules() {
          "setAlign", "setAnchors",
          // Phase 5: data binding
          "modelCreate", "modelSetText", "modelGetText", "modelBindText",
-         "modelSetInt", "modelGetInt", "modelBindInt"});
+         "modelSetInt", "modelGetInt", "modelBindInt",
+         // Phase 6: collection binding
+         "modelBindList", "modelListAdd", "modelListClear", "modelListCount"});
 
     // std — umbrella module (union of all sub-modules + len)
     auto umbrella = std::make_unique<Module>();

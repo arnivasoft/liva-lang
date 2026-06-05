@@ -342,4 +342,8 @@ pub class Model {
     pub func setInt(key: string, val: i32) { modelSetInt(self.handle, key, val) }
     pub func getInt(key: string) -> i32 { return modelGetInt(self.handle, key) }
     pub func bindInt(key: string, w: Control) { modelBindInt(self.handle, key, w.handle) }
+    pub func bindList(key: string, w: Control) { modelBindList(self.handle, key, w.handle) }
+    pub func listAdd(key: string, item: string) { modelListAdd(self.handle, key, item) }
+    pub func listClear(key: string) { modelListClear(self.handle, key) }
+    pub func listCount(key: string) -> i32 { return modelListCount(self.handle, key) }
 }
