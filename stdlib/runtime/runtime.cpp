@@ -2451,6 +2451,8 @@ struct LivaWebSocket {
     HINTERNET hWebSocket;
 #endif
     int open;
+    std::string recvBuf;   // last received message payload
+    int recvKind;          // 1 = text, 2 = binary, 0 = none
 };
 
 #ifdef _WIN32
@@ -2547,9 +2549,105 @@ int64_t liva_ws_connect(const char *url) {
     ws->hConnect = hConnect;
     ws->hWebSocket = hWs;
     ws->open = 1;
+    ws->recvKind = 0;
     return (int64_t)(uintptr_t)ws;
 #else
     (void)url;
+    return 0;
+#endif
+}
+
+int64_t liva_ws_connect_ex(const char *url, const char *headers_blob,
+                           const char *subprotocol, int64_t keep_alive_ms) {
+    if (!url) return 0;
+#ifdef _WIN32
+    std::wstring host, path;
+    int port = 0;
+    bool secure = false;
+    if (!parse_ws_url(url, host, path, port, secure)) return 0;
+
+    HINTERNET hSession = WinHttpOpen(L"Liva-WS/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return 0;
+    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), (INTERNET_PORT)port, 0);
+    if (!hConnect) { WinHttpCloseHandle(hSession); return 0; }
+
+    DWORD flags = secure ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(),
+                                             nullptr, WINHTTP_NO_REFERER,
+                                             WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return 0;
+    }
+
+    std::string hdrs = headers_blob ? headers_blob : "";
+    if (subprotocol && *subprotocol) {
+        hdrs += "Sec-WebSocket-Protocol: ";
+        hdrs += subprotocol;
+        hdrs += "\r\n";
+    }
+    std::wstring whdrs(hdrs.begin(), hdrs.end());
+    if (!whdrs.empty()) {
+        WinHttpAddRequestHeaders(hRequest, whdrs.c_str(), (DWORD)-1,
+                                 WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+    }
+
+    if (!WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return 0;
+    }
+
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                             WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+        !WinHttpReceiveResponse(hRequest, nullptr)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return 0;
+    }
+
+    DWORD status = 0;
+    DWORD statusSize = sizeof(status);
+    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
+                        WINHTTP_NO_HEADER_INDEX);
+    if (status != 101) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return 0;
+    }
+
+    HINTERNET hWs = WinHttpWebSocketCompleteUpgrade(hRequest, 0);
+    WinHttpCloseHandle(hRequest);
+    if (!hWs) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return 0;
+    }
+
+#ifdef WINHTTP_OPTION_WEB_SOCKET_KEEPALIVE_INTERVAL
+    // Set keepalive ping interval (minimum 15 s per WinHTTP docs).
+    if (keep_alive_ms > 0) {
+        DWORD interval = (DWORD)(keep_alive_ms < 15000 ? 15000 : keep_alive_ms);
+        WinHttpSetOption(hWs, WINHTTP_OPTION_WEB_SOCKET_KEEPALIVE_INTERVAL,
+                         &interval, sizeof(interval));
+    }
+#endif
+
+    LivaWebSocket *ws = new LivaWebSocket();
+    ws->hSession = hSession;
+    ws->hConnect = hConnect;
+    ws->hWebSocket = hWs;
+    ws->open = 1;
+    ws->recvKind = 0;
+    return (int64_t)(uintptr_t)ws;
+#else
+    (void)url; (void)headers_blob; (void)subprotocol; (void)keep_alive_ms;
     return 0;
 #endif
 }
@@ -2607,6 +2705,69 @@ char *liva_ws_recv_text(int64_t handle) {
 #else
     (void)handle;
     return nullptr;
+#endif
+}
+
+// Receive the next message into ws->recvBuf; return kind: 0 closed/error, 1 text, 2 binary.
+int32_t liva_ws_recv(int64_t handle) {
+    if (!handle) return 0;
+#ifdef _WIN32
+    auto *ws = (LivaWebSocket *)(uintptr_t)handle;
+    if (!ws->open) return 0;
+    ws->recvBuf.clear();
+    ws->recvKind = 0;
+    char buf[4096];
+    for (;;) {
+        DWORD bytesRead = 0;
+        WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType;
+        DWORD err = WinHttpWebSocketReceive(ws->hWebSocket, buf, sizeof(buf),
+                                            &bytesRead, &bufType);
+        if (err != NO_ERROR) { ws->open = 0; return 0; }
+        if (bufType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) { ws->open = 0; return 0; }
+        ws->recvBuf.append(buf, bytesRead);
+        if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE) { ws->recvKind = 1; return 1; }
+        if (bufType == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE) { ws->recvKind = 2; return 2; }
+        // *_FRAGMENT_BUFFER_TYPE: keep accumulating.
+    }
+#else
+    (void)handle;
+    return 0;
+#endif
+}
+
+// The last received message as a malloc'd C string.
+char *liva_ws_msg_text(int64_t handle) {
+    auto *ws = (LivaWebSocket *)(uintptr_t)handle;
+    std::string empty;
+    const std::string &s = ws ? ws->recvBuf : empty;
+    char *out = (char *)malloc(s.size() + 1);
+    if (out) { memcpy(out, s.data(), s.size()); out[s.size()] = '\0'; }
+    return out;
+}
+
+// The last received message as a malloc'd byte buffer; writes length via out_len.
+char *liva_ws_msg_bytes(int64_t handle, int64_t *out_len) {
+    auto *ws = (LivaWebSocket *)(uintptr_t)handle;
+    size_t n = ws ? ws->recvBuf.size() : 0;
+    char *out = (char *)malloc(n > 0 ? n : 1);
+    if (out && n > 0) memcpy(out, ws->recvBuf.data(), n);
+    if (out_len) *out_len = (int64_t)n;
+    return out;
+}
+
+// Send a binary frame. Returns 0 on success, -1 on failure.
+int32_t liva_ws_send_binary(int64_t handle, const uint8_t *data, int64_t len) {
+    if (!handle) return -1;
+#ifdef _WIN32
+    auto *ws = (LivaWebSocket *)(uintptr_t)handle;
+    if (!ws->open) return -1;
+    DWORD err = WinHttpWebSocketSend(ws->hWebSocket,
+                                     WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE,
+                                     (PVOID)data, (DWORD)len);
+    return err == NO_ERROR ? 0 : -1;
+#else
+    (void)handle; (void)data; (void)len;
+    return -1;
 #endif
 }
 

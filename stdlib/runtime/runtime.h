@@ -456,6 +456,22 @@ int32_t liva_ws_close(int64_t handle, int32_t status, const char *reason);
 /// Returns 1 if the socket is still open, 0 otherwise.
 int32_t liva_ws_is_open(int64_t handle);
 
+/// Open a WebSocket with custom headers, optional subprotocol, and keepalive interval (ms, 0=off).
+int64_t liva_ws_connect_ex(const char *url, const char *headers_blob,
+                           const char *subprotocol, int64_t keep_alive_ms);
+
+/// Receive next message into internal buffer; returns kind: 0=closed/error, 1=text, 2=binary.
+int32_t liva_ws_recv(int64_t handle);
+
+/// Return the last received message payload as a malloc'd C string (caller frees).
+char *liva_ws_msg_text(int64_t handle);
+
+/// Return the last received message payload as a malloc'd byte buffer; writes length via out_len.
+char *liva_ws_msg_bytes(int64_t handle, int64_t *out_len);
+
+/// Send a binary frame. Returns 0 on success, -1 on failure.
+int32_t liva_ws_send_binary(int64_t handle, const uint8_t *data, int64_t len);
+
 // === SQLite (Windows: dynamic-loaded winsqlite3.dll; POSIX: link libsqlite3 when found) ===
 //
 // Cross-platform support layer:
