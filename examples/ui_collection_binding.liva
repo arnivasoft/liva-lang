@@ -1,0 +1,51 @@
+// Faz 6 — Koleksiyon baglama (Model liste -> ListBox/Dropdown).
+// Build: livac examples/ui_collection_binding.liva -o collection_binding
+//
+// Model bir string listesi tutar; bindList ayni listeyi birden cok liste-
+// widget'ina baglar (tek yon: model -> widget). listAdd/listClear ile liste
+// degisince bagli widget'lar aninda guncellenir. Secili indeks ayri bir
+// skalerdir (bindInt, Faz 5).
+import ui::widgets
+
+func main() {
+    appInit()
+    let win = Window(480, 360, "Liva — Koleksiyon Baglama")
+    let root = Panel(win)
+
+    let model = Model()
+
+    let lbLbl = Label(root, "Dosyalar:")
+    lbLbl.setBounds(20, 16, 120, 24)
+    let lb = ListBox(root)
+    lb.setBounds(20, 44, 200, 220)
+    model.bindList("dosyalar", lb)            // tek yon: liste -> ListBox
+
+    let ddLbl = Label(root, "Ayni liste:")
+    ddLbl.setBounds(240, 16, 120, 24)
+    let dd = Dropdown(root, "")
+    dd.setBounds(240, 44, 200, 28)
+    model.bindList("dosyalar", dd)            // ayni liste -> Dropdown
+
+    // Baslangic ogeleri (her iki widget'a yansir)
+    model.listAdd("dosyalar", "main.liva")
+    model.listAdd("dosyalar", "ui.liva")
+    model.listAdd("dosyalar", "README.md")
+
+    // Secim (iki yon, Faz 5)
+    model.bindInt("secili", lb)
+    lb.onSelect(|_h: i32| { println(model.getInt("secili")) })
+
+    let add = Button(root, "Ekle")
+    add.setBounds(240, 90, 95, 30)
+    add.onClick(|_h: i32| { model.listAdd("dosyalar", "yeni.liva") })
+
+    let clear = Button(root, "Temizle")
+    clear.setBounds(345, 90, 95, 30)
+    clear.onClick(|_h: i32| { model.listClear("dosyalar") })
+
+    let countLbl = Label(root, "")
+    countLbl.setBounds(240, 130, 200, 24)
+
+    win.show()
+    appRun()
+}
