@@ -2,45 +2,210 @@
 // Import with: import websocket::websocket
 
 import std::websocket
+import json::json
 
 // =============================================================
-// WebSocket — a single client connection
-//
-// Lifetime: WebSocket.connect() returns the only owner. Calling
-// .close() on the owner releases all underlying handles. Recv/send
-// after close return false / nil.
+// WsMessage — a received message (view; valid until next recv())
+// =============================================================
+
+pub struct WsMessage {
+    var handle: i64
+    var kind: i32      // 1 = text, 2 = binary
+}
+
+impl WsMessage {
+    pub func isText(ref self) -> bool {
+        return self.kind == 1
+    }
+
+    pub func isBinary(ref self) -> bool {
+        return self.kind == 2
+    }
+
+    pub func text(ref self) -> String {
+        return wsMsgText(self.handle)
+    }
+
+    pub func bytes(ref self) -> [u8] {
+        return wsMsgBytes(self.handle)
+    }
+
+    pub func json(ref self) -> JsonValue {
+        return Json.parse(wsMsgText(self.handle))
+    }
+}
+
+// =============================================================
+// WebSocket — the connection (Drop auto-closes; transparent reconnect)
 // =============================================================
 
 pub struct WebSocket {
     var handle: i64
+    var url: String
+    var headers: String
+    var subprotocol: String
+    var keepAliveMs: i64
+    var maxRetries: i32
+    var backoffMs: i64
 }
 
 impl WebSocket {
-    pub func connect(url: String) -> WebSocket? {
-        let h: i64 = wsConnect(url)
-        if h == 0 as i64 { return nil }
-        return WebSocket { handle: h }
+    pub func connect(url: String) -> WebSocket {
+        let h = wsConnectEx(url, "", "", 0)
+        return WebSocket { handle: h, url: url, headers: "",
+                           subprotocol: "", keepAliveMs: 0,
+                           maxRetries: 0, backoffMs: 1000 }
     }
 
-    pub func send(ref self, msg: String) -> bool {
-        return wsSend(self.handle, msg)
+    pub func send(mut self, text: String) -> bool {
+        var attempt = 0
+        while true {
+            if wsSend(self.handle, text) {
+                return true
+            }
+            if attempt >= self.maxRetries {
+                return false
+            }
+            attempt = attempt + 1
+            sleep(self.backoffMs)
+            wsClose(self.handle, 1000, "")
+            self.handle = 0
+            let h = wsConnectEx(self.url, self.headers, self.subprotocol, self.keepAliveMs)
+            if h != 0 {
+                self.handle = h
+            }
+        }
+        return false
     }
 
-    pub func recv(ref self) -> String? {
-        return wsRecv(self.handle)
+    pub func sendBinary(mut self, data: [u8]) -> bool {
+        var attempt = 0
+        while true {
+            if wsSendBinary(self.handle, data) {
+                return true
+            }
+            if attempt >= self.maxRetries {
+                return false
+            }
+            attempt = attempt + 1
+            sleep(self.backoffMs)
+            wsClose(self.handle, 1000, "")
+            self.handle = 0
+            let h = wsConnectEx(self.url, self.headers, self.subprotocol, self.keepAliveMs)
+            if h != 0 {
+                self.handle = h
+            }
+        }
+        return false
+    }
+
+    pub func sendJson(mut self, json: JsonValue) -> bool {
+        return self.send(json.toString())
+    }
+
+    pub func recv(mut self) -> WsMessage? {
+        var attempt = 0
+        while true {
+            let kind = wsRecvKind(self.handle)
+            if kind != 0 {
+                return WsMessage { handle: self.handle, kind: kind }
+            }
+            if attempt >= self.maxRetries {
+                return nil
+            }
+            attempt = attempt + 1
+            sleep(self.backoffMs)
+            wsClose(self.handle, 1000, "")
+            self.handle = 0
+            let h = wsConnectEx(self.url, self.headers, self.subprotocol, self.keepAliveMs)
+            if h != 0 {
+                self.handle = h
+            }
+        }
+        return nil
     }
 
     pub func isOpen(ref self) -> bool {
         return wsIsOpen(self.handle)
     }
 
+    pub func reconnect(mut self) -> bool {
+        wsClose(self.handle, 1000, "")
+        self.handle = 0
+        let h = wsConnectEx(self.url, self.headers, self.subprotocol, self.keepAliveMs)
+        if h != 0 {
+            self.handle = h
+            return true
+        }
+        return false
+    }
+
     pub func close(mut self) {
         wsClose(self.handle, 1000, "")
-        self.handle = 0 as i64
+        self.handle = 0
     }
 
     pub func closeWith(mut self, status: i32, reason: String) {
         wsClose(self.handle, status, reason)
-        self.handle = 0 as i64
+        self.handle = 0
+    }
+}
+
+impl WebSocket: Drop {
+    func drop(mut self) {
+        if self.handle != 0 {
+            wsClose(self.handle, 1000, "")
+            self.handle = 0
+        }
+    }
+}
+
+// =============================================================
+// WsClient — fluent connect builder
+// =============================================================
+
+pub struct WsClient {
+    var url: String
+    var headers: String
+    var subprotocol: String
+    var keepAliveMs: i64
+    var maxRetries: i32
+    var backoffMs: i64
+}
+
+impl WsClient {
+    pub func to(url: String) -> WsClient {
+        return WsClient { url: url, headers: "", subprotocol: "",
+                          keepAliveMs: 0, maxRetries: 0, backoffMs: 1000 }
+    }
+
+    pub func header(ref self, name: String, value: String) -> WsClient {
+        let h = "" + self.headers + name + ": " + value + "\r\n"
+        return WsClient { url: self.url, headers: h, subprotocol: self.subprotocol,
+                          keepAliveMs: self.keepAliveMs, maxRetries: self.maxRetries,
+                          backoffMs: self.backoffMs }
+    }
+
+    pub func subprotocol(ref self, proto: String) -> WsClient {
+        return WsClient { url: self.url, headers: self.headers, subprotocol: proto,
+                          keepAliveMs: self.keepAliveMs, maxRetries: self.maxRetries,
+                          backoffMs: self.backoffMs }
+    }
+
+    pub func keepAlive(ref self, ms: i64) -> WsClient {
+        return WsClient { url: self.url, headers: self.headers, subprotocol: self.subprotocol,
+                          keepAliveMs: ms, maxRetries: self.maxRetries, backoffMs: self.backoffMs }
+    }
+
+    pub func autoReconnect(ref self, maxRetries: i32, backoffMs: i64) -> WsClient {
+        return WsClient { url: self.url, headers: self.headers, subprotocol: self.subprotocol,
+                          keepAliveMs: self.keepAliveMs, maxRetries: maxRetries, backoffMs: backoffMs }
+    }
+
+    pub func connect(ref self) -> WebSocket {
+        let h = wsConnectEx(self.url, self.headers, self.subprotocol, self.keepAliveMs)
+        return WebSocket { handle: h, url: self.url, headers: self.headers,
+                           subprotocol: self.subprotocol, keepAliveMs: self.keepAliveMs,
+                           maxRetries: self.maxRetries, backoffMs: self.backoffMs }
     }
 }

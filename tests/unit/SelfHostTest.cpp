@@ -783,13 +783,12 @@ func main() {
 
 TEST_F(SelfHostTest, WebSocketConnectFailsOnBadUrl) {
     // Connect to a URL with invalid scheme — handle is 0, no socket opened.
-    // Also exercises Optional return-type inference for static struct
-    // methods: `let r = T.factory(...)` where the factory returns `T?`.
+    // connect() returns a non-optional WebSocket; check isOpen() to detect failure.
     expectOutput(R"--(
 import websocket::websocket
 func main() {
     let r = WebSocket.connect("not-a-ws-url")
-    if let ws = r {
+    if r.isOpen() {
         println("never")
     } else {
         println("connect failed")
@@ -964,11 +963,12 @@ func main() {
 
 TEST_F(SelfHostTest, WebSocketConnectFailsOnUnreachableHost) {
     // 127.0.0.1:1 — nothing listening, connect must fail cleanly (no crash).
+    // connect() returns a non-optional WebSocket; check isOpen() to detect failure.
     expectOutput(R"--(
 import websocket::websocket
 func main() {
-    let r: WebSocket? = WebSocket.connect("ws://127.0.0.1:1/")
-    if let ws = r {
+    let r = WebSocket.connect("ws://127.0.0.1:1/")
+    if r.isOpen() {
         println("never")
     } else {
         println("unreachable")

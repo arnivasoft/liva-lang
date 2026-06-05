@@ -1366,4 +1366,21 @@ func main() {
     EXPECT_NE(r.stdout_output.find("notsent"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, WsConnectFailsGracefully) {
+    std::string source = R"LIVA(
+import websocket::websocket
+func main() {
+    let ws = WebSocket.connect("ws://127.0.0.1:1/none")
+    if ws.isOpen() {
+        print("connected")
+    } else {
+        print("notopen")
+    }
+}
+)LIVA";
+    auto r = compileAndRun(source, "ws_connect_fail");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("notopen"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM

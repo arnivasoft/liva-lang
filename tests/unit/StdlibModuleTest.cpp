@@ -1620,3 +1620,50 @@ TEST_F(StdlibModuleTest, PostgresTypedAccessors) {
         true, "stdlib");
     EXPECT_TRUE(r.passed) << "PgResult typed accessors should type-check";
 }
+
+TEST_F(StdlibModuleTest, ImportWebSocketModule) {
+    auto r = check(
+        "import websocket::websocket\n"
+        "func main() {\n"
+        "    let ws = WebSocket.connect(\"ws://x\")\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "import websocket::websocket should resolve WebSocket";
+}
+
+TEST_F(StdlibModuleTest, WsClientBuilderChain) {
+    auto r = check(
+        "import websocket::websocket\n"
+        "func main() {\n"
+        "    let ws = WsClient.to(\"wss://x/y\")\n"
+        "        .header(\"Authorization\", \"Bearer t\")\n"
+        "        .subprotocol(\"chat\")\n"
+        "        .keepAlive(30000)\n"
+        "        .autoReconnect(3, 1000)\n"
+        "        .connect()\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "WsClient builder chain should type-check";
+}
+
+TEST_F(StdlibModuleTest, WsSendRecvBinaryJson) {
+    auto r = check(
+        "import websocket::websocket\n"
+        "import json::json\n"
+        "func main() {\n"
+        "    var c = WebSocket.connect(\"ws://x\")\n"
+        "    if c.isOpen() {\n"
+        "        let ok = c.send(\"hi\")\n"
+        "        let data: [u8] = [1 as u8, 2 as u8]\n"
+        "        let okb = c.sendBinary(data)\n"
+        "        let m = c.recv()\n"
+        "        if let msg = m {\n"
+        "            if msg.isText() { let t = msg.text() }\n"
+        "            if msg.isBinary() { let b = msg.bytes() }\n"
+        "            let doc = msg.json()\n"
+        "        }\n"
+        "    }\n"
+        "}\n",
+        true, "stdlib");
+    EXPECT_TRUE(r.passed) << "send/sendBinary/recv/WsMessage should type-check";
+}
