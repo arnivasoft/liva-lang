@@ -1347,4 +1347,23 @@ func main() {
     EXPECT_NE(r.stdout_output.find("OK"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, WsNewBuiltinsCompileAndGuard) {
+    std::string source = R"LIVA(
+import std::websocket
+func main() {
+    let h = wsConnectEx("ws://127.0.0.1:1/none", "", "", 0 as i64)
+    print(toString(h))
+    let bytes: [u8] = [1 as u8, 2 as u8, 3 as u8]
+    let sent = wsSendBinary(h, bytes)
+    if sent { print("sent") } else { print("notsent") }
+    let kind = wsRecvKind(h)
+    print(toString(kind))
+}
+)LIVA";
+    auto r = compileAndRun(source, "ws_new_builtins");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("0"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("notsent"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM

@@ -741,6 +741,25 @@ void IRGen::createRuntimeDecls() {
     auto *wsIsOpenTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
     module_->getOrInsertFunction("liva_ws_is_open", wsIsOpenTy);
 
+    // wsConnectEx(url, headersBlob, subprotocol, keepAliveMs) -> i64
+    auto *wsConnectExTy = llvm::FunctionType::get(i64Ty,
+        {i8PtrTy, i8PtrTy, i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_ws_connect_ex", wsConnectExTy);
+    // wsRecvKind(handle) -> i32
+    auto *wsRecvKindTy = llvm::FunctionType::get(i32Ty, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_ws_recv", wsRecvKindTy);
+    // wsMsgText(handle) -> i8*
+    auto *wsMsgTextTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
+    module_->getOrInsertFunction("liva_ws_msg_text", wsMsgTextTy);
+    // wsMsgBytes(handle, out_len*) -> i8*
+    auto *wsMsgBytesTy = llvm::FunctionType::get(i8PtrTy,
+        {i64Ty, llvm::PointerType::getUnqual(*context_)}, false);
+    module_->getOrInsertFunction("liva_ws_msg_bytes", wsMsgBytesTy);
+    // wsSendBinary(handle, data*, len) -> i32
+    auto *wsSendBinTy = llvm::FunctionType::get(i32Ty,
+        {i64Ty, i8PtrTy, i64Ty}, false);
+    module_->getOrInsertFunction("liva_ws_send_binary", wsSendBinTy);
+
     // === Stdlib: SQLite ===
     // sqliteOpen(path) -> i64
     auto *sqliteOpenTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);

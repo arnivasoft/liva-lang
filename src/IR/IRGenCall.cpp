@@ -3277,6 +3277,73 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return builder_->CreateICmpNE(r, builder_->getInt32(0), "ws.isopen.bool");
     }
 
+    // wsConnectEx(url, headersBlob, subprotocol, keepAliveMs) -> i64
+    if (funcName == "wsConnectEx" && node->getArgs().size() >= 4) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        auto *hdrArg = visit(node->getArgs()[1].get());
+        auto *subArg = visit(node->getArgs()[2].get());
+        auto *kaArg = visit(node->getArgs()[3].get());
+        if (!urlArg || !hdrArg || !subArg || !kaArg) return nullptr;
+        if (kaArg->getType()->isIntegerTy(32))
+            kaArg = builder_->CreateSExt(kaArg, builder_->getInt64Ty());
+        auto *fn = getOrPanic("liva_ws_connect_ex");
+        return builder_->CreateCall(fn, {urlArg, hdrArg, subArg, kaArg}, "ws.connectex");
+    }
+
+    // wsRecvKind(handle) -> i32
+    if (funcName == "wsRecvKind" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_ws_recv");
+        return builder_->CreateCall(fn, {handleArg}, "ws.recvkind");
+    }
+
+    // wsMsgText(handle) -> string
+    if (funcName == "wsMsgText" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *r = builder_->CreateCall(getOrPanic("liva_ws_msg_text"), {handleArg}, "ws.msgtext");
+        trackStringTemp(r);
+        return r;
+    }
+
+    // wsMsgBytes(handle) -> [u8]  (out_len out-param pattern, mirrors sqliteColumnBlob)
+    if (funcName == "wsMsgBytes" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *outLenAlloca = createEntryBlockAlloca(funcCur, "ws.bytes.olen",
+            builder_->getInt64Ty());
+        builder_->CreateStore(builder_->getInt64(0), outLenAlloca);
+        auto *fn = getOrPanic("liva_ws_msg_bytes");
+        auto *dataPtr = builder_->CreateCall(fn, {handleArg, outLenAlloca}, "ws.bytes.data");
+        auto *outLen = builder_->CreateLoad(builder_->getInt64Ty(), outLenAlloca, "ws.bytes.olen.v");
+        auto *daTy = getDynArrayStructTy();
+        auto *daAlloca = createEntryBlockAlloca(funcCur, "ws.bytes.da", daTy);
+        builder_->CreateStore(dataPtr, builder_->CreateStructGEP(daTy, daAlloca, 0));
+        builder_->CreateStore(outLen, builder_->CreateStructGEP(daTy, daAlloca, 1));
+        builder_->CreateStore(outLen, builder_->CreateStructGEP(daTy, daAlloca, 2));
+        return builder_->CreateLoad(daTy, daAlloca, "ws.bytes.val");
+    }
+
+    // wsSendBinary(handle, data: [u8]) -> bool  (mirrors sqliteBindBlob inbound)
+    if (funcName == "wsSendBinary" && node->getArgs().size() >= 2) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        auto *arr = visit(node->getArgs()[1].get());
+        if (!handleArg || !arr) return nullptr;
+        auto *daTy = getDynArrayStructTy();
+        auto *funcCur = builder_->GetInsertBlock()->getParent();
+        auto *src = createEntryBlockAlloca(funcCur, "ws.bin.src", daTy);
+        builder_->CreateStore(arr, src);
+        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+        auto *data = builder_->CreateLoad(ptrTy, builder_->CreateStructGEP(daTy, src, 0));
+        auto *len = builder_->CreateLoad(builder_->getInt64Ty(),
+            builder_->CreateStructGEP(daTy, src, 1));
+        auto *fn = getOrPanic("liva_ws_send_binary");
+        auto *rc = builder_->CreateCall(fn, {handleArg, data, len}, "ws.sendbin.rc");
+        return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "ws.sendbin.ok");
+    }
+
     // pgNormalizeParams(sql) -> string
     if (funcName == "pgNormalizeParams" && !node->getArgs().empty()) {
         auto *sqlArg = visit(node->getArgs()[0].get());

@@ -71,7 +71,9 @@ void TypeChecker::registerBuiltins() {
                         "regexExecGroups", "regexReplaceCompiled", "regexFree",
                         "httpRequestEx", "httpStatus", "httpBody",
                         "httpRawHeaders", "httpHeaderLookup", "httpClose",
-                        "wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen",
+                        "wsConnect", "wsConnectEx", "wsSend", "wsSendBinary",
+                        "wsRecv", "wsRecvKind", "wsMsgText", "wsMsgBytes",
+                        "wsClose", "wsIsOpen",
                         "sqliteOpen", "sqliteClose", "sqliteExec",
                         "sqliteQueryFirst", "sqliteQueryInt", "sqliteQueryColumn",
                         "sqliteLastInsertRowid", "sqliteChanges", "sqliteErrmsg",
@@ -2400,6 +2402,17 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "wsClose") {
             // void
         } else if (ident->getName() == "wsIsOpen") {
+            node->setResolvedType(makeBoolType());
+        } else if (ident->getName() == "wsConnectEx") {
+            node->setResolvedType(makeI64Type());
+        } else if (ident->getName() == "wsRecvKind") {
+            node->setResolvedType(makeI32Type());
+        } else if (ident->getName() == "wsMsgText") {
+            node->setResolvedType(makeStringType());
+        } else if (ident->getName() == "wsMsgBytes") {
+            auto u8 = makePrimitiveType(TypeRepr::Kind::U8);
+            node->setResolvedType(std::make_unique<ArrayTypeRepr>(std::move(u8), -1));
+        } else if (ident->getName() == "wsSendBinary") {
             node->setResolvedType(makeBoolType());
         // Stdlib: SQLite
         } else if (ident->getName() == "sqliteOpen") {

@@ -71,7 +71,8 @@ void ModuleLoader::registerBuiltinModules() {
          "httpRawHeaders", "httpHeaderLookup", "httpClose"});
 
     cache_["std::websocket"] = createBuiltinModule("std::websocket",
-        {"wsConnect", "wsSend", "wsRecv", "wsClose", "wsIsOpen"});
+        {"wsConnect", "wsConnectEx", "wsSend", "wsSendBinary",
+         "wsRecv", "wsRecvKind", "wsMsgText", "wsMsgBytes", "wsClose", "wsIsOpen"});
 
     cache_["std::sqlite"] = createBuiltinModule("std::sqlite",
         {"sqliteOpen", "sqliteClose", "sqliteExec",
