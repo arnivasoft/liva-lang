@@ -1356,7 +1356,7 @@ void liva_ui_set_anchors(int32_t handle, int32_t left, int32_t top,
    Phase 5: data binding (observable Model)
    ═══════════════════════════════════════════════════════════════════ */
 
-struct LivaBinding { int32_t widget; int kind; };   // kind: 0=text, 1=int
+struct LivaBinding { int32_t widget; int kind; };   // kind: 0=text, 1=int, 2=list
 struct LivaModel {
     std::unordered_map<std::string, std::string>              textVals;
     std::unordered_map<std::string, int32_t>                  intVals;
