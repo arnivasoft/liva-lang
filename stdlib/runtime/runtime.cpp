@@ -2758,6 +2758,8 @@ char *liva_ws_msg_bytes(int64_t handle, int64_t *out_len) {
 // Send a binary frame. Returns 0 on success, -1 on failure.
 int32_t liva_ws_send_binary(int64_t handle, const uint8_t *data, int64_t len) {
     if (!handle) return -1;
+    if (len < 0 || len > 0x7FFFFFFF) return -1;   // reject negative / >4GB (DWORD cast would wrap)
+    if (!data && len > 0) return -1;              // null buffer with non-zero length
 #ifdef _WIN32
     auto *ws = (LivaWebSocket *)(uintptr_t)handle;
     if (!ws->open) return -1;
