@@ -31,9 +31,11 @@ func main() {
     model.listAdd("dosyalar", "ui.liva")
     model.listAdd("dosyalar", "README.md")
 
-    // Secim (iki yon, Faz 5)
+    // Secim (iki yon, Faz 5). NOT: secili indeksi onSelect icinde MODEL'den degil
+    // widget'tan oku — model ayni wxEVT olayinda (bindInt isleyicisiyle) SONRA
+    // guncellenir; lb.getSelection() widget'i dogrudan, her zaman taze okur.
     model.bindInt("secili", lb)
-    lb.onSelect(|_h: i32| { println(model.getInt("secili")) })
+    lb.onSelect(|_h: i32| { println(lb.getSelection()) })
 
     let add = Button(root, "Ekle")
     add.setBounds(240, 90, 95, 30)
