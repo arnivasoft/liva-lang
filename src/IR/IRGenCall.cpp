@@ -3219,14 +3219,6 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         return nullptr;
     }
 
-    // wsConnect(url) -> i64 (0 = failure)
-    if (funcName == "wsConnect" && !node->getArgs().empty()) {
-        auto *urlArg = visit(node->getArgs()[0].get());
-        if (!urlArg) return nullptr;
-        auto *fn = getOrPanic("liva_ws_connect");
-        return builder_->CreateCall(fn, {urlArg}, "ws.connect");
-    }
-
     // wsSend(handle, msg) -> bool (true = success)
     if (funcName == "wsSend" && node->getArgs().size() >= 2) {
         auto *handleArg = visit(node->getArgs()[0].get());
@@ -3235,24 +3227,6 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *fn = getOrPanic("liva_ws_send_text");
         auto *rc = builder_->CreateCall(fn, {handleArg, msgArg}, "ws.send.rc");
         return builder_->CreateICmpEQ(rc, builder_->getInt32(0), "ws.send.ok");
-    }
-
-    // wsRecv(handle) -> string?
-    if (funcName == "wsRecv" && !node->getArgs().empty()) {
-        auto *handleArg = visit(node->getArgs()[0].get());
-        if (!handleArg) return nullptr;
-        auto *fn = getOrPanic("liva_ws_recv_text");
-        auto *result = builder_->CreateCall(fn, {handleArg}, "ws.recv.raw");
-        trackStringTemp(result);
-        auto *curFunc = builder_->GetInsertBlock()->getParent();
-        auto *isNull = builder_->CreateICmpEQ(result, llvm::ConstantPointerNull::get(
-            llvm::PointerType::getUnqual(*context_)), "ws.recv.isnull");
-        auto *hasVal = builder_->CreateNot(isNull, "ws.recv.hasval");
-        auto *optTy = getOptionalType(llvm::PointerType::getUnqual(*context_));
-        auto *optAlloca = createEntryBlockAlloca(curFunc, "ws.recv.opt", optTy);
-        builder_->CreateStore(hasVal, builder_->CreateStructGEP(optTy, optAlloca, 0));
-        builder_->CreateStore(result, builder_->CreateStructGEP(optTy, optAlloca, 1));
-        return builder_->CreateLoad(optTy, optAlloca, "ws.recv.result");
     }
 
     // wsClose(handle, status, reason) -> void

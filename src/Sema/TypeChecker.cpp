@@ -71,8 +71,8 @@ void TypeChecker::registerBuiltins() {
                         "regexExecGroups", "regexReplaceCompiled", "regexFree",
                         "httpRequestEx", "httpStatus", "httpBody",
                         "httpRawHeaders", "httpHeaderLookup", "httpClose",
-                        "wsConnect", "wsConnectEx", "wsSend", "wsSendBinary",
-                        "wsRecv", "wsRecvKind", "wsMsgText", "wsMsgBytes",
+                        "wsConnectEx", "wsSend", "wsSendBinary",
+                        "wsRecvKind", "wsMsgText", "wsMsgBytes",
                         "wsClose", "wsIsOpen",
                         "sqliteOpen", "sqliteClose", "sqliteExec",
                         "sqliteQueryFirst", "sqliteQueryInt", "sqliteQueryColumn",
@@ -2392,13 +2392,8 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         } else if (ident->getName() == "httpClose") {
             // void
         // Stdlib: WebSocket
-        } else if (ident->getName() == "wsConnect") {
-            node->setResolvedType(makeI64Type());
         } else if (ident->getName() == "wsSend") {
             node->setResolvedType(makeBoolType());
-        } else if (ident->getName() == "wsRecv") {
-            auto optType = std::make_unique<OptionalTypeRepr>(makeStringType());
-            node->setResolvedType(std::move(optType));
         } else if (ident->getName() == "wsClose") {
             // void
         } else if (ident->getName() == "wsIsOpen") {

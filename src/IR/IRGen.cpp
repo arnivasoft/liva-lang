@@ -721,17 +721,9 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_url_port", urlPortTy);
 
     // === Stdlib: WebSocket ===
-    // wsConnect(url) -> i64
-    auto *wsConnectTy = llvm::FunctionType::get(i64Ty, {i8PtrTy}, false);
-    module_->getOrInsertFunction("liva_ws_connect", wsConnectTy);
-
     // wsSend(handle, msg) -> i32
     auto *wsSendTy = llvm::FunctionType::get(i32Ty, {i64Ty, i8PtrTy}, false);
     module_->getOrInsertFunction("liva_ws_send_text", wsSendTy);
-
-    // wsRecv(handle) -> char* (nullable)
-    auto *wsRecvTy = llvm::FunctionType::get(i8PtrTy, {i64Ty}, false);
-    module_->getOrInsertFunction("liva_ws_recv_text", wsRecvTy);
 
     // wsClose(handle, status, reason) -> i32
     auto *wsCloseTy = llvm::FunctionType::get(i32Ty, {i64Ty, i32Ty, i8PtrTy}, false);

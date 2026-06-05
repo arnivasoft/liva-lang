@@ -2482,81 +2482,6 @@ static bool parse_ws_url(const char *url, std::wstring &host, std::wstring &path
 }
 #endif
 
-int64_t liva_ws_connect(const char *url) {
-    if (!url) return 0;
-#ifdef _WIN32
-    std::wstring host, path;
-    int port = 0;
-    bool secure = false;
-    if (!parse_ws_url(url, host, path, port, secure)) return 0;
-
-    HINTERNET hSession = WinHttpOpen(L"Liva-WS/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession) return 0;
-    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), (INTERNET_PORT)port, 0);
-    if (!hConnect) { WinHttpCloseHandle(hSession); return 0; }
-
-    DWORD flags = secure ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(),
-                                             nullptr, WINHTTP_NO_REFERER,
-                                             WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!hRequest) {
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return 0;
-    }
-
-    if (!WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET,
-                           nullptr, 0)) {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return 0;
-    }
-
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                             WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-        !WinHttpReceiveResponse(hRequest, nullptr)) {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return 0;
-    }
-
-    DWORD status = 0;
-    DWORD statusSize = sizeof(status);
-    WinHttpQueryHeaders(hRequest,
-                        WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
-                        WINHTTP_NO_HEADER_INDEX);
-    if (status != 101) {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return 0;
-    }
-
-    HINTERNET hWs = WinHttpWebSocketCompleteUpgrade(hRequest, 0);
-    WinHttpCloseHandle(hRequest);
-    if (!hWs) {
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return 0;
-    }
-
-    LivaWebSocket *ws = new LivaWebSocket();
-    ws->hSession = hSession;
-    ws->hConnect = hConnect;
-    ws->hWebSocket = hWs;
-    ws->open = 1;
-    ws->recvKind = 0;
-    return (int64_t)(uintptr_t)ws;
-#else
-    (void)url;
-    return 0;
-#endif
-}
-
 int64_t liva_ws_connect_ex(const char *url, const char *headers_blob,
                            const char *subprotocol, int64_t keep_alive_ms) {
     if (!url) return 0;
@@ -2666,45 +2591,6 @@ int32_t liva_ws_send_text(int64_t handle, const char *msg) {
     (void)handle;
     (void)msg;
     return -1;
-#endif
-}
-
-char *liva_ws_recv_text(int64_t handle) {
-    if (!handle) return nullptr;
-#ifdef _WIN32
-    auto *ws = (LivaWebSocket *)(uintptr_t)handle;
-    if (!ws->open) return nullptr;
-
-    std::string accum;
-    char buf[4096];
-    for (;;) {
-        DWORD bytesRead = 0;
-        WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType;
-        DWORD err = WinHttpWebSocketReceive(ws->hWebSocket, buf, sizeof(buf),
-                                            &bytesRead, &bufType);
-        if (err != NO_ERROR) {
-            ws->open = 0;
-            return nullptr;
-        }
-        if (bufType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
-            ws->open = 0;
-            return nullptr;
-        }
-        accum.append(buf, bytesRead);
-        // Final fragment of either a UTF-8 or binary message ends the read.
-        if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE ||
-            bufType == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE) {
-            char *out = (char *)malloc(accum.size() + 1);
-            if (!out) return nullptr;
-            memcpy(out, accum.data(), accum.size());
-            out[accum.size()] = '\0';
-            return out;
-        }
-        // FRAGMENT_BUFFER_TYPE: continue accumulating.
-    }
-#else
-    (void)handle;
-    return nullptr;
 #endif
 }
 
