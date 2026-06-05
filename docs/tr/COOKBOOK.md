@@ -961,34 +961,38 @@ func main() {
 
 ## 21. WebSocket: Gerçek Zamanlı Echo
 
-Bir WebSocket sunucusuna bağlan ve UTF-8 metin çerçevesi alıp gönder.
+Bir WebSocket sunucusuna bağlan, metin çerçevesi gönder ve yanıtı oku.
 
 ```liva
 import websocket::websocket
 
 func main() {
-    if let s = WebSocket.connect("wss://echo.websocket.org") {
-        var ws = s
-        if !ws.send("liva'dan merhaba") {
-            println("gönderim başarısız")
-            ws.close()
-            return
-        }
-        if let yanit = ws.recv() {
-            println("sunucu: \(yanit)")
-        }
-        ws.close()
-    } else {
+    var ws = WsClient.to("wss://echo.websocket.events")
+        .keepAlive(30000)
+        .connect()           // -> WebSocket (zorunlu tür)
+    if !ws.isOpen() {
         println("bağlantı başarısız")
+        return
     }
+    if !ws.send("liva'dan merhaba") {
+        println("gönderim başarısız")
+        return
+    }
+    if let m = ws.recv() {
+        println("sunucu: \(m.text())")
+    }
+    // ws kapsam bitişinde Drop ile otomatik kapanır
 }
 ```
 
 **Önemli noktalar:**
+- `connect()` **zorunlu** (non-optional) `WebSocket` döner; başarısızlık için `isOpen()` kontrol edilir
+- `recv()`, `WsMessage?` döner — karşı taraf kapatınca `nil`
+- `WsMessage`, soket tampon belleğine bir görünümdür; `recv()`'i yeniden çağırmadan veya soketi kapatmadan önce verilerini okuyun
 - URL'ler `ws://` (port 80) veya `wss://` (port 443) kullanır
 - `recv()` parçalı çerçeveleri otomatik birleştirir
-- Karşı taraf bağlantıyı kapattığında `recv()` `nil` döner
 - `closeWith(kod, sebep)` özel kapatma kodu gönderir
+- `keepAlive` en az 15000 ms olmalıdır (WinHTTP); manuel ping çerçeveleri gönderilemez
 
 ---
 

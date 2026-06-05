@@ -1276,33 +1276,98 @@ Typed accessors are non-optional and return a default (`0.0`/`false`/epoch) on u
 
 ## 30. WebSocket (websocket::websocket)
 
-WebSocket client backed by `WinHTTP` on Windows; URLs use the `ws://`
-or `wss://` scheme. Stub on platforms without WinHTTP (every call
-short-circuits to nil/false).
+Full-featured WebSocket client backed by WinHTTP on Windows. Supports
+text and binary frames, custom headers, subprotocol negotiation,
+WinHTTP auto-keepalive, transparent auto-reconnect, and JSON
+integration. Non-Windows builds return a closed socket stub.
+
+> **Migration note:** The previous API returned `WebSocket?` from
+> `connect` and `String?` from `recv`. Both are now changed — see
+> below.
 
 ```liva
 import websocket::websocket
+import json::json
 
-if let s = WebSocket.connect("wss://echo.example.com/socket") {
-    var ws = s
-    ws.send("hello")
-    if let reply = ws.recv() {
-        println(reply)
+var c = WsClient.to("wss://example.com/socket")
+    .header("Authorization", "Bearer TOKEN")
+    .subprotocol("chat")
+    .keepAlive(30000)        // WinHTTP auto-keepalive (min 15000 ms)
+    .autoReconnect(3, 1000)  // 3 retries, 1 s backoff
+    .connect()               // -> WebSocket (non-optional); check isOpen()
+
+if c.isOpen() {
+    c.send("hello")                          // text frame -> bool
+    let bin: [u8] = [1 as u8, 2 as u8, 3 as u8]
+    c.sendBinary(bin)                        // binary frame -> bool
+    if let m = c.recv() {                    // recv() -> WsMessage?
+        if m.isText() {
+            let doc = m.json()               // JsonValue — bind it (owns its DOM)
+        }
+        if m.isBinary() {
+            let b = m.bytes()                // [u8]
+        }
     }
-    ws.close()
+    // closes automatically at scope end (Drop); or c.close()
 }
 ```
 
 ### Structs
 
-| Struct | Methods | Description |
-|--------|---------|-------------|
-| `WebSocket` | `connect`, `send`, `recv`, `isOpen`, `close`, `closeWith` | Single WebSocket connection (UTF-8 text frames) |
+#### `WsClient` — fluent connect builder
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `to` | `static to(url: String) -> WsClient` | Start building a connection to `url` |
+| `header` | `header(name: String, value: String) -> WsClient` | Add a custom HTTP upgrade header |
+| `subprotocol` | `subprotocol(proto: String) -> WsClient` | Set `Sec-WebSocket-Protocol` |
+| `keepAlive` | `keepAlive(ms: i64) -> WsClient` | WinHTTP auto-keepalive interval (min 15000 ms; lower values are clamped to 15000) |
+| `autoReconnect` | `autoReconnect(retries: i32, backoffMs: i64) -> WsClient` | Transparent reconnect on disconnect |
+| `connect` | `connect() -> WebSocket` | Open the connection; returns a **non-optional** `WebSocket` |
+
+#### `WebSocket` — the connection
+
+`connect()` and `WebSocket.connect(url)` both return a **non-optional
+`WebSocket`**. Check `isOpen()` to detect connection failure — do NOT
+use `if let`. The return type is non-optional so `Drop` auto-close
+works unconditionally. **Do not copy a `WebSocket` value** (`let b =
+ws`) — it is a single-owner handle; use it only through its methods.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `connect` | `static connect(url: String) -> WebSocket` | Quick connect (no builder) |
+| `isOpen` | `isOpen() -> bool` | `true` if the connection is established |
+| `send` | `send(text: String) -> bool` | Send a UTF-8 text frame |
+| `sendBinary` | `sendBinary(data: [u8]) -> bool` | Send a binary frame |
+| `sendJson` | `sendJson(value: JsonValue) -> bool` | Serialize `value` and send as a text frame |
+| `recv` | `recv() -> WsMessage?` | Receive next message; `nil` when the peer closes |
+| `reconnect` | `reconnect() -> bool` | Attempt manual reconnect |
+| `close` | `close()` | Send close code 1000 |
+| `closeWith` | `closeWith(code: i32, reason: String)` | Send a custom close code and reason |
+
+`Drop` auto-closes the connection at scope end; explicit `close()` is
+optional.
+
+#### `WsMessage` — received message view
+
+`recv()` returns a `WsMessage?`. A `WsMessage` is a **view into the
+socket's last-received buffer** — it is valid only until the next
+`recv()` call **or** until the socket is closed or dropped. Read all
+data out of the message before calling `recv()` again or letting the
+socket go out of scope. Retaining a `WsMessage` past those points is a
+use-after-free.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `isText` | `isText() -> bool` | `true` for a UTF-8 text frame |
+| `isBinary` | `isBinary() -> bool` | `true` for a binary frame |
+| `text` | `text() -> String` | Frame payload as a UTF-8 string |
+| `bytes` | `bytes() -> [u8]` | Frame payload as raw bytes |
+| `json` | `json() -> JsonValue` | Parse the text payload as JSON (bind the result — it owns the DOM) |
 
 `recv()` automatically reassembles fragmented messages until a final
-UTF-8 or binary frame arrives; it returns `nil` when the peer closes
-the connection. `close()` sends close code 1000; `closeWith(code,
-reason)` lets you send a custom code and reason.
+frame arrives. Manual WS ping frames are not available via WinHTTP;
+use `keepAlive` for heartbeating (minimum interval 15000 ms).
 
 ---
 

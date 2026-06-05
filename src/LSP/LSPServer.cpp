@@ -2715,6 +2715,10 @@ JSONValue LSPServer::handleCodeAction(const JSONValue &id,
                     // http::http wrapper types
                     {"HttpClient", "http::http"}, {"HttpResponse", "http::http"},
                     {"HttpRequest", "http::http"},
+                    // websocket::websocket wrapper types
+                    {"WebSocket", "websocket::websocket"},
+                    {"WsClient", "websocket::websocket"},
+                    {"WsMessage", "websocket::websocket"},
                     // net::net wrapper types
                     {"Url", "net::net"},
                     // sync::sync wrapper types

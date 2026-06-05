@@ -1042,34 +1042,38 @@ func main() {
 
 ## 21. WebSocket: Real-Time Echo
 
-Connect to a WebSocket server and exchange UTF-8 text frames.
+Connect to a WebSocket server, send a text frame, and read the reply.
 
 ```liva
 import websocket::websocket
 
 func main() {
-    if let s = WebSocket.connect("wss://echo.websocket.org") {
-        var ws = s
-        if !ws.send("hello from liva") {
-            println("send failed")
-            ws.close()
-            return
-        }
-        if let reply = ws.recv() {
-            println("server said: \(reply)")
-        }
-        ws.close()
-    } else {
+    var ws = WsClient.to("wss://echo.websocket.events")
+        .keepAlive(30000)
+        .connect()           // -> WebSocket (non-optional)
+    if !ws.isOpen() {
         println("connect failed")
+        return
     }
+    if !ws.send("hello from liva") {
+        println("send failed")
+        return
+    }
+    if let m = ws.recv() {
+        println("server said: \(m.text())")
+    }
+    // ws closes automatically at scope end (Drop)
 }
 ```
 
 **Key points:**
+- `connect()` returns a **non-optional** `WebSocket`; check `isOpen()` for failure
+- `recv()` returns `WsMessage?` — `nil` when the peer closes the connection
+- A `WsMessage` is a view into the socket buffer; read its data before calling `recv()` again or letting the socket close
 - URLs use `ws://` (port 80) or `wss://` (port 443)
 - `recv()` reassembles fragmented frames automatically
-- `recv()` returns `nil` when the peer closes the connection
 - `closeWith(code, reason)` lets you send a custom close code
+- `keepAlive` minimum is 15000 ms (WinHTTP); manual ping frames are not available
 
 ---
 

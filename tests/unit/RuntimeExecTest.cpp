@@ -1366,6 +1366,34 @@ func main() {
     EXPECT_NE(r.stdout_output.find("notsent"), std::string::npos);
 }
 
+TEST(RuntimeExecTest, WsLiveEchoRoundTrip) {
+    if (std::getenv("LIVA_WS_TEST") == nullptr) {
+        GTEST_SKIP() << "Set LIVA_WS_TEST=1 to run the live WebSocket echo test";
+    }
+    const char *envUrl = std::getenv("LIVA_WS_TEST_URL");
+    std::string url = envUrl ? envUrl : "wss://echo.websocket.events";
+    std::string source = std::string(R"LIVA(
+import websocket::websocket
+func main() {
+    var c = WebSocket.connect(")LIVA") + url + R"LIVA(")
+    if c.isOpen() {
+        if c.send("ping") {
+            if let m = c.recv() {
+                if len(m.text()) > 0 {
+                    print("OK")
+                }
+            }
+        }
+    } else {
+        print("noconnect")
+    }
+}
+)LIVA";
+    auto r = compileAndRun(source, "ws_live");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.stdout_output.find("OK"), std::string::npos);
+}
+
 TEST(RuntimeExecTest, WsConnectFailsGracefully) {
     std::string source = R"LIVA(
 import websocket::websocket

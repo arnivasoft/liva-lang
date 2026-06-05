@@ -1249,33 +1249,101 @@ Tipli accessor'lar non-optional; ayrıştırılamayan metinde varsayılan (`0.0`
 
 ## 30. WebSocket (websocket::websocket)
 
-Windows üzerinde `WinHTTP` ile çalışan WebSocket istemcisi; URL'ler
-`ws://` veya `wss://` şemasıyla başlar. WinHTTP bulunmayan
-platformlarda her çağrı `nil`/`false` döner.
+Windows üzerinde WinHTTP ile çalışan tam özellikli WebSocket
+istemcisi. Metin ve ikili çerçeveler, özel başlıklar, alt-protokol
+uzlaşması, WinHTTP otomatik-keepalive, şeffaf otomatik-yeniden bağlantı
+ve JSON entegrasyonunu destekler. Windows dışı derlemelerde kapalı
+bir soket taslağı döner.
+
+> **Geçiş notu:** Önceki API, `connect`'ten `WebSocket?` ve
+> `recv`'den `String?` döndürüyordu. İkisi de değiştirildi — aşağıya
+> bakınız.
 
 ```liva
 import websocket::websocket
+import json::json
 
-if let s = WebSocket.connect("wss://echo.example.com/socket") {
-    var ws = s
-    ws.send("merhaba")
-    if let yanit = ws.recv() {
-        println(yanit)
+var c = WsClient.to("wss://example.com/socket")
+    .header("Authorization", "Bearer TOKEN")
+    .subprotocol("chat")
+    .keepAlive(30000)        // WinHTTP otomatik-keepalive (en az 15000 ms)
+    .autoReconnect(3, 1000)  // 3 deneme, 1 s bekleme
+    .connect()               // -> WebSocket (zorunlu tür); isOpen() ile kontrol et
+
+if c.isOpen() {
+    c.send("merhaba")                        // metin çerçevesi -> bool
+    let bin: [u8] = [1 as u8, 2 as u8, 3 as u8]
+    c.sendBinary(bin)                        // ikili çerçeve -> bool
+    if let m = c.recv() {                    // recv() -> WsMessage?
+        if m.isText() {
+            let doc = m.json()               // JsonValue — bağla (DOM'u sahiplenir)
+        }
+        if m.isBinary() {
+            let b = m.bytes()                // [u8]
+        }
     }
-    ws.close()
+    // kapsam bitişinde Drop ile otomatik kapanır; ya da c.close()
 }
 ```
 
 ### Yapılar
 
-| Yapı | Metotlar | Açıklama |
-|------|----------|----------|
-| `WebSocket` | `connect`, `send`, `recv`, `isOpen`, `close`, `closeWith` | UTF-8 metin çerçeveleri taşıyan tek WebSocket bağlantısı |
+#### `WsClient` — akıcı bağlantı oluşturucu
 
-`recv()` parçalı mesajları otomatik olarak birleştirir; karşı taraf
-bağlantıyı kapatınca `nil` döner. `close()` standart 1000 kapatma
-kodunu gönderir; `closeWith(kod, sebep)` özel kod ve sebep
-göndermenize izin verir.
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `to` | `static to(url: String) -> WsClient` | `url`'e bağlantı oluşturmaya başla |
+| `header` | `header(isim: String, deger: String) -> WsClient` | Özel HTTP yükseltme başlığı ekle |
+| `subprotocol` | `subprotocol(proto: String) -> WsClient` | `Sec-WebSocket-Protocol` ayarla |
+| `keepAlive` | `keepAlive(ms: i64) -> WsClient` | WinHTTP otomatik-keepalive aralığı (en az 15000 ms; düşük değerler 15000'e yuvarlanır) |
+| `autoReconnect` | `autoReconnect(denemeler: i32, beklemeMs: i64) -> WsClient` | Bağlantı kesilince şeffaf yeniden bağlantı |
+| `connect` | `connect() -> WebSocket` | Bağlantıyı aç; **zorunlu** `WebSocket` döner |
+
+#### `WebSocket` — bağlantı
+
+`connect()` ve `WebSocket.connect(url)` her ikisi de **zorunlu
+(non-optional) `WebSocket`** döner. Bağlantı başarısızlığını tespit
+etmek için `isOpen()` kullanın — `if let` **kullanmayın**. Dönüş
+türü zorunludur, böylece `Drop` otomatik kapama koşulsuz çalışır.
+**`WebSocket` değerini kopyalamayın** (`let b = ws`) — tek sahipli
+bir tutamaçtır; yalnızca metotları aracılığıyla kullanın.
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `connect` | `static connect(url: String) -> WebSocket` | Hızlı bağlantı (oluşturucu olmadan) |
+| `isOpen` | `isOpen() -> bool` | Bağlantı kurulduysa `true` |
+| `send` | `send(metin: String) -> bool` | UTF-8 metin çerçevesi gönder |
+| `sendBinary` | `sendBinary(veri: [u8]) -> bool` | İkili çerçeve gönder |
+| `sendJson` | `sendJson(deger: JsonValue) -> bool` | `deger`'i serileştirip metin çerçevesi olarak gönder |
+| `recv` | `recv() -> WsMessage?` | Sonraki mesajı al; karşı taraf kapatınca `nil` |
+| `reconnect` | `reconnect() -> bool` | Manuel yeniden bağlantı dene |
+| `close` | `close()` | 1000 kapatma kodu gönder |
+| `closeWith` | `closeWith(kod: i32, sebep: String)` | Özel kapatma kodu ve sebebi gönder |
+
+`Drop`, kapsam bitişinde bağlantıyı otomatik kapatır; açık `close()`
+isteğe bağlıdır.
+
+#### `WsMessage` — alınan mesaj görünümü
+
+`recv()` bir `WsMessage?` döner. `WsMessage`, **soketin son alınan
+tampon belleğine bir görünümdür** — yalnızca bir sonraki `recv()`
+çağrısına **veya** soketin kapatılmasına ya da bırakılmasına kadar
+geçerlidir. Mesajdaki tüm verileri, `recv()`'i yeniden çağırmadan
+veya soketi kapsam dışına çıkarmadan önce okuyun. `WsMessage`'ı bu
+noktaların ötesinde saklamak serbest-bırakılmış belleğe erişime
+(use-after-free) yol açar.
+
+| Metot | İmza | Açıklama |
+|-------|------|----------|
+| `isText` | `isText() -> bool` | UTF-8 metin çerçevesi için `true` |
+| `isBinary` | `isBinary() -> bool` | İkili çerçeve için `true` |
+| `text` | `text() -> String` | Çerçeve yükünü UTF-8 dizesi olarak ver |
+| `bytes` | `bytes() -> [u8]` | Çerçeve yükünü ham bayt olarak ver |
+| `json` | `json() -> JsonValue` | Metin yükünü JSON olarak ayrıştır (sonucu bağla — DOM'u sahiplenir) |
+
+`recv()` son çerçeve gelene dek parçalı mesajları otomatik
+birleştirir. WinHTTP üzerinden manuel WS ping çerçeveleri
+gönderilemez; kalp atışı için `keepAlive` kullanın (en az 15000 ms).
 
 ---
 
