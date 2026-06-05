@@ -196,15 +196,31 @@ if(LIVA_HAS_WXWIDGETS AND LIVA_HAS_LLVM)
         # while the .lib import libraries live under lib/. Derive lib/ from the
         # prefix; fall back to the imported-location directory.
         set(_wx_lib_dir "")
-        foreach(_p ${CMAKE_PREFIX_PATH})
-            if(EXISTS "${_p}/lib")
-                file(GLOB _probe "${_p}/lib/wx*.lib")
-                if(_probe)
-                    set(_wx_lib_dir "${_p}/lib")
-                    break()
-                endif()
+        # Primary: derive the lib dir from the wx that find_package actually
+        # resolved (wxWidgets_DIR = <prefix>/share/wxwidgets), independent of
+        # CMAKE_PREFIX_PATH — which may point at a different (e.g. static)
+        # triplet than the one wx was found in, yielding an empty wx_libs.cfg.
+        if(wxWidgets_DIR)
+            get_filename_component(_wx_share "${wxWidgets_DIR}" DIRECTORY)   # <prefix>/share
+            get_filename_component(_wx_prefix "${_wx_share}" DIRECTORY)      # <prefix>
+            file(GLOB _probe "${_wx_prefix}/lib/wx*.lib")
+            if(_probe)
+                set(_wx_lib_dir "${_wx_prefix}/lib")
             endif()
-        endforeach()
+        endif()
+        # Fallback: scan CMAKE_PREFIX_PATH entries for a lib dir holding wx*.lib.
+        if(NOT _wx_lib_dir)
+            foreach(_p ${CMAKE_PREFIX_PATH})
+                if(EXISTS "${_p}/lib")
+                    file(GLOB _probe "${_p}/lib/wx*.lib")
+                    if(_probe)
+                        set(_wx_lib_dir "${_p}/lib")
+                        break()
+                    endif()
+                endif()
+            endforeach()
+        endif()
+        # Last resort: the imported-target's own directory.
         if(NOT _wx_lib_dir)
             get_filename_component(_wx_lib_dir "${_wx_core_loc}" DIRECTORY)
         endif()
