@@ -1072,7 +1072,7 @@ func main() {
 - A `WsMessage` is a view into the socket buffer; read its data before calling `recv()` again or letting the socket close
 - URLs use `ws://` (port 80) or `wss://` (port 443)
 - `recv()` reassembles fragmented frames automatically
-- `closeWith(code, reason)` lets you send a custom close code
+- `closeWith(status, reason)` lets you send a custom close code
 - `keepAlive` minimum is 15000 ms (WinHTTP); manual ping frames are not available
 
 ---

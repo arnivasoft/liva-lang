@@ -1296,7 +1296,7 @@ if c.isOpen() {
 | `header` | `header(isim: String, deger: String) -> WsClient` | Özel HTTP yükseltme başlığı ekle |
 | `subprotocol` | `subprotocol(proto: String) -> WsClient` | `Sec-WebSocket-Protocol` ayarla |
 | `keepAlive` | `keepAlive(ms: i64) -> WsClient` | WinHTTP otomatik-keepalive aralığı (en az 15000 ms; düşük değerler 15000'e yuvarlanır) |
-| `autoReconnect` | `autoReconnect(denemeler: i32, beklemeMs: i64) -> WsClient` | Bağlantı kesilince şeffaf yeniden bağlantı |
+| `autoReconnect` | `autoReconnect(maxRetries: i32, beklemeMs: i64) -> WsClient` | Bağlantı kesilince şeffaf yeniden bağlantı |
 | `connect` | `connect() -> WebSocket` | Bağlantıyı aç; **zorunlu** `WebSocket` döner |
 
 #### `WebSocket` — bağlantı
@@ -1314,11 +1314,11 @@ bir tutamaçtır; yalnızca metotları aracılığıyla kullanın.
 | `isOpen` | `isOpen() -> bool` | Bağlantı kurulduysa `true` |
 | `send` | `send(metin: String) -> bool` | UTF-8 metin çerçevesi gönder |
 | `sendBinary` | `sendBinary(veri: [u8]) -> bool` | İkili çerçeve gönder |
-| `sendJson` | `sendJson(deger: JsonValue) -> bool` | `deger`'i serileştirip metin çerçevesi olarak gönder |
+| `sendJson` | `sendJson(json: JsonValue) -> bool` | `json`'ı serileştirip metin çerçevesi olarak gönder |
 | `recv` | `recv() -> WsMessage?` | Sonraki mesajı al; karşı taraf kapatınca `nil` |
 | `reconnect` | `reconnect() -> bool` | Manuel yeniden bağlantı dene |
 | `close` | `close()` | 1000 kapatma kodu gönder |
-| `closeWith` | `closeWith(kod: i32, sebep: String)` | Özel kapatma kodu ve sebebi gönder |
+| `closeWith` | `closeWith(status: i32, sebep: String)` | Özel kapatma kodu ve sebebi gönder |
 
 `Drop`, kapsam bitişinde bağlantıyı otomatik kapatır; açık `close()`
 isteğe bağlıdır.

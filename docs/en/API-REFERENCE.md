@@ -1322,7 +1322,7 @@ if c.isOpen() {
 | `header` | `header(name: String, value: String) -> WsClient` | Add a custom HTTP upgrade header |
 | `subprotocol` | `subprotocol(proto: String) -> WsClient` | Set `Sec-WebSocket-Protocol` |
 | `keepAlive` | `keepAlive(ms: i64) -> WsClient` | WinHTTP auto-keepalive interval (min 15000 ms; lower values are clamped to 15000) |
-| `autoReconnect` | `autoReconnect(retries: i32, backoffMs: i64) -> WsClient` | Transparent reconnect on disconnect |
+| `autoReconnect` | `autoReconnect(maxRetries: i32, backoffMs: i64) -> WsClient` | Transparent reconnect on disconnect |
 | `connect` | `connect() -> WebSocket` | Open the connection; returns a **non-optional** `WebSocket` |
 
 #### `WebSocket` — the connection
@@ -1339,11 +1339,11 @@ ws`) — it is a single-owner handle; use it only through its methods.
 | `isOpen` | `isOpen() -> bool` | `true` if the connection is established |
 | `send` | `send(text: String) -> bool` | Send a UTF-8 text frame |
 | `sendBinary` | `sendBinary(data: [u8]) -> bool` | Send a binary frame |
-| `sendJson` | `sendJson(value: JsonValue) -> bool` | Serialize `value` and send as a text frame |
+| `sendJson` | `sendJson(json: JsonValue) -> bool` | Serialize `json` and send as a text frame |
 | `recv` | `recv() -> WsMessage?` | Receive next message; `nil` when the peer closes |
 | `reconnect` | `reconnect() -> bool` | Attempt manual reconnect |
 | `close` | `close()` | Send close code 1000 |
-| `closeWith` | `closeWith(code: i32, reason: String)` | Send a custom close code and reason |
+| `closeWith` | `closeWith(status: i32, reason: String)` | Send a custom close code and reason |
 
 `Drop` auto-closes the connection at scope end; explicit `close()` is
 optional.

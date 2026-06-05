@@ -991,7 +991,7 @@ func main() {
 - `WsMessage`, soket tampon belleğine bir görünümdür; `recv()`'i yeniden çağırmadan veya soketi kapatmadan önce verilerini okuyun
 - URL'ler `ws://` (port 80) veya `wss://` (port 443) kullanır
 - `recv()` parçalı çerçeveleri otomatik birleştirir
-- `closeWith(kod, sebep)` özel kapatma kodu gönderir
+- `closeWith(status, sebep)` özel kapatma kodu gönderir
 - `keepAlive` en az 15000 ms olmalıdır (WinHTTP); manuel ping çerçeveleri gönderilemez
 
 ---

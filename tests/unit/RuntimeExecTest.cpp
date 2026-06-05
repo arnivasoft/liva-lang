@@ -1368,7 +1368,7 @@ func main() {
 
 TEST(RuntimeExecTest, WsLiveEchoRoundTrip) {
     if (std::getenv("LIVA_WS_TEST") == nullptr) {
-        GTEST_SKIP() << "Set LIVA_WS_TEST=1 to run the live WebSocket echo test";
+        GTEST_SKIP() << "Set LIVA_WS_TEST=1 (optionally LIVA_WS_TEST_URL=wss://...) to run the live WebSocket echo test";
     }
     const char *envUrl = std::getenv("LIVA_WS_TEST_URL");
     std::string url = envUrl ? envUrl : "wss://echo.websocket.events";
