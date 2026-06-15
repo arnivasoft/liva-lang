@@ -389,7 +389,9 @@ static bool hasRuntimeCall(const std::string &ir, const std::string &fn) {
     return ir.find("call void @" + fn + "(") != std::string::npos;
 }
 
-// True if the IR contains a call to the named runtime function (any return type).
+// hasRuntimeCall matches `call void @fn(` and therefore misses non-void FFIs.
+// Use hasRuntimeCallAny for functions that return a value (e.g. liva_ui_model_list_get
+// emits `call ptr @fn(`); it matches the `@fn(` reference regardless of return type.
 static bool hasRuntimeCallAny(const std::string &ir, const std::string &fn) {
     return ir.find("@" + fn + "(") != std::string::npos;
 }
