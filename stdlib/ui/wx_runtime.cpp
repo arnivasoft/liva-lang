@@ -1549,4 +1549,13 @@ int32_t liva_ui_model_list_count(int32_t model, const char *key) {
                ? static_cast<int32_t>(vit->second.size()) : 0;
 }
 
+const char *liva_ui_model_list_get(int32_t model, const char *key, int32_t index) {
+    auto it = g_models.find(model);
+    if (it == g_models.end()) return "";
+    auto vit = it->second.listVals.find(key ? key : "");
+    if (vit == it->second.listVals.end()) return "";
+    if (index < 0 || index >= static_cast<int32_t>(vit->second.size())) return "";
+    return returnTempStr(wxString::FromUTF8(vit->second[index]));
+}
+
 } // extern "C"

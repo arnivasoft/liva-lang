@@ -142,6 +142,7 @@ void     liva_ui_model_bind_list(int32_t model, const char *key, int32_t widget)
 void     liva_ui_model_list_add(int32_t model, const char *key, const char *item);
 void     liva_ui_model_list_clear(int32_t model, const char *key);
 int32_t  liva_ui_model_list_count(int32_t model, const char *key);
+const char *liva_ui_model_list_get(int32_t model, const char *key, int32_t index);
 
 /* ── List / Tab operations ─────────────────────────────────────── */
 void     liva_ui_list_add_item(int32_t handle, const char *item);

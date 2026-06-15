@@ -5947,6 +5947,16 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         if (!m || !k) return nullptr;
         return builder_->CreateCall(getOrPanic("liva_ui_model_list_count"), {m, k}, "ui.mlcount");
     }
+    // ── Phase 6.1: list readback ─────────────────────────────────────
+    // modelListGet(model, key, index) -> string
+    if (funcName == "modelListGet" && node->getArgs().size() >= 3) {
+        auto *m = visit(node->getArgs()[0].get());
+        auto *k = visit(node->getArgs()[1].get());
+        auto *i = visit(node->getArgs()[2].get());
+        if (!m || !k || !i) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_ui_model_list_get"),
+                                    {m, k, i}, "ui.mlget");
+    }
     // Closure-taking free-function forms (called from class methods; stack env, size 0)
     if (funcName == "menuItemOnClick" && node->getArgs().size() >= 2)
         return emitCallbackCall("liva_ui_menu_item_on_click", 0, 1);

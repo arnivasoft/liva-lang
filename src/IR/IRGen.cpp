@@ -1711,6 +1711,11 @@ void IRGen::createRuntimeDecls() {
     module_->getOrInsertFunction("liva_ui_model_list_clear", uiI32StrVoidTy);
     module_->getOrInsertFunction("liva_ui_model_list_count", uiI32StrRetI32Ty);
 
+    // ── Phase 6.1: list readback ─────────────────────────────────────
+    auto *uiI32StrI32RetStrTy =
+        llvm::FunctionType::get(i8PtrTy, {i32Ty, i8PtrTy, i32Ty}, false);
+    module_->getOrInsertFunction("liva_ui_model_list_get", uiI32StrI32RetStrTy);
+
     // Coroutine + async runtime
     declareCoroutineIntrinsics();
     declareAsyncRuntimeFuncs();

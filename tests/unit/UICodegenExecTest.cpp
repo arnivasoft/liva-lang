@@ -389,6 +389,11 @@ static bool hasRuntimeCall(const std::string &ir, const std::string &fn) {
     return ir.find("call void @" + fn + "(") != std::string::npos;
 }
 
+// True if the IR contains a call to the named runtime function (any return type).
+static bool hasRuntimeCallAny(const std::string &ir, const std::string &fn) {
+    return ir.find("@" + fn + "(") != std::string::npos;
+}
+
 TEST(UICodegenExec, InlineCallbackLiteralHeapOwnsEnv) {
     // Closure captures `count` and `btn`, bound inline → env size must be > 0.
     auto ir = emitIR(
@@ -881,6 +886,28 @@ TEST(UICodegenExec, ModelListBindCompiles) {
         << "listAdd must lower to liva_ui_model_list_add";
     EXPECT_TRUE(hasRuntimeCall(ir, "liva_ui_model_list_clear"))
         << "listClear must lower to liva_ui_model_list_clear";
+}
+
+// ── Phase 6.1: list readback ───────────────────────────────────────────
+TEST(UICodegenExec, ModelListGetCompiles) {
+    auto ir = emitIR(
+        "import ui::widgets\n"
+        "func main() {\n"
+        "  appInit()\n"
+        "  let model = Model()\n"
+        "  model.listAdd(\"items\", \"a\")\n"
+        "  model.listAdd(\"items\", \"b\")\n"
+        "  let n = model.listCount(\"items\")\n"
+        "  var i = 0\n"
+        "  while i < n {\n"
+        "    println(model.listGet(\"items\", i))\n"
+        "    i = i + 1\n"
+        "  }\n"
+        "}\n",
+        "model_list_get");
+    ASSERT_TRUE(emitsClean(ir));
+    EXPECT_TRUE(hasRuntimeCallAny(ir, "liva_ui_model_list_get"))
+        << "listGet must lower to liva_ui_model_list_get";
 }
 
 #endif // LIVA_HAS_LLVM

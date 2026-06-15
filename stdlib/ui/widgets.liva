@@ -346,4 +346,5 @@ pub class Model {
     pub func listAdd(key: string, item: string) { modelListAdd(self.handle, key, item) }
     pub func listClear(key: string) { modelListClear(self.handle, key) }
     pub func listCount(key: string) -> i32 { return modelListCount(self.handle, key) }
+    pub func listGet(key: string, index: i32) -> string { return modelListGet(self.handle, key, index) }
 }
