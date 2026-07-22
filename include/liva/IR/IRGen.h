@@ -110,6 +110,8 @@ public:
     // Dolu optional = çağrı işlendi (değer nullptr olabilir = hata);
     // std::nullopt = bu domain'in işi değil.
     std::optional<llvm::Value *> tryEmitMethodCall(CallExpr *node);
+    std::optional<llvm::Value *> tryEmitCoreBuiltin(CallExpr *node,
+                                                    const std::string &funcName);
 
     llvm::Value *visitAssignExpr(AssignExpr *node);
     llvm::Value *visitGroupExpr(GroupExpr *node);
