@@ -120,6 +120,8 @@ public:
                                                     const std::string &funcName);
     std::optional<llvm::Value *> tryEmitDataBuiltin(CallExpr *node,
                                                     const std::string &funcName);
+    std::optional<llvm::Value *> tryEmitNetBuiltin(CallExpr *node,
+                                                    const std::string &funcName);
 
     llvm::Value *visitAssignExpr(AssignExpr *node);
     llvm::Value *visitGroupExpr(GroupExpr *node);
