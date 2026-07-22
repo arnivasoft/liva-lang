@@ -102,6 +102,7 @@ if(LIVA_HAS_LLVM)
         src/IR/IRGenCallConcurrency.cpp
         src/IR/IRGenCallData.cpp
         src/IR/IRGenCallNet.cpp
+        src/IR/IRGenCallUI.cpp
         src/IR/IRGenMono.cpp
     )
     target_link_libraries(liva_irgen PUBLIC liva_ast liva_sema ${LIVA_LLVM_LIBS})
