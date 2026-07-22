@@ -105,6 +105,12 @@ public:
     llvm::Value *visitBinaryExpr(BinaryExpr *node);
     llvm::Value *visitUnaryExpr(UnaryExpr *node);
     llvm::Value *visitCallExpr(CallExpr *node);
+
+    // --- visitCallExpr domain helpers (IRGenCall*.cpp) ---
+    // Dolu optional = çağrı işlendi (değer nullptr olabilir = hata);
+    // std::nullopt = bu domain'in işi değil.
+    std::optional<llvm::Value *> tryEmitMethodCall(CallExpr *node);
+
     llvm::Value *visitAssignExpr(AssignExpr *node);
     llvm::Value *visitGroupExpr(GroupExpr *node);
     llvm::Value *visitCastExpr(CastExpr *node);

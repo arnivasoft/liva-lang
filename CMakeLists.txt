@@ -95,6 +95,7 @@ if(LIVA_HAS_LLVM)
         src/IR/IRGenStmt.cpp
         src/IR/IRGenExpr.cpp
         src/IR/IRGenCall.cpp
+        src/IR/IRGenCallMethod.cpp
         src/IR/IRGenMono.cpp
     )
     target_link_libraries(liva_irgen PUBLIC liva_ast liva_sema ${LIVA_LLVM_LIBS})
