@@ -114,6 +114,8 @@ public:
                                                     const std::string &funcName);
     std::optional<llvm::Value *> tryEmitSysBuiltin(CallExpr *node,
                                                     const std::string &funcName);
+    std::optional<llvm::Value *> tryEmitStringBuiltin(CallExpr *node,
+                                                    const std::string &funcName);
 
     llvm::Value *visitAssignExpr(AssignExpr *node);
     llvm::Value *visitGroupExpr(GroupExpr *node);
