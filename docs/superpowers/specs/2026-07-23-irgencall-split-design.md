@@ -21,7 +21,7 @@ Tür: Davranış-koruyucu saf refactor. Yol üstünde görülen bug'lar (ör. `?
 | `IRGenCallConcurrency.cpp` | sync (Mutex/Atomic), rwlock, condvar, channel, taskgroup, task control, select/withTimeout, thread pool, async I/O | ~550 |
 | `IRGenCallNet.cpp` | networking (Url, HTTP, WebSocket builtin'leri) | 3151–3783 |
 | `IRGenCallData.cpp` | TOML, JSON, JSON DOM (parse-tree + mutation) | ~500 |
-| `IRGenCallString.cpp` | string utility'leri, bytes↔string/hex/base64url dönüştürücüler, UTF-8 helper'ları | ~400 |
+| `IRGenCallString.cpp` | regex, string utility'leri, bytes↔string/hex/base64url dönüştürücüler, UTF-8 helper'ları | ~580 |
 | `IRGenCallUI.cpp` | UI (wxWidgets wrapper) builtin'leri | 5347–6260 |
 
 `IRGenCall.cpp`'de kalanlar: kısa dispatcher `visitCallExpr` + dosyadaki diğer fonksiyonlar (`visitAssignExpr`, `visitMemberExpr`, `visitStructLiteralExpr`, `visitMatchExpr`, `emitEnumCaseConstruct`, `emitNestedPatternMatch`, bounds-check helper'ları; satır 6599–8026).
@@ -31,13 +31,14 @@ Sonuç: hiçbir dosya ~2.000 satırı geçmez.
 ## Helper sözleşmesi
 
 ```cpp
-// true  = çağrı bu domain'e ait; out sonucu taşır (hata durumunda nullptr olabilir)
-// false = bu domain'in işi değil, dispatcher sıradakini dener
-bool tryEmitSysBuiltin(CallExpr *node, const std::string &funcName,
-                       llvm::Value *&out);
+// Dolu optional  = çağrı bu domain'e ait; taşıdığı değer sonuçtur
+//                  (hata durumunda dolu-ama-nullptr olabilir)
+// std::nullopt   = bu domain'in işi değil, dispatcher sıradakini dener
+std::optional<llvm::Value *> tryEmitSysBuiltin(CallExpr *node,
+                                               const std::string &funcName);
 ```
 
-- `bool + out` ayrımı zorunlu: mevcut kodda `return nullptr` hem "hata" hem geçerli erken dönüş olabiliyor; `std::optional` yerine bu imza mevcut davranışı birebir korur.
+- `std::optional<llvm::Value*>` seçiminin nedeni: taşınan blok içindeki `return X;` ve `return nullptr;` ifadeleri **hiç değiştirilmeden** kalır (`nullptr` örtük dönüşümle dolu-ama-null optional olur = "işlendi, hata"); yalnızca helper sonuna `return std::nullopt;` eklenir. Dispatcher ayrımı `if (auto r = tryEmitX(...)) return *r;` ile yapar (dolu-ama-null optional da `true` dallanır). Alternatif `bool + out&` imzası bloklardaki yüzlerce return'ün yeniden yazılmasını gerektirdiğinden verbatim ilkesiyle çelişirdi.
 - `funcName` dispatcher'da bir kez çıkarılır (IdentifierExpr callee), free-function helper'larına parametre geçilir.
 - `tryEmitMethodCall` (MemberExpr yolu) yalnızca `CallExpr*` alır; `funcName` kavramı o yolda yok.
 - Helper bildirimleri `include/liva/IR/IRGen.h` içine private metod olarak eklenir.
