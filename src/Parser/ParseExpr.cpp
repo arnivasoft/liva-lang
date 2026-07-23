@@ -2,13 +2,25 @@
 
 namespace liva {
 
-// Grammar (Pattern AST — Faz A, extended Faz B Task 3/4):
-//   pattern      := orPattern
+// Grammar (Pattern AST — Faz A, extended Faz B Task 3/4/5):
+//   pattern      := binding
+//   binding      := IDENT '@' pattern            // TOP-LEVEL ONLY (!inParens)
+//                 | orPattern
 //   orPattern    := primary ( '|' primary )*     // >=1 '|' -> OrPattern
 //   primary      := '_' | int-literal [ rangeSuffix ] | ident
 //                 | ident '(' subs ')' | ident '.' ident [ '(' subs ')' ]
 //   rangeSuffix  := ('..' | '..=') int-literal   // -> RangePattern
 //   subs    := pattern (',' pattern)*
+// GRAMMAR DEVIATION (Task 5) from the plan's one-line `binding := IDENT '@'
+// primary`: here `@`'s RHS is the full recursive `pattern` (i.e. an
+// orPattern), not a single primary — so `n @ 1 | 2` binds `n` to the WHOLE
+// `1|2` alternation (`BindingPattern(n, OrPattern(1,2))`) rather than parsing
+// as `(n@1) | 2`. See BindingPattern's doc comment (Pattern.h) for the full
+// rationale. The `@` lookahead only fires at the top level (`!inParens`):
+// inside a Case(...) subslot, `IDENT '@'` is NOT recognized as a binding —
+// the IDENT parses as a bare identifier/case pattern and the dangling '@'
+// then fails to parse cleanly at the enclosing ')'/','/'=>' expectation
+// (Task 5 scope: `@` inside Case(...) is out of scope).
 // Negative int literals are the '-' punctuator immediately followed by an
 // integer_literal token, collapsed into a single IntLiteralPattern (matches
 // the legacy parser's blind whitespace-free token concatenation, which
@@ -70,6 +82,26 @@ std::unique_ptr<Pattern> Parser::maybeParseRangePattern(
 
 std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
     auto startLoc = current_.getLocation();
+
+    // Pattern Types Faz B, Task 5: `name @ pattern` — recognized via a
+    // 2-token lookahead (IDENT immediately followed by '@'), TOP-LEVEL ONLY
+    // (!inParens — see grammar note above). The recursive parsePattern(false)
+    // call for `sub` deliberately does NOT thread `inParens` through: `sub`
+    // is always the top of a fresh pattern, never itself inside a Case(...)
+    // subslot's parens, regardless of what `inParens` was for the outer
+    // binding (this only matters for the atFallbackStop recovery paths deep
+    // inside parsePatternPrimary; a binding can only ever be reached here
+    // when inParens is already false, so this is actually always `false`
+    // either way — spelled out explicitly for clarity).
+    if (!inParens && check(TokenKind::identifier) && peek().is(TokenKind::at)) {
+        std::string name = std::string(current_.getText());
+        advance(); // consume IDENT
+        advance(); // consume '@'
+        auto sub = parsePattern(/*inParens=*/false);
+        return std::make_unique<BindingPattern>(std::move(name), std::move(sub),
+                                                 rangeFrom(startLoc));
+    }
+
     auto first = parsePatternPrimary(inParens);
 
     // Pattern Types Faz B, Task 4: `orPattern := primary ('|' primary)*`,

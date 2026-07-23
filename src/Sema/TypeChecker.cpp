@@ -2782,6 +2782,24 @@ void TypeChecker::extractPatternBindings(const Pattern *pattern) {
         // introduce a binding (enforced separately in visitMatchExpr via
         // err_pattern_or_binding) — nothing to bind at the top level.
         return;
+
+    case Pattern::Kind::Binding: {
+        // Pattern Types Faz B, Task 5: `name @ sub` declares `name` bound to
+        // the whole subject value — mirrors the plain Identifier case above
+        // byte-for-byte (Symbol::type left unset; IRGen binds the raw
+        // subject LLVM value regardless). Then recurse into `sub`: a nested
+        // binding-over-binding (`x @ y`, DECISION: allow, redundant) also
+        // gets declared; a literal/range/or/wildcard sub binds nothing
+        // further, same as if it were the bare top-level pattern.
+        auto *bp = static_cast<const BindingPattern *>(pattern);
+        Symbol sym;
+        sym.name = bp->getName();
+        sym.kind = Symbol::Kind::Variable;
+        sym.isMutable = false;
+        scopes_.declare(sym.name, sym);
+        extractPatternBindings(bp->getSub());
+        return;
+    }
     }
 }
 
@@ -2829,14 +2847,20 @@ void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
     case Pattern::Kind::FloatLiteral:
     case Pattern::Kind::Range:
     case Pattern::Kind::Or:
-        // Pattern Types Faz B, Task 2/3/4 subpattern decision: bool/string/
-        // float/range/or patterns are NOT supported as a nested Case(...)
-        // sub-slot (IRGen has no payload-slot-vs-literal/range/or comparison
-        // codegen). Rather than silently declaring a bogus binding named
-        // after the literal's spelling (what the Identifier/Wildcard/
-        // IntLiteral branch above would do if this fell through to it),
-        // diagnose cleanly. Top-level use (direct match subject) is fully
-        // supported — see resolveMatchPattern in IRGenCall.cpp.
+    case Pattern::Kind::Binding:
+        // Pattern Types Faz B, Task 2/3/4/5 subpattern decision: bool/
+        // string/float/range/or/binding patterns are NOT supported as a
+        // nested Case(...) sub-slot (IRGen has no payload-slot-vs-literal/
+        // range/or/binding comparison codegen). Rather than silently
+        // declaring a bogus binding named after the literal's spelling
+        // (what the Identifier/Wildcard/IntLiteral branch above would do if
+        // this fell through to it), diagnose cleanly. Top-level use (direct
+        // match subject) is fully supported — see resolveMatchPattern in
+        // IRGenCall.cpp. NOTE (Task 5): the parser's `@` lookahead only
+        // fires at !inParens (see parsePattern), so a Case(...) subslot can
+        // never actually produce a Kind::Binding node in practice — this
+        // case is defensive-only, kept so the switch stays exhaustive for
+        // `-Wswitch`.
         //
         // Reviewer minor (b): this is a DISPLAY context (diagnostic message
         // text), not a binding-name derivation — use toString(), not
@@ -2891,6 +2915,37 @@ bool TypeChecker::orAlternativeIsBinding(const Pattern *alt, const EnumDecl *sub
         for (auto &nested : static_cast<const OrPattern *>(alt)->getAlternatives())
             if (orAlternativeIsBinding(nested.get(), subjectEnum)) return true;
         return false;
+
+    case Pattern::Kind::Binding:
+        // Pattern Types Faz B, Task 5: an or-alternative that is itself a
+        // `@` binding always introduces a binding, by definition (defensive
+        // — the grammar never actually produces this: or-alternatives are
+        // parsed via parsePatternPrimary, which has no `@` lookahead, only
+        // the top-level parsePattern does).
+        return true;
+    }
+    return false;
+}
+
+bool TypeChecker::patternContainsEnumCase(const Pattern *p) const {
+    if (!p) return false;
+    switch (p->getKind()) {
+    case Pattern::Kind::EnumCase:
+        return true;
+    case Pattern::Kind::Or:
+        for (auto &alt : static_cast<const OrPattern *>(p)->getAlternatives())
+            if (patternContainsEnumCase(alt.get())) return true;
+        return false;
+    case Pattern::Kind::Binding:
+        return patternContainsEnumCase(static_cast<const BindingPattern *>(p)->getSub());
+    case Pattern::Kind::Wildcard:
+    case Pattern::Kind::Identifier:
+    case Pattern::Kind::IntLiteral:
+    case Pattern::Kind::BoolLiteral:
+    case Pattern::Kind::StringLiteral:
+    case Pattern::Kind::FloatLiteral:
+    case Pattern::Kind::Range:
+        return false;
     }
     return false;
 }
@@ -2921,6 +2976,34 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     bool subjectIsKnownScalar = subjectType &&
         (subjectType->isBool() || subjectType->isInteger() || subjectType->isFloat() ||
          subjectType->getKind() == TypeRepr::Kind::String);
+
+    // Pattern Types Faz B, Task 5: `name @ sub` is transparent to every
+    // mismatch/coverage/wildcard check below — they all need to "see
+    // through" the wrapper to `sub` (unwrapping through any number of
+    // nested bindings, e.g. the allowed-but-redundant `x @ y @ 1..=9`).
+    auto unwrapBinding = [](const Pattern *p) -> const Pattern * {
+        while (p && p->getKind() == Pattern::Kind::Binding)
+            p = static_cast<const BindingPattern *>(p)->getSub();
+        return p;
+    };
+
+    // Pattern Types Faz B, Task 5: `@` binding a (possibly or-wrapped)
+    // enum-case pattern is out of scope — IRGen's whole-subject binding path
+    // (a single named alloca holding the raw subject value) and its
+    // payload-enum destructuring path (index-aligned nested slot bindings,
+    // keyed by a resolved caseName) are mutually incompatible; combining
+    // them would silently mis-codegen rather than crash. Diagnosed cleanly
+    // instead. Only fires for an ACTUAL Binding-wrapped pattern (arm.patternNode
+    // still equal to its own unwrap is a no-op check for a non-Binding arm).
+    for (auto &arm : node->getArms()) {
+        if (!arm.patternNode || arm.patternNode->getKind() != Pattern::Kind::Binding) continue;
+        auto *bp = static_cast<const BindingPattern *>(arm.patternNode.get());
+        if (patternContainsEnumCase(bp->getSub())) {
+            diag_.report(node->getStartLoc(), DiagID::err_pattern_binding_enum_case_unsupported,
+                         arm.patternNode->toString());
+        }
+    }
+
     // Pattern Types Faz B, Task 4: factored out of the loop below so the
     // same per-pattern check applies to a bare pattern AND to each
     // alternative of an OrPattern individually ("or-pattern type mismatches
@@ -2948,12 +3031,13 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     if (subjectIsKnownScalar) {
         for (auto &arm : node->getArms()) {
             if (!arm.patternNode) continue;
-            if (arm.patternNode->getKind() == Pattern::Kind::Or) {
-                auto *op = static_cast<const OrPattern *>(arm.patternNode.get());
+            const Pattern *effPat = unwrapBinding(arm.patternNode.get());
+            if (effPat && effPat->getKind() == Pattern::Kind::Or) {
+                auto *op = static_cast<const OrPattern *>(effPat);
                 for (auto &alt : op->getAlternatives())
                     checkScalarMismatch(alt.get());
             } else {
-                checkScalarMismatch(arm.patternNode.get());
+                checkScalarMismatch(effPat);
             }
         }
     }
@@ -3011,12 +3095,13 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
         };
         for (auto &arm : node->getArms()) {
             if (!arm.patternNode) continue;
-            if (arm.patternNode->getKind() == Pattern::Kind::Or) {
-                auto *op = static_cast<const OrPattern *>(arm.patternNode.get());
+            const Pattern *effPat = unwrapBinding(arm.patternNode.get());
+            if (effPat && effPat->getKind() == Pattern::Kind::Or) {
+                auto *op = static_cast<const OrPattern *>(effPat);
                 for (auto &alt : op->getAlternatives())
                     checkEnumRangeMismatch(alt.get());
             } else {
-                checkEnumRangeMismatch(arm.patternNode.get());
+                checkEnumRangeMismatch(effPat);
             }
         }
     }
@@ -3026,8 +3111,10 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     // bind to (e.g. `x | 1 =>`). Needs subjectEnum (just resolved above) to
     // tell a bare-enum-case alternative apart from an ordinary binding.
     for (auto &arm : node->getArms()) {
-        if (!arm.patternNode || arm.patternNode->getKind() != Pattern::Kind::Or) continue;
-        auto *op = static_cast<const OrPattern *>(arm.patternNode.get());
+        if (!arm.patternNode) continue;
+        const Pattern *effPat = unwrapBinding(arm.patternNode.get());
+        if (!effPat || effPat->getKind() != Pattern::Kind::Or) continue;
+        auto *op = static_cast<const OrPattern *>(effPat);
         for (auto &alt : op->getAlternatives()) {
             if (orAlternativeIsBinding(alt.get(), subjectEnum)) {
                 diag_.report(node->getStartLoc(), DiagID::err_pattern_or_binding,
@@ -3059,16 +3146,22 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     };
 
     for (auto &arm : node->getArms()) {
+        // Pattern Types Faz B, Task 5: unwrap a `@` binding wrapper so
+        // `n @ _` is recognized as a wildcard (exhaustive) arm too, while
+        // still binding `n` to the subject (see extractPatternBindings
+        // below, which uses the REAL arm.patternNode, not this unwrapped
+        // view).
+        const Pattern *effPat = unwrapBinding(arm.patternNode.get());
         // Check for wildcard
-        if (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::Wildcard) {
+        if (effPat && effPat->getKind() == Pattern::Kind::Wildcard) {
             hasWildcard = true;
         } else if (subjectEnum) {
-            if (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::Or) {
-                auto *op = static_cast<const OrPattern *>(arm.patternNode.get());
+            if (effPat && effPat->getKind() == Pattern::Kind::Or) {
+                auto *op = static_cast<const OrPattern *>(effPat);
                 for (auto &alt : op->getAlternatives())
                     processEnumCoverage(alt.get(), arm.guard != nullptr);
             } else {
-                processEnumCoverage(arm.patternNode.get(), arm.guard != nullptr);
+                processEnumCoverage(effPat, arm.guard != nullptr);
             }
         }
 

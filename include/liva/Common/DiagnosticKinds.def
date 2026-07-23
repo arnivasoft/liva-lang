@@ -89,6 +89,14 @@ DIAG(err_pattern_literal_subpattern_unsupported, error,
 // would bind to (e.g. `x | 1 =>`, or a payload-carrying `Case(...)`
 // alternative).
 DIAG(err_pattern_or_binding,          error,   "or-pattern alternative '%0' cannot introduce a binding")
+// Pattern Types (Faz B) Task 5: `@` binding pattern's sub-pattern may not
+// be, or contain, an enum-case pattern — IRGen's whole-subject binding path
+// (used for scalar subjects) and its payload-enum destructuring path
+// (index-aligned nested slot bindings) are mutually incompatible; combining
+// `@` with an enum-case sub is out of scope for Task 5 (see plan's "enum
+// slotunda" scope note / task-5-report.md).
+DIAG(err_pattern_binding_enum_case_unsupported, error,
+     "binding pattern '%0' cannot bind an enum-case pattern (unsupported)")
 
 // === Sema - Operator Overloading ===
 DIAG(err_binary_op_on_struct, error, "binary operator '%0' cannot be applied to type '%1'; implement protocol '%2'")

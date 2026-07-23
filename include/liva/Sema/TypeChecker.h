@@ -177,6 +177,14 @@ private:
     /// cases as or-alternatives).
     bool orAlternativeIsBinding(const Pattern *alt, const EnumDecl *subjectEnum) const;
 
+    /// Pattern Types Faz B, Task 5: does this pattern contain an
+    /// EnumCasePattern anywhere (directly, or recursively through Or/Binding
+    /// wrappers)? Used to reject `@` binding a (possibly or-wrapped)
+    /// enum-case pattern — out of scope for Task 5 (IRGen's whole-subject
+    /// binding path and its payload-enum destructuring path are mutually
+    /// incompatible; see err_pattern_binding_enum_case_unsupported).
+    bool patternContainsEnumCase(const Pattern *p) const;
+
     /// Async function tracking
     bool currentIsAsync_ = false;
     std::set<std::string> asyncFuncNames_;

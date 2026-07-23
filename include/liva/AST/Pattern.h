@@ -22,7 +22,9 @@ public:
         // Pattern Types Faz B, Task 3:
         Range,
         // Pattern Types Faz B, Task 4:
-        Or
+        Or,
+        // Pattern Types Faz B, Task 5:
+        Binding
     };
 
     explicit Pattern(Kind k, SourceRange r) : kind_(k), range_(r) {}
@@ -213,6 +215,43 @@ public:
 
 private:
     std::vector<std::unique_ptr<Pattern>> alternatives_;
+};
+
+/// `name@sub` (no spaces) — binds the SUBJECT value to `name` whenever `sub`
+/// matches. Task 5 scope: TOP-LEVEL only — the parser's `@` lookahead only
+/// fires at the head of a full match-arm pattern (never inside a Case(...)
+/// subslot, i.e. only when parsePattern's `inParens` is false), so a
+/// BindingPattern can never appear as an EnumCasePattern sub-slot; Sema
+/// rejects that spelling with the existing
+/// err_pattern_literal_subpattern_unsupported diagnostic family (defensive —
+/// unreachable via the current grammar, kept only so the Case(...)-subslot
+/// kind-switches stay exhaustive for `-Wswitch`).
+///
+/// GRAMMAR DEVIATION from the plan's one-line grammar (`binding := IDENT '@'
+/// primary`): `sub` here is parsed as the FULL orPattern (a recursive
+/// parsePattern call), not a single primary — so `n @ 1 | 2 =>` parses as
+/// `BindingPattern(n, OrPattern(1, 2))`, binding `n` to the subject whenever
+/// EITHER alternative matches. The plan's literal grammar would instead
+/// parse this as `(n@1) | 2` (binding tighter than `|`), which the existing
+/// or-alternative binding ban (err_pattern_or_binding, Task 4) would then
+/// reject outright — making that spelling permanently dead syntax. See
+/// task-5-report.md for the full rationale. `sub` may not be, or contain
+/// (recursively through Or), an EnumCasePattern — Sema's
+/// err_pattern_binding_enum_case_unsupported rejects that combination
+/// (out of scope for Task 5 — see plan's "enum slotunda" scope note).
+class BindingPattern : public Pattern {
+public:
+    BindingPattern(std::string name, std::unique_ptr<Pattern> sub, SourceRange r)
+        : Pattern(Kind::Binding, r), name_(std::move(name)), sub_(std::move(sub)) {}
+
+    const std::string &getName() const { return name_; }
+    const Pattern *getSub() const { return sub_.get(); }
+
+    static bool classof(const Pattern *p) { return p->getKind() == Kind::Binding; }
+
+private:
+    std::string name_;
+    std::unique_ptr<Pattern> sub_;
 };
 
 } // namespace liva

@@ -63,6 +63,14 @@ std::string Pattern::toString() const {
         }
         return out;
     }
+
+    case Kind::Binding: {
+        // `name@sub`, no spaces (Pattern Types Faz B, Task 5) — independent
+        // of whatever whitespace surrounded the `@` token in source, mirroring
+        // OrPattern's normalized `|` above.
+        const auto *bp = static_cast<const BindingPattern *>(this);
+        return bp->getName() + "@" + bp->getSub()->toString();
+    }
     }
     return {};
 }

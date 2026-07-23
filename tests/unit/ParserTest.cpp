@@ -1623,6 +1623,103 @@ TEST_F(ParserTest, DoublePipeIsNotOrPattern) {
     EXPECT_TRUE(result.hasErrors);
 }
 
+// === Pattern Types (Faz B) Task 5: `@` binding patterns ===
+
+TEST_F(ParserTest, BindingPatternRangeAST) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 5
+            match x {
+                n @ 1..=9 => println(n)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *bindArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(bindArm, nullptr);
+    ASSERT_EQ(bindArm->getKind(), Pattern::Kind::Binding);
+    auto *bp = static_cast<const BindingPattern *>(bindArm);
+    EXPECT_EQ(bp->getName(), "n");
+    ASSERT_NE(bp->getSub(), nullptr);
+    ASSERT_EQ(bp->getSub()->getKind(), Pattern::Kind::Range);
+    auto *rp = static_cast<const RangePattern *>(bp->getSub());
+    EXPECT_EQ(rp->getLo().getValue(), 1);
+    EXPECT_EQ(rp->getHi().getValue(), 9);
+    EXPECT_TRUE(rp->isInclusive());
+    EXPECT_EQ(bindArm->toString(), "n@1..=9");
+    EXPECT_EQ(bindArm->getSpelling(), "n@1..=9");
+}
+
+// GRAMMAR DECISION (deviation from the plan's `binding := IDENT '@' primary`):
+// `@`'s RHS is the FULL orPattern, not a single primary — `n @ 1 | 2` parses
+// as `BindingPattern(n, OrPattern(1, 2))`, not `(n@1) | 2`. See
+// BindingPattern's doc comment (Pattern.h) and task-5-report.md.
+TEST_F(ParserTest, BindingPatternOrAST) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 2
+            match x {
+                n @ 1 | 2 => println(n)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *bindArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(bindArm, nullptr);
+    ASSERT_EQ(bindArm->getKind(), Pattern::Kind::Binding);
+    auto *bp = static_cast<const BindingPattern *>(bindArm);
+    EXPECT_EQ(bp->getName(), "n");
+    ASSERT_NE(bp->getSub(), nullptr);
+    ASSERT_EQ(bp->getSub()->getKind(), Pattern::Kind::Or);
+    auto *op = static_cast<const OrPattern *>(bp->getSub());
+    ASSERT_EQ(op->getAlternatives().size(), 2);
+    EXPECT_EQ(op->getAlternatives()[0]->getKind(), Pattern::Kind::IntLiteral);
+    EXPECT_EQ(op->getAlternatives()[1]->getKind(), Pattern::Kind::IntLiteral);
+    EXPECT_EQ(bindArm->toString(), "n@1|2");
+}
+
+// `@` inside a Case(...) subpattern is OUT of scope (Task 5) — the parser's
+// binding lookahead only fires at !inParens, so `v @ 1` inside parens parses
+// as a bare identifier `v` followed by a dangling `@`, which then fails to
+// parse cleanly (expected ')'/',' or '=>', found '@').
+TEST_F(ParserTest, BindingPatternInsideCaseParensIsParseError) {
+    auto result = parse(R"--(
+        enum Box {
+            case Val(i32)
+        }
+        func main() {
+            let b = Box.Val(3)
+            match b {
+                Box.Val(v @ 1) => println(0)
+                _ => println(1)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+}
+
 // === Doc Comment Tests ===
 
 TEST_F(ParserTest, DocCommentOnFunc) {

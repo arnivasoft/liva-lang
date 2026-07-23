@@ -607,6 +607,99 @@ TEST_F(SemaTest, OrPatternExhaustiveEnumCoverage) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_nonexhaustive_match));
 }
 
+// === Pattern Types (Faz B) Task 5: `@` binding patterns ===
+
+// The binding's type is the subject's type (mirrors what extractPatternBindings
+// already does for a whole-subject Identifier binding — no Symbol::type is
+// set, so downstream arithmetic/comparison in the guard or body works off
+// the LLVM value directly). Well-typed use of `n` as an i32 in the guard AND
+// the body must type-check cleanly.
+TEST_F(SemaTest, BindingPatternTypeIsSubjectType) {
+    auto result = check(R"(
+        func main() {
+            let x: i32 = 5
+            match x {
+                n @ 1..=9 if n != 5 => println(n + 1)
+                _ => println(0)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// Binding-over-binding (`x @ y`): DECISION — allow (redundant). Both `x` and
+// `y` end up bound to the same subject value; neither is a Sema error.
+TEST_F(SemaTest, BindingOverBindingAllowed) {
+    auto result = check(R"(
+        func main() {
+            let n: i32 = 5
+            match n {
+                x @ y => println(x + y)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// `@` binding a payload-carrying enum-case pattern is out of scope for Task 5
+// (see BindingPattern's doc comment / task-5-report.md) — rejected cleanly
+// via err_pattern_binding_enum_case_unsupported rather than silently
+// mis-codegenning.
+TEST_F(SemaTest, BindingPatternEnumCasePayloadRejected) {
+    auto result = check(R"(
+        enum Box {
+            case Val(i32)
+        }
+        func main() {
+            let b = Box.Val(3)
+            match b {
+                v @ Box.Val(3) => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_binding_enum_case_unsupported));
+}
+
+// Same rejection for a BARE (no-payload) enum-case sub — Task 5's scope is
+// strictly scalar/range/or subjects, not enum subjects at all.
+TEST_F(SemaTest, BindingPatternBareEnumCaseRejected) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c = Color.Red
+            match c {
+                v @ Color.Red => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_binding_enum_case_unsupported));
+}
+
+// Type mismatch checking still applies THROUGH a binding wrapper (unwrap):
+// a string-literal sub matched against an int subject is a mismatch, exactly
+// like the bare (unbound) pattern already is.
+TEST_F(SemaTest, BindingPatternSubTypeMismatchStillCaught) {
+    auto result = check(R"(
+        func main() {
+            let x: i32 = 5
+            match x {
+                n @ "x" => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

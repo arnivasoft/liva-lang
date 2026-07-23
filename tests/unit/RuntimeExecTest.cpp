@@ -1113,6 +1113,97 @@ TEST(RuntimeExecTest, MatchOrPatternArmWithGuard) {
     EXPECT_EQ(r.stdout_output, "1\n2\n3\n") << "stdout: " << r.stdout_output;
 }
 
+// === Pattern Types (Faz B) Task 5: `@` binding patterns ===
+// `n @ pattern` binds the SUBJECT value to `n` when `pattern` matches —
+// mirrors the existing whole-subject Identifier-binding materialization
+// (store tagVal into an alloca named `n`), just with an extra runtime
+// condition (the sub-pattern's own match check) gating whether the arm is
+// taken at all.
+
+TEST(RuntimeExecTest, MatchBindingPatternRange) {
+    auto r = compileAndRun(R"--(
+        func classify(x: i32) -> i32 {
+            let r = match x {
+                n @ 1..=9 => n
+                _ => -1
+            }
+            return r
+        }
+        func main() {
+            println(classify(1))
+            println(classify(9))
+            println(classify(5))
+            println(classify(10))
+            println(classify(0))
+        }
+    )--", "match_binding_range");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n9\n5\n-1\n-1\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MatchBindingPatternString) {
+    auto r = compileAndRun(R"--(
+        func classify(method: string) -> i32 {
+            let r = match method {
+                s @ "GET" => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify("GET"))
+            println(classify("POST"))
+        }
+    )--", "match_binding_string");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n0\n") << "stdout: " << r.stdout_output;
+}
+
+// Grammar decision: `n @ 1|2|3` binds `n` whenever ANY alternative matches
+// (the `@`'s RHS is the full or-pattern, not just the first alternative).
+TEST(RuntimeExecTest, MatchBindingPatternOr) {
+    auto r = compileAndRun(R"--(
+        func classify(x: i32) -> i32 {
+            let r = match x {
+                n @ 1|2|3 => n
+                _ => -1
+            }
+            return r
+        }
+        func main() {
+            println(classify(1))
+            println(classify(2))
+            println(classify(3))
+            println(classify(4))
+        }
+    )--", "match_binding_or");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n2\n3\n-1\n") << "stdout: " << r.stdout_output;
+}
+
+// `@` arm combined with a guard: the guard is ANDed with the binding's own
+// sub-pattern condition, and `n` (the bound subject) is visible in BOTH the
+// guard and the body.
+TEST(RuntimeExecTest, MatchBindingPatternWithGuard) {
+    auto r = compileAndRun(R"--(
+        func classify(x: i32) -> i32 {
+            let r = match x {
+                n @ 1..=9 if n != 5 => n
+                n @ 1..=9 => 100
+                _ => -1
+            }
+            return r
+        }
+        func main() {
+            println(classify(3))
+            println(classify(5))
+            println(classify(10))
+        }
+    )--", "match_binding_with_guard");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n100\n-1\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

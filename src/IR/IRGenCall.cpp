@@ -1503,11 +1503,29 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         }
     }
 
+    // Pattern Types Faz B, Task 5: a `@` binding arm's whole-subject "store
+    // tagVal into an alloca named `name`" step (below, in the arm-body
+    // prologue) only runs when `useIfElseChain` is true — CreateSwitch
+    // dispatch mode skips that prologue entirely. Without forcing chain mode
+    // here, a binding arm whose sub is a plain tag-bearing pattern (e.g.
+    // `n @ 5 => n`, with no OTHER arm forcing chain mode via
+    // hasRangePattern/hasOrPattern/a non-integer subject) would dispatch via
+    // CreateSwitch and silently never bind `n`. Forcing chain mode for any
+    // Binding-pattern arm sidesteps that gap entirely, exactly like
+    // hasRangePattern/hasOrPattern above do for their own kinds.
+    bool hasBindingPattern = false;
+    for (auto &arm : node->getArms()) {
+        if (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::Binding) {
+            hasBindingPattern = true;
+            break;
+        }
+    }
+
     // Use if-else chain for non-integer types (float/double/pointer), when
     // all arms are guarded bindings (no concrete switch cases), or when any
-    // arm is a range or or-pattern.
-    bool useIfElseChain =
-        !tagVal->getType()->isIntegerTy() || numCases == 0 || hasRangePattern || hasOrPattern;
+    // arm is a range, or-pattern, or `@` binding.
+    bool useIfElseChain = !tagVal->getType()->isIntegerTy() || numCases == 0 ||
+                          hasRangePattern || hasOrPattern || hasBindingPattern;
 
     // Create default block. Pattern Types Faz B, Task 2 REGRESSION FIX:
     // an earlier version of this fix routed the no-wildcard default
@@ -1780,7 +1798,8 @@ void IRGen::resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs
         case Pattern::Kind::FloatLiteral:
         case Pattern::Kind::Range:
         case Pattern::Kind::Or:
-            // Pattern Types Faz B, Task 2/3/4 subpattern decision:
+        case Pattern::Kind::Binding:
+            // Pattern Types Faz B, Task 2/3/4/5 subpattern decision:
             // TypeChecker's declarePatternSubBinding rejects these as
             // Case(...) sub-slots before IRGen ever runs
             // (err_pattern_literal_subpattern_unsupported) — this branch
@@ -1907,6 +1926,29 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
         }
 
         info.bindings.push_back(name);
+        return info;
+    }
+
+    case Pattern::Kind::Binding: {
+        // Pattern Types Faz B, Task 5: `name @ sub` — resolve `sub` exactly
+        // as if it were the bare arm pattern (same hasTag/tag/isRange/
+        // isFloatLiteral/isStringLiteral/isOr/isWildcard flags), so the
+        // arm's match-condition codegen (CreateSwitch dispatch,
+        // emitPatternCond, or-chain) is entirely unaffected by the wrapping
+        // `name@` — then additionally prepend `name` to `info.bindings`,
+        // reusing EXACTLY the mechanism visitMatchExpr's if-else-chain
+        // arm-body prologue already uses for a bare Identifier binding
+        // pattern (`s if s >= 90.0 =>`): store the subject value (tagVal)
+        // into an alloca named `name`. Scope limit (Task 5): `sub` must not
+        // be/contain an EnumCasePattern — Sema's
+        // err_pattern_binding_enum_case_unsupported rejects that
+        // combination before IRGen runs (see
+        // TypeChecker::patternContainsEnumCase), so this recursive resolve
+        // only ever reaches here with a scalar/range/or/wildcard/identifier
+        // sub in a successfully type-checked program.
+        auto *bp = static_cast<const BindingPattern *>(pattern);
+        info = resolveMatchPattern(bp->getSub(), subjectEnumType);
+        info.bindings.insert(info.bindings.begin(), bp->getName());
         return info;
     }
     }
