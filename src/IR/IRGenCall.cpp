@@ -672,6 +672,28 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
         // Handle optional variable assignment: x = 42, x = nil
         auto optIt = vars_.varOptionalTypes.find(ident->getName());
         if (optIt != vars_.varOptionalTypes.end() && it != vars_.namedValues.end()) {
+            // Move semantics (CRITICAL 1 fix, final whole-branch review):
+            // `y = a` where `a` is a Drop-conforming identifier (payload or
+            // already-Optional) moves `a` into the Optional target `y` —
+            // mark the SOURCE identifier moved so emitScopeCleanup skips it
+            // (closes the double-drop: this branch used to `return` before
+            // reaching the equivalent hook below, guarding only the plain-
+            // identifier-target branch). `a`'s entry in varStructTypes is
+            // present for BOTH a plain NAMED-struct source and an already-
+            // Optional<Named> source (see emitScopeCleanup's comment: the
+            // latter is ALSO dual-registered in varStructTypes) — so this
+            // one lookup covers both the "payload -> Optional" and
+            // "Optional -> Optional" assignment forms.
+            if (node->getOp() == AssignExpr::Op::Assign &&
+                node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *valIdent = static_cast<const IdentifierExpr *>(node->getValue());
+                auto srcStIt = vars_.varStructTypes.find(valIdent->getName());
+                if (srcStIt != vars_.varStructTypes.end() &&
+                    dropImplementors_.count(srcStIt->second)) {
+                    vars_.movedVars.insert(valIdent->getName());
+                }
+            }
+
             bool isNil = (node->getValue()->getKind() == ASTNode::NodeKind::NilLiteralExpr);
             auto *optStructTy = getOptionalType(optIt->second);
             auto *hasValPtr = builder_->CreateStructGEP(optStructTy, it->second, 0);

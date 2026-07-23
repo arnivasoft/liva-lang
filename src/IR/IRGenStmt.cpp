@@ -586,10 +586,40 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     auto *unwrapped = builder_->CreateLoad(innerType, valPtr, "iflet.val");
     auto *bindAlloca = createEntryBlockAlloca(func, node->getBindingName(), innerType);
     builder_->CreateStore(unwrapped, bindAlloca);
+    // CRITICAL 3 fix (final whole-branch review): make the ownership
+    // transfer runtime-real, not just compile-time. Previously only the
+    // COMPILE-TIME movedVars marker suppressed the source's scope-exit
+    // drop; the source's runtime hasVal flag was never cleared, so re-
+    // entering this same if-let at runtime over the SAME identifier source
+    // (e.g. nested inside a plain `while` loop) re-read and re-dropped the
+    // same payload every pass. Storing false here makes a later hasVal
+    // check on this identifier (another if-let, or a surrounding loop's
+    // next pass) correctly see "no value". Only for identifier sources that
+    // truly take ownership (bindingOwnsDrop) — a call-expr source has no
+    // persistent variable to clear, and non-Drop payloads keep Copy
+    // semantics (must remain readable through the source afterward).
+    if (bindingOwnsDrop &&
+        node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        builder_->CreateStore(builder_->getFalse(), hasValPtr);
+    }
     auto saved = vars_.namedValues;
     auto savedFileTypes = vars_.varFileTypes;
     auto savedDynArrayTypes = vars_.varDynArrayTypes;
     auto savedStructTypesForBinding = vars_.varStructTypes;
+    // CRITICAL 2 fix (final whole-branch review): snapshot movedVars too.
+    // VarDecl hygiene (IRGenDecl.cpp) erases movedVars[name] on every
+    // redeclaration of `name` — a `let a = ...` INSIDE this then-body that
+    // reuses an OUTER, already-moved-from name `a` would otherwise erase
+    // the outer suppression permanently; once namedValues/varStructTypes are
+    // restored below to refer to the outer `a` again, the erased movedVars
+    // entry would no longer suppress its drop — resurrecting it for a
+    // double-drop. Restored below by UNION (saved ∪ post-body): re-adds any
+    // name suppressed before the body that got erased inside it, while
+    // KEEPING whatever the body itself newly inserted (e.g. a same-scope
+    // `outer1 = outer2` move that happens to occur inside the body) — a
+    // blanket restore (`vars_.movedVars = savedMovedVars`) would incorrectly
+    // un-suppress those.
+    auto savedMovedVars = vars_.movedVars;
     vars_.namedValues[node->getBindingName()] = bindAlloca;
     if (bindingOwnsDrop) {
         // Register the binding like an ordinary NAMED struct var: an early
@@ -683,6 +713,10 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     vars_.varFileTypes = savedFileTypes;
     vars_.varDynArrayTypes = savedDynArrayTypes;
     vars_.varStructTypes = savedStructTypesForBinding;
+    // CRITICAL 2 fix: union-restore movedVars (see the snapshot comment
+    // above) — re-add every name that was suppressed BEFORE the body,
+    // keeping anything the body itself newly inserted.
+    for (auto &nm : savedMovedVars) vars_.movedVars.insert(nm);
     if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
 
     // Else
@@ -791,9 +825,25 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
     auto *unwrapped = builder_->CreateLoad(innerType, valPtr, "whilelet.val");
     auto *bindAlloca = createEntryBlockAlloca(func, node->getBindingName(), innerType);
     builder_->CreateStore(unwrapped, bindAlloca);
+    // CRITICAL 3 fix (final whole-branch review): see visitIfLetStmt's
+    // detailed rationale — make the ownership transfer runtime-real for
+    // identifier sources by clearing the source's hasVal flag here, in
+    // bodyBB (only entered when hasVal was true). This is what makes a
+    // bare `while let v = <identifier>` over a NON-reassigned source
+    // TERMINATE: the next condBB check re-loads this same flag and sees
+    // false once the (only) value has been taken. Call-expr sources are
+    // unaffected (guarded by the IdentifierExpr check) — each iteration
+    // already evaluates a fresh call in condBB.
+    if (bindingOwnsDrop &&
+        node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        builder_->CreateStore(builder_->getFalse(), hasValPtr);
+    }
 
     auto saved = vars_.namedValues;
     auto savedStructTypesForBinding = vars_.varStructTypes;
+    // CRITICAL 2 fix: snapshot movedVars (see visitIfLetStmt's detailed
+    // comment — identical rationale, symmetric fix for while-let).
+    auto savedMovedVars = vars_.movedVars;
     vars_.namedValues[node->getBindingName()] = bindAlloca;
     if (bindingOwnsDrop) {
         vars_.varStructTypes[node->getBindingName()] = dropStructName;
@@ -815,6 +865,8 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
     }
     vars_.namedValues = saved;
     vars_.varStructTypes = savedStructTypesForBinding;
+    // CRITICAL 2 fix: union-restore movedVars (see visitIfLetStmt's comment).
+    for (auto &nm : savedMovedVars) vars_.movedVars.insert(nm);
     if (!builder_->GetInsertBlock()->getTerminator())
         builder_->CreateBr(condBB);
 

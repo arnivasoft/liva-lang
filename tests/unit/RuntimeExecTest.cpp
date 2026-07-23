@@ -2543,4 +2543,187 @@ func main() {
         << r.stdout_output;
 }
 
+// === Final whole-branch review findings (fix/drop-move-tracking) ===
+//
+// CRITICAL 1: assigning a Drop-conforming identifier into an Optional-typed
+// target (`y = a` where `y: Res?`) took the Optional-target branch in
+// IRGenCall.cpp's visitAssignExpr, which `return`ed BEFORE the movedVars
+// hook that marks the RHS identifier moved (that hook lived further down,
+// guarding the plain-identifier-target branch only). Sema's OwnershipChecker
+// DOES mark `a` moved (its gate is target-SHAPE-agnostic), so the program is
+// accepted — but IRGen never suppressed `a`'s own scope-exit drop, so both
+// `a` and `y` (holding a byte-copy of the same payload) dropped it.
+TEST(RuntimeExecTest, OptionalTargetAssignMoveNoDoubleDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROP")
+        println(self.id)
+    }
+}
+func main() {
+    let a = Res { id: 5 }
+    var y: Res? = nil
+    y = a
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "opt_target_assign_move");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROP"), 1)
+        << "expected exactly ONE drop — `a` is moved into `y` via the "
+           "Optional-target assignment; y's conditional scope-exit drop "
+           "fires once, `a`'s own drop must be suppressed; stdout: "
+        << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "done\nDROP\n5\n")
+        << "exact sequence: done (a moved into y silently), then y's single "
+           "conditional drop at function end (id 5); stdout: "
+        << r.stdout_output;
+}
+
+// CRITICAL 2: vars_.movedVars is function-flat (no lexical-scope save/
+// restore for plain blocks). If-let/while-let DID snapshot/restore
+// namedValues/varStructTypes/varFileTypes/varDynArrayTypes across the bound
+// body, but NOT movedVars. VarDecl hygiene (IRGenDecl.cpp) erases
+// movedVars[name] on every redeclaration of `name` — so a `let a = ...`
+// INSIDE an if-let/while-let body that happens to reuse an outer, already-
+// moved-from name `a` erases the outer suppression. Once the if-let/while-
+// let body exits and namedValues/varStructTypes are restored to refer to the
+// OUTER `a` again, the (erased) movedVars no longer suppresses it — the
+// outer, already-moved `a` becomes drop-eligible again: resurrected,
+// double-dropped alongside its rightful new owner.
+TEST(RuntimeExecTest, IfLetBodyRedeclarationDoesNotResurrectOuterMovedDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROP")
+        println(self.id)
+    }
+}
+
+func main() {
+    let a = Res { id: 1 }
+    let b = a
+    let opt: Res? = Res { id: 9 }
+    if let v = opt {
+        let a = Res { id: 2 }
+        println("inner")
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "iflet_redecl_no_resurrect");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // The outer pair (a moved into b) must drop exactly once — for b, at
+    // function end. (v's own payload, id 9, drops separately and correctly
+    // at the if-let body's normal exit — unrelated to this bug. The inner
+    // shadowed `a`, id 2, is not reachable via vars_'s name-keyed maps once
+    // the if-let body's snapshot is restored — pre-existing, architecture-
+    // wide "shadowing loses the shadowed variable's drop obligation" gap,
+    // documented in Known Limitations; not fixed by this task.)
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROP\n1"), 1)
+        << "expected exactly ONE drop of id 1 (b's value, moved from a) — "
+           "no resurrection/double-drop of the outer moved-from `a`; stdout: "
+        << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "inner\nDROP\n9\ndone\nDROP\n1\n")
+        << "exact sequence: inner (body), v's own drop (id 9, if-let single-"
+           "drop rule), done, b's drop (id 1, exactly once) — stdout: "
+        << r.stdout_output;
+}
+
+// CRITICAL 3: the if-let/while-let "moved" mark on an identifier source is
+// COMPILE-TIME ONLY — the runtime hasVal flag on the source variable is
+// never cleared. Re-entering the SAME if-let/while-let code path at runtime
+// over the SAME source identifier (a while loop containing an if-let, or a
+// while-let whose condition re-checks the same identifier every iteration)
+// re-reads and re-drops the same payload every pass, and — for a bare
+// while-let over an identifier with no other exit — makes the loop
+// non-terminating (hasVal never becomes false).
+TEST(RuntimeExecTest, IfLetInsideLoopOverSameIdentifierSingleDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+
+func main() {
+    let x: Res? = Res { id: 1 }
+    var i = 0
+    while i < 2 {
+        if let v = x {
+            println(v.id)
+        }
+        i = i + 1
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "iflet_loop_identifier_single_drop");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 1)
+        << "expected exactly ONE drop — the first loop pass takes real "
+           "ownership (source's hasVal cleared at runtime), the second pass "
+           "must see no value; stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\nDROPPED\ndone\n")
+        << "exact sequence: first iteration unwraps+drops, second iteration "
+           "sees hasVal=false and is skipped entirely; stdout: "
+        << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, WhileLetOverIdentifierTerminatesWithSingleDrop) {
+    // Without the fix, `x`'s hasVal never clears, so every iteration
+    // re-unwraps + re-drops the SAME payload, and the loop only terminates
+    // because of the explicit `break` safety valve (n > 2) — not because
+    // the optional ran out. With the fix, the first iteration consumes `x`
+    // for real (hasVal cleared at runtime): the SECOND cond check sees no
+    // value and exits the loop naturally, `break` is never reached.
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROP")
+        println(self.id)
+    }
+}
+
+func main() {
+    let x: Res? = Res { id: 1 }
+    var n = 0
+    while let v = x {
+        n = n + 1
+        if n > 2 {
+            break
+        }
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "whilelet_identifier_terminates_single_drop");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROP"), 1)
+        << "expected exactly ONE drop — the loop must terminate via the "
+           "source's runtime-cleared hasVal on iteration 2, not via the "
+           "n>2 break safety valve; stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "DROP\n1\ndone\n")
+        << "exact sequence: one iteration (drop fires at its normal "
+           "fallthrough), then the loop exits on the next cond check — "
+           "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
