@@ -2824,8 +2824,12 @@ void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
         // would do if this fell through to it), diagnose cleanly. Top-level
         // use (direct match subject) is fully supported — see
         // resolveMatchPattern in IRGenCall.cpp.
+        //
+        // Reviewer minor (b): this is a DISPLAY context (diagnostic message
+        // text), not a binding-name derivation — use toString(), not
+        // getSpelling(), per the convention documented on Pattern::getSpelling().
         diag_.report(sub->getRange().start, DiagID::err_pattern_literal_subpattern_unsupported,
-                     sub->getSpelling());
+                     sub->toString());
         return;
     }
 }

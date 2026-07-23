@@ -1474,31 +1474,33 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     // all arms are guarded bindings (no concrete switch cases)
     bool useIfElseChain = !tagVal->getType()->isIntegerTy() || numCases == 0;
 
-    // Create default block. When there's no wildcard arm AND we're in switch
-    // mode, a dedicated `unreachable` block is used instead of routing
-    // straight into mergeBB (Pattern Types Faz B, Task 2 fix): a bool
-    // subject's `true`/`false` arms are a common no-wildcard-needed case
-    // (both i1 values are listed as switch cases, so LLVM's default edge is
-    // provably dead code), but mergeBB's PHI node only gets an incoming
-    // value per *arm* body (via armResults below) — an extra live
-    // predecessor edge straight from the switch itself, with no
-    // corresponding PHI value, makes the IR invalid ("PHINode should have
-    // one entry for each predecessor") the instant the match is used as an
-    // expression. The if-else-chain path is untouched (still mergeBB): a
-    // guard-only chain's final fallthrough can be genuinely reachable at
-    // runtime (all guards false), unlike a fully-cased switch's default.
-    llvm::BasicBlock *unreachableDefaultBB = nullptr;
-    llvm::BasicBlock *defaultBB;
-    if (defaultIdx >= 0) {
-        defaultBB = armInfos[defaultIdx].bb;
-    } else if (!useIfElseChain) {
-        defaultBB = llvm::BasicBlock::Create(*context_, "match.default.unreachable", func);
-        unreachableDefaultBB = defaultBB;
-    } else {
-        defaultBB = mergeBB;
-    }
+    // Create default block. Pattern Types Faz B, Task 2 REGRESSION FIX:
+    // an earlier version of this fix routed the no-wildcard default
+    // straight to a fresh `unreachable` block whenever in switch mode. That
+    // broke a perfectly legal, Sema-accepted case: a NON-exhaustive
+    // switch-mode match used as a STATEMENT (e.g. an int subject with only
+    // some values covered and no wildcard — Sema only enforces
+    // exhaustiveness for enum/Result subjects) now trapped at runtime
+    // instead of benignly falling through to mergeBB. Reverted to the
+    // original unconditional `mergeBB` default; see below for how the
+    // original PHI-verifier problem (bool `true`/`false` exhaustive match
+    // used as an EXPRESSION) is solved instead, without reintroducing the
+    // trap.
+    llvm::BasicBlock *defaultBB = (defaultIdx >= 0) ? armInfos[defaultIdx].bb : mergeBB;
+
+    // Blocks that branch directly into mergeBB via the "no wildcard arm"
+    // default path (only populated when defaultIdx < 0, i.e. defaultBB ==
+    // mergeBB) — tracked so a match-as-expression's PHI node (built below)
+    // can supply a placeholder incoming value for these predecessor edges.
+    // Without this, an exhaustive-but-wildcard-free switch (the idiomatic
+    // way to write a bool `true`/`false` match) still creates a live default
+    // CFG edge straight into mergeBB even though it's never actually taken
+    // at runtime, and a PHI node requires an entry for every predecessor —
+    // "PHINode should have one entry for each predecessor" otherwise.
+    std::vector<llvm::BasicBlock *> defaultEdgePreds;
 
     if (!useIfElseChain) {
+        auto *switchOriginBB = builder_->GetInsertBlock();
         auto *switchInst = builder_->CreateSwitch(tagVal, defaultBB, numCases);
         // Case constant width must match tagVal's integer type — usually
         // i32 (enum tag / int-literal subject), but a bool subject's tagVal
@@ -1514,12 +1516,8 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                 switchInst->addCase(caseVal, info.bb);
             }
         }
-        if (unreachableDefaultBB) {
-            auto *savedIP = builder_->GetInsertBlock();
-            builder_->SetInsertPoint(unreachableDefaultBB);
-            builder_->CreateUnreachable();
-            builder_->SetInsertPoint(savedIP);
-        }
+        if (defaultIdx < 0)
+            defaultEdgePreds.push_back(switchOriginBB);
     } else {
         // If-else chain: check guards in order, fall through to next arm
         // First arm gets control from current block
@@ -1616,7 +1614,16 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             if (useIfElseChain && i + 1 < armInfos.size()) {
                 nextBB = armInfos[i + 1].bb;
             }
+            auto *condBrOriginBB = builder_->GetInsertBlock();
             builder_->CreateCondBr(branchCond, bodyBB, nextBB);
+            // This is the if-else-chain counterpart of the switch-mode
+            // default edge tracked above: when there's no wildcard arm,
+            // only the LAST arm's guard/pattern-comparison failure can
+            // reach mergeBB directly (every earlier arm's failure falls to
+            // the next arm instead) — record it for the PHI-placeholder
+            // fixup below.
+            if (defaultIdx < 0 && nextBB == defaultBB)
+                defaultEdgePreds.push_back(condBrOriginBB);
             builder_->SetInsertPoint(bodyBB);
         }
 
@@ -1647,9 +1654,24 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             }
         }
         if (allSameType) {
-            phi = builder_->CreatePHI(valType, armResults.size(), "match.val");
+            phi = builder_->CreatePHI(valType, armResults.size() + defaultEdgePreds.size(),
+                                       "match.val");
             for (auto &p : armResults) {
                 phi->addIncoming(p.first, p.second);
+            }
+            // Placeholder incoming value for the "no wildcard arm" default
+            // edge(s) tracked above (Pattern Types Faz B, Task 2 regression
+            // fix): these predecessor blocks branch into mergeBB without
+            // ever going through an arm body, so they have no real value to
+            // contribute. They are unreachable at runtime whenever the
+            // match's patterns are truly exhaustive (e.g. bool
+            // `true`/`false`); when they're NOT exhaustive and this edge IS
+            // reachable, the match is being used as an expression with no
+            // arm covering that case — already an existing, out-of-scope
+            // gap (not newly introduced here) — an UndefValue keeps the IR
+            // valid rather than crashing the verifier either way.
+            for (auto *predBB : defaultEdgePreds) {
+                phi->addIncoming(llvm::UndefValue::get(valType), predBB);
             }
         }
     }

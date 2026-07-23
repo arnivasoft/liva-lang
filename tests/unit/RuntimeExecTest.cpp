@@ -763,6 +763,30 @@ TEST(RuntimeExecTest, MatchNestedNegativeDiscriminant) {
     EXPECT_EQ(r.stdout_output, "111\n222\n") << "stdout: " << r.stdout_output;
 }
 
+// Pattern Types (Faz B) Task 2 REGRESSION test: a non-exhaustive switch-mode
+// match (int subject, no wildcard arm) used as a STATEMENT is perfectly
+// legal — TypeChecker only enforces exhaustiveness for enum/Result subjects,
+// never for a plain int subject — and must simply fall through when the
+// scrutinee matches none of the listed arms, exactly like the pre-Task-2
+// behavior. An earlier version of the bool-literal-pattern PHI-verifier fix
+// routed this "no wildcard" default straight to an `unreachable` block
+// whenever in switch mode, which made this exact shape trap at runtime
+// instead of falling through — code after the match must still run.
+TEST(RuntimeExecTest, MatchNonExhaustiveStatementNoTrap) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let x: i32 = 5
+            match x {
+                1 => println("a")
+                2 => println("b")
+            }
+            println("after")
+        }
+    )--", "match_nonexhaustive_statement_no_trap");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "after\n") << "stdout: " << r.stdout_output;
+}
+
 // Pattern Types (Faz B) Task 2: bool/string/float literal match arms.
 // Bool literal patterns reuse the existing tag/hasTag switch-case
 // machinery (bool subject -> i1 tagVal, a valid CreateSwitch condition);
