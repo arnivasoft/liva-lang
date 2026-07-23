@@ -92,7 +92,9 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     auto *savedCoroFinalBB = currentCoroFinalBB_;
     auto *savedCoroCleanupBB = currentCoroCleanupBB_;
     auto *savedCoroSuspendBB = currentCoroSuspendBB_;
+    bool savedIsClassInit = currentIsClassInit_;
     currentIsAsync_ = false;
+    currentIsClassInit_ = false;
     asyncDeclaredRetType_ = nullptr;
     currentCoroTask_ = nullptr;
     currentCoroHandle_ = nullptr;
@@ -233,6 +235,7 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     currentCoroFinalBB_ = savedCoroFinalBB;
     currentCoroCleanupBB_ = savedCoroCleanupBB;
     currentCoroSuspendBB_ = savedCoroSuspendBB;
+    currentIsClassInit_ = savedIsClassInit;
     currentTypeSubst_ = std::move(savedSubst);
     currentConstSubst_ = std::move(savedConstSubst);
     if (savedInsertPoint)
@@ -459,7 +462,9 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     auto *savedCoroFinalBB = currentCoroFinalBB_;
     auto *savedCoroCleanupBB = currentCoroCleanupBB_;
     auto *savedCoroSuspendBB = currentCoroSuspendBB_;
+    bool savedIsClassInit = currentIsClassInit_;
     currentIsAsync_ = false;
+    currentIsClassInit_ = false;
     asyncDeclaredRetType_ = nullptr;
     currentCoroTask_ = nullptr;
     currentCoroHandle_ = nullptr;
@@ -600,6 +605,7 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     currentCoroFinalBB_ = savedCoroFinalBB;
     currentCoroCleanupBB_ = savedCoroCleanupBB;
     currentCoroSuspendBB_ = savedCoroSuspendBB;
+    currentIsClassInit_ = savedIsClassInit;
     currentTypeSubst_ = std::move(savedSubst);
     currentConstSubst_ = std::move(savedConstSubst);
     if (savedInsertPoint)
