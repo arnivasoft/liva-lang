@@ -67,7 +67,9 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 |------|-----------|-------|
 | `let b = a` double-drop (çözüldü 2026-07) | `markMoved` yalnızca fonksiyon argümanlarında çağrılıyor; `VarDecl` init ve atamada move takibi yok | `OwnershipChecker.cpp:149-154`, `IRGenStmt.cpp:72-88` |
 | Drop, Optional+if-let'te çalışmıyor (çözüldü 2026-07) | Koşullu temizlik sadece `heapOptionalStringVars` için var | `IRGenStmt.cpp:135-162` |
-| `??` bazı bağlamlarda yanlış | Yalnızca bare identifier + MemberExpr chain doğru; diğer LHS'ler (çağrı sonucu, subscript) unwrap edilmeden aynen dönüyor | `IRGenExpr.cpp:302-352`, fallback `:350-351` |
+| `??` bazı bağlamlarda yanlış (çözüldü 2026-07) | Yalnızca bare identifier + MemberExpr chain doğru; diğer LHS'ler (çağrı sonucu, subscript) unwrap edilmeden aynen dönüyor | `IRGenExpr.cpp:302-352`, fallback `:350-351` — fix: `emitOptionalCoalesce` helper'a genel LHS + sağ-assoc + Sema `cloneTypeRepr` |
+| `??` RHS tipi LHS'in unwrap edilmiş inner tipine karşı hiç kontrol edilmiyor (yeni bulundu, 2026-07, izlemede) | Sema `NilCoalesce` sonuç tipini yalnızca RHS'ten türetiyor, LHS inner tipiyle karşılaştırmıyor; tip uyuşmazlığı derleme-zamanı diagnostiğe değil opak LLVM PHI verifier çökmesine gidiyor — ör. `a ?? 5 == 5` öncelik nedeniyle RHS'i `bool`'a çeviriyor (LHS `i32?`) | `TypeChecker.cpp:2127` civarı (`visitBinaryExpr`, `NilCoalesce` dalı) — tüm `??` yolları için simetrik/önceden var olan açık |
+| Generik monomorfize metodların `T?` döndürmesi hatalı codegen üretiyor (yeni bulundu, 2026-07, izlemede) | `impl<T> Stack<T> { func pop(ref mut self) -> T? {...} }` gibi generik metodlar `while let`/`??` ile kullanıldığında ya LLVM verifier hatası ya da yanlış çalışma-zamanı değeri veriyor; `??`'den bağımsız — COOKBOOK.md §6 Generic Container örneği bu yüzden bugün çalışmıyor | Minimal repro: `struct Box<T> { var val: T }`, `impl<T> Box<T> { func peek(ref self) -> T? {...} }` — hem `i32` hem `string` için `LLVM module verification failed: Function return type does not match operand type of return inst!` |
 | `return self` from `mut self` | Codegen yolu yok | — |
 | Integer widening kısıtlı | Yalnızca sabit-literal tarafında; genel coercion modeli yok | `IRGenExpr.cpp:234-243` |
 | String `==` struct-wrapper'da | Primitive `string` için çalışıyor (`IRGenExpr.cpp:192-203`); sorun wrapper bağlamında tip tanıma. Kalıcı çözüm: protokol tabanlı `Equatable` | `IRGenExpr.cpp:167-181` |
@@ -126,7 +128,7 @@ Geniş widget seti mevcut (23+ widget, menü/toolbar, data binding Faz 6.x). Eks
 | 2 | Runtime ABI'yi tek `.def` tablosuna indir — **tamamlandı (2026-07, RuntimeFunctions.def)** | Refactor | 3 yönlü senkron hatası sınıfını yok eder |
 | 3 | Yapısal Pattern AST + eksik pattern türleri — **Faz A+B tamamlandı (2026-07)** — kalan: struct destructuring, if-let tam pattern, editör gramerleri (ayrı işler) | Dil | En büyük dil sağlamlığı açığı |
 | 4 | Atama/if-let move takibi — **tamamlandı (2026-07, muhafazakâr kapsam: Drop'lu tipler)** — kalan: clone(), atamada eski-değer drop'u, koleksiyon/alan drop'ları | Bug/Dil | Bilinen 3 memory hatasını kökten çözer |
-| 5 | `??` operatörünü genel LHS'lerde doğru üret | Bug | Sessiz yanlış davranış |
+| 5 | `??` operatörünü genel LHS'lerde doğru üret — **tamamlandı (2026-07, + sağ-assoc + lazy RHS)** | Bug | Sessiz yanlış davranış |
 | 6 | Generic `Map<K,V>` + CLI arg parser | Stdlib | En görünür kullanıcı boşlukları |
 | 7 | Networking/db/json örnekleri + artifact temizliği | Docs | Düşük maliyet, yüksek getiri |
 | 8 | CI'da `-Werror` + fixture-skip'leri hard-fail yap | Altyapı | Regresyon sızıntısını kapatır |

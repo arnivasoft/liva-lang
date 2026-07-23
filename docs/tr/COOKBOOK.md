@@ -350,6 +350,12 @@ func main() {
 }
 ```
 
+> **Bilinen kısıtlama (2026-07):** `T?` döndüren generik metodlar (yukarıdaki
+> `pop()`/`peek()`, somut bir `T` için monomorfize edildiğinde) şu anda hatalı derleniyor —
+> bu, `??`'den bağımsız, önceden var olan bir codegen açığı; `??` fallback'inin kendisi
+> hem serbest-fonksiyon hem de generik-olmayan struct-metod çağrısı LHS'i için doğrulandı.
+> `roadmap.md`'de takip ediliyor.
+
 ---
 
 ## 7. HTTP İstekleri
@@ -1041,23 +1047,22 @@ func main() {
 Yapılandırma dosyasını ayrıştır ve değerleri tipli olarak oku.
 
 ```liva
+import path::path
 import toml::toml
-import std::io
 
 func main() {
-    let metin = readFile("config.toml")
+    let metin = Path.new("config.toml").read() ?? ""
     let doc = TomlDocument.parse(metin)
 
-    if !doc.isValid() {
+    if doc.isValid() {
+        let host = doc.getString("server", "host") ?? "localhost"
+        let port = doc.getInt("server", "port") ?? 8080 as i64
+        let debug = doc.getBool("server", "debug") ?? false
+        println("dinleniyor \(host):\(port) (debug=\(debug))")
+    } else {
         println("geçersiz TOML")
-        return
     }
-
-    let host = doc.getString("server", "host") ?? "localhost"
-    let port = doc.getInt("server", "port") ?? 8080 as i64
-    let debug = doc.getBool("server", "debug") ?? false
-
-    println("dinleniyor \(host):\(port) (debug=\(debug))")
+    doc.free()
 }
 ```
 

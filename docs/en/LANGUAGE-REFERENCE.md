@@ -310,7 +310,7 @@ let (quotient, remainder) = divmod(17, 5)
 11. Equality: `==`, `!=`
 12. Logical AND: `&&`
 13. Logical OR: `||`
-14. Nil coalescing: `??`
+14. Nil coalescing: `??` (right-associative — `a ?? b ?? c` parses as `a ?? (b ?? c)`)
 15. Ternary: `? :`
 16. Assignment: `=`, `+=`, `-=`, `*=`, `/=`, `%=`
 
@@ -1136,9 +1136,70 @@ let y: i32? = nil       // optional containing nothing
 
 ### Nil Coalescing
 
+`a ?? b` evaluates to `a`'s unwrapped value if `a` is non-nil, otherwise to `b`.
+
 ```liva
 let value = x ?? 0     // 42 (uses x's value since it's not nil)
 let other = y ?? -1    // -1 (uses default since y is nil)
+```
+
+**General left-hand side.** The LHS of `??` may be any expression that produces
+an optional value — an identifier, a function call, a method call, or a
+`subscript` — not just a plain variable:
+
+```liva
+func find(arr: [i32], target: i32) -> i32? {
+    for item in arr {
+        if item == target { return item }
+    }
+    return nil
+}
+
+let value = find([1, 2, 3], 2) ?? 0    // 2 (call-expression LHS)
+
+struct Box {
+    var items: [i32]
+}
+impl Box {
+    func subscript(ref self, key: i32) -> i32? {
+        if key < 0 || key >= (self.items.length as i32) { return nil }
+        return self.items[key]
+    }
+}
+let b = Box { items: [10, 20, 30] }
+let picked = b[9] ?? 99                // 99 (subscript LHS, out of range → nil)
+```
+
+**Right-associative.** `a ?? b ?? c` parses as `a ?? (b ?? c)`, matching
+Swift/TypeScript/C#: the first non-nil value in the chain wins.
+
+```liva
+func maybeA() -> i32? { return nil }
+func maybeB() -> i32? { return nil }
+let v = maybeA() ?? maybeB() ?? 77     // 77 (both nil, falls through the chain)
+```
+
+**Lazy RHS.** The right-hand side is only evaluated when the LHS is nil — it
+is never evaluated on the non-nil path, including any side effects:
+
+```liva
+func loudDefault() -> i32 {
+    println("computing default")
+    return 42
+}
+println(find([1, 2, 3], 2) ?? loudDefault())   // prints "2" only — RHS not evaluated
+println(find([1, 2, 3], 9) ?? loudDefault())   // prints "computing default" then "42"
+```
+
+**Innermost RHS must be a plain (non-optional) type.** In a chain, every step's
+final RHS must resolve to a non-optional value — an optional RHS (outside of a
+`?? `chain that later collapses to plain `T`) is a compile-time type error, not
+a runtime crash:
+
+```liva
+let a: i32? = nil
+let b: i32? = 5
+let v = a ?? b      // error: RHS of '??' must not itself be optional
 ```
 
 ### Optional Chaining

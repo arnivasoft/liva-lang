@@ -350,6 +350,11 @@ func main() {
 }
 ```
 
+> **Known limitation (2026-07):** generic methods that return `T?` (e.g. `pop()`/`peek()`
+> above, monomorphized for a concrete `T`) currently miscompile — this is a pre-existing
+> codegen gap unrelated to `??`; the `??` fallback itself is verified correct for both
+> free-function and non-generic struct-method call-LHS. Tracked in `roadmap.md`.
+
 ---
 
 ## 7. HTTP Requests
@@ -1122,23 +1127,22 @@ func main() {
 Parse a configuration file and read typed values.
 
 ```liva
+import path::path
 import toml::toml
-import std::io
 
 func main() {
-    let text = readFile("config.toml")
+    let text = Path.new("config.toml").read() ?? ""
     let doc = TomlDocument.parse(text)
 
-    if !doc.isValid() {
+    if doc.isValid() {
+        let host = doc.getString("server", "host") ?? "localhost"
+        let port = doc.getInt("server", "port") ?? 8080 as i64
+        let debug = doc.getBool("server", "debug") ?? false
+        println("listening on \(host):\(port) (debug=\(debug))")
+    } else {
         println("invalid TOML")
-        return
     }
-
-    let host = doc.getString("server", "host") ?? "localhost"
-    let port = doc.getInt("server", "port") ?? 8080 as i64
-    let debug = doc.getBool("server", "debug") ?? false
-
-    println("listening on \(host):\(port) (debug=\(debug))")
+    doc.free()
 }
 ```
 

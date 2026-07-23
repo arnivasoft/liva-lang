@@ -305,7 +305,7 @@ let (quotient, remainder) = divmod(17, 5)
 11. Eşitlik: `==`, `!=`
 12. Mantıksal VE: `&&`
 13. Mantıksal VEYA: `||`
-14. Nil coalescing: `??`
+14. Nil coalescing: `??` (sağ-birleşmeli — `a ?? b ?? c`, `a ?? (b ?? c)` olarak ayrıştırılır)
 15. Ternary: `? :`
 16. Atama: `=`, `+=`, `-=`, `*=`, `/=`, `%=`
 
@@ -1131,9 +1131,70 @@ let y: i32? = nil       // hiçbir şey içermeyen optional
 
 ### Nil Coalescing
 
+`a ?? b`, `a` nil değilse `a`'nın unwrap edilmiş değerine, nil ise `b`'ye eşittir.
+
 ```liva
 let value = x ?? 0     // 42 (nil olmadığı için x'in değerini kullanır)
 let other = y ?? -1    // -1 (y nil olduğu için varsayılanı kullanır)
+```
+
+**Genel sol taraf (LHS).** `??`'nin sol tarafı optional bir değer üreten HERHANGİ
+bir ifade olabilir — bir identifier, bir fonksiyon çağrısı, bir metod çağrısı ya
+da bir `subscript` — yalnızca düz bir değişken değil:
+
+```liva
+func find(arr: [i32], target: i32) -> i32? {
+    for item in arr {
+        if item == target { return item }
+    }
+    return nil
+}
+
+let value = find([1, 2, 3], 2) ?? 0    // 2 (çağrı-ifadesi LHS)
+
+struct Box {
+    var items: [i32]
+}
+impl Box {
+    func subscript(ref self, key: i32) -> i32? {
+        if key < 0 || key >= (self.items.length as i32) { return nil }
+        return self.items[key]
+    }
+}
+let b = Box { items: [10, 20, 30] }
+let picked = b[9] ?? 99                // 99 (subscript LHS, aralık dışı → nil)
+```
+
+**Sağ-birleşmeli.** `a ?? b ?? c`, `a ?? (b ?? c)` olarak ayrıştırılır —
+Swift/TypeScript/C# ile aynı: zincirdeki ilk nil-olmayan değer kazanır.
+
+```liva
+func maybeA() -> i32? { return nil }
+func maybeB() -> i32? { return nil }
+let v = maybeA() ?? maybeB() ?? 77     // 77 (ikisi de nil, zincirin sonuna düşer)
+```
+
+**Tembel (lazy) RHS.** Sağ taraf yalnızca LHS nil olduğunda değerlendirilir —
+nil-olmayan yolda (yan etkileri dahil) ASLA çalıştırılmaz:
+
+```liva
+func loudDefault() -> i32 {
+    println("varsayılan hesaplanıyor")
+    return 42
+}
+println(find([1, 2, 3], 2) ?? loudDefault())   // yalnızca "2" basar — RHS çalışmaz
+println(find([1, 2, 3], 9) ?? loudDefault())   // "varsayılan hesaplanıyor" sonra "42" basar
+```
+
+**En içteki RHS düz (optional olmayan) bir tip olmalı.** Bir zincirde, her adımın
+son RHS'i optional-olmayan bir değere çözülmelidir — optional bir RHS (sonunda düz
+`T`'ye çöken bir `??` zincirinin parçası olmadığı sürece) çalışma-zamanı çökmesi
+değil, DERLEME-ZAMANI tip hatasıdır:
+
+```liva
+let a: i32? = nil
+let b: i32? = 5
+let v = a ?? b      // hata: '??' RHS'i kendisi optional olmamalı
 ```
 
 ### Optional Chaining
