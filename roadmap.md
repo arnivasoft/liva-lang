@@ -122,7 +122,7 @@ Geniş widget seti mevcut (23+ widget, menü/toolbar, data binding Faz 6.x). Eks
 |---|-----|------|------|
 | 1 | `visitCallExpr`'ı parçala — **IRGenCall + TypeChecker tamamlandı (2026-07)** | Refactor | Tüm gelecek işlerin hızını artırır |
 | 2 | Runtime ABI'yi tek `.def` tablosuna indir — **tamamlandı (2026-07, RuntimeFunctions.def)** | Refactor | 3 yönlü senkron hatası sınıfını yok eder |
-| 3 | Yapısal Pattern AST + eksik pattern türleri — **Faz A (AST altyapısı) tamamlandı (2026-07)**, Faz B (yeni pattern türleri) sırada | Dil | En büyük dil sağlamlığı açığı |
+| 3 | Yapısal Pattern AST + eksik pattern türleri — **Faz A+B tamamlandı (2026-07)** — kalan: struct destructuring, if-let tam pattern, editör gramerleri (ayrı işler) | Dil | En büyük dil sağlamlığı açığı |
 | 4 | Atama/if-let move takibi → double-drop ve Drop/Optional düzeltmesi | Bug/Dil | Bilinen 3 memory hatasını kökten çözer |
 | 5 | `??` operatörünü genel LHS'lerde doğru üret | Bug | Sessiz yanlış davranış |
 | 6 | Generic `Map<K,V>` + CLI arg parser | Stdlib | En görünür kullanıcı boşlukları |

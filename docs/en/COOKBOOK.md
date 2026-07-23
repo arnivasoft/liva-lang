@@ -1194,4 +1194,39 @@ func main() {
 
 ---
 
+## 25. Pattern Matching: HTTP Status Classification
+
+Combine range, or, and `@` binding patterns to classify an HTTP status code in a single `match`.
+
+```liva
+func classify(status: i32) -> string {
+    let label = match status {
+        200 | 201 | 204 => "success"
+        n @ 300..400 => "redirect(\(n))"
+        404 => "not found"
+        n @ 400..500 => "client error(\(n))"
+        500..=599 => "server error"
+        _ => "unknown"
+    }
+    return label
+}
+
+func main() {
+    println(classify(200))   // success
+    println(classify(301))   // redirect(301)
+    println(classify(404))   // not found
+    println(classify(422))   // client error(422)
+    println(classify(503))   // server error
+    println(classify(999))   // unknown
+}
+```
+
+**Key points:**
+- `200 | 201 | 204` is an or-pattern: any of the three literals matches the arm
+- `n @ 300..400` binds the whole status code to `n` while restricting the match to `[300, 400)` — the range is exclusive of `400`, so `404` falls through to its own dedicated arm below
+- `500..=599` is inclusive, so `599` (and not `600`) is the last status covered
+- Arms are tried top-to-bottom, so a more specific arm (`404`) must come before a broader range that would otherwise also match it (`n @ 400..500`)
+
+---
+
 *This cookbook covers common patterns in Liva as of version 1.0.0. For a complete language reference, see [LANGUAGE-REFERENCE.md](LANGUAGE-REFERENCE.md). For the standard library API, see [API-REFERENCE.md](API-REFERENCE.md).*

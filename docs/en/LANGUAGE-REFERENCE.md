@@ -797,9 +797,116 @@ match wrapper {
 }
 ```
 
+### Bool, String, and Float Literal Patterns
+
+Besides int literals, `match` arms may also be a `bool`, `string`, or float (`f32`/`f64`) literal, matched against a subject of the same type:
+
+```liva
+func httpMethodCode(method: string) -> i32 {
+    let r = match method {
+        "GET" => 1
+        "POST" => 2
+        _ => 0
+    }
+    return r
+}
+
+func flagCode(b: bool) -> i32 {
+    let r = match b {
+        true => 1
+        false => 0
+    }
+    return r
+}
+```
+
+A `bool` subject is compared with `icmp eq`, a `string` subject with `liva_str_equal`, and a float subject with `fcmp oeq` — **exact** bit-for-bit equality, so a computed float that should mathematically equal a literal may still fail to match after rounding. Matching a literal pattern against a subject of an incompatible type (e.g. an int-literal arm against a `string` subject, or a string-literal arm against an `f64` subject) is a compile error (`err_pattern_type_mismatch`).
+
+### Range Patterns
+
+```liva
+func classifyGrade(score: i32) -> string {
+    let r = match score {
+        90..=100 => "A"   // inclusive: 100 IS included
+        80..90 => "B"     // exclusive: 90 is NOT included
+        70..80 => "C"
+        _ => "F"
+    }
+    return r
+}
+```
+
+`lo..hi` is **exclusive** of `hi` (matches when `lo <= x && x < hi`); `lo..=hi` is **inclusive** of `hi` (matches when `lo <= x && x <= hi`). Both endpoints must be integer literals and may be negative (`-10..-5`, `-5..=5`). Range patterns only make sense against an integer subject; matching one against a non-integer subject (`string`, a float, an enum, ...) is a compile error (`err_pattern_type_mismatch`).
+
+### Or Patterns
+
+```liva
+enum Weekday {
+    case Mon
+    case Tue
+    case Wed
+    case Thu
+    case Fri
+    case Sat
+    case Sun
+}
+
+func isWeekend(d: Weekday) -> bool {
+    let r = match d {
+        Weekday.Sat | Weekday.Sun => true
+        _ => false
+    }
+    return r
+}
+
+func classifySmall(x: i32) -> i32 {
+    let r = match x {
+        1 | 2 | 3 => 1
+        _ => 0
+    }
+    return r
+}
+```
+
+`p1 | p2 | ...` matches an arm if **any** alternative matches. Alternatives can mix literals, ranges, and qualified enum-case patterns (`1..5 | 99`, `Color.Red | Color.Blue`). A guard on an or-arm applies to the whole arm — it's ANDed with "any alternative matched", not evaluated separately per alternative. **An alternative may not introduce a new binding** — `x | 1 =>` is rejected with `err_pattern_or_binding`, since there's no single value for `x` to bind to across alternatives that may or may not carry one. For exhaustiveness, each enum-case alternative inside an or-pattern counts as its own covered case, so `Color.Red | Color.Blue =>` together with `Color.Green =>` is accepted as exhaustive with no wildcard needed.
+
+### `@` Binding Patterns
+
+```liva
+func classifyBound(x: i32) -> i32 {
+    let r = match x {
+        n @ 1..=9 => n
+        _ => -1
+    }
+    return r
+}
+```
+
+`name @ pattern` binds the whole subject value to `name` whenever `pattern` matches; `name` is visible in both the arm's guard and its body. The right-hand side of `@` may itself be an or-pattern — `n @ 1|2|3 => n` binds `n` whenever **any** alternative matches, not just the first one. `@` cannot bind an enum-case pattern (`n @ Some(x) =>` is unsupported: `err_pattern_binding_enum_case_unsupported`).
+
+### Tuple Patterns
+
+```liva
+func addPair(t: (i32, i32)) -> i32 {
+    let r = match t {
+        (a, b) => a + b
+    }
+    return r
+}
+
+func sum3(t: ((i32, i32), i32)) -> i32 {
+    let r = match t {
+        ((a, b), c) => a + b + c   // nested tuple patterns are allowed
+    }
+    return r
+}
+```
+
+`(p1, p2, ...)` destructures a tuple subject element by element; each element sub-pattern may be a literal, a wildcard, an identifier binding, or a nested tuple pattern. A tuple pattern must have at least 2 elements — `(x)` is a parse error (`err_pattern_tuple_single_element`), since there's no separate "parenthesized grouping" pattern form. Matching a tuple pattern against a subject with a different number of elements is a compile error (`err_tuple_arity_mismatch`), and matching one against a non-tuple subject is `err_pattern_type_mismatch`. An enum-case, or-pattern, or `@` binding pattern is not supported as a tuple *element* (`err_pattern_tuple_element_unsupported`).
+
 ### Exhaustiveness
 
-The compiler checks that all enum cases are covered. If not all cases are listed, a wildcard `_` arm is required.
+The compiler checks that all enum cases are covered. If not all cases are listed, a wildcard `_` arm is required. A `bool` subject matched with both `true` and `false` arms is also considered exhaustive without a wildcard.
 
 ---
 

@@ -1113,4 +1113,39 @@ func main() {
 
 ---
 
+## 25. Pattern Matching: HTTP Durum Kodu Sınıflandırma
+
+Bir HTTP durum kodunu tek bir `match` içinde sınıflandırmak için range, or ve `@` binding pattern'lerini birleştirin.
+
+```liva
+func classify(status: i32) -> string {
+    let label = match status {
+        200 | 201 | 204 => "success"
+        n @ 300..400 => "redirect(\(n))"
+        404 => "not found"
+        n @ 400..500 => "client error(\(n))"
+        500..=599 => "server error"
+        _ => "unknown"
+    }
+    return label
+}
+
+func main() {
+    println(classify(200))   // success
+    println(classify(301))   // redirect(301)
+    println(classify(404))   // not found
+    println(classify(422))   // client error(422)
+    println(classify(503))   // server error
+    println(classify(999))   // unknown
+}
+```
+
+**Önemli noktalar:**
+- `200 | 201 | 204` bir or-pattern'dir: üç literalden herhangi biri kolu eşleştirir
+- `n @ 300..400`, durum kodunun tamamını `n`'e bağlarken eşleşmeyi `[300, 400)` aralığıyla sınırlar — range exclusive olduğundan `400` dahil değildir, bu yüzden `404` aşağıdaki kendi özel koluna düşer
+- `500..=599` inclusive'dir, bu yüzden kapsanan son durum kodu `600` değil `599`'dur
+- Kollar yukarıdan aşağıya denendiği için, daha spesifik bir kol (`404`), onu da eşleştirebilecek daha geniş bir range'den (`n @ 400..500`) önce gelmelidir
+
+---
+
 *Bu yemek kitabi, 1.0.0 surumu itibariyla Liva'daki yaygin kaliplari kapsar.*

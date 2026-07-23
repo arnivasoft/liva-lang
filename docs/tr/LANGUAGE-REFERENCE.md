@@ -792,9 +792,116 @@ match wrapper {
 }
 ```
 
+### Bool, String ve Float Literal Pattern'leri
+
+Int literal'lerin yanında, `match` kolları aynı tipteki bir subject'e karşı eşleştirilen bir `bool`, `string` veya float (`f32`/`f64`) literal de olabilir:
+
+```liva
+func httpMethodCode(method: string) -> i32 {
+    let r = match method {
+        "GET" => 1
+        "POST" => 2
+        _ => 0
+    }
+    return r
+}
+
+func flagCode(b: bool) -> i32 {
+    let r = match b {
+        true => 1
+        false => 0
+    }
+    return r
+}
+```
+
+Bir `bool` subject `icmp eq` ile, bir `string` subject `liva_str_equal` ile, bir float subject ise `fcmp oeq` ile karşılaştırılır — yani **tam** bit-bit eşitlik; matematiksel olarak bir literale eşit olması gereken hesaplanmış bir float, yuvarlama nedeniyle yine de eşleşmeyebilir. Bir literal pattern'in subject'in tipiyle uyuşmayan bir tipte olması (örn. bir `string` subject'e karşı int-literal kol, ya da bir `f64` subject'e karşı string-literal kol) derleme hatasıdır (`err_pattern_type_mismatch`).
+
+### Range Pattern'leri
+
+```liva
+func classifyGrade(score: i32) -> string {
+    let r = match score {
+        90..=100 => "A"   // inclusive: 100 DAHİL
+        80..90 => "B"     // exclusive: 90 DAHİL DEĞİL
+        70..80 => "C"
+        _ => "F"
+    }
+    return r
+}
+```
+
+`lo..hi`, `hi`'yi **hariç tutar** (exclusive: `lo <= x && x < hi` ise eşleşir); `lo..=hi` ise `hi`'yi **dahil eder** (inclusive: `lo <= x && x <= hi` ise eşleşir). Her iki uç da tamsayı literal olmalıdır ve negatif olabilir (`-10..-5`, `-5..=5`). Range pattern'leri yalnızca tamsayı subject'lerle anlamlıdır; tamsayı olmayan bir subject'e (`string`, bir float, bir enum, ...) karşı eşleştirilmesi derleme hatasıdır (`err_pattern_type_mismatch`).
+
+### Or Pattern'leri
+
+```liva
+enum Weekday {
+    case Mon
+    case Tue
+    case Wed
+    case Thu
+    case Fri
+    case Sat
+    case Sun
+}
+
+func isWeekend(d: Weekday) -> bool {
+    let r = match d {
+        Weekday.Sat | Weekday.Sun => true
+        _ => false
+    }
+    return r
+}
+
+func classifySmall(x: i32) -> i32 {
+    let r = match x {
+        1 | 2 | 3 => 1
+        _ => 0
+    }
+    return r
+}
+```
+
+`p1 | p2 | ...`, alternatiflerden **herhangi biri** eşleşirse kolu eşleştirir. Alternatifler literal'leri, range'leri ve nitelikli enum-case pattern'lerini karıştırabilir (`1..5 | 99`, `Color.Red | Color.Blue`). Bir or-kolu üzerindeki guard tüm kola uygulanır — "herhangi bir alternatif eşleşti mi" ifadesiyle VE'lenir, alternatif başına ayrı ayrı değerlendirilmez. **Bir alternatif yeni bir binding tanıtamaz** — `x | 1 =>` `err_pattern_or_binding` ile reddedilir, çünkü `x`'in alternatifler arasında bağlanacağı tek bir değer yoktur (bazı alternatifler binding taşımayabilir). Kapsamlılık (exhaustiveness) açısından, bir or-pattern içindeki her enum-case alternatifi kendi başına kapsanmış bir case sayılır; bu yüzden `Color.Red | Color.Blue =>` ile birlikte `Color.Green =>` wildcard olmadan da kapsamlı kabul edilir.
+
+### `@` Binding Pattern'leri
+
+```liva
+func classifyBound(x: i32) -> i32 {
+    let r = match x {
+        n @ 1..=9 => n
+        _ => -1
+    }
+    return r
+}
+```
+
+`name @ pattern`, `pattern` eşleştiğinde subject'in tüm değerini `name`'e bağlar; `name` hem kolun guard'ında hem de gövdesinde görünürdür. `@`'ın sağ tarafı bizzat bir or-pattern olabilir — `n @ 1|2|3 => n`, yalnızca ilk alternatif değil, **herhangi bir** alternatif eşleştiğinde `n`'i bağlar. `@` bir enum-case pattern'i bağlayamaz (`n @ Some(x) =>` desteklenmez: `err_pattern_binding_enum_case_unsupported`).
+
+### Tuple Pattern'leri
+
+```liva
+func addPair(t: (i32, i32)) -> i32 {
+    let r = match t {
+        (a, b) => a + b
+    }
+    return r
+}
+
+func sum3(t: ((i32, i32), i32)) -> i32 {
+    let r = match t {
+        ((a, b), c) => a + b + c   // iç içe tuple pattern'lere izin verilir
+    }
+    return r
+}
+```
+
+`(p1, p2, ...)`, bir tuple subject'i eleman eleman destructure eder; her eleman alt-pattern'i bir literal, wildcard, identifier binding veya iç içe bir tuple pattern olabilir. Bir tuple pattern en az 2 elemana sahip olmalıdır — `(x)` bir parse hatasıdır (`err_pattern_tuple_single_element`), çünkü ayrı bir "parantezli gruplama" pattern formu yoktur. Bir tuple pattern'in eleman sayısı subject'inkinden farklıysa bu derleme hatasıdır (`err_tuple_arity_mismatch`); tuple olmayan bir subject'e karşı eşleştirilmesi ise `err_pattern_type_mismatch`'tir. Bir enum-case, or-pattern veya `@` binding pattern'i, tuple *elemanı* olarak desteklenmez (`err_pattern_tuple_element_unsupported`).
+
 ### Kapsamlılık
 
-Derleyici tüm enum case'lerinin kapsandığını kontrol eder. Tüm case'ler listelenmemişse bir wildcard `_` kolu gereklidir.
+Derleyici tüm enum case'lerinin kapsandığını kontrol eder. Tüm case'ler listelenmemişse bir wildcard `_` kolu gereklidir. Hem `true` hem `false` kolları ile eşleştirilen bir `bool` subject de wildcard olmadan kapsamlı sayılır.
 
 ---
 
