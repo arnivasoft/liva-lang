@@ -1720,6 +1720,96 @@ TEST_F(ParserTest, BindingPatternInsideCaseParensIsParseError) {
     EXPECT_TRUE(result.hasErrors);
 }
 
+// === Pattern Types (Faz B) Task 6: tuple patterns ===
+
+TEST_F(ParserTest, TuplePatternIdentifiersAST) {
+    auto result = parse(R"--(
+        func main() {
+            let t = (1, 2)
+            match t {
+                (a, b) => println(a)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *tupArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(tupArm, nullptr);
+    ASSERT_EQ(tupArm->getKind(), Pattern::Kind::Tuple);
+    auto *tp = static_cast<const TuplePattern *>(tupArm);
+    ASSERT_EQ(tp->getElements().size(), 2);
+    ASSERT_EQ(tp->getElements()[0]->getKind(), Pattern::Kind::Identifier);
+    EXPECT_EQ(static_cast<const IdentifierPattern *>(tp->getElements()[0].get())->getName(), "a");
+    ASSERT_EQ(tp->getElements()[1]->getKind(), Pattern::Kind::Identifier);
+    EXPECT_EQ(static_cast<const IdentifierPattern *>(tp->getElements()[1].get())->getName(), "b");
+    EXPECT_EQ(tupArm->toString(), "(a,b)");
+    EXPECT_EQ(tupArm->getSpelling(), "(a,b)");
+}
+
+TEST_F(ParserTest, TuplePatternMixedLiteralIdentifierAST) {
+    auto result = parse(R"--(
+        func main() {
+            let t = (1, 2)
+            match t {
+                (1, x) => println(x)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+
+    auto *tupArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(tupArm, nullptr);
+    ASSERT_EQ(tupArm->getKind(), Pattern::Kind::Tuple);
+    auto *tp = static_cast<const TuplePattern *>(tupArm);
+    ASSERT_EQ(tp->getElements().size(), 2);
+    ASSERT_EQ(tp->getElements()[0]->getKind(), Pattern::Kind::IntLiteral);
+    EXPECT_EQ(static_cast<const IntLiteralPattern *>(tp->getElements()[0].get())->getValue(), 1);
+    ASSERT_EQ(tp->getElements()[1]->getKind(), Pattern::Kind::Identifier);
+    EXPECT_EQ(static_cast<const IdentifierPattern *>(tp->getElements()[1].get())->getName(), "x");
+    EXPECT_EQ(tupArm->toString(), "(1,x)");
+}
+
+// Task 6 decision: a single-element `(p)` is a parse error — the grammar has
+// no "parenthesized grouping" form elsewhere, so a lone parenthesized
+// pattern can only sensibly mean a malformed tuple (tuples require >= 2
+// elements). Reported via err_pattern_tuple_single_element.
+TEST_F(ParserTest, SingleElementParenPatternIsParseError) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 5
+            match x {
+                (x) => println(0)
+                _ => println(1)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    bool foundDiag = false;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.id == DiagID::err_pattern_tuple_single_element) foundDiag = true;
+    }
+    EXPECT_TRUE(foundDiag);
+}
+
 // === Doc Comment Tests ===
 
 TEST_F(ParserTest, DocCommentOnFunc) {

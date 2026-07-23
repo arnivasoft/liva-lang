@@ -2733,7 +2733,8 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
     return expr->getResolvedType();
 }
 
-void TypeChecker::extractPatternBindings(const Pattern *pattern) {
+void TypeChecker::extractPatternBindings(const Pattern *pattern,
+                                          const TypeRepr *subjectOrElemType) {
     if (!pattern) return;
 
     switch (pattern->getKind()) {
@@ -2800,6 +2801,47 @@ void TypeChecker::extractPatternBindings(const Pattern *pattern) {
         extractPatternBindings(bp->getSub());
         return;
     }
+
+    case Pattern::Kind::Tuple: {
+        // Pattern Types Faz B, Task 6: `(a, b, ...)` — declare a binding for
+        // each Identifier element, with its Sema-tracked type set to the
+        // CORRESPONDING tuple element type when the caller supplied a known
+        // Tuple-shaped `subjectOrElemType` (only the top-level visitMatchExpr
+        // arm-processing call site does, passing the subject's own resolved
+        // type — see that call site). This is DELIBERATELY different from
+        // every other pattern kind's binding above (Identifier/Binding),
+        // which leaves Symbol::type unset by design (IRGen binds the raw
+        // subject LLVM value regardless) — the task brief specifically asks
+        // for tuple ELEMENT bindings to carry a real, usable type. A nested
+        // TuplePattern element recurses with its own corresponding nested
+        // element type (when the outer type is a matching-shape Tuple),
+        // enabling `((a,b),c)` to type each of a/b/c correctly too.
+        // Wildcard/literal/range/EnumCase/Or/Binding elements bind nothing
+        // further at this level (same no-binding rule as their top-level/
+        // EnumCase-subslot counterparts elsewhere in this function).
+        auto *tp = static_cast<const TuplePattern *>(pattern);
+        const TupleTypeRepr *tt =
+            (subjectOrElemType && subjectOrElemType->getKind() == TypeRepr::Kind::Tuple)
+                ? static_cast<const TupleTypeRepr *>(subjectOrElemType)
+                : nullptr;
+        const auto &elems = tp->getElements();
+        for (size_t i = 0; i < elems.size(); ++i) {
+            const TypeRepr *elemTy =
+                (tt && i < tt->getArity()) ? tt->getElements()[i].get() : nullptr;
+            if (elems[i]->getKind() == Pattern::Kind::Identifier) {
+                auto *idp = static_cast<const IdentifierPattern *>(elems[i].get());
+                Symbol sym;
+                sym.name = idp->getName();
+                sym.kind = Symbol::Kind::Variable;
+                sym.isMutable = false;
+                sym.type = elemTy;
+                scopes_.declare(sym.name, sym);
+            } else {
+                extractPatternBindings(elems[i].get(), elemTy);
+            }
+        }
+        return;
+    }
     }
 }
 
@@ -2848,10 +2890,11 @@ void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
     case Pattern::Kind::Range:
     case Pattern::Kind::Or:
     case Pattern::Kind::Binding:
-        // Pattern Types Faz B, Task 2/3/4/5 subpattern decision: bool/
-        // string/float/range/or/binding patterns are NOT supported as a
-        // nested Case(...) sub-slot (IRGen has no payload-slot-vs-literal/
-        // range/or/binding comparison codegen). Rather than silently
+    case Pattern::Kind::Tuple:
+        // Pattern Types Faz B, Task 2/3/4/5/6 subpattern decision: bool/
+        // string/float/range/or/binding/tuple patterns are NOT supported as
+        // a nested Case(...) sub-slot (IRGen has no payload-slot-vs-literal/
+        // range/or/binding/tuple comparison codegen). Rather than silently
         // declaring a bogus binding named after the literal's spelling
         // (what the Identifier/Wildcard/IntLiteral branch above would do if
         // this fell through to it), diagnose cleanly. Top-level use (direct
@@ -2923,6 +2966,16 @@ bool TypeChecker::orAlternativeIsBinding(const Pattern *alt, const EnumDecl *sub
         // parsed via parsePatternPrimary, which has no `@` lookahead, only
         // the top-level parsePattern does).
         return true;
+
+    case Pattern::Kind::Tuple:
+        // Pattern Types Faz B, Task 6: a tuple alternative in an or-pattern
+        // (`(a,b) | (c,d)`) is rejected outright, regardless of whether its
+        // own elements are literals or bindings — same conservative
+        // treatment as a payload-carrying EnumCase alternative above (Task 6
+        // scope: the Or+Tuple combination is unsupported; IRGen's
+        // OrPattern-alternative codegen has no tuple-element-extraction path
+        // for an alternative slot — see task-6-report.md).
+        return true;
     }
     return false;
 }
@@ -2938,6 +2991,16 @@ bool TypeChecker::patternContainsEnumCase(const Pattern *p) const {
         return false;
     case Pattern::Kind::Binding:
         return patternContainsEnumCase(static_cast<const BindingPattern *>(p)->getSub());
+    case Pattern::Kind::Tuple:
+        // Pattern Types Faz B, Task 6: recurse into every element — closes
+        // the gap for a `@` binding wrapping a tuple containing an enum-case
+        // element (e.g. `t @ (Color.Red, x)`), a combination out of scope
+        // for the same reason a bare enum-case sub is (see this function's
+        // doc comment) even though the grammar's `@`-lookahead is top-level
+        // only and doesn't itself special-case Tuple.
+        for (auto &elem : static_cast<const TuplePattern *>(p)->getElements())
+            if (patternContainsEnumCase(elem.get())) return true;
+        return false;
     case Pattern::Kind::Wildcard:
     case Pattern::Kind::Identifier:
     case Pattern::Kind::IntLiteral:
@@ -3039,6 +3102,86 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
             } else {
                 checkScalarMismatch(effPat);
             }
+        }
+    }
+
+    // Pattern Types Faz B, Task 6: tuple pattern arity + (recursive, per
+    // element) type checking against a resolved subject type. DIAG DECISION:
+    // arity mismatch reuses the EXISTING `err_tuple_arity_mismatch` (already
+    // used by `let (x,y) = expr` destructuring) — its message ("tuple
+    // destructuring arity mismatch: expected %0 elements, got %1") reads
+    // correctly for a match-arm tuple pattern too, so no new diagnostic was
+    // added for this (see task-6-report.md's "reuse vs add" writeup). A
+    // tuple pattern against a KNOWN non-tuple subject type, or a non-tuple
+    // pattern (other than the universal Wildcard/Identifier catch-alls)
+    // against a KNOWN tuple-shaped type (whole subject OR a nested tuple
+    // element), reuses the general err_pattern_type_mismatch instead.
+    // Recursive so a nested tuple pattern (`((a,b),c)`) checks its own
+    // arity/element-types against the corresponding nested tuple element
+    // type when known.
+    std::function<void(const Pattern *, const TypeRepr *)> checkTuplePatternType =
+        [&](const Pattern *p, const TypeRepr *ty) {
+            if (!p || !ty) return;
+            if (p->getKind() == Pattern::Kind::Tuple) {
+                if (ty->getKind() != TypeRepr::Kind::Tuple) {
+                    diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
+                                 p->toString(), typeToString(ty));
+                    return;
+                }
+                auto *tp = static_cast<const TuplePattern *>(p);
+                auto *tt = static_cast<const TupleTypeRepr *>(ty);
+                if (tp->getElements().size() != tt->getArity()) {
+                    diag_.report(node->getStartLoc(), DiagID::err_tuple_arity_mismatch,
+                                 std::to_string(tt->getArity()),
+                                 std::to_string(tp->getElements().size()));
+                    return;
+                }
+                for (size_t i = 0; i < tp->getElements().size(); ++i)
+                    checkTuplePatternType(tp->getElements()[i].get(), tt->getElements()[i].get());
+                return;
+            }
+            // Non-tuple pattern compared against `ty`: Wildcard/Identifier
+            // remain valid catch-alls at any nesting level.
+            if (p->getKind() == Pattern::Kind::Wildcard || p->getKind() == Pattern::Kind::Identifier)
+                return;
+            if (ty->getKind() == TypeRepr::Kind::Tuple) {
+                // A tuple-shaped slot matched by anything other than
+                // Tuple/Wildcard/Identifier (literal/range/EnumCase/Or/
+                // Binding) is always a mismatch.
+                diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
+                             p->toString(), typeToString(ty));
+                return;
+            }
+            // `ty` is a non-tuple (element) type here: check a literal/range
+            // element's scalar-kind compatibility exactly like
+            // checkScalarMismatch does for a top-level scalar subject — this
+            // is the ONLY place a nested tuple ELEMENT's own type gets
+            // checked (checkScalarMismatch above only ever looks at the
+            // whole match's subjectType, never a per-element type).
+            auto pk = p->getKind();
+            bool isBoolPat = pk == Pattern::Kind::BoolLiteral;
+            bool isStringPat = pk == Pattern::Kind::StringLiteral;
+            bool isFloatPat = pk == Pattern::Kind::FloatLiteral;
+            bool isRangePat = pk == Pattern::Kind::Range;
+            bool isIntPat = pk == Pattern::Kind::IntLiteral;
+            if (!isBoolPat && !isStringPat && !isFloatPat && !isRangePat && !isIntPat) return;
+            bool ok = (isBoolPat && ty->isBool()) ||
+                      (isStringPat && ty->getKind() == TypeRepr::Kind::String) ||
+                      (isFloatPat && ty->isFloat()) ||
+                      (isRangePat && ty->isInteger()) ||
+                      (isIntPat && ty->isInteger());
+            if (!ok) {
+                diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
+                             p->toString(), typeToString(ty));
+            }
+        };
+    for (auto &arm : node->getArms()) {
+        if (!arm.patternNode || !subjectType) continue;
+        const Pattern *effPat = unwrapBinding(arm.patternNode.get());
+        if (!effPat) continue;
+        if (effPat->getKind() == Pattern::Kind::Tuple ||
+            subjectType->getKind() == TypeRepr::Kind::Tuple) {
+            checkTuplePatternType(effPat, subjectType);
         }
     }
 
@@ -3166,9 +3309,16 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
         }
 
         if (arm.body) {
-            // Extract bindings from pattern (supports nested patterns)
+            // Extract bindings from pattern (supports nested patterns).
+            // Pattern Types Faz B, Task 6: pass `subjectType` through so a
+            // bare top-level TuplePattern arm can type each Identifier
+            // element with its real tuple-element type (see
+            // extractPatternBindings's Kind::Tuple case) — every OTHER
+            // pattern kind ignores this extra argument entirely, so passing
+            // it unconditionally here is a no-op for them (unchanged
+            // behavior from before Task 6).
             scopes_.pushScope();
-            extractPatternBindings(arm.patternNode.get());
+            extractPatternBindings(arm.patternNode.get(), subjectType);
             if (arm.guard) {
                 visit(arm.guard.get());
             }

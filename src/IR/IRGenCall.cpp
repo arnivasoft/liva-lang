@@ -1619,8 +1619,15 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             }
         }
 
-        // Bind subject value for guarded binding patterns (s if s >= 90.0)
-        if (useIfElseChain && !info.pat.bindings.empty() && !isPayloadEnum) {
+        // Bind subject value for guarded binding patterns (s if s >= 90.0).
+        // Pattern Types Faz B, Task 6: EXCLUDES a tuple pattern — a tuple
+        // arm's `info.pat.bindings` holds per-ELEMENT names (index-aligned,
+        // like an EnumCase's sub-slots), not a whole-subject binding name,
+        // so this whole-subject-bind loop would otherwise incorrectly store
+        // the ENTIRE tuple value into an alloca named after one element
+        // (see emitTuplePatternBindings below for the correct per-element
+        // extraction instead).
+        if (useIfElseChain && !info.pat.bindings.empty() && !isPayloadEnum && !info.pat.isTuple) {
             for (auto &bindName : info.pat.bindings) {
                 if (!bindName.empty()) {
                     auto *bindAlloca = createEntryBlockAlloca(func, bindName,
@@ -1629,6 +1636,19 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                     vars_.namedValues[bindName] = bindAlloca;
                 }
             }
+        }
+
+        // Pattern Types Faz B, Task 6: tuple pattern element extraction/
+        // binding — runs BEFORE the pattern-condition check and guard eval
+        // below (mirrors Task 5's guarded-binding prologue above and the
+        // payload-enum extraction further above), so a guard or body
+        // referencing a bound element (`(a, b) if a > b => a+b`) sees a
+        // materialized value. Tuple subjects always force `useIfElseChain`
+        // (their `tagVal` is never an LLVM integer type), so this check is
+        // effectively unconditional in practice — kept for symmetry with the
+        // other prologue blocks.
+        if (useIfElseChain && info.pat.isTuple) {
+            emitTuplePatternBindings(tagVal, info.pat, func);
         }
 
         // Pattern-level comparison for string/float/range/or/tag-bearing
@@ -1799,12 +1819,64 @@ void IRGen::resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs
         case Pattern::Kind::Range:
         case Pattern::Kind::Or:
         case Pattern::Kind::Binding:
-            // Pattern Types Faz B, Task 2/3/4/5 subpattern decision:
+        case Pattern::Kind::Tuple:
+            // Pattern Types Faz B, Task 2/3/4/5/6 subpattern decision:
             // TypeChecker's declarePatternSubBinding rejects these as
             // Case(...) sub-slots before IRGen ever runs
             // (err_pattern_literal_subpattern_unsupported) — this branch
             // only keeps the switch exhaustive for `-Wswitch`; it is never
-            // reached by a successfully type-checked program.
+            // reached by a successfully type-checked program. (A tuple
+            // pattern's OWN elements — as opposed to a tuple appearing
+            // INSIDE an EnumCase's parens — are resolved by the separate
+            // `resolveTuplePatternElements`, not this function.)
+            info.bindings.push_back("");
+            info.nestedPatterns.push_back(IRGen::PatternInfo{});
+            break;
+        }
+    }
+}
+
+void IRGen::resolveTuplePatternElements(const std::vector<std::unique_ptr<Pattern>> &elements,
+                                          PatternInfo &info,
+                                          const std::string &subjectEnumType) {
+    for (auto &elem : elements) {
+        switch (elem->getKind()) {
+        case Pattern::Kind::Identifier:
+            info.bindings.push_back(static_cast<const IdentifierPattern *>(elem.get())->getName());
+            info.nestedPatterns.push_back(IRGen::PatternInfo{});
+            break;
+
+        case Pattern::Kind::Wildcard:
+            info.bindings.push_back("");
+            info.nestedPatterns.push_back(IRGen::PatternInfo{});
+            break;
+
+        case Pattern::Kind::IntLiteral:
+        case Pattern::Kind::BoolLiteral:
+        case Pattern::Kind::StringLiteral:
+        case Pattern::Kind::FloatLiteral:
+        case Pattern::Kind::Range:
+        case Pattern::Kind::Tuple:
+            // Unlike an EnumCase Case(...) sub-slot (resolvePatternSubs,
+            // which Sema pre-rejects these kinds for), a tuple ELEMENT fully
+            // supports every literal/range kind AND a nested TuplePattern —
+            // resolve it for real so emitPatternCond builds an actual
+            // comparison (or, for a nested Tuple, recurses into its own
+            // elements) instead of a silently-always-matching placeholder.
+            info.bindings.push_back("");
+            info.nestedPatterns.push_back(resolveMatchPattern(elem.get(), subjectEnumType));
+            break;
+
+        case Pattern::Kind::EnumCase:
+        case Pattern::Kind::Or:
+        case Pattern::Kind::Binding:
+            // Pattern Types Faz B, Task 6 scope decision: an EnumCase/Or/
+            // Binding pattern as a tuple ELEMENT is not rejected by Sema
+            // today (out of scope — see task-6-report.md) but IRGen has no
+            // codegen for it as a tuple slot either; defensive placeholder
+            // only (same shape as resolvePatternSubs' own rejected-kind
+            // fallback: empty PatternInfo, no comparison — the slot is
+            // treated as always-matching rather than mis-codegenning).
             info.bindings.push_back("");
             info.nestedPatterns.push_back(IRGen::PatternInfo{});
             break;
@@ -1951,6 +2023,21 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
         info.bindings.insert(info.bindings.begin(), bp->getName());
         return info;
     }
+
+    case Pattern::Kind::Tuple: {
+        // Pattern Types Faz B, Task 6: `(a, b, ...)` — resolve each element
+        // slot exactly like an EnumCasePattern's Case(...) subs structurally
+        // (index-aligned `bindings`/`nestedPatterns`), but via
+        // resolveTuplePatternElements (not resolvePatternSubs), which fully
+        // resolves literal/range/nested-tuple elements instead of rejecting
+        // them. `isTuple` flags visitMatchExpr/emitPatternCond to extract
+        // elements from the subject's first-class LLVM aggregate VALUE via
+        // CreateExtractValue.
+        auto *tp = static_cast<const TuplePattern *>(pattern);
+        info.isTuple = true;
+        resolveTuplePatternElements(tp->getElements(), info, subjectEnumType);
+        return info;
+    }
     }
 
     return info;
@@ -2009,6 +2096,23 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
     }
 }
 
+void IRGen::emitTuplePatternBindings(llvm::Value *tupleVal, const PatternInfo &pat,
+                                      llvm::Function *func) {
+    for (size_t i = 0; i < pat.bindings.size(); ++i) {
+        auto *elemVal = builder_->CreateExtractValue(tupleVal, {static_cast<unsigned>(i)},
+                                                       "tuple.pat.bind.elem");
+        if (i < pat.nestedPatterns.size() && pat.nestedPatterns[i].isTuple) {
+            // Nested TuplePattern element (`((a,b),c)`): recurse so its own
+            // elements get bound too.
+            emitTuplePatternBindings(elemVal, pat.nestedPatterns[i], func);
+        } else if (!pat.bindings[i].empty()) {
+            auto *bindAlloca = createEntryBlockAlloca(func, pat.bindings[i], elemVal->getType());
+            builder_->CreateStore(elemVal, bindAlloca);
+            vars_.namedValues[pat.bindings[i]] = bindAlloca;
+        }
+    }
+}
+
 // Pattern Types Faz B, Task 4: the per-kind "does this pattern match
 // tagVal" condition, factored out of visitMatchExpr's if-else-chain arm loop
 // so an OrPattern's alternatives (each its own PatternInfo, see
@@ -2017,6 +2121,26 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
 // condition of its own — wildcard/binding (hasTag == false) — meaning the
 // pattern always matches.
 llvm::Value *IRGen::emitPatternCond(const PatternInfo &pat, llvm::Value *tagVal) {
+    if (pat.isTuple && tagVal->getType()->isStructTy()) {
+        // Pattern Types Faz B, Task 6: AND together each element's own
+        // condition. An element with no condition of its own (Identifier
+        // binding / Wildcard / anything emitPatternCond can't build a check
+        // for — see resolveTuplePatternElements) contributes nothing
+        // (treated as always-matching for that slot), mirroring OrPattern's
+        // "alwaysMatches" handling in visitMatchExpr. A nested TuplePattern
+        // element reuses this SAME branch recursively (its own
+        // nestedPatterns[i].isTuple is true), extracting from the
+        // just-extracted element value instead of the outer `tagVal`.
+        llvm::Value *andCond = nullptr;
+        for (size_t i = 0; i < pat.nestedPatterns.size(); ++i) {
+            auto *elemVal = builder_->CreateExtractValue(tagVal, {static_cast<unsigned>(i)},
+                                                           "tuple.pat.elem");
+            llvm::Value *elemCond = emitPatternCond(pat.nestedPatterns[i], elemVal);
+            if (!elemCond) continue;
+            andCond = andCond ? builder_->CreateAnd(andCond, elemCond, "pat.tuple.and") : elemCond;
+        }
+        return andCond;
+    }
     if (pat.isFloatLiteral) {
         auto *litVal = llvm::ConstantFP::get(tagVal->getType(), pat.floatValue);
         return builder_->CreateFCmpOEQ(tagVal, litVal, "pat.feq");

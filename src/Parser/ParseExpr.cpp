@@ -2,15 +2,27 @@
 
 namespace liva {
 
-// Grammar (Pattern AST — Faz A, extended Faz B Task 3/4/5):
+// Grammar (Pattern AST — Faz A, extended Faz B Task 3/4/5/6):
 //   pattern      := binding
 //   binding      := IDENT '@' pattern            // TOP-LEVEL ONLY (!inParens)
 //                 | orPattern
 //   orPattern    := primary ( '|' primary )*     // >=1 '|' -> OrPattern
 //   primary      := '_' | int-literal [ rangeSuffix ] | ident
 //                 | ident '(' subs ')' | ident '.' ident [ '(' subs ')' ]
+//                 | '(' pattern (',' pattern)+ ')'   // TuplePattern, >=2 elems
 //   rangeSuffix  := ('..' | '..=') int-literal   // -> RangePattern
 //   subs    := pattern (',' pattern)*
+// Pattern Types Faz B, Task 6: a '(' reached at the START of
+// parsePatternPrimary (never after an IDENT — that's EnumCasePattern's
+// `Case(subs)` form, parsed further below inside the identifier branch)
+// begins a TuplePattern. Nested tuples fall out of the grammar for free:
+// each element is parsed via the FULL recursive parsePattern(/*inParens=*/
+// true), so a nested `(a,b)` element recurses right back into this same
+// branch. A single-element `(p)` is a parse error (err_pattern_tuple_single_
+// element) — the grammar has no separate "parenthesized grouping" form, so
+// silently accepting `(p)` as a 1-element tuple would produce an arm that
+// can never match any real subject type (Sema's arity check would reject it
+// universally); diagnosing at the parser rejects it uniformly instead.
 // GRAMMAR DEVIATION (Task 5) from the plan's one-line `binding := IDENT '@'
 // primary`: here `@`'s RHS is the full recursive `pattern` (i.e. an
 // orPattern), not a single primary — so `n @ 1 | 2` binds `n` to the WHOLE
@@ -199,6 +211,31 @@ std::unique_ptr<Pattern> Parser::parsePatternPrimary(bool inParens) {
         advance();
         auto lo = std::make_unique<IntLiteralPattern>(value, text, rangeFrom(startLoc));
         return maybeParseRangePattern(std::move(lo), startLoc, inParens);
+    }
+
+    // Tuple pattern: '(' pattern (',' pattern)+ ')' (Pattern Types Faz B,
+    // Task 6). See the grammar comment above parsePattern for the full
+    // rationale (nested-tuple-for-free via recursion, single-element error).
+    if (check(TokenKind::l_paren)) {
+        advance(); // consume '('
+        std::vector<std::unique_ptr<Pattern>> elements;
+        if (!check(TokenKind::r_paren)) {
+            while (true) {
+                elements.push_back(parsePattern(/*inParens=*/true));
+                if (check(TokenKind::comma)) {
+                    advance();
+                    continue;
+                }
+                break;
+            }
+        }
+        if (check(TokenKind::r_paren)) {
+            advance();
+        }
+        if (elements.size() < 2) {
+            diag_.report(startLoc, DiagID::err_pattern_tuple_single_element);
+        }
+        return std::make_unique<TuplePattern>(std::move(elements), rangeFrom(startLoc));
     }
 
     // Identifier-rooted forms: Ident | Ident(subs) | Ident.Ident[(subs)].
@@ -729,6 +766,15 @@ std::unique_ptr<Expr> Parser::parsePrimaryExpr() {
 std::unique_ptr<Expr> Parser::parsePostfixExpr(std::unique_ptr<Expr> base) {
     while (true) {
         if (check(TokenKind::l_paren)) {
+            // Pattern Types Faz B, Task 6: don't extend `base` into a call
+            // across a source-line gap while parsing a match arm's body (see
+            // `suppressCallAcrossNewline_`'s doc comment in Parser.h) — this
+            // is what stops `(a,b) => c + d` followed on the next line by
+            // the NEXT arm's `(e,f) => ...` from being mis-parsed as
+            // `c + d(e,f)`.
+            if (suppressCallAcrossNewline_ && previous_.getLocation().line != current_.getLocation().line) {
+                break;
+            }
             base = parseCallExpr(std::move(base));
             // Check for trailing closure after call: apply(5) |x| { ... }
             if (base && base->getKind() == ASTNode::NodeKind::CallExpr &&
@@ -1017,8 +1063,15 @@ std::unique_ptr<Expr> Parser::parseMatchExpr() {
 
         expect(TokenKind::fat_arrow);
 
-        // Parse body expression
+        // Parse body expression. Pattern Types Faz B, Task 6: guard against
+        // the body's trailing postfix chain swallowing the NEXT arm's
+        // leading `(...)` (TuplePattern) as a call continuation across the
+        // (unmarked) arm boundary — see `suppressCallAcrossNewline_`'s doc
+        // comment in Parser.h.
+        bool savedSuppressCallAcrossNewline = suppressCallAcrossNewline_;
+        suppressCallAcrossNewline_ = true;
         arm.body = parseExpression();
+        suppressCallAcrossNewline_ = savedSuppressCallAcrossNewline;
         if (!arm.body)
             return nullptr;
 

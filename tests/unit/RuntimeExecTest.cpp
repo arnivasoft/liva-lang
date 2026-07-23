@@ -1204,6 +1204,98 @@ TEST(RuntimeExecTest, MatchBindingPatternWithGuard) {
     EXPECT_EQ(r.stdout_output, "3\n100\n-1\n") << "stdout: " << r.stdout_output;
 }
 
+// === Pattern Types (Faz B) Task 6: tuple patterns ===
+// `(p1, p2, ...)` destructures a tuple-typed subject: matches iff EVERY
+// element sub-pattern matches the corresponding element value (literal
+// comparison, identifier binding, wildcard ignore).
+
+TEST(RuntimeExecTest, MatchTuplePatternLiteralPlusBinding) {
+    auto r = compileAndRun(R"--(
+        func classify(t: (i32, i32)) -> i32 {
+            let r = match t {
+                (1, x) => x
+                _ => -1
+            }
+            return r
+        }
+        func main() {
+            println(classify((1, 5)))
+            println(classify((2, 5)))
+        }
+    )--", "match_tuple_literal_binding");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\n-1\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MatchTuplePatternFullDestructure) {
+    auto r = compileAndRun(R"--(
+        func addPair(t: (i32, i32)) -> i32 {
+            let r = match t {
+                (a, b) => a + b
+            }
+            return r
+        }
+        func main() {
+            println(addPair((3, 4)))
+        }
+    )--", "match_tuple_full_destructure");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MatchTuplePatternMixedWildcardString) {
+    auto r = compileAndRun(R"--(
+        func classify(t: (i32, string)) -> i32 {
+            let r = match t {
+                (_, "s") => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify((1, "s")))
+            println(classify((1, "x")))
+        }
+    )--", "match_tuple_mixed_wildcard_string");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n0\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MatchTuplePatternGuardUsingBoundElements) {
+    auto r = compileAndRun(R"--(
+        func classify(t: (i32, i32)) -> i32 {
+            let r = match t {
+                (a, b) if a > b => 1
+                (a, b) => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify((5, 2)))
+            println(classify((2, 5)))
+        }
+    )--", "match_tuple_guard");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n0\n") << "stdout: " << r.stdout_output;
+}
+
+// Nested tuple pattern: `((a,b), c)` against a `((i32,i32), i32)` subject.
+TEST(RuntimeExecTest, MatchTuplePatternNested) {
+    auto r = compileAndRun(R"--(
+        func sum3(t: ((i32, i32), i32)) -> i32 {
+            let r = match t {
+                ((a, b), c) => a + b + c
+            }
+            return r
+        }
+        func main() {
+            println(sum3(((1, 2), 3)))
+        }
+    )--", "match_tuple_nested");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "6\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

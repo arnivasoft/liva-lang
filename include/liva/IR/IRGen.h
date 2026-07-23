@@ -523,6 +523,18 @@ private:
         // instead of participating in CreateSwitch case-building.
         bool isOr = false;
         std::vector<PatternInfo> alternatives;
+
+        // Pattern Types Faz B, Task 6: tuple patterns (`(a, b)`) reuse
+        // `bindings`/`nestedPatterns` (index-aligned per element, exactly
+        // like an EnumCasePattern's Case(...) subs — see
+        // resolveTuplePatternElements) but flag the whole-arm codegen
+        // (visitMatchExpr, emitPatternCond) to extract elements via
+        // `CreateExtractValue` instead of the payload-enum path's
+        // byte-offset GEP — the subject is always a first-class LLVM
+        // aggregate VALUE (never a pointer), because `tagVal` comes from
+        // `visit(subject)`, which loads a tuple-typed identifier through its
+        // alloca (see IRGen::visitIdentifierExpr).
+        bool isTuple = false;
     };
 
     /// Resolve a Pattern AST node (Pattern AST — Faz B) into a flat
@@ -537,9 +549,31 @@ private:
     void resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs,
                              PatternInfo &info);
 
+    /// Resolve a TuplePattern's element slots into index-aligned
+    /// `info.bindings` / `info.nestedPatterns` (Pattern Types Faz B, Task 6).
+    /// UNLIKE `resolvePatternSubs` (which Sema pre-rejects literal/range/or/
+    /// binding/tuple kinds for, since IRGen has no payload-slot comparison
+    /// codegen for them as an EnumCase Case(...) sub-slot), a tuple ELEMENT
+    /// fully supports every literal/range kind AND a nested TuplePattern —
+    /// each such element is resolved for REAL via `resolveMatchPattern` so
+    /// `emitPatternCond` builds an actual per-element comparison, not a
+    /// silently-always-matching placeholder.
+    void resolveTuplePatternElements(const std::vector<std::unique_ptr<Pattern>> &elements,
+                                      PatternInfo &info,
+                                      const std::string &subjectEnumType);
+
     /// Emit nested pattern check: verify inner enum tag and extract bindings
     void emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nested,
                                 llvm::BasicBlock *failBB, llvm::Function *func);
+
+    /// Pattern Types Faz B, Task 6: extract each of a TuplePattern's element
+    /// values (via CreateExtractValue on the subject's first-class LLVM
+    /// aggregate VALUE — no byte-offset GEP needed, unlike the payload-enum
+    /// binding-extraction loop in visitMatchExpr) and store the ones with a
+    /// binding name into a named alloca. Recurses into a nested
+    /// TuplePattern element's own bindings (`((a,b),c)`).
+    void emitTuplePatternBindings(llvm::Value *tupleVal, const PatternInfo &pat,
+                                   llvm::Function *func);
 
     /// Build the if-else-chain-mode "does this pattern match `tagVal`"
     /// condition for ONE PatternInfo (float/string/range/tag-equality —

@@ -24,7 +24,9 @@ public:
         // Pattern Types Faz B, Task 4:
         Or,
         // Pattern Types Faz B, Task 5:
-        Binding
+        Binding,
+        // Pattern Types Faz B, Task 6:
+        Tuple
     };
 
     explicit Pattern(Kind k, SourceRange r) : kind_(k), range_(r) {}
@@ -252,6 +254,31 @@ public:
 private:
     std::string name_;
     std::unique_ptr<Pattern> sub_;
+};
+
+/// `(p1, p2, ..., pN)` (N >= 2, no spaces in the normalized spelling) —
+/// destructures a tuple-typed subject: matches iff EVERY element sub-pattern
+/// matches the corresponding tuple element value; bindings introduced by an
+/// Identifier (or nested Tuple) element are visible in the guard and body.
+/// A single-element `(p)` is rejected by the PARSER (not this node) as a
+/// syntax error (Task 6 decision: no "parenthesized grouping" form exists
+/// elsewhere in the pattern grammar, so `(p)` can only sensibly mean a
+/// malformed tuple) — see Parser::parsePatternPrimary's tuple branch.
+/// `elements_` is therefore always >= 2 in a successfully parsed program; a
+/// malformed 1-element `(p)` still produces a TuplePattern here for
+/// parser-error-recovery purposes, with fewer than 2 elements, but a
+/// diagnostic has already been reported by the time this constructor runs.
+class TuplePattern : public Pattern {
+public:
+    TuplePattern(std::vector<std::unique_ptr<Pattern>> elements, SourceRange r)
+        : Pattern(Kind::Tuple, r), elements_(std::move(elements)) {}
+
+    const std::vector<std::unique_ptr<Pattern>> &getElements() const { return elements_; }
+
+    static bool classof(const Pattern *p) { return p->getKind() == Kind::Tuple; }
+
+private:
+    std::vector<std::unique_ptr<Pattern>> elements_;
 };
 
 } // namespace liva

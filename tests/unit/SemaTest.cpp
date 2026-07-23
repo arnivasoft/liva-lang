@@ -700,6 +700,60 @@ TEST_F(SemaTest, BindingPatternSubTypeMismatchStillCaught) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
 }
 
+// === Pattern Types (Faz B) Task 6: tuple patterns ===
+
+// A 2-element tuple pattern against a 3-tuple subject: DIAG DECISION — reuse
+// the EXISTING `err_tuple_arity_mismatch` (already used by `let (x,y) =
+// expr` destructuring) rather than adding a new `err_pattern_tuple_arity` —
+// see task-6-report.md's "reuse vs add" writeup.
+TEST_F(SemaTest, TuplePatternArityMismatch) {
+    auto result = check(R"--(
+        func main() {
+            let t = (1, 2, 3)
+            match t {
+                (a, b) => println(0)
+                _ => println(1)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_tuple_arity_mismatch));
+}
+
+// A tuple pattern against a KNOWN non-tuple (int) subject is a type
+// mismatch, reusing the general err_pattern_type_mismatch (same diagnostic
+// family every other pattern-kind-vs-subject-type mismatch uses).
+TEST_F(SemaTest, TuplePatternOnIntSubjectIsTypeMismatch) {
+    auto result = check(R"--(
+        func main() {
+            let x: i32 = 5
+            match x {
+                (a, b) => println(0)
+                _ => println(1)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
+// Element binding types: each Identifier element of a tuple pattern is
+// declared with the CORRESPONDING tuple element's type (unlike an ordinary
+// whole-subject Identifier/`@` binding, which leaves Symbol::type unset) —
+// so well-typed arithmetic/comparison in the guard AND body must type-check.
+TEST_F(SemaTest, TuplePatternElementBindingTypesUsableInBody) {
+    auto result = check(R"--(
+        func main() {
+            let t = (1, 2)
+            match t {
+                (a, b) if a > b => println(a + b)
+                (a, b) => println(a - b)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

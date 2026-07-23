@@ -8,6 +8,7 @@ Parser::Parser(Lexer &lexer, DiagnosticsEngine &diag)
 Token Parser::advance() {
     Token prev = current_;
     current_ = lexer_.nextToken();
+    previous_ = prev;
     return prev;
 }
 

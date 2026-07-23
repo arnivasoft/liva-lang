@@ -142,6 +142,27 @@ private:
     /// expression. Reset (false) inside parens, brackets, and call args
     /// so nested struct literals still work.
     bool suppressStructLit_ = false;
+    /// The token immediately before `current_` (i.e. the last one consumed by
+    /// `advance()`) — used only to detect a source-line gap before a `(`
+    /// (Pattern Types Faz B, Task 6's `suppressCallAcrossNewline_` check).
+    Token previous_;
+    /// Pattern Types Faz B, Task 6: match arms have no explicit separator
+    /// token between them (`arm.body = parseExpression()` in parseMatchExpr
+    /// runs straight into the next arm's pattern) — this was never
+    /// ambiguous before Task 6 because no pattern could ever START with `(`,
+    /// the one token parsePostfixExpr's postfix loop also treats as a call
+    /// continuation on ANY preceding expression. Now that a TuplePattern can
+    /// start an arm (`(a, b) => ...`), a body ending in a bare identifier
+    /// immediately followed (across the arm boundary) by the NEXT arm's
+    /// `(...)` would otherwise be swallowed as a call
+    /// (`prevBody(nextArmsTupleElements)`) instead of ending the arm. Fix:
+    /// while this flag is true (set only around a match arm's body parse),
+    /// parsePostfixExpr only treats `(` as a call-continuation when it's on
+    /// the SAME source line as the last consumed token — a body whose call
+    /// deliberately spans a newline before its own `(` is the only thing
+    /// this changes, a construct no pre-Task-6 grammar could distinguish
+    /// from the arm-boundary case anyway.
+    bool suppressCallAcrossNewline_ = false;
     std::vector<std::unique_ptr<ASTNode>> pendingDecls_;
 };
 

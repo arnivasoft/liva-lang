@@ -71,6 +71,20 @@ std::string Pattern::toString() const {
         const auto *bp = static_cast<const BindingPattern *>(this);
         return bp->getName() + "@" + bp->getSub()->toString();
     }
+
+    case Kind::Tuple: {
+        // `(a,b,...)`, no spaces (Pattern Types Faz B, Task 6) — independent
+        // of whatever whitespace surrounded the commas in source.
+        const auto *tp = static_cast<const TuplePattern *>(this);
+        std::string out = "(";
+        const auto &elems = tp->getElements();
+        for (size_t i = 0; i < elems.size(); ++i) {
+            if (i > 0) out += ",";
+            out += elems[i]->toString();
+        }
+        out += ")";
+        return out;
+    }
     }
     return {};
 }

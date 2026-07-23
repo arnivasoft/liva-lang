@@ -97,6 +97,16 @@ DIAG(err_pattern_or_binding,          error,   "or-pattern alternative '%0' cann
 // slotunda" scope note / task-5-report.md).
 DIAG(err_pattern_binding_enum_case_unsupported, error,
      "binding pattern '%0' cannot bind an enum-case pattern (unsupported)")
+// Pattern Types (Faz B) Task 6: a parenthesized pattern with fewer than 2
+// elements (e.g. `(p)`) is a parse error — the grammar has no
+// "parenthesized grouping" form elsewhere, so a lone parenthesized pattern
+// can only sensibly mean a malformed tuple pattern (tuples require >= 2
+// elements). Arity mismatch AGAINST A KNOWN SUBJECT TYPE (Sema-time, e.g. a
+// 2-element tuple pattern against a 3-tuple subject) reuses the existing
+// `err_tuple_arity_mismatch` instead — see task-6-report.md's "diag reuse
+// vs add" writeup.
+DIAG(err_pattern_tuple_single_element, error,
+     "tuple pattern must have at least 2 elements")
 
 // === Sema - Operator Overloading ===
 DIAG(err_binary_op_on_struct, error, "binary operator '%0' cannot be applied to type '%1'; implement protocol '%2'")

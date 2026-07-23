@@ -155,8 +155,16 @@ private:
     /// Check if a code path always returns a value
     bool alwaysReturns(const ASTNode *node) const;
 
-    /// Extract leaf bindings from a pattern AST node (supports nested patterns)
-    void extractPatternBindings(const Pattern *pattern);
+    /// Extract leaf bindings from a pattern AST node (supports nested patterns).
+    /// `subjectOrElemType` is the KNOWN type of the value this pattern
+    /// matches against (Pattern Types Faz B, Task 6) — every existing
+    /// pattern kind's binding ignores it entirely (kept default-nullptr,
+    /// Symbol::type stays unset, exactly as before Task 6); ONLY
+    /// Kind::Tuple's case reads it, to type each Identifier element's
+    /// binding with the corresponding tuple element type (recursing with
+    /// the nested element type for a nested TuplePattern element).
+    void extractPatternBindings(const Pattern *pattern,
+                                 const TypeRepr *subjectOrElemType = nullptr);
 
     /// Declare a binding for one sub-pattern slot inside an EnumCasePattern's
     /// parens: a nested EnumCasePattern recurses via extractPatternBindings;
