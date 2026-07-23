@@ -1742,7 +1742,7 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
                             builder_->getInt8Ty(), innerPayloadPtr, offset,
                             "nested.bind." + std::to_string(b));
 
-                        if (b < nested.nestedPatterns.size() && nested.nestedPatterns[b].tag >= 0) {
+                        if (b < nested.nestedPatterns.size() && nested.nestedPatterns[b].hasTag) {
                             // Deeper nesting — recurse
                             emitNestedPatternMatch(innerFieldPtr, nested.nestedPatterns[b], failBB, func);
                         } else if (!nested.bindings[b].empty()) {

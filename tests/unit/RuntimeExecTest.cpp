@@ -717,6 +717,52 @@ TEST(RuntimeExecTest, MatchNegativeIntLiteralArm) {
     EXPECT_EQ(r.stdout_output, "111\n222\n333\n") << "stdout: " << r.stdout_output;
 }
 
+// Pattern Types (Faz B) Task 1 follow-up: a 4th structurally identical
+// `tag >= 0` sentinel read survived inside emitNestedPatternMatch (line
+// ~1745) — the depth>=2 nested-binding-extraction loop that recurses into a
+// THIRD level of enum nesting. `Inner.Neg` has an explicit negative
+// discriminant (`case Neg = -1`, legal per ParseDecl.cpp) and is carried as
+// the innermost payload two levels deep (Outer.Wrap(Middle.Something(...))).
+// Reaching this requires Middle itself to be a *payload* enum (so
+// emitNestedPatternMatch takes its "payload enum" branch and loops over
+// nested.nestedPatterns), unlike the shallower (Outer directly wrapping a
+// simple enum) case already covered by MatchNegativeIntLiteralArm's sibling
+// fix. Before the fix, `nested.nestedPatterns[b].tag >= 0` is false for the
+// Neg leaf, so the inner check is skipped entirely (falls through to the
+// "no binding name either" no-op branch) — meaning the pattern accepts ANY
+// Inner value, not just Neg specifically.
+TEST(RuntimeExecTest, MatchNestedNegativeDiscriminant) {
+    auto r = compileAndRun(R"--(
+        enum Inner {
+            case Neg = -1
+            case Zero = 0
+        }
+        enum Middle {
+            case Something(Inner)
+        }
+        enum Outer {
+            case Wrap(Middle)
+            case Empty
+        }
+        func classify(o: Outer) -> i32 {
+            let r = match o {
+                Outer.Wrap(Middle.Something(Inner.Neg)) => 111
+                _ => 222
+            }
+            return r
+        }
+        func main() {
+            println(classify(Outer.Wrap(Middle.Something(Inner.Neg))))
+            println(classify(Outer.Wrap(Middle.Something(Inner.Zero))))
+        }
+    )--", "match_nested_negative_discriminant");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // Only the first call actually matches Inner.Neg; the second wraps
+    // Inner.Zero and must fall through to the wildcard arm (222), not be
+    // silently accepted by the Inner.Neg-specific pattern.
+    EXPECT_EQ(r.stdout_output, "111\n222\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"
