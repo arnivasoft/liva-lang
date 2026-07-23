@@ -30,13 +30,20 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
     propagateClosureParamTypes(node);
     propagateDynArrayClosureTypes(node);
     checkCallArgCount(node);
+
+    for (auto &arg : node->getArgs()) {
+        visit(arg.get());
+    }
+
     resolveCallReturnType(node);
     resolveMapSetMethodCall(node);
 }
 ```
 
+(Koşulsuz arg-visit döngüsü Task 0'da keşfedildi — faz değildir, dispatcher'da kalır; plan bu yönde güncellendi.)
+
 - Yeni dosya: `src/Sema/TypeCheckerCall.cpp` — iskelet: `#include "liva/Sema/TypeChecker.h"` + `namespace liva { ... }` (Sema'da LIVA_HAS_LLVM guard'ı yok).
-- Bildirimler `include/liva/Sema/TypeChecker.h`'ye private `void` metodlar olarak eklenir (`visitCallExpr` bildiriminin yanına).
+- Bildirimler `include/liva/Sema/TypeChecker.h`'ye `visitCallExpr` bildiriminin hemen altına eklenir (public bölüm — IRGen split'indeki yerleşim emsaliyle tutarlı).
 - `CMakeLists.txt` liva_sema hedefine (satır ~81) `src/Sema/TypeCheckerCall.cpp` eklenir.
 - Faz gövdeleri VERBATIM taşınır (girinti dahil dokunulmaz). Faz 4 (~707 satır) önce tek helper olarak taşınır; 2.000 satır eşiğini zorlamadığından alt-bölme bu spec'in kapsamı dışındadır.
 
