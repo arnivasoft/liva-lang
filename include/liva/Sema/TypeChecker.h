@@ -55,6 +55,14 @@ public:
     void visitBinaryExpr(BinaryExpr *node);
     void visitUnaryExpr(UnaryExpr *node);
     void visitCallExpr(CallExpr *node);
+
+    // --- visitCallExpr fazları (TypeCheckerCall.cpp) — sıralı, void, yan-etkiyle çalışır ---
+    void propagateClosureParamTypes(CallExpr *node);
+    void propagateDynArrayClosureTypes(CallExpr *node);
+    void checkCallArgCount(CallExpr *node);
+    void resolveCallReturnType(CallExpr *node);
+    void resolveMapSetMethodCall(CallExpr *node);
+
     void visitMemberExpr(MemberExpr *node);
     void visitIndexExpr(IndexExpr *node);
     void visitAssignExpr(AssignExpr *node);

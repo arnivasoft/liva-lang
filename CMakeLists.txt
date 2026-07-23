@@ -79,6 +79,7 @@ liva_set_compiler_flags(liva_macro)
 add_library(liva_sema STATIC
     src/Sema/Sema.cpp
     src/Sema/TypeChecker.cpp
+    src/Sema/TypeCheckerCall.cpp
     src/Sema/OwnershipChecker.cpp
     src/Sema/LifetimeAnalysis.cpp
     src/Sema/Scope.cpp
