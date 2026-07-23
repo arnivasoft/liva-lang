@@ -2482,4 +2482,65 @@ func main() {
         << r.stdout_output;
 }
 
+// Reviewer-caught CRITICAL: stale-map type confusion on variable-name reuse.
+// vars_.varOptionalTypes/varStructTypes/movedVars are function-flat — a
+// plain `if` block gives its locals NO lexical-scope save/restore (only
+// closures/monomorphization/if-let/while-let snapshot vars_). After
+// `if true { let x: Res? = ... }`, a later SIBLING `let x = Res{...}`
+// (plain, non-Optional, same name) leaves the stale varOptionalTypes["x"]
+// entry from the first declaration in place — the conditional-drop loop
+// then GEPs the PLAIN Res alloca (from the second declaration) as if it
+// were the {i1, Res} Optional wrapper, computing an out-of-bounds payload
+// pointer and firing a stray, type-confused Res_drop call.
+//
+// Achievable/correct expected behavior given this codebase's existing
+// architecture: cleanup (emitScopeCleanup) only runs at function-level
+// events (return / natural function end), never at a plain `if` block's
+// closing brace — so the FIRST (Optional) `x`, once shadowed by the SECOND
+// (plain) `x`, is no longer reachable via vars_'s name-keyed maps at all.
+// This exact "shadowing loses track of the shadowed variable's cleanup
+// obligation" leak is PRE-EXISTING and applies uniformly to ALL
+// Drop-conforming locals (verified independently with two plain, non-
+// Optional shadowed `Res` locals: only ONE "DROPPED" fires, for the second
+// declaration) — not a regression introduced by this fix. What the fix
+// actually guarantees: no type confusion, no out-of-bounds GEP, no stray/
+// misplaced drop call — exactly one CORRECT drop, for the plain `x`, at
+// the right point (function end, after all of main's prints).
+TEST(RuntimeExecTest, OptionalShadowingNoTypeConfusedDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+func main() {
+    if true {
+        let x: Res? = Res { id: 1 }
+        println("first block")
+    }
+    let x = Res { id: 0 }
+    println(x.id)
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "opt_shadowing_no_type_confusion");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // Exactly one drop, and it must come AFTER "done" (function end) — not
+    // interleaved/duplicated by a type-confused GEP into the wrong alloca.
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 1)
+        << "expected exactly one drop (the plain x, correctly, at function "
+           "end) — no type-confused stray drop from the shadowed Optional "
+           "x's stale map entry; stdout: "
+        << r.stdout_output;
+    std::string expected = "first block\n0\ndone\nDROPPED\n";
+    EXPECT_EQ(r.stdout_output, expected)
+        << "exact sequence must be: first block, 0, done, DROPPED (in that "
+           "order) — stdout: "
+        << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

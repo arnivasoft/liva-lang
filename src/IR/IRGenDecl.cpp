@@ -880,6 +880,30 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         return tupleAlloca;
     }
 
+    // Redeclaration hygiene: vars_.varOptionalTypes/varStructTypes/movedVars/
+    // heapOptionalStringVars/varFileOptionalTypes are name-keyed and
+    // function-flat (no lexical-scope save/restore for plain `if`/loop
+    // blocks — only closures/monomorphization/if-let/while-let snapshot
+    // vars_ via VarStateGuard or manual saves). If a name is shadowed by a
+    // LATER VarDecl of a DIFFERENT shape (e.g. `if true { let x: Res? = ...
+    // }` followed by a sibling `let x = Res{...}`), the earlier
+    // declaration's per-name classification entries would otherwise survive
+    // untouched — since the new declaration's branch only writes the maps
+    // ITS OWN shape needs, any leftover entry from the old shape is stale
+    // and can cause type confusion at scope-cleanup time (e.g. treating a
+    // plain struct alloca as an Optional wrapper, GEP'ing past its bounds).
+    // Clear every per-name classification entry for this name up front so
+    // each branch below starts from a clean slate and only re-establishes
+    // what its own shape actually needs.
+    {
+        const std::string &declName = node->getName();
+        vars_.varOptionalTypes.erase(declName);
+        vars_.varStructTypes.erase(declName);
+        vars_.movedVars.erase(declName);
+        vars_.heapOptionalStringVars.erase(declName);
+        vars_.varFileOptionalTypes.erase(declName);
+    }
+
     // Dyn protocol trait object: let s: dyn Shape = circle
     if (node->hasTypeAnnotation() && node->getType() &&
         node->getType()->getKind() == TypeRepr::Kind::DynProtocol) {

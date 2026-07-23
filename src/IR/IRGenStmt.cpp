@@ -86,8 +86,31 @@ void IRGen::emitScopeCleanup() {
     // has-value-gated block below instead.
     for (auto &[name, structTypeName] : vars_.varStructTypes) {
         if (name == "self") continue; // self is borrowed (ref/ref mut), not owned
-        if (vars_.varOptionalTypes.count(name)) continue; // handled below
         if (vars_.movedVars.count(name)) continue;
+
+        // Optional<Named> exclusion: only defer to the conditional block
+        // below if the alloca's ACTUAL LLVM type matches the expected
+        // Optional wrapper shape for the registered inner type. Trusting
+        // varOptionalTypes co-presence alone is unsafe: these per-name maps
+        // are function-flat (no lexical-scope save/restore for plain `if`/
+        // loop blocks), so a shadowed prior declaration's stale
+        // varOptionalTypes entry could otherwise survive a later,
+        // differently-shaped redeclaration of the same name (hygiene fix:
+        // IRGenDecl.cpp's VarDecl entry clears these on every redeclaration
+        // — this check is defense in depth for anything that still slips
+        // through). A stale entry diverting a PLAIN struct alloca into the
+        // wrapper-typed conditional path below would GEP it out of bounds.
+        auto optIt = vars_.varOptionalTypes.find(name);
+        if (optIt != vars_.varOptionalTypes.end()) {
+            auto nvIt = vars_.namedValues.find(name);
+            if (nvIt != vars_.namedValues.end() &&
+                nvIt->second->getAllocatedType() == getOptionalType(optIt->second)) {
+                continue; // genuinely an Optional wrapper — handled below
+            }
+            // Type mismatch: stale/unrelated entry — fall through and treat
+            // `name` as the plain NAMED struct its alloca actually is.
+        }
+
         if (dropImplementors_.count(structTypeName)) {
             auto it = vars_.namedValues.find(name);
             if (it == vars_.namedValues.end()) continue;
@@ -119,12 +142,20 @@ void IRGen::emitScopeCleanup() {
         auto optIt = vars_.varOptionalTypes.find(name);
         if (optIt == vars_.varOptionalTypes.end()) continue;
 
+        auto *innerTy = optIt->second;
+        auto *optTy = getOptionalType(innerTy);
+
+        // Defense in depth (matching check in the loop above): verify the
+        // alloca's actual type is really the Optional wrapper shape before
+        // GEP'ing into it as one. A stale entry here would otherwise GEP a
+        // plain (smaller) struct alloca as if it had a leading hasVal field
+        // plus this payload field — out-of-bounds and type-confused.
+        if (it->second->getAllocatedType() != optTy) continue;
+
         std::string dropFnName = structTypeName + "_drop";
         auto *dropFn = module_->getFunction(dropFnName);
         if (!dropFn) continue;
 
-        auto *innerTy = optIt->second;
-        auto *optTy = getOptionalType(innerTy);
         auto *func = builder_->GetInsertBlock()->getParent();
 
         auto *hasValGEP = builder_->CreateStructGEP(optTy, it->second, 0,
@@ -519,6 +550,13 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         if (dropStructName.empty()) {
             // Fallback: match innerType against known struct LLVM types by
             // identity (covers non-identifier sources, e.g. method calls).
+            // Maintainer note: this is an O(n) scan over ALL declared struct
+            // types, run once per if-let AST node during codegen (NOT per
+            // runtime iteration/call) — negligible for realistic program
+            // sizes today. If `structTypes_` ever grows large enough for
+            // this to matter, consider a reverse llvm::Type* -> name index
+            // built once and reused, rather than optimizing this call site
+            // in isolation.
             for (auto &[nm, ty] : structTypes_) {
                 if (ty == innerType) { dropStructName = nm; break; }
             }
@@ -725,6 +763,9 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
             if (stIt != vars_.varStructTypes.end()) dropStructName = stIt->second;
         }
         if (dropStructName.empty()) {
+            // Same O(n) type-identity fallback as visitIfLetStmt above —
+            // run once per while-let AST node during codegen, not per
+            // runtime iteration; see the maintainer note there.
             for (auto &[nm, ty] : structTypes_) {
                 if (ty == innerType) { dropStructName = nm; break; }
             }
