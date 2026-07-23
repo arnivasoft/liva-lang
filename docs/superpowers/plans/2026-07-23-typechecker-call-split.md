@@ -36,7 +36,8 @@ namespace liva {
 |---|---|---|---|
 | 1 | `// Propagate function param types to untyped closure args` | 2137–2160 | `propagateClosureParamTypes(CallExpr *node)` |
 | 2 | `// Propagate DynArray element type to closure params for map/filter/forEach` | 2161–2202 | `propagateDynArrayClosureTypes(CallExpr *node)` |
-| 3 | `// Check argument count for user-defined functions / class constructors` | 2203–2276 | `checkCallArgCount(CallExpr *node)` |
+| 3 | `// Check argument count for user-defined functions / class constructors` | 2203–2272 | `checkCallArgCount(CallExpr *node)` |
+| — | (faz değil) koşulsuz argüman ziyareti `for (auto &arg : node->getArgs()) { visit(arg.get()); }` | 2273–2275 | **dispatcher'da kalır** (Task 0 bulgusu) |
 | 4 | `// Try to resolve return type from callee` | 2277–2983 | `resolveCallReturnType(CallExpr *node)` |
 | 5 | `// Map/Set method call resolution: m.insert(), m.get(), m.contains(), m.remove()` | 2984–3186 | `resolveMapSetMethodCall(CallExpr *node)` |
 
@@ -50,6 +51,11 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
     propagateClosureParamTypes(node);
     propagateDynArrayClosureTypes(node);
     checkCallArgCount(node);
+
+    for (auto &arg : node->getArgs()) {
+        visit(arg.get());
+    }
+
     resolveCallReturnType(node);
     resolveMapSetMethodCall(node);
 }
@@ -113,7 +119,7 @@ void TypeChecker::checkCallArgCount(CallExpr *node) {
     checkCallArgCount(node);
 ```
 
-(Faz 4 anchor'ı bu üç satırın hemen altında kalır.)
+(Koşulsuz `for (auto &arg : ...) { visit(arg.get()); }` döngüsü — 2273–2275 — ve faz 4 anchor'ı bu üç satırın altında YERİNDE kalır; faz 3'ün aralığı döngünün ÖNCESİNDE biter.)
 
 - [ ] **Step 4: CMakeLists.txt liva_sema hedefine** `src/Sema/TypeCheckerCall.cpp` ekle (TypeChecker.cpp satırının altına).
 - [ ] **Step 5: Derle** — `build_clang.bat`, temiz.
