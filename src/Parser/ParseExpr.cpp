@@ -375,7 +375,13 @@ std::unique_ptr<Expr> Parser::parsePrecedenceExpr(int minPrec) {
 
         // Right-associativity: use minPrec = prec for right-assoc ops
         // Left-associativity: use minPrec = prec + 1
-        auto right = parsePrecedenceExpr(prec + 1);
+        // `??` is right-associative (Swift/TS/C# convention): a ?? b ?? c
+        // parses as a ?? (b ?? c) so every stage's LHS stays an Optional
+        // (the coalesce result of the inner `b ?? c` is the same T as `a`'s
+        // inner type would need to unwrap against), instead of the plain-T
+        // result of `(a ?? b)` making the outer `?? c` a no-op fallback.
+        int nextMinPrec = (op == BinaryExpr::Op::NilCoalesce) ? prec : prec + 1;
+        auto right = parsePrecedenceExpr(nextMinPrec);
         if (!right)
             return nullptr;
 

@@ -606,6 +606,14 @@ private:
     /// Emit nil coalescing operator (??) IR
     llvm::Value *emitNilCoalesce(BinaryExpr *node);
 
+    /// Shared general-purpose `??` lowering: lhsVal is an already-evaluated
+    /// Optional<T> struct VALUE (not an alloca) — store to a temp alloca,
+    /// test the has-flag, and branch to either the unwrapped payload or the
+    /// (lazily evaluated) rhsExpr. Used by both the optional-chain MemberExpr
+    /// path and the general fallback path (any other LHS shape whose value
+    /// is structurally an Optional wrapper, e.g. a CallExpr result).
+    llvm::Value *emitOptionalCoalesce(llvm::Value *lhsVal, Expr *rhsExpr);
+
     /// Emit optional chaining member access (?.) IR
     llvm::Value *emitOptionalChainMember(MemberExpr *node);
 

@@ -299,6 +299,41 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
     return nullptr;
 }
 
+// Shared general-purpose `??` lowering (see IRGen.h doc comment). Extracted
+// verbatim from the old MemberExpr optional-chain-only branch so both that
+// path and the general fallback path share one correct implementation.
+llvm::Value *IRGen::emitOptionalCoalesce(llvm::Value *lhsVal, Expr *rhsExpr) {
+    // lhsVal is an Optional<T> struct value; store to alloca for GEP
+    auto *optTy = lhsVal->getType();
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *tmpAlloca = createEntryBlockAlloca(func, "coal.opt.tmp", optTy);
+    builder_->CreateStore(lhsVal, tmpAlloca);
+    auto *hasValPtr2 = builder_->CreateStructGEP(optTy, tmpAlloca, 0);
+    auto *hasVal2 = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr2, "coal.hasval");
+    auto *fieldInnerType = optTy->getStructElementType(1);
+    auto *hasValBB2 = llvm::BasicBlock::Create(*context_, "coal.hasval", func);
+    auto *nilBB2 = llvm::BasicBlock::Create(*context_, "coal.nil", func);
+    auto *mergeBB2 = llvm::BasicBlock::Create(*context_, "coal.merge", func);
+    builder_->CreateCondBr(hasVal2, hasValBB2, nilBB2);
+
+    builder_->SetInsertPoint(hasValBB2);
+    auto *valPtr2 = builder_->CreateStructGEP(optTy, tmpAlloca, 1);
+    auto *optVal2 = builder_->CreateLoad(fieldInnerType, valPtr2, "coal.val");
+    auto *hasValEnd2 = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB2);
+
+    builder_->SetInsertPoint(nilBB2);
+    auto *defaultVal2 = visit(rhsExpr);
+    auto *nilEnd2 = builder_->GetInsertBlock();
+    builder_->CreateBr(mergeBB2);
+
+    builder_->SetInsertPoint(mergeBB2);
+    auto *phi2 = builder_->CreatePHI(fieldInnerType, 2, "coal.result");
+    phi2->addIncoming(optVal2, hasValEnd2);
+    phi2->addIncoming(defaultVal2, nilEnd2);
+    return phi2;
+}
+
 llvm::Value *IRGen::emitNilCoalesce(BinaryExpr *node) {
     llvm::AllocaInst *optAlloca = nullptr;
     llvm::Type *innerType = nullptr;
@@ -316,39 +351,29 @@ llvm::Value *IRGen::emitNilCoalesce(BinaryExpr *node) {
             if (memberExpr->isOptionalChain()) {
                 auto *lhsVal = visit(node->getLHS());
                 if (!lhsVal) return visit(node->getRHS());
-                // lhsVal is an Optional<T> struct value; store to alloca for GEP
-                auto *optTy = lhsVal->getType();
-                auto *func = builder_->GetInsertBlock()->getParent();
-                auto *tmpAlloca = createEntryBlockAlloca(func, "coal.opt.tmp", optTy);
-                builder_->CreateStore(lhsVal, tmpAlloca);
-                auto *hasValPtr2 = builder_->CreateStructGEP(optTy, tmpAlloca, 0);
-                auto *hasVal2 = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr2, "coal.hasval");
-                auto *fieldInnerType = optTy->getStructElementType(1);
-                auto *hasValBB2 = llvm::BasicBlock::Create(*context_, "coal.hasval", func);
-                auto *nilBB2 = llvm::BasicBlock::Create(*context_, "coal.nil", func);
-                auto *mergeBB2 = llvm::BasicBlock::Create(*context_, "coal.merge", func);
-                builder_->CreateCondBr(hasVal2, hasValBB2, nilBB2);
-
-                builder_->SetInsertPoint(hasValBB2);
-                auto *valPtr2 = builder_->CreateStructGEP(optTy, tmpAlloca, 1);
-                auto *optVal2 = builder_->CreateLoad(fieldInnerType, valPtr2, "coal.val");
-                auto *hasValEnd2 = builder_->GetInsertBlock();
-                builder_->CreateBr(mergeBB2);
-
-                builder_->SetInsertPoint(nilBB2);
-                auto *defaultVal2 = visit(node->getRHS());
-                auto *nilEnd2 = builder_->GetInsertBlock();
-                builder_->CreateBr(mergeBB2);
-
-                builder_->SetInsertPoint(mergeBB2);
-                auto *phi2 = builder_->CreatePHI(fieldInnerType, 2, "coal.result");
-                phi2->addIncoming(optVal2, hasValEnd2);
-                phi2->addIncoming(defaultVal2, nilEnd2);
-                return phi2;
+                return emitOptionalCoalesce(lhsVal, node->getRHS());
             }
         }
+        // General fallback: any other LHS shape (CallExpr, chained
+        // BinaryExpr(NilCoalesce), subscript, ...). Evaluate LHS exactly
+        // once. If its LLVM type is structurally one of THIS IRGen
+        // instance's Optional<T> wrapper types (detected via
+        // pointer-identity reverse lookup against optionalTypes_ — never
+        // name/shape heuristics, which could collide with a user struct of
+        // the same layout), unwrap it through the shared helper so the RHS
+        // is evaluated lazily and only on the nil path. Otherwise LHS is
+        // already a plain (non-Optional) value — there is nothing to
+        // coalesce, so it is returned as-is (matches Sema's current
+        // permissive rule of not diagnosing a non-optional LHS for `??`).
         auto *lhs = visit(node->getLHS());
-        return lhs ? lhs : visit(node->getRHS());
+        if (!lhs) return visit(node->getRHS());
+        llvm::Type *lhsTy = lhs->getType();
+        bool isOptionalWrapper = false;
+        for (auto &kv : optionalTypes_) {
+            if (kv.second == lhsTy) { isOptionalWrapper = true; break; }
+        }
+        if (isOptionalWrapper) return emitOptionalCoalesce(lhs, node->getRHS());
+        return lhs;
     }
 
     auto *optStructTy = getOptionalType(innerType);

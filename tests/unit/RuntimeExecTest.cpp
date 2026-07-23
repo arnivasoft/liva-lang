@@ -2815,4 +2815,167 @@ func main() {
         << r.stdout_output;
 }
 
+// ============================================================
+// `??` general-LHS support (roadmap #5) — nil-coalesce-general
+// ============================================================
+// emitNilCoalesce's fallback path (any LHS shape that is neither a plain
+// identifier nor an optional-chain MemberExpr — e.g. a CallExpr, or the
+// outer node of a chained `a ?? b ?? c`) used to be a compile-time C++
+// ternary (`return lhs ? lhs : visit(rhs)`), which ALWAYS took the `lhs`
+// branch (an llvm::Value* is a non-null C++ pointer whenever codegen
+// succeeded) and therefore never unwrapped the Optional wrapper struct nor
+// evaluated the RHS at all. These tests pin the fix: LHS is evaluated once,
+// detected as an Optional wrapper via pointer-identity lookup against
+// optionalTypes_, and correctly branched/unwrapped through the shared
+// emitOptionalCoalesce helper.
+
+TEST(RuntimeExecTest, NilCoalesceCallLHS) {
+    auto r = compileAndRun(R"--(
+        func maybe(x: i32) -> i32? {
+            if x > 0 { return x }
+            return nil
+        }
+        func main() {
+            let v1 = maybe(5) ?? 99
+            println(v1)
+            let v2 = maybe(-1) ?? 99
+            println(v2)
+        }
+    )--", "coal_call_lhs");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\n99\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NilCoalesceRHSLazy) {
+    // RHS has a visible side effect (println). It must run ONLY on the nil
+    // path, exactly once, and must NOT run on the valued path.
+    auto r = compileAndRun(R"--(
+        func maybe(x: i32) -> i32? {
+            if x > 0 { return x }
+            return nil
+        }
+        func loudDefault() -> i32 {
+            println("SIDEEFFECT")
+            return 42
+        }
+        func main() {
+            let v1 = maybe(5) ?? loudDefault()
+            println(v1)
+            let v2 = maybe(-1) ?? loudDefault()
+            println(v2)
+        }
+    )--", "coal_rhs_lazy");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "SIDEEFFECT"), 1)
+        << "RHS side effect must fire exactly once (nil path only); stdout: "
+        << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\nSIDEEFFECT\n42\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NilCoalesceChained) {
+    // a ?? b ?? c ; with right-assoc parsing this is a ?? (b ?? c), so each
+    // stage's LHS stays Optional and the shared unwrap logic applies at
+    // every level. Covers all three "who has the value" cases.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a1: i32? = 1
+            let b1: i32? = 2
+            let v1 = a1 ?? b1 ?? 3
+            println(v1)
+
+            let a2: i32? = nil
+            let b2: i32? = 2
+            let v2 = a2 ?? b2 ?? 3
+            println(v2)
+
+            let a3: i32? = nil
+            let b3: i32? = nil
+            let v3 = a3 ?? b3 ?? 3
+            println(v3)
+        }
+    )--", "coal_chained");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n2\n3\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NilCoalesceCallChained) {
+    // Task 0 probe 4 shape: maybeA() ?? maybeB() ?? 77, both nil.
+    auto r = compileAndRun(R"--(
+        func maybeA() -> i32? { return nil }
+        func maybeB() -> i32? { return nil }
+        func main() {
+            let v = maybeA() ?? maybeB() ?? 77
+            println(v)
+        }
+    )--", "coal_call_chained");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "77\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NilCoalesceSubscriptLHS) {
+    // A struct-defined `subscript` method returning Optional<T> makes
+    // `obj[i] ?? default` expressible: IndexExpr codegen (visitIndexExpr)
+    // returns the raw call result (the Optional<T> wrapper struct value,
+    // same shape as a CallExpr result), which lands in the SAME general
+    // fallback path as NilCoalesceCallLHS above.
+    auto r = compileAndRun(R"--(
+        struct Bag {
+            var n: i32
+        }
+        impl Bag {
+            func subscript(ref self, key: i32) -> i32? {
+                if key == 1 { return self.n }
+                return nil
+            }
+        }
+        func main() {
+            let b = Bag { n: 5 }
+            let v1 = b[1] ?? 99
+            println(v1)
+            let v2 = b[2] ?? 99
+            println(v2)
+        }
+    )--", "coal_subscript_lhs");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\n99\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NilCoalesceIdentifierRegression) {
+    // Pre-existing correct path (plain identifier LHS) must keep working.
+    auto r = compileAndRun(R"--(
+        func mk(x: i32) -> i32? {
+            if x == 0 { return nil }
+            return x
+        }
+        func main() {
+            let a = mk(0)
+            let v1 = a ?? 10
+            println(v1)
+            let b = mk(7)
+            let v2 = b ?? 10
+            println(v2)
+        }
+    )--", "coal_identifier_regression");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "10\n7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NilCoalesceMemberChainRegression) {
+    // Pre-existing correct path (MemberExpr optional-chain LHS) must keep
+    // working: p?.x ?? 0.
+    auto r = compileAndRun(R"--(
+        struct Point { var x: i32 }
+        func main() {
+            let p: Point? = Point { x: 9 }
+            let v1 = p?.x ?? 0
+            println(v1)
+            let q: Point? = nil
+            let v2 = q?.x ?? 0
+            println(v2)
+        }
+    )--", "coal_member_chain_regression");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "9\n0\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

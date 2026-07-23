@@ -2126,8 +2126,33 @@ void TypeChecker::visitBinaryExpr(BinaryExpr *node) {
         break;
     case BinaryExpr::Op::NilCoalesce:
         if (node->getRHS()->getResolvedType()) {
+            // v1 scope guard (nil-coalesce-general spec/Task 0 probe2b):
+            // emitNilCoalesce's identifier/member-chain paths build a PHI
+            // typed as the LHS's UNWRAPPED inner type. If the RHS is itself
+            // Optional-typed, IRGen would feed a still-wrapped Optional
+            // struct value into that PHI — an LLVM type mismatch that
+            // currently surfaces as a verifier crash rather than a
+            // diagnostic. Right-associativity means a real chain like
+            // `a ?? b ?? c` has this node's RHS be the INNER `b ?? c` node,
+            // whose own resolved type already collapsed to plain T (c's
+            // type) by the time we get here — so this only fires when the
+            // RHS truly ends in an Optional value (the genuinely-unhandled
+            // case), not for legitimate chains.
+            if (node->getRHS()->getResolvedType()->getKind() == TypeRepr::Kind::Optional) {
+                diag_.report(node->getStartLoc(), DiagID::err_type_mismatch,
+                             "non-optional value",
+                             "optional value (RHS of '??' must not itself be optional)");
+            }
+            // Use cloneTypeRepr (not makePrimitiveType) so a non-primitive
+            // RHS type (Named/Array/Optional/...) keeps its concrete
+            // subclass instead of being sliced down to a bare TypeRepr with
+            // just the kind tag — see visitGroupExpr for the identical fix
+            // and rationale. Matters for chained `a ?? b ?? c`: the inner
+            // `b ?? c` node's resolved type feeds the outer node's LHS-type
+            // reasoning, and a sliced Named/Optional type there is a latent
+            // downcast-to-garbage hazard.
             node->setResolvedType(
-                makePrimitiveType(node->getRHS()->getResolvedType()->getKind()));
+                cloneTypeRepr(node->getRHS()->getResolvedType()));
         }
         break;
     default:

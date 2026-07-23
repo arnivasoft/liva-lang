@@ -1514,6 +1514,27 @@ TEST_F(SemaTest, NilCoalesceWithValue) {
     EXPECT_TRUE(result.passed);
 }
 
+// Task 0 (probe2b) found that `a ?? b` where BOTH a and b are Optional<i32>
+// identifiers passes Sema today but then crashes IRGen with an LLVM
+// verifier failure ("PHI node operands are not the same type as the
+// result") — emitNilCoalesce's identifier-path PHI is built with the LHS's
+// unwrapped inner type, and a raw (still-wrapped) Optional RHS value fed
+// into that PHI is a type mismatch. v1 scope for the `??` general-LHS fix
+// is LHS-shape generalization only; RHS-is-itself-Optional is diagnosed at
+// Sema instead of silently reaching the IRGen crash.
+TEST_F(SemaTest, NilCoalesceOptionalRHSDiagnosed) {
+    auto result = check(R"--(
+        func main() {
+            let a: i32? = nil
+            let b: i32? = 5
+            let v = a ?? b
+            println(v)
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors())
+        << "RHS of nil-coalesce being itself Optional should be diagnosed, not left to crash IRGen";
+}
+
 TEST_F(SemaTest, ResultTypeOk) {
     auto result = check(R"--(
         func main() {
