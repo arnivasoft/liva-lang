@@ -155,8 +155,16 @@ private:
     /// Check if a code path always returns a value
     bool alwaysReturns(const ASTNode *node) const;
 
-    /// Extract leaf bindings from a pattern string (supports nested patterns)
-    void extractPatternBindings(const std::string &pattern);
+    /// Extract leaf bindings from a pattern AST node (supports nested patterns)
+    void extractPatternBindings(const Pattern *pattern);
+
+    /// Declare a binding for one sub-pattern slot inside an EnumCasePattern's
+    /// parens: a nested EnumCasePattern recurses via extractPatternBindings;
+    /// anything else (Identifier/Wildcard/IntLiteral) declares a binding
+    /// named after its spelling — unconditionally, matching the legacy
+    /// string splitter's per-slot rule (it only special-cased '.', not
+    /// "_"/int-literal-ness, inside parens).
+    void declarePatternSubBinding(const Pattern *sub);
 
     /// Async function tracking
     bool currentIsAsync_ = false;

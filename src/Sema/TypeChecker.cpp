@@ -2706,7 +2706,8 @@ bool TypeChecker::alwaysReturns(const ASTNode *node) const {
             auto *match = static_cast<const MatchExpr *>(exprStmt->getExpr());
             bool hasWildcard = false;
             for (auto &arm : match->getArms()) {
-                if (arm.pattern == "_") hasWildcard = true;
+                if (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::Wildcard)
+                    hasWildcard = true;
             }
             if (hasWildcard) {
                 // Match with wildcard is exhaustive — check all arm bodies
@@ -2732,72 +2733,69 @@ const TypeRepr *TypeChecker::resolveExprType(Expr *expr) {
     return expr->getResolvedType();
 }
 
-void TypeChecker::extractPatternBindings(const std::string &pattern) {
-    auto parenPos = pattern.find('(');
-    if (parenPos == std::string::npos) {
-        // No parens — check if it's a simple variable binding (e.g., "s" in "s if s >= 90.0")
-        if (pattern != "_" && pattern.find('.') == std::string::npos && !pattern.empty()) {
-            char *end = nullptr;
-            std::strtol(pattern.c_str(), &end, 10);
-            if (end == pattern.c_str() || *end != '\0') {
-                // Not an integer literal — treat as variable binding
-                Symbol sym;
-                sym.name = pattern;
-                sym.kind = Symbol::Kind::Variable;
-                sym.isMutable = false;
-                scopes_.declare(pattern, sym);
-            }
+void TypeChecker::extractPatternBindings(const Pattern *pattern) {
+    if (!pattern) return;
+
+    switch (pattern->getKind()) {
+    case Pattern::Kind::EnumCase: {
+        auto *ec = static_cast<const EnumCasePattern *>(pattern);
+        if (ec->hasParens()) {
+            for (auto &sub : ec->getSubpatterns())
+                declarePatternSubBinding(sub.get());
         }
+        // Bare "Enum.Case" (no payload, no parens) — nothing to bind, same
+        // as the legacy string check (a pattern containing '.' but no '('
+        // never reached the variable-binding branch).
         return;
     }
 
-    // Find matching closing paren (depth-aware for nested patterns)
-    int depth = 0;
-    size_t closePos = std::string::npos;
-    for (size_t i = parenPos; i < pattern.size(); ++i) {
-        if (pattern[i] == '(') depth++;
-        else if (pattern[i] == ')') {
-            depth--;
-            if (depth == 0) { closePos = i; break; }
-        }
+    case Pattern::Kind::Identifier: {
+        auto *idp = static_cast<const IdentifierPattern *>(pattern);
+        Symbol sym;
+        sym.name = idp->getName();
+        sym.kind = Symbol::Kind::Variable;
+        sym.isMutable = false;
+        scopes_.declare(sym.name, sym);
+        return;
     }
-    if (closePos == std::string::npos) return;
 
-    auto innerStr = pattern.substr(parenPos + 1, closePos - parenPos - 1);
-
-    // Split by top-level commas (respecting nested parens)
-    std::vector<std::string> slots;
-    int slotDepth = 0;
-    size_t start = 0;
-    for (size_t i = 0; i < innerStr.size(); ++i) {
-        if (innerStr[i] == '(') slotDepth++;
-        else if (innerStr[i] == ')') slotDepth--;
-        else if (innerStr[i] == ',' && slotDepth == 0) {
-            slots.push_back(innerStr.substr(start, i - start));
-            start = i + 1;
-        }
+    case Pattern::Kind::Wildcard:
+    case Pattern::Kind::IntLiteral:
+        // "_" and a top-level integer literal (e.g. "1 where true") bind
+        // nothing — matches the legacy no-parens branch's "_"/int-literal
+        // exclusion.
+        return;
     }
-    if (start < innerStr.size())
-        slots.push_back(innerStr.substr(start));
+}
 
-    for (auto &slot : slots) {
-        // Trim whitespace
-        size_t b = slot.find_first_not_of(" \t");
-        if (b == std::string::npos) continue;
-        size_t e = slot.find_last_not_of(" \t");
-        auto trimmed = slot.substr(b, e - b + 1);
+void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
+    if (!sub) return;
 
-        if (trimmed.find('.') != std::string::npos) {
-            // Nested enum pattern — recursively extract leaf bindings
-            extractPatternBindings(trimmed);
-        } else if (!trimmed.empty()) {
-            Symbol sym;
-            sym.name = trimmed;
-            sym.kind = Symbol::Kind::Variable;
-            sym.isMutable = false;
-            scopes_.declare(trimmed, sym);
-        }
+    if (sub->getKind() == Pattern::Kind::EnumCase) {
+        // A nested enum-case sub-pattern (e.g. "Inner.Val(n)" inside
+        // "Outer.Some(Inner.Val(n))") recurses through the top-level
+        // dispatch above, which itself branches on hasParens(). This is a
+        // sane deviation from the legacy string splitter for the one
+        // untested combination of a nested *unqualified* payload case
+        // (empty enumName, e.g. hypothetical "Wrapped(Circle(r))"): the old
+        // code only recursed on slots containing '.', so such a slot would
+        // instead have been declared as one broken binding named
+        // "Circle(r)" verbatim. Zero occurrences in tests/examples/stdlib
+        // (Task 0); recursing here is strictly more correct.
+        extractPatternBindings(sub);
+        return;
     }
+
+    // Identifier/Wildcard/IntLiteral subslot: the legacy string splitter
+    // declared the *whole slot text* as a binding unconditionally once it
+    // determined the slot had no '.' — no "_"/int-literal exclusion inside
+    // parens (unlike the top-level no-parens branch). Preserve that
+    // byte-for-byte via toString().
+    Symbol sym;
+    sym.name = sub->toString();
+    sym.kind = Symbol::Kind::Variable;
+    sym.isMutable = false;
+    scopes_.declare(sym.name, sym);
 }
 
 void TypeChecker::visitMatchExpr(MatchExpr *node) {
@@ -2807,9 +2805,13 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     const EnumDecl *subjectEnum = nullptr;
     std::string enumName;
     for (auto &arm : node->getArms()) {
-        auto dotPos = arm.pattern.find('.');
-        if (dotPos != std::string::npos) {
-            enumName = arm.pattern.substr(0, dotPos);
+        // Only a qualified "Enum.Case[(...)]" pattern (non-empty enumName)
+        // reveals the subject's enum type — matches the legacy '.'-search.
+        auto *ec = (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::EnumCase)
+                       ? static_cast<const EnumCasePattern *>(arm.patternNode.get())
+                       : nullptr;
+        if (ec && !ec->getEnumName().empty()) {
+            enumName = ec->getEnumName();
             auto *sym = scopes_.lookup(enumName);
             if (sym && sym->kind == Symbol::Kind::EnumType && sym->enumDecl) {
                 subjectEnum = sym->enumDecl;
@@ -2823,21 +2825,21 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
 
     for (auto &arm : node->getArms()) {
         // Check for wildcard
-        if (arm.pattern == "_") {
+        if (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::Wildcard) {
             hasWildcard = true;
         } else if (subjectEnum) {
-            // Extract case name from pattern like "Color.Red" or "Shape.Circle(r)"
-            auto dotPos = arm.pattern.find('.');
-            if (dotPos != std::string::npos) {
-                auto afterDot = arm.pattern.substr(dotPos + 1);
-                auto parenPos = afterDot.find('(');
-                std::string caseName = (parenPos != std::string::npos)
-                    ? afterDot.substr(0, parenPos)
-                    : afterDot;
+            // Extract case name from a qualified pattern like "Color.Red" or
+            // "Shape.Circle(r)" (unqualified/bare-payload patterns, like the
+            // legacy '.'-less branch, don't participate in coverage tracking).
+            auto *ec = (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::EnumCase)
+                           ? static_cast<const EnumCasePattern *>(arm.patternNode.get())
+                           : nullptr;
+            if (ec && !ec->getEnumName().empty()) {
+                const std::string &caseName = ec->getCaseName();
                 if (coveredCases.count(caseName)) {
                     if (!arm.guard) {
                         diag_.report(node->getStartLoc(), DiagID::warn_unreachable_match_arm,
-                                     arm.pattern);
+                                     arm.patternNode->toString());
                     }
                 } else if (!arm.guard) {
                     coveredCases.insert(caseName);
@@ -2848,7 +2850,7 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
         if (arm.body) {
             // Extract bindings from pattern (supports nested patterns)
             scopes_.pushScope();
-            extractPatternBindings(arm.pattern);
+            extractPatternBindings(arm.patternNode.get());
             if (arm.guard) {
                 visit(arm.guard.get());
             }
@@ -2868,10 +2870,16 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     }
 
     // Check for Result type match exhaustiveness
+    auto asResultCase = [](const MatchArm &arm) -> const EnumCasePattern * {
+        if (!arm.patternNode || arm.patternNode->getKind() != Pattern::Kind::EnumCase)
+            return nullptr;
+        auto *ec = static_cast<const EnumCasePattern *>(arm.patternNode.get());
+        return ec->getEnumName() == "Result" ? ec : nullptr;
+    };
     bool isResultMatch = false;
     for (auto &arm : node->getArms()) {
-        if (arm.pattern.find("Result.Ok") != std::string::npos ||
-            arm.pattern.find("Result.Err") != std::string::npos) {
+        auto *ec = asResultCase(arm);
+        if (ec && (ec->getCaseName() == "Ok" || ec->getCaseName() == "Err")) {
             isResultMatch = true;
             break;
         }
@@ -2879,8 +2887,9 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     if (isResultMatch && !hasWildcard) {
         bool hasOk = false, hasErr = false;
         for (auto &arm : node->getArms()) {
-            if (arm.pattern.find("Result.Ok") != std::string::npos) hasOk = true;
-            if (arm.pattern.find("Result.Err") != std::string::npos) hasErr = true;
+            auto *ec = asResultCase(arm);
+            if (ec && ec->getCaseName() == "Ok") hasOk = true;
+            if (ec && ec->getCaseName() == "Err") hasErr = true;
         }
         if (!hasOk) diag_.report(node->getStartLoc(), DiagID::err_nonexhaustive_match, "Result.Ok");
         if (!hasErr) diag_.report(node->getStartLoc(), DiagID::err_nonexhaustive_match, "Result.Err");
