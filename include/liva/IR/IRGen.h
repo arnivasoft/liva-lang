@@ -389,6 +389,11 @@ private:
     /// Get or create the dynamic array struct type
     llvm::StructType *getDynArrayStructTy();
 
+    /// Emit `.pop()` on a DynArray: loads the last element (zeroinit when the
+    /// array is empty), then decrements the length via liva_array_pop, and
+    /// returns the element value. arrPtr points at the {ptr,i64,i64} struct.
+    llvm::Value *emitDynArrayPopValue(llvm::Value *arrPtr, llvm::Type *elemType);
+
     /// Compile-time constant values (no alloca needed)
     std::unordered_map<std::string, llvm::Constant *> constValues_;
 

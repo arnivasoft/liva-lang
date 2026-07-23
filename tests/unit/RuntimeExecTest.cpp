@@ -3130,4 +3130,92 @@ TEST(RuntimeExecTest, MonoBodyInsideAsyncCallerNoStateLeak) {
     EXPECT_EQ(r.stdout_output, "got 42\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// DynArray pop() returns the popped element
+// ============================================================
+// IRGen used to lower `.pop()` (both on local [T] variables and on struct
+// member fields) as a void length-decrement, silently discarding the
+// element — `return self.items.pop()` produced `ret void` in a value-
+// returning function. The LSP (`pop() -> T`) and the DAP interpreter both
+// already treated pop as value-returning; IRGen was the odd one out.
+
+TEST(RuntimeExecTest, DynArrayPopReturnsElement) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var arr: [i32] = [10, 20, 30]
+            let x = arr.pop()
+            println(x)
+            println(arr.length)
+            // statement position must keep working (value simply discarded)
+            arr.pop()
+            println(arr.length)
+        }
+    )--", "dynarray_pop_value");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "30\n2\n1\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, DynArrayMemberFieldPopReturnsElement) {
+    // Non-generic struct: pop on a member [i32] field, returned from a
+    // value-returning method (the exact shape the cookbook Stack uses,
+    // minus generics).
+    auto r = compileAndRun(R"--(
+        struct Holder {
+            var items: [i32]
+        }
+        impl Holder {
+            func take(ref mut self) -> i32 {
+                return self.items.pop()
+            }
+        }
+        func main() {
+            var h = Holder { items: [1, 2, 3] }
+            println(h.take())
+            println(h.take())
+        }
+    )--", "dynarray_member_pop_value");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n2\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CookbookGenericStackPop) {
+    // COOKBOOK §6 Generic Container: pop() -> T? consumed by while-let.
+    // Needs BOTH fixes on this branch: the mono return state above AND
+    // DynArray pop() returning the popped element (it used to be void).
+    // T is inferred from new(first:)'s argument — an ARGLESS static
+    // `Stack.new()` never resolves T and miscompiles silently (tracked in
+    // roadmap 2.3), so the cookbook example seeds the stack instead.
+    auto r = compileAndRun(R"--(
+        struct Stack<T> {
+            var items: [T]
+        }
+        impl<T> Stack<T> {
+            func new(first: T) -> Stack<T> {
+                var s = Stack { items: [] }
+                s.items.push(first)
+                return s
+            }
+            func push(ref mut self, item: T) {
+                self.items.push(item)
+            }
+            func pop(ref mut self) -> T? {
+                if self.items.length == 0 {
+                    return nil
+                }
+                return self.items.pop()
+            }
+        }
+        func main() {
+            var s = Stack.new(10)
+            s.push(20)
+            s.push(30)
+            while let val = s.pop() {
+                println(val)
+            }
+        }
+    )--", "mono_cookbook_stack_pop");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "30\n20\n10\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

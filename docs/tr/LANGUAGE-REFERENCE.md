@@ -1319,7 +1319,7 @@ let slice = numbers[1..4]    // [2, 3, 4]
 var arr = [1, 2, 3]
 
 arr.push(4)              // [1, 2, 3, 4]
-arr.pop()                // [1, 2, 3]
+let son = arr.pop()      // 4 döner; arr [1, 2, 3] olur (boşsa sıfır değeri)
 arr.contains(2)          // true
 arr.indexOf(3)           // 2
 arr.reverse()            // [3, 2, 1]

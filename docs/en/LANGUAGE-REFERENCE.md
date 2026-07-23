@@ -1324,7 +1324,7 @@ let slice = numbers[1..4]    // [2, 3, 4]
 var arr = [1, 2, 3]
 
 arr.push(4)              // [1, 2, 3, 4]
-arr.pop()                // [1, 2, 3]
+let last = arr.pop()     // returns 4; arr is [1, 2, 3] (zero value if empty)
 arr.contains(2)          // true
 arr.indexOf(3)           // 2
 arr.reverse()            // [3, 2, 1]

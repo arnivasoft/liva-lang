@@ -913,8 +913,11 @@ void TypeChecker::resolveMapSetMethodCall(CallExpr *node) {
                             node->setResolvedType(makePrimitiveType(
                                 node->getArgs()[0]->getResolvedType()->getKind()));
                         }
+                    } else if (methodName == "pop") {
+                        // pop() returns the popped element (zeroinit if empty)
+                        node->setResolvedType(cloneTypeRepr(arrType->getElement()));
                     }
-                    // push(), pop(), reverse(), forEach() return void
+                    // push(), reverse(), forEach() return void
                 }
             }
 

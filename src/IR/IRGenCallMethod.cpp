@@ -500,10 +500,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 }
 
                 if (methodName == "pop") {
-                    auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
-                    auto *popFn = getOrPanic("liva_array_pop");
-                    builder_->CreateCall(popFn, {lenField});
-                    return nullptr;
+                    return emitDynArrayPopValue(arrAlloca, daIt->second.elementType);
                 }
 
                 if (methodName == "contains" && !node->getArgs().empty()) {
@@ -821,10 +818,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 }
 
                 if (methodName == "pop") {
-                    auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
-                    auto *popFn = getOrPanic("liva_array_pop");
-                    builder_->CreateCall(popFn, {lenField});
-                    return nullptr;
+                    return emitDynArrayPopValue(arrGEP, daInfo->elementType);
                 }
 
                 if (methodName == "contains" && !node->getArgs().empty()) {
@@ -2001,6 +1995,41 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
 
         return nullptr;
     return std::nullopt;   // unreachable (body always returns); kept as the helper-contract terminator
+}
+
+llvm::Value *IRGen::emitDynArrayPopValue(llvm::Value *arrPtr,
+                                         llvm::Type *elemType) {
+    auto *structTy = getDynArrayStructTy();
+    auto *lenField = builder_->CreateStructGEP(structTy, arrPtr, 1, "pop.len.ptr");
+    auto *len = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "pop.len");
+    auto *isEmpty = builder_->CreateICmpEQ(len, builder_->getInt64(0), "pop.empty");
+
+    // The element load must be guarded: on an empty array `data` may still be
+    // null (never allocated), so an unconditional data[len-1] load would fault.
+    auto *func = builder_->GetInsertBlock()->getParent();
+    auto *takeBB = llvm::BasicBlock::Create(*context_, "pop.take", func);
+    auto *emptyBB = llvm::BasicBlock::Create(*context_, "pop.zero", func);
+    auto *doneBB = llvm::BasicBlock::Create(*context_, "pop.done", func);
+    builder_->CreateCondBr(isEmpty, emptyBB, takeBB);
+
+    builder_->SetInsertPoint(takeBB);
+    auto *dataField = builder_->CreateStructGEP(structTy, arrPtr, 0, "pop.data.ptr");
+    auto *data = builder_->CreateLoad(
+        llvm::PointerType::getUnqual(*context_), dataField, "pop.data");
+    auto *idx = builder_->CreateSub(len, builder_->getInt64(1), "pop.idx");
+    auto *elemPtr = builder_->CreateGEP(elemType, data, idx, "pop.elem.ptr");
+    auto *elem = builder_->CreateLoad(elemType, elemPtr, "pop.elem");
+    builder_->CreateCall(getOrPanic("liva_array_pop"), {lenField});
+    builder_->CreateBr(doneBB);
+
+    builder_->SetInsertPoint(emptyBB);
+    builder_->CreateBr(doneBB);
+
+    builder_->SetInsertPoint(doneBB);
+    auto *phi = builder_->CreatePHI(elemType, 2, "pop.result");
+    phi->addIncoming(elem, takeBB);
+    phi->addIncoming(llvm::Constant::getNullValue(elemType), emptyBB);
+    return phi;
 }
 
 } // namespace liva

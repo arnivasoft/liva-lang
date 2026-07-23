@@ -305,8 +305,12 @@ struct Stack<T> {
 }
 
 impl<T> Stack<T> {
-    func new() -> Stack<T> {
-        return Stack { items: [] }
+    // T is inferred from the first element. An argless `Stack.new()` cannot
+    // resolve T yet (see roadmap), so the stack is seeded on creation.
+    func new(first: T) -> Stack<T> {
+        var s = Stack { items: [] }
+        s.items.push(first)
+        return s
     }
 
     func push(ref mut self, item: T) {
@@ -333,8 +337,7 @@ impl<T> Stack<T> {
 }
 
 func main() {
-    var intStack = Stack.new()
-    intStack.push(10)
+    var intStack = Stack.new(10)
     intStack.push(20)
     intStack.push(30)
 
@@ -343,17 +346,17 @@ func main() {
     }
     // Output: 30 20 10
 
-    var strStack = Stack.new()
-    strStack.push("hello")
+    var strStack = Stack.new("hello")
     strStack.push("world")
     println(strStack.peek() ?? "empty")  // world
 }
 ```
 
-> **Known limitation (2026-07):** generic methods that return `T?` (e.g. `pop()`/`peek()`
-> above, monomorphized for a concrete `T`) currently miscompile — this is a pre-existing
-> codegen gap unrelated to `??`; the `??` fallback itself is verified correct for both
-> free-function and non-generic struct-method call-LHS. Tracked in `roadmap.md`.
+> **Note (2026-07):** generic `-> T?` methods and value-returning `pop()` now work
+> (both were codegen gaps, fixed). One remaining limitation: an **argless** generic
+> static method (`Stack.new()` with no parameter) cannot infer `T` and miscompiles
+> silently — always give the type an inference source, as `new(first: T)` does
+> above. Tracked in `roadmap.md`.
 
 ---
 

@@ -305,8 +305,12 @@ struct Stack<T> {
 }
 
 impl<T> Stack<T> {
-    func new() -> Stack<T> {
-        return Stack { items: [] }
+    // T ilk elemandan çıkarılır. Argümansız `Stack.new()` henüz T'yi
+    // çözemiyor (bkz. roadmap), bu yüzden stack oluşturulurken tohumlanır.
+    func new(first: T) -> Stack<T> {
+        var s = Stack { items: [] }
+        s.items.push(first)
+        return s
     }
 
     func push(ref mut self, item: T) {
@@ -333,8 +337,7 @@ impl<T> Stack<T> {
 }
 
 func main() {
-    var intStack = Stack.new()
-    intStack.push(10)
+    var intStack = Stack.new(10)
     intStack.push(20)
     intStack.push(30)
 
@@ -343,18 +346,17 @@ func main() {
     }
     // Output: 30 20 10
 
-    var strStack = Stack.new()
-    strStack.push("hello")
+    var strStack = Stack.new("hello")
     strStack.push("world")
     println(strStack.peek() ?? "empty")  // world
 }
 ```
 
-> **Bilinen kısıtlama (2026-07):** `T?` döndüren generik metodlar (yukarıdaki
-> `pop()`/`peek()`, somut bir `T` için monomorfize edildiğinde) şu anda hatalı derleniyor —
-> bu, `??`'den bağımsız, önceden var olan bir codegen açığı; `??` fallback'inin kendisi
-> hem serbest-fonksiyon hem de generik-olmayan struct-metod çağrısı LHS'i için doğrulandı.
-> `roadmap.md`'de takip ediliyor.
+> **Not (2026-07):** generik `-> T?` metodlar ve değer döndüren `pop()` artık
+> çalışıyor (ikisi de codegen açığıydı, düzeltildi). Kalan tek kısıtlama:
+> **argümansız** generik statik metod (`Stack.new()` parametresiz) `T`'yi
+> çıkaramıyor ve sessizce hatalı derleniyor — yukarıdaki `new(first: T)` gibi
+> tipe her zaman bir çıkarım kaynağı verin. `roadmap.md`'de takip ediliyor.
 
 ---
 

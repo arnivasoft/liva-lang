@@ -852,7 +852,7 @@ impl Stack {
         return self.items.isEmpty
     }
 
-    func size(ref self) -> i32 {
+    func size(ref self) -> i64 {
         return self.items.length
     }
 }
