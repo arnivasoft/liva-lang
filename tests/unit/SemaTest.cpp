@@ -5274,6 +5274,61 @@ TEST_F(SemaTest, NonDropStructNoMoveError) {
     EXPECT_TRUE(result.passed);
 }
 
+// Task 2 (Drop/Move Tracking): if-let binding takes ownership of the
+// Drop-conforming payload — the SOURCE Optional variable is marked moved,
+// mirroring `let b = a` semantics. Decision #2 (repeated if-let on the same
+// Optional): conservative v1 — a second if-let (or any later use) of the
+// source is a use-after-move error, exactly like re-using a moved plain
+// Drop-struct variable. This requires Optional<Drop-struct> variables to
+// stop being treated as unconditionally-Copy (see isCopyType/isDropType
+// Optional-recursion) — closing a pre-existing Sema/IRGen asymmetry (IRGen's
+// Task-1 movedVars insertion already suppressed the source's cleanup for a
+// plain `let b = a` copy of an Optional<Drop> variable via its
+// varStructTypes registration; Sema had no matching move-tracking for it).
+TEST_F(SemaTest, UseAfterIfLetMove) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Handle { var fd: i32 }
+        impl Handle: Drop {
+            func drop(mut self) {
+                let v: i32 = self.fd
+            }
+        }
+        func main() {
+            let a: Handle? = Handle { fd: 1 }
+            if let v = a {
+                let x: i32 = v.fd
+            }
+            if let w = a {
+                let y: i32 = w.fd
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// Protection test: non-Drop Optional<Named> payloads are OUTSIDE this task's
+// conservative scope — repeated if-let over the same Optional<PlainStruct>
+// must NOT error (matches unchanged Copy behavior, spec point 5).
+TEST_F(SemaTest, NonDropOptionalIfLetReusable) {
+    auto result = check(R"--(
+        struct Point { var x: i32 }
+        func main() {
+            let a: Point? = Point { x: 1 }
+            if let v = a {
+                let x: i32 = v.x
+            }
+            if let w = a {
+                let y: i32 = w.x
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 // === F3: Guard Clause (where) Tests ===
 
 TEST_F(SemaTest, GuardClauseBasic) {

@@ -68,6 +68,8 @@ public:
     void visitIfStmt(IfStmt *node);
     void visitWhileStmt(WhileStmt *node);
     void visitForStmt(ForStmt *node);
+    void visitIfLetStmt(IfLetStmt *node);
+    void visitWhileLetStmt(WhileLetStmt *node);
 
     void visitIdentifierExpr(IdentifierExpr *node);
     void visitAssignExpr(AssignExpr *node);

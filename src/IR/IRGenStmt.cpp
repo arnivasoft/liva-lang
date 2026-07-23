@@ -68,9 +68,25 @@ void IRGen::emitScopeCleanup() {
     }
 
     // Call drop() for struct variables implementing Drop protocol,
-    // or auto-cleanup heap fields for structs without Drop
+    // or auto-cleanup heap fields for structs without Drop.
+    //
+    // Optional<Named> variables are ALSO registered in varStructTypes (see
+    // IRGenDecl.cpp's Optional-typed VarDecl branch) so that optional
+    // chaining / member access can resolve the payload's struct type — but
+    // `it->second` for such a name is the Optional WRAPPER's alloca
+    // ({i1 hasVal, T payload}), not a T*. Calling T_drop or
+    // emitStructFieldCleanup on it directly reads/writes at the WRONG
+    // offset (T's own field-0 offset instead of the wrapper's payload
+    // offset, which is generally different because of the leading hasVal
+    // field) — for Drop types this fires T_drop with a garbage self
+    // pointer unconditionally (even when nil); for non-Drop types with
+    // heap-owning fields (String/DynArray) this can read a garbage pointer
+    // and call free() on it, corrupting the heap. Optional-registered names
+    // are excluded here and handled correctly by the conditional
+    // has-value-gated block below instead.
     for (auto &[name, structTypeName] : vars_.varStructTypes) {
         if (name == "self") continue; // self is borrowed (ref/ref mut), not owned
+        if (vars_.varOptionalTypes.count(name)) continue; // handled below
         if (vars_.movedVars.count(name)) continue;
         if (dropImplementors_.count(structTypeName)) {
             auto it = vars_.namedValues.find(name);
@@ -85,6 +101,51 @@ void IRGen::emitScopeCleanup() {
             // Auto-cleanup heap fields for structs without Drop
             emitStructFieldCleanup(name, structTypeName);
         }
+    }
+
+    // Conditionally drop Optional<Drop-struct> payloads (has-value guard) —
+    // the corrected counterpart to the loop above for Optional-registered
+    // names. Non-Drop Optional<Named> payloads get NO drop/cleanup at all
+    // here (matches spec: unchanged/no-op for non-Drop Optionals — the
+    // wrong-pointer field-cleanup call is simply removed, not replaced).
+    for (auto &[name, structTypeName] : vars_.varStructTypes) {
+        if (name == "self") continue;
+        if (!vars_.varOptionalTypes.count(name)) continue; // not an Optional<Named>
+        if (vars_.movedVars.count(name)) continue;
+        if (!dropImplementors_.count(structTypeName)) continue; // non-Drop payload: no cleanup
+
+        auto it = vars_.namedValues.find(name);
+        if (it == vars_.namedValues.end()) continue;
+        auto optIt = vars_.varOptionalTypes.find(name);
+        if (optIt == vars_.varOptionalTypes.end()) continue;
+
+        std::string dropFnName = structTypeName + "_drop";
+        auto *dropFn = module_->getFunction(dropFnName);
+        if (!dropFn) continue;
+
+        auto *innerTy = optIt->second;
+        auto *optTy = getOptionalType(innerTy);
+        auto *func = builder_->GetInsertBlock()->getParent();
+
+        auto *hasValGEP = builder_->CreateStructGEP(optTy, it->second, 0,
+            name + ".opt.has");
+        auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValGEP,
+            name + ".opt.has.val");
+        auto *thenBB = llvm::BasicBlock::Create(*context_, name + ".opt.drop", func);
+        auto *contBB = llvm::BasicBlock::Create(*context_, name + ".opt.dropcont", func);
+        builder_->CreateCondBr(hasVal, thenBB, contBB);
+
+        builder_->SetInsertPoint(thenBB);
+        // Inner payload is stored inline (by value) inside the Optional
+        // struct — unlike heapOptionalStringVars (a char* payload that must
+        // be LOADED before use), the GEP here already IS a T*, so no load
+        // is needed: pass it directly to T_drop.
+        auto *innerGEP = builder_->CreateStructGEP(optTy, it->second, 1,
+            name + ".opt.payload");
+        builder_->CreateCall(dropFn, {innerGEP});
+        builder_->CreateBr(contBB);
+
+        builder_->SetInsertPoint(contBB);
     }
 
     // Call deinit for class instances (virtual dispatch through vtable)
@@ -442,6 +503,36 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         return nullptr;
     }
 
+    // Task 2 (Drop/Move Tracking): if-let ownership transfer. If the
+    // Optional's payload is a Drop-conforming NAMED struct, the binding
+    // takes over ownership — it gets registered like an ordinary NAMED
+    // struct var (dropped normally at its own scope exit) and the SOURCE
+    // (if an identifier) is marked moved so emitScopeCleanup's new
+    // conditional Optional-drop block skips it. Single drop per value path.
+    std::string dropStructName;
+    if (innerType->isStructTy()) {
+        if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *srcIdent = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+            auto stIt = vars_.varStructTypes.find(srcIdent->getName());
+            if (stIt != vars_.varStructTypes.end()) dropStructName = stIt->second;
+        }
+        if (dropStructName.empty()) {
+            // Fallback: match innerType against known struct LLVM types by
+            // identity (covers non-identifier sources, e.g. method calls).
+            for (auto &[nm, ty] : structTypes_) {
+                if (ty == innerType) { dropStructName = nm; break; }
+            }
+        }
+    }
+    bool bindingOwnsDrop = !dropStructName.empty() &&
+        dropImplementors_.count(dropStructName) > 0;
+
+    if (bindingOwnsDrop &&
+        node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *srcIdent = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        vars_.movedVars.insert(srcIdent->getName());
+    }
+
     auto *optStructTy = getOptionalType(innerType);
     auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
     auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "iflet.hasval");
@@ -460,7 +551,16 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     auto saved = vars_.namedValues;
     auto savedFileTypes = vars_.varFileTypes;
     auto savedDynArrayTypes = vars_.varDynArrayTypes;
+    auto savedStructTypesForBinding = vars_.varStructTypes;
     vars_.namedValues[node->getBindingName()] = bindAlloca;
+    if (bindingOwnsDrop) {
+        // Register the binding like an ordinary NAMED struct var: an early
+        // return inside the then-body will get it dropped correctly via
+        // emitScopeCleanup's existing varStructTypes loop (its namedValues
+        // entry is still live at that point — the restore below runs only
+        // AFTER visit(thenBody) returns).
+        vars_.varStructTypes[node->getBindingName()] = dropStructName;
+    }
     // If the optional inner is a DynArray (`if let b = someOpt: [T]?`),
     // register the binding so `b.length`, `b[i]`, and for-iteration work
     // the same way they do for a let-bound `[T]` variable. Element type
@@ -527,9 +627,24 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         }
     }
     visit(node->getThenBody());
+    // Normal fallthrough (no early return/break/continue inside the
+    // then-body): drop the binding's payload here explicitly. Early-return
+    // paths are already handled by emitScopeCleanup's varStructTypes loop
+    // (registered above, while namedValues[bindingName] is still live) —
+    // this call only fires when the block reaches the end normally (the
+    // terminator guard mirrors the existing `CreateBr(mergeBB2)` pattern
+    // just below).
+    if (bindingOwnsDrop && !builder_->GetInsertBlock()->getTerminator() &&
+        !vars_.movedVars.count(node->getBindingName())) {
+        std::string dropFnName = dropStructName + "_drop";
+        if (auto *dropFn = module_->getFunction(dropFnName)) {
+            builder_->CreateCall(dropFn, {bindAlloca});
+        }
+    }
     vars_.namedValues = saved;
     vars_.varFileTypes = savedFileTypes;
     vars_.varDynArrayTypes = savedDynArrayTypes;
+    vars_.varStructTypes = savedStructTypesForBinding;
     if (!builder_->GetInsertBlock()->getTerminator()) builder_->CreateBr(mergeBB2);
 
     // Else
@@ -593,6 +708,37 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
         return nullptr;
     }
 
+    // Task 2 (Drop/Move Tracking): while-let ownership transfer — per-
+    // iteration counterpart to if-let's single-drop rule (see
+    // visitIfLetStmt for the detailed rationale; symmetric logic here).
+    // The compile-time source-moved marking happens ONCE (this AST node is
+    // visited once regardless of how many runtime iterations occur) — for
+    // an identifier source this suppresses emitScopeCleanup's Optional-drop
+    // for that variable after the loop; for a call-expr source (the common
+    // case — a fresh value every iteration) there is no persistent source
+    // variable to mark.
+    std::string dropStructName;
+    if (innerType->isStructTy()) {
+        if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *srcIdent = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+            auto stIt = vars_.varStructTypes.find(srcIdent->getName());
+            if (stIt != vars_.varStructTypes.end()) dropStructName = stIt->second;
+        }
+        if (dropStructName.empty()) {
+            for (auto &[nm, ty] : structTypes_) {
+                if (ty == innerType) { dropStructName = nm; break; }
+            }
+        }
+    }
+    bool bindingOwnsDrop = !dropStructName.empty() &&
+        dropImplementors_.count(dropStructName) > 0;
+
+    if (bindingOwnsDrop &&
+        node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *srcIdent = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        vars_.movedVars.insert(srcIdent->getName());
+    }
+
     auto *optStructTy = getOptionalType(innerType);
     auto *hasValPtr = builder_->CreateStructGEP(optStructTy, optAlloca, 0);
     auto *hasVal = builder_->CreateLoad(builder_->getInt1Ty(), hasValPtr, "whilelet.hasval");
@@ -606,11 +752,28 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
     builder_->CreateStore(unwrapped, bindAlloca);
 
     auto saved = vars_.namedValues;
+    auto savedStructTypesForBinding = vars_.varStructTypes;
     vars_.namedValues[node->getBindingName()] = bindAlloca;
+    if (bindingOwnsDrop) {
+        vars_.varStructTypes[node->getBindingName()] = dropStructName;
+    }
     loopStack_.push_back({exitBB, condBB});
     visit(node->getBody());
     loopStack_.pop_back();
+    // Per-iteration drop: this single instruction lives in bodyBB, which
+    // runs once per runtime loop pass — normal fallthrough only (matches
+    // if-let; break/continue bypass this, a pre-existing gap shared with
+    // ALL Drop-conforming locals declared inside loop bodies, not
+    // introduced or fixed here).
+    if (bindingOwnsDrop && !builder_->GetInsertBlock()->getTerminator() &&
+        !vars_.movedVars.count(node->getBindingName())) {
+        std::string dropFnName = dropStructName + "_drop";
+        if (auto *dropFn = module_->getFunction(dropFnName)) {
+            builder_->CreateCall(dropFn, {bindAlloca});
+        }
+    }
     vars_.namedValues = saved;
+    vars_.varStructTypes = savedStructTypesForBinding;
     if (!builder_->GetInsertBlock()->getTerminator())
         builder_->CreateBr(condBB);
 

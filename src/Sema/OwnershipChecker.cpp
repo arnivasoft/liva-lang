@@ -128,6 +128,70 @@ void OwnershipChecker::visitForStmt(ForStmt *node) {
     popOwnershipScope();
 }
 
+// Task 2 (Drop/Move Tracking): if-let/while-let ownership transfer. Neither
+// statement had an override before (ASTVisitor's default is a no-op), so
+// nothing inside them was tracked at all. The binding takes ownership of a
+// Drop-conforming payload; the source Optional identifier (if any) is marked
+// moved — same conservative scope as `let b = a` (Task 1), extended to
+// Optional<Drop-struct> via isCopyType/isDropType's new Optional-recursion.
+//
+// Decision (#2, repeated if-let): visiting the optional expr FIRST (before
+// markMoved) routes an identifier source through the normal
+// visitIdentifierExpr -> checkUse dispatch, so a SECOND if-let (or any other
+// use) over an already-consumed Optional<Drop-struct> reports
+// err_use_after_move — the conservative v1 chosen for this task (no
+// re-entrant if-let over the same Drop-payload optional).
+void OwnershipChecker::visitIfLetStmt(IfLetStmt *node) {
+    visit(node->getOptionalExpr());
+
+    bool payloadIsDrop = false;
+    if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        auto *srcInfo = getInfo(ident->getName());
+        if (srcInfo && srcInfo->isDropType) {
+            payloadIsDrop = true;
+            markMoved(ident->getName(), node->getStartLoc());
+        }
+    }
+
+    pushOwnershipScope();
+    trackVariable(node->getBindingName(), /*isMutable=*/false,
+                  /*isCopyType=*/!payloadIsDrop, /*isDropType=*/payloadIsDrop,
+                  node->getStartLoc());
+    visit(node->getThenBody());
+    dropScopeVariables();
+    popOwnershipScope();
+
+    if (node->hasElse()) {
+        visit(node->getElseBody());
+    }
+}
+
+// Decision (#3, while-let): same ownership-transfer shape as if-let, applied
+// once at compile time (the AST node is visited once regardless of how many
+// runtime iterations occur) — mirrors if-let's "mark source moved" exactly.
+void OwnershipChecker::visitWhileLetStmt(WhileLetStmt *node) {
+    visit(node->getOptionalExpr());
+
+    bool payloadIsDrop = false;
+    if (node->getOptionalExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getOptionalExpr());
+        auto *srcInfo = getInfo(ident->getName());
+        if (srcInfo && srcInfo->isDropType) {
+            payloadIsDrop = true;
+            markMoved(ident->getName(), node->getStartLoc());
+        }
+    }
+
+    pushOwnershipScope();
+    trackVariable(node->getBindingName(), /*isMutable=*/false,
+                  /*isCopyType=*/!payloadIsDrop, /*isDropType=*/payloadIsDrop,
+                  node->getStartLoc());
+    visit(node->getBody());
+    dropScopeVariables();
+    popOwnershipScope();
+}
+
 void OwnershipChecker::visitIdentifierExpr(IdentifierExpr *node) {
     checkUse(node->getName(), node->getStartLoc());
 }
@@ -381,11 +445,24 @@ bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
             return true;
     }
 
-    // Arrays, Optionals, Tuples, and Function types are Copy
+    // Arrays, Tuples, and Function types are Copy
     auto k = type->getKind();
-    if (k == TypeRepr::Kind::Array || k == TypeRepr::Kind::Optional ||
-        k == TypeRepr::Kind::Tuple || k == TypeRepr::Kind::Function)
+    if (k == TypeRepr::Kind::Array || k == TypeRepr::Kind::Tuple ||
+        k == TypeRepr::Kind::Function)
         return true;
+
+    // Optional<T>: Copy UNLESS its payload is a Drop-conforming struct.
+    // Optional<Drop-struct> owns at most one Drop value (or none, if nil) —
+    // treating it as Copy would let `let b = a` / call-arg passing / if-let
+    // silently duplicate ownership of that payload (double-drop risk). All
+    // other Optionals (primitives, plain structs, arrays, ...) are unchanged
+    // (still Copy) — conservative scope, spec point 5.
+    if (k == TypeRepr::Kind::Optional) {
+        auto *opt = static_cast<const OptionalTypeRepr *>(type);
+        if (isDropType(opt->getInner()))
+            return false;
+        return true;
+    }
 
     return false;
 }
@@ -393,6 +470,14 @@ bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
 bool OwnershipChecker::isDropType(const TypeRepr *type) const {
     if (!type)
         return false;
+
+    // Optional<T>: inherits Drop-ness from its payload (see isCopyType
+    // above) — this is what lets `let b = a` / if-let / call-arg passing on
+    // an Optional<Drop-struct> variable participate in move tracking.
+    if (type->getKind() == TypeRepr::Kind::Optional) {
+        auto *opt = static_cast<const OptionalTypeRepr *>(type);
+        return isDropType(opt->getInner());
+    }
 
     // Only NAMED struct types can conform to Drop.
     if (type->getKind() != TypeRepr::Kind::Named)

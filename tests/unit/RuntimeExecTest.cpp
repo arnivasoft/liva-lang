@@ -2284,4 +2284,202 @@ func main() {
         << r.stdout_output;
 }
 
+// === Drop/Move Tracking — Task 2: Optional<Drop> scope drop + if-let/
+// while-let ownership transfer ===
+//
+// Task 0 finding: Optional<Named> variables ARE registered in varStructTypes
+// (IRGenDecl.cpp:1091-1094) and emitScopeCleanup's unconditional loop called
+// T_drop with the WRONG pointer (the Optional wrapper's address, not the
+// payload GEP) whenever dropImplementors_ recognized the inner type — even
+// when nil. These tests pin the corrected behavior: conditional
+// has-value-gated payload drop, exactly once per value path.
+
+TEST(RuntimeExecTest, OptionalDropFiresOnScopeExit) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+func main() {
+    let x: Res? = Res { id: 1 }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "opt_drop_scope_exit");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 1)
+        << "Optional<Res> holding a value must drop its payload exactly once "
+           "at scope exit; stdout: "
+        << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, OptionalDropNilNoDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+func main() {
+    let x: Res? = nil
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "opt_drop_nil");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 0)
+        << "nil Optional<Res> must NOT call drop (no payload, and — pre-fix —"
+           " the wrong-pointer bug fired unconditionally even for nil); "
+           "stdout: "
+        << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, IfLetBindingSingleDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+func main() {
+    let x: Res? = Res { id: 1 }
+    if let v = x {
+        println(v.id)
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "iflet_binding_single_drop");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 1)
+        << "if-let binding takes ownership of the payload — exactly one drop "
+           "total (binding's, not the source's — no double-drop); stdout: "
+        << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, IfLetNilPathNoDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+func main() {
+    let x: Res? = nil
+    if let v = x {
+        println(v.id)
+    } else {
+        println("none")
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "iflet_nil_no_drop");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 0)
+        << "nil source: if-body must be skipped and nothing dropped; stdout: "
+        << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("none"), std::string::npos)
+        << "else branch must run for the nil path; stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, OptionalNonDropNoSpuriousDrop) {
+    // Protection test pinning the wrong-pointer bug's removal for a
+    // NON-Drop-conforming Optional<Named> payload. Box has a String field —
+    // pre-fix, emitScopeCleanup's unconditional varStructTypes loop (since
+    // dropImplementors_ does NOT recognize Box) fell through to
+    // emitStructFieldCleanup(name, "Box"), GEP'ing into the Optional
+    // wrapper's alloca ({i1 hasVal, ptr label}) AS IF it were Box's own
+    // layout ({ptr label}) — field 0 of Box is the label ptr, but field 0 of
+    // the wrapper is the 1-byte hasVal bool, so it read garbage bits as a
+    // pointer and called free() on them. Post-fix: Optional<Named>-registered
+    // names are fully excluded from that loop (no drop, no field-cleanup) —
+    // matches spec point 5 (non-Drop Optionals: unchanged/no cleanup).
+    std::string source = R"LIVA(
+struct Box { var label: String }
+func main() {
+    let b: Box? = Box { label: "hi" }
+    if let v = b {
+        println(v.label)
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "opt_nondrop_no_spurious_drop");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("hi"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("done"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, WhileLetSingleDropPerIteration) {
+    // Decision (#3, while-let): per-iteration ownership — the binding owns
+    // the payload for the duration of its loop iteration and is dropped once
+    // per pass through the loop body (symmetric with if-let's single-drop
+    // rule, applied N times for N iterations). Uses a direct method-call
+    // optional source (re-evaluated fresh in condBB every iteration) rather
+    // than an identifier reassigned inside the loop body — a plain
+    // `cur = g.next()` reassignment of an Optional<Named-struct> variable
+    // hits an unrelated, pre-existing IRGen assignment bug (confirmed with a
+    // plain `while` loop, no while-let/Drop involved: reassigning such a
+    // variable yields a stale/shifted value on the NEXT read, independent of
+    // this task). Exercising the call-expr form here sidesteps that bug
+    // entirely (no assignment to an Optional<Named> var is involved) and
+    // additionally requires closing a narrow, separate TypeChecker gap:
+    // visitWhileLetStmt had no resolved-type fallback for non-identifier
+    // optional sources (if-let already has one) — without it, member access
+    // on the binding failed to resolve for `while let x = someCall()`.
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+struct Gen { var n: i32 }
+impl Gen {
+    func next(mut self) -> Res? {
+        if self.n <= 0 {
+            return nil
+        }
+        self.n = self.n - 1
+        return Res { id: self.n }
+    }
+}
+func main() {
+    var g = Gen { n: 3 }
+    while let v = g.next() {
+        println(v.id)
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "whilelet_single_drop_per_iter");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 3)
+        << "expected exactly 3 drops — one per loop iteration (n=3); stdout: "
+        << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

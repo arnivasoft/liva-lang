@@ -1743,6 +1743,15 @@ void TypeChecker::visitWhileLetStmt(WhileLetStmt *node) {
             auto *optTy = static_cast<const OptionalTypeRepr *>(optSym->type);
             sym.type = optTy->getInner();
         }
+    } else if (auto *resolved = node->getOptionalExpr()->getResolvedType()) {
+        // Arbitrary expression (e.g. a method call: `while let x = it.next()`)
+        // — mirrors visitIfLetStmt's equivalent fallback. Without this, the
+        // binding's type is never set for non-identifier sources, and any
+        // member access on it fails to resolve.
+        if (resolved->getKind() == TypeRepr::Kind::Optional) {
+            auto *optTy = static_cast<const OptionalTypeRepr *>(resolved);
+            sym.type = optTy->getInner();
+        }
     }
 
     scopes_.declare(sym.name, sym);
