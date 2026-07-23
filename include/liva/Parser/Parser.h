@@ -156,12 +156,24 @@ private:
     /// immediately followed (across the arm boundary) by the NEXT arm's
     /// `(...)` would otherwise be swallowed as a call
     /// (`prevBody(nextArmsTupleElements)`) instead of ending the arm. Fix:
-    /// while this flag is true (set only around a match arm's body parse),
-    /// parsePostfixExpr only treats `(` as a call-continuation when it's on
-    /// the SAME source line as the last consumed token — a body whose call
-    /// deliberately spans a newline before its own `(` is the only thing
-    /// this changes, a construct no pre-Task-6 grammar could distinguish
-    /// from the arm-boundary case anyway.
+    /// while this flag is true, parsePostfixExpr only treats `(` as a
+    /// call-continuation when it's on the SAME source line as the last
+    /// consumed token.
+    /// SCOPE (REVIEW FIX — corrected characterization): set true only
+    /// around the TOP-LEVEL `arm.body = parseExpression()` call in
+    /// parseMatchExpr (saved/restored around it), but it is a plain bool
+    /// member with no further save/restore anywhere else — so it stays
+    /// active for the body's ENTIRE recursive-descent parse, not just its
+    /// outermost postfix chain. In particular it also applies inside any
+    /// nested closure/block/nested-match/nested-call-argument parsed while
+    /// parsing that body (a nested match's OWN arm bodies re-set it to true
+    /// around their own parse regardless, so this is a no-op there; a
+    /// nested closure or call argument that happens to itself end a line on
+    /// a bare identifier immediately followed by a same-story `(` on the
+    /// next line would ALSO be affected). No repo-wide occurrence of that
+    /// split-line `ident\n(args)` call style was found (verified by
+    /// review), so this is not a behavior change in practice today — but it
+    /// is a broader scope than "only the arm's outermost body expression."
     bool suppressCallAcrossNewline_ = false;
     std::vector<std::unique_ptr<ASTNode>> pendingDecls_;
 };

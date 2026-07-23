@@ -754,6 +754,43 @@ TEST_F(SemaTest, TuplePatternElementBindingTypesUsableInBody) {
     EXPECT_TRUE(result.passed);
 }
 
+// REVIEW FIX: an EnumCase pattern as a tuple ELEMENT (e.g. `(Color.Red, x)`)
+// previously fell through IRGen's defensive placeholder and silently matched
+// ANY value in that slot. Must be rejected cleanly instead.
+TEST_F(SemaTest, TupleElementEnumCaseRejected) {
+    auto result = check(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let t = (Color.Red, 1)
+            match t {
+                (Color.Red, x) => println(0)
+                _ => println(1)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_tuple_element_unsupported));
+}
+
+// Same rejection for an Or pattern as a tuple element (`(1|2, x)`).
+TEST_F(SemaTest, TupleElementOrPatternRejected) {
+    auto result = check(R"--(
+        func main() {
+            let t = (1, 2)
+            match t {
+                (1|2, x) => println(0)
+                _ => println(1)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_tuple_element_unsupported));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

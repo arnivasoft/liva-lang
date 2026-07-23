@@ -1870,13 +1870,15 @@ void IRGen::resolveTuplePatternElements(const std::vector<std::unique_ptr<Patter
         case Pattern::Kind::EnumCase:
         case Pattern::Kind::Or:
         case Pattern::Kind::Binding:
-            // Pattern Types Faz B, Task 6 scope decision: an EnumCase/Or/
-            // Binding pattern as a tuple ELEMENT is not rejected by Sema
-            // today (out of scope — see task-6-report.md) but IRGen has no
-            // codegen for it as a tuple slot either; defensive placeholder
-            // only (same shape as resolvePatternSubs' own rejected-kind
-            // fallback: empty PatternInfo, no comparison — the slot is
-            // treated as always-matching rather than mis-codegenning).
+            // Pattern Types Faz B, Task 6 REVIEW FIX: an EnumCase/Or/Binding
+            // pattern as a tuple ELEMENT is rejected by Sema
+            // (err_pattern_tuple_element_unsupported, TypeChecker::
+            // visitMatchExpr's checkTuplePatternType) before IRGen ever
+            // runs — this branch only keeps the switch exhaustive for
+            // `-Wswitch`; it is never reached by a successfully
+            // type-checked program. Defensive placeholder only (same shape
+            // as resolvePatternSubs' own rejected-kind fallback: empty
+            // PatternInfo, no comparison).
             info.bindings.push_back("");
             info.nestedPatterns.push_back(IRGen::PatternInfo{});
             break;

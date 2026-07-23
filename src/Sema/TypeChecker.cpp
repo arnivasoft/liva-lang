@@ -3144,10 +3144,26 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
             // remain valid catch-alls at any nesting level.
             if (p->getKind() == Pattern::Kind::Wildcard || p->getKind() == Pattern::Kind::Identifier)
                 return;
+            // REVIEW FIX: an EnumCase/Or/Binding pattern as a tuple ELEMENT
+            // (e.g. `(Color.Red, x)`, `(1|2, x)`, `(n@1, x)`) previously fell
+            // through IRGen's defensive placeholder (an empty PatternInfo —
+            // no runtime comparison emitted, so the slot silently matched
+            // ANY value). Reject cleanly with a SIBLING diagnostic to
+            // err_pattern_literal_subpattern_unsupported (not a reuse — that
+            // message is worded around a "literal pattern", and none of
+            // these three are literals). Checked BEFORE the generic
+            // tuple-shaped-slot mismatch below so it fires regardless of
+            // whether `ty` happens to also be a tuple.
+            if (p->getKind() == Pattern::Kind::EnumCase || p->getKind() == Pattern::Kind::Or ||
+                p->getKind() == Pattern::Kind::Binding) {
+                diag_.report(node->getStartLoc(), DiagID::err_pattern_tuple_element_unsupported,
+                             p->toString());
+                return;
+            }
             if (ty->getKind() == TypeRepr::Kind::Tuple) {
                 // A tuple-shaped slot matched by anything other than
-                // Tuple/Wildcard/Identifier (literal/range/EnumCase/Or/
-                // Binding) is always a mismatch.
+                // Tuple/Wildcard/Identifier/literal/range (EnumCase/Or/
+                // Binding are already rejected above) is always a mismatch.
                 diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
                              p->toString(), typeToString(ty));
                 return;
