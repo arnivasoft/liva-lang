@@ -181,6 +181,19 @@ RunResult compileAndRunWithModule(const std::string &producer_source,
     return RunResult{exitCode, captured};
 }
 
+// Counts non-overlapping occurrences of `needle` in `haystack`. Used by the
+// Drop move-semantics tests to assert an EXACT drop count (double-drop RED
+// shows 2, GREEN shows 1).
+int countOccurrences(const std::string &haystack, const std::string &needle) {
+    int count = 0;
+    size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+        ++count;
+        pos += needle.size();
+    }
+    return count;
+}
+
 }  // namespace
 
 TEST(RuntimeExecTest, HelloWorld_PrintsAndExitsZero) {
@@ -2181,6 +2194,94 @@ func main() {
     auto r = compileAndRun(source, "ws_connect_fail");
     EXPECT_EQ(r.exit_code, 0);
     EXPECT_NE(r.stdout_output.find("notopen"), std::string::npos);
+}
+
+// === Drop/Move Tracking — Task 1: `let b = a` / `b = a` move semantics ===
+//
+// Drop-conforming structs get move semantics (conservative scope: ONLY Drop
+// types — plain structs keep copy behavior unchanged, see
+// NonDropStructCopyUnchanged below). Before the fix, `let b = a` / `b = a`
+// never marked the source as moved, so BOTH `a` and `b` got dropped at scope
+// exit (double-drop). The drop method prints a marker; these tests assert
+// the EXACT drop count.
+
+TEST(RuntimeExecTest, DropMoveLetNoDoubleDrop) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+func main() {
+    let a = Res { id: 1 }
+    let b = a
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "drop_move_let");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 1)
+        << "expected exactly ONE drop (b only — a was moved into b, not "
+           "double-dropped); stdout: "
+        << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, DropMoveAssignNoDoubleDrop) {
+    // `b` starts with its OWN Res value (id: 2), then `b = a` overwrites it.
+    // b's ORIGINAL value (id: 2) is never dropped — that's a documented,
+    // double-free-safe leak from assignment (spec point 2), not part of what
+    // this test asserts. What this test asserts: after `b = a`, `a` is moved
+    // into `b`, so scope exit drops ONLY the final value held by `b` (which
+    // came from `a`) — not both `a` and `b`.
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+func main() {
+    let a = Res { id: 1 }
+    var b = Res { id: 2 }
+    b = a
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "drop_move_assign");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 1)
+        << "expected exactly ONE drop (b's final value only — a was moved "
+           "into b via assignment, not double-dropped; b's original value is "
+           "a documented, double-free-safe leak, not counted here); stdout: "
+        << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NonDropStructCopyUnchanged) {
+    // Protection test: plain structs (no Drop conformance) are OUTSIDE this
+    // task's scope — `let b = a` must keep copying, so `a` stays usable
+    // after. Must pass BEFORE and AFTER the move-semantics fix.
+    std::string source = R"LIVA(
+struct Point { var x: i32 }
+func main() {
+    let a = Point { x: 5 }
+    let b = a
+    println(a.x)
+    println(b.x)
+}
+)LIVA";
+    auto r = compileAndRun(source, "nondrop_copy_unchanged");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "5"), 2)
+        << "both a.x and b.x must print 5 — plain struct copy unaffected; "
+           "stdout: "
+        << r.stdout_output;
 }
 
 #endif // LIVA_HAS_LLVM

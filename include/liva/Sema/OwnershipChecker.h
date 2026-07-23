@@ -25,6 +25,11 @@ struct OwnershipInfo {
     OwnershipState state = OwnershipState::Owned;
     bool isMutable = false;
     bool isCopyType = false;  // Primitive types are Copy
+    // Drop-conforming NAMED struct (conservative move-semantics scope).
+    // NOT the negation of isCopyType — isCopyType is false for ALL named
+    // structs (Drop or not); isDropType singles out only the Drop subset so
+    // move semantics don't leak onto plain (copy-by-value) structs.
+    bool isDropType = false;
     SourceLocation declLocation;
     SourceLocation lastMoveLocation;
     SourceLocation lastBorrowLocation;
@@ -44,6 +49,13 @@ public:
     /// they are treated as Copy (passing a class value does not move it).
     void setClassNames(std::unordered_set<std::string> names) {
         classNames_ = std::move(names);
+    }
+
+    /// Provide the set of Drop-conforming struct type names (from
+    /// TypeChecker::getDropTypeNames(), same source IRGen's dropImplementors_
+    /// mirrors). Only these types get move semantics on `let b = a` / `b = a`.
+    void setDropTypeNames(std::unordered_set<std::string> names) {
+        dropTypeNames_ = std::move(names);
     }
 
     void visitFuncDecl(FuncDecl *node);
@@ -68,7 +80,7 @@ public:
 private:
     /// Track a new variable
     void trackVariable(const std::string &name, bool isMutable, bool isCopyType,
-                       SourceLocation loc);
+                       bool isDropType, SourceLocation loc);
 
     /// Mark a variable as moved
     void markMoved(const std::string &name, SourceLocation loc);
@@ -87,6 +99,9 @@ private:
 
     /// Check if a type is a Copy type (primitives)
     bool isCopyType(const TypeRepr *type) const;
+
+    /// Check if a type is a Drop-conforming NAMED struct (dropTypeNames_).
+    bool isDropType(const TypeRepr *type) const;
 
     /// Drop all owned values at scope exit
     void dropScopeVariables();
@@ -110,6 +125,10 @@ private:
 
     /// Class type names — treated as Copy (reference types, not moved).
     std::unordered_set<std::string> classNames_;
+
+    /// Drop-conforming struct type names — get move semantics on `let b = a`
+    /// / `b = a` (see setDropTypeNames()).
+    std::unordered_set<std::string> dropTypeNames_;
 };
 
 } // namespace liva

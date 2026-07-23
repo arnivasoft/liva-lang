@@ -719,6 +719,22 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
         }
 
         if (it != vars_.namedValues.end()) {
+            // Move semantics: `b = a` where `a` is a Drop-conforming struct
+            // moves `a` — mark the SOURCE identifier as moved so
+            // emitScopeCleanup skips it (closes the double-drop). `b`'s
+            // overwritten old value is not dropped here (documented,
+            // double-free-safe leak — out of scope for this task). Scope is
+            // conservative: only Drop-conforming structs (dropImplementors_).
+            if (node->getOp() == AssignExpr::Op::Assign &&
+                node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *valIdent = static_cast<const IdentifierExpr *>(node->getValue());
+                auto srcStIt = vars_.varStructTypes.find(valIdent->getName());
+                if (srcStIt != vars_.varStructTypes.end() &&
+                    dropImplementors_.count(srcStIt->second)) {
+                    vars_.movedVars.insert(valIdent->getName());
+                }
+            }
+
             // Handle compound assignment
             if (node->getOp() != AssignExpr::Op::Assign) {
                 auto *current = builder_->CreateLoad(it->second->getAllocatedType(),

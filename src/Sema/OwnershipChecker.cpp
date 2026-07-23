@@ -20,7 +20,8 @@ void OwnershipChecker::visitFuncDecl(FuncDecl *node) {
     // Track parameters
     for (auto &param : node->getParams()) {
         bool copyType = param.type ? isCopyType(param.type.get()) : true;
-        trackVariable(param.name, param.isMutRef, copyType, param.location);
+        bool dropType = param.type ? isDropType(param.type.get()) : false;
+        trackVariable(param.name, param.isMutRef, copyType, dropType, param.location);
     }
 
     if (node->getBody()) {
@@ -54,18 +55,38 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
     }
 
     bool copyType;
+    bool dropType = false;
     const TypeRepr *type = node->getType();
     if (type && !type->isInferred()) {
         // Explicit type annotation — use it directly
         copyType = isCopyType(type);
+        dropType = isDropType(type);
     } else if (node->hasInit() && node->getInit()->getResolvedType()) {
         // Inferred type — use the init expression's resolved type
         copyType = isCopyType(node->getInit()->getResolvedType());
+        dropType = isDropType(node->getInit()->getResolvedType());
     } else {
         // No type info available — default to Copy
         copyType = true;
     }
-    trackVariable(node->getName(), node->isMutable(), copyType, node->getStartLoc());
+
+    // Move semantics: `let b = a` where `a` is a Drop-conforming struct moves
+    // `a` (conservative scope — only Drop types; plain structs keep copy
+    // behavior unchanged). Use the SOURCE variable's own tracked isDropType
+    // flag rather than recomputing from `b`'s type, since that's the value
+    // actually being consumed.
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *initIdent = static_cast<IdentifierExpr *>(
+            const_cast<Expr *>(node->getInit()));
+        auto *srcInfo = getInfo(initIdent->getName());
+        if (srcInfo && srcInfo->isDropType) {
+            markMoved(initIdent->getName(), node->getStartLoc());
+        }
+    }
+
+    trackVariable(node->getName(), node->isMutable(), copyType, dropType,
+                 node->getStartLoc());
 }
 
 void OwnershipChecker::visitBlockStmt(BlockStmt *node) {
@@ -101,7 +122,7 @@ void OwnershipChecker::visitWhileStmt(WhileStmt *node) {
 void OwnershipChecker::visitForStmt(ForStmt *node) {
     visit(const_cast<Expr *>(node->getIterable()));
     pushOwnershipScope();
-    trackVariable(node->getVarName(), false, true, node->getStartLoc());
+    trackVariable(node->getVarName(), false, true, false, node->getStartLoc());
     visit(const_cast<ASTNode *>(node->getBody()));
     dropScopeVariables();
     popOwnershipScope();
@@ -114,6 +135,19 @@ void OwnershipChecker::visitIdentifierExpr(IdentifierExpr *node) {
 void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
     // Visit the value first (may move a value)
     visit(node->getValue());
+
+    // Move semantics: `b = a` where `a` is a Drop-conforming struct moves `a`
+    // (same conservative scope as the `let b = a` case above). Note: `b`'s
+    // OVERWRITTEN old value is not dropped here — that's a documented,
+    // double-free-safe leak (see spec point 2), out of scope for this task.
+    if (node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *valIdent = static_cast<IdentifierExpr *>(
+            const_cast<Expr *>(node->getValue()));
+        auto *srcInfo = getInfo(valIdent->getName());
+        if (srcInfo && srcInfo->isDropType) {
+            markMoved(valIdent->getName(), node->getStartLoc());
+        }
+    }
 
     // Check target is mutable
     if (node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
@@ -187,12 +221,14 @@ void OwnershipChecker::visitRefExpr(RefExpr *node) {
 // === Private helpers ===
 
 void OwnershipChecker::trackVariable(const std::string &name, bool isMutable,
-                                      bool isCopyType, SourceLocation loc) {
+                                      bool isCopyType, bool isDropType,
+                                      SourceLocation loc) {
     OwnershipInfo info;
     info.name = name;
     info.state = OwnershipState::Owned;
     info.isMutable = isMutable;
     info.isCopyType = isCopyType;
+    info.isDropType = isDropType;
     info.declLocation = loc;
 
     if (!scopeStack_.empty()) {
@@ -341,6 +377,18 @@ bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
         return true;
 
     return false;
+}
+
+bool OwnershipChecker::isDropType(const TypeRepr *type) const {
+    if (!type)
+        return false;
+
+    // Only NAMED struct types can conform to Drop.
+    if (type->getKind() != TypeRepr::Kind::Named)
+        return false;
+
+    auto *named = static_cast<const NamedTypeRepr *>(type);
+    return dropTypeNames_.count(named->getName()) > 0;
 }
 
 void OwnershipChecker::dropScopeVariables() {

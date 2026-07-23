@@ -17,6 +17,12 @@ bool Sema::analyze(TranslationUnit &tu) {
         auto names = typeChecker_.getAllClassNames();
         ownershipChecker_.setClassNames({names.begin(), names.end()});
     }
+    // Drop-conforming structs get move semantics on `let b = a` / `b = a`
+    // (conservative scope — plain structs keep copy behavior unchanged).
+    {
+        auto dropNames = typeChecker_.getDropTypeNames();
+        ownershipChecker_.setDropTypeNames({dropNames.begin(), dropNames.end()});
+    }
     ownershipChecker_.check(tu);
     if (diag_.hasErrors())
         return false;

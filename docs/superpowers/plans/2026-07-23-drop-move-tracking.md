@@ -21,20 +21,20 @@ Claude-Session: https://claude.ai/code/session_01AZdcE7dS5uf54j3t6Cw216
 
 **Rapor** → `.superpowers/sdd/task-0-report.md`. Her iddia file:line ile.
 
-- [ ] **(a) Drop-conformance tespiti**: Sema'da bir struct'ın Drop'a uyduğu NEREDE kayıtlı (TypeChecker conformance kaydı? OwnershipChecker erişebiliyor mu?); IRGen'de `<Struct>_drop` fonksiyon üretimi nerede (IRGenDecl?) ve scope temizliği drop çağrısını nasıl seçiyor (`IRGenStmt.cpp:36-136` — varStructTypes + ne kontrolü?). İki katman için önerilen "isDropType(name)" kaynağını yaz.
-- [ ] **(b) OwnershipChecker veri akışı**: `trackVariable`'a isCopyType'ı kim hesaplayıp veriyor; visitVarDecl/visitAssignExpr mevcut halleri (var mı, ne yapıyor); Drop bilgisi OwnershipChecker'a nasıl taşınır (en az invaziv yol).
-- [ ] **(c) if-let/while-let codegen haritası**: `IRGenStmt.cpp:506` neyi movedVars'a ekliyor; binding payload'u nasıl materialize ediyor (kopya mı pointer mı); if-let scope'unda binding drop ediliyor mu; Optional kaynağın temizlikle ilişkisi.
-- [ ] **(d) heapOptionalStringVars şablonu**: tam mekanizma (kayıt nerede, temizlik kodu) — Optional<Drop> genellemesinin şablonu.
-- [ ] **(e) Korpus taraması**: tests/examples/stdlib'de Drop'lu struct kopyalayan (`let x = y` identifier-init veya atama) kod var mı; if-let ile Optional<Droplu> kullanan var mı (websocket/json stdlib'i Drop kullanıyor — özellikle tara).
+- [x] **(a) Drop-conformance tespiti**: Sema'da bir struct'ın Drop'a uyduğu NEREDE kayıtlı (TypeChecker conformance kaydı? OwnershipChecker erişebiliyor mu?); IRGen'de `<Struct>_drop` fonksiyon üretimi nerede (IRGenDecl?) ve scope temizliği drop çağrısını nasıl seçiyor (`IRGenStmt.cpp:36-136` — varStructTypes + ne kontrolü?). İki katman için önerilen "isDropType(name)" kaynağını yaz.
+- [x] **(b) OwnershipChecker veri akışı**: `trackVariable`'a isCopyType'ı kim hesaplayıp veriyor; visitVarDecl/visitAssignExpr mevcut halleri (var mı, ne yapıyor); Drop bilgisi OwnershipChecker'a nasıl taşınır (en az invaziv yol).
+- [x] **(c) if-let/while-let codegen haritası**: `IRGenStmt.cpp:506` neyi movedVars'a ekliyor; binding payload'u nasıl materialize ediyor (kopya mı pointer mı); if-let scope'unda binding drop ediliyor mu; Optional kaynağın temizlikle ilişkisi.
+- [x] **(d) heapOptionalStringVars şablonu**: tam mekanizma (kayıt nerede, temizlik kodu) — Optional<Drop> genellemesinin şablonu.
+- [x] **(e) Korpus taraması**: tests/examples/stdlib'de Drop'lu struct kopyalayan (`let x = y` identifier-init veya atama) kod var mı; if-let ile Optional<Droplu> kullanan var mı (websocket/json stdlib'i Drop kullanıyor — özellikle tara).
 
 ## Task 1: `let b = a` + `b = a` move semantiği (double-drop fix)
 
 **Files:** `src/Sema/OwnershipChecker.cpp` (+.h gerekirse), `src/IR/IRGenDecl.cpp` (visitVarDecl init yolu), `src/IR/IRGenExpr.cpp` veya `src/IR/IRGenCall.cpp` (visitAssignExpr — Task 0 (c) bulgusuna göre), testler.
 
-- [ ] **TDD RED**: RuntimeExec `DropMoveLetNoDoubleDrop` (Drop'lu struct, drop println izi; `let b = a` sonrası scope biter → iz TAM 1 kez; RED'de 2) + `DropMoveAssignNoDoubleDrop` (atama varyantı) + `NonDropStructCopyUnchanged` (Drop'suz: `let b = a` sonrası `a` kullanılır, davranış değişmez — bu test RED'de de GREEN'de de geçmeli, koruma testi) + SemaTest `UseAfterMoveDropType` (`let b = a` sonrası `a` kullanımı → err_use_after_move; RED'de kabul).
-- [ ] **Sema**: Task 0 (b) yoluyla Drop bilgisi OwnershipChecker'a; visitVarDecl (identifier init, Drop'lu) + visitAssignExpr (identifier RHS, Drop'lu) → markMoved.
-- [ ] **IRGen**: aynı iki noktada `vars_.movedVars.insert(kaynakAd)` (yalnız Drop'lu struct tiplerde — Task 0 (a) tespitiyle).
-- [ ] GREEN + tam suite + commit `fix(ownership): Drop'lu tiplerde let/atama move semantiği — double-drop kapandı`.
+- [x] **TDD RED**: RuntimeExec `DropMoveLetNoDoubleDrop` (Drop'lu struct, drop println izi; `let b = a` sonrası scope biter → iz TAM 1 kez; RED'de 2) + `DropMoveAssignNoDoubleDrop` (atama varyantı) + `NonDropStructCopyUnchanged` (Drop'suz: `let b = a` sonrası `a` kullanılır, davranış değişmez — bu test RED'de de GREEN'de de geçmeli, koruma testi) + SemaTest `UseAfterMoveDropType` (`let b = a` sonrası `a` kullanımı → err_use_after_move; RED'de kabul).
+- [x] **Sema**: Task 0 (b) yoluyla Drop bilgisi OwnershipChecker'a; visitVarDecl (identifier init, Drop'lu) + visitAssignExpr (identifier RHS, Drop'lu) → markMoved.
+- [x] **IRGen**: aynı iki noktada `vars_.movedVars.insert(kaynakAd)` (yalnız Drop'lu struct tiplerde — Task 0 (a) tespitiyle).
+- [x] GREEN + tam suite + commit `fix(ownership): Drop'lu tiplerde let/atama move semantiği — double-drop kapandı`. (2419 tests, 100% pass — see `.superpowers/sdd/task-1-report.md`)
 
 ## Task 2: Optional<Droplu> scope drop + if-let sahiplik
 

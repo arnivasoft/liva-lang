@@ -1726,6 +1726,21 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             }
         }
 
+        // Move semantics: `let b = a` where `a` is a Drop-conforming struct
+        // moves `a` — mark the SOURCE identifier as moved so emitScopeCleanup
+        // skips it (only `b` gets dropped, closing the double-drop). Scope is
+        // conservative: only Drop-conforming structs are affected (guarded by
+        // dropImplementors_), matching OwnershipChecker's isDropType gate.
+        if (node->getInit() &&
+            node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *initIdent = static_cast<const IdentifierExpr *>(node->getInit());
+            auto srcStIt = vars_.varStructTypes.find(initIdent->getName());
+            if (srcStIt != vars_.varStructTypes.end() &&
+                dropImplementors_.count(srcStIt->second)) {
+                vars_.movedVars.insert(initIdent->getName());
+            }
+        }
+
         return alloca;
     }
 

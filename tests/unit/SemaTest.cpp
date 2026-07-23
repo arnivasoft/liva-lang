@@ -5182,6 +5182,44 @@ TEST_F(SemaTest, DropProtocolWithMoveSemantics) {
     EXPECT_TRUE(result.passed);
 }
 
+// Task 1 (Drop/Move Tracking): `let b = a` moves a Drop-conforming struct —
+// using `a` again afterward is a use-after-move error.
+TEST_F(SemaTest, UseAfterMoveDropType) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Handle { var fd: i32 }
+        impl Handle: Drop {
+            func drop(mut self) {
+                let v: i32 = self.fd
+            }
+        }
+        func main() {
+            let a = Handle { fd: 1 }
+            let b = a
+            let c = a
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// Protection test: plain structs (no Drop conformance) are OUTSIDE this
+// task's conservative scope — the SAME shape as UseAfterMoveDropType above
+// must NOT error for a plain struct (copy semantics unchanged).
+TEST_F(SemaTest, NonDropStructNoMoveError) {
+    auto result = check(R"--(
+        struct Point { var x: i32 }
+        func main() {
+            let a = Point { x: 1 }
+            let b = a
+            let c = a
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 // === F3: Guard Clause (where) Tests ===
 
 TEST_F(SemaTest, GuardClauseBasic) {

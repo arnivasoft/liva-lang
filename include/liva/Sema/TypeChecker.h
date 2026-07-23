@@ -104,6 +104,18 @@ public:
         return out;
     }
 
+    /// Names of all structs conforming to the `Drop` protocol — both locally
+    /// declared (recorded in protocolConformances_ by visitImplDecl) and
+    /// brought in via `import` (propagated by the import loop in check()).
+    /// Used by the ownership checker to apply move semantics on `let b = a`
+    /// / `b = a` only for Drop-conforming types (conservative scope).
+    std::vector<std::string> getDropTypeNames() const {
+        auto it = protocolConformances_.find("Drop");
+        if (it == protocolConformances_.end())
+            return {};
+        return it->second;
+    }
+
 private:
     /// Register built-in types and functions
     void registerBuiltins();

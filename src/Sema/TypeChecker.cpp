@@ -412,6 +412,20 @@ void TypeChecker::check(TranslationUnit &tu) {
                                         typeMethodReturnTypes_[key] = rt;
                                     }
                                 }
+                                // Propagate Drop conformance so imported-module
+                                // types (e.g. json::json's JsonValue, websocket's
+                                // WebSocket) are visible to getDropTypeNames() —
+                                // OwnershipChecker needs the SAME Drop-type set
+                                // that IRGen's dropImplementors_ already sees
+                                // (IRGenDecl.cpp re-processes imported ImplDecls
+                                // directly). Only "Drop" is propagated here —
+                                // copying all protocol conformances has a wider
+                                // blast radius than this fix needs.
+                                if (implD->hasProtocol() &&
+                                    implD->getProtocolName() == "Drop") {
+                                    protocolConformances_["Drop"].push_back(
+                                        implD->getTypeName());
+                                }
                             } else if (topDecl->getKind() == ASTNode::NodeKind::ProtocolDecl) {
                                 // Also import protocol method return types so that
                                 // `dyn Protocol` call sites resolve the return type.
