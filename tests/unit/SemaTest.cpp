@@ -513,6 +513,100 @@ TEST_F(SemaTest, MatchRangePatternOnEnumSubject) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
 }
 
+// === Pattern Types (Faz B) Task 4: Or patterns ===
+
+// An or-alternative that is an ordinary binding (not a known enum case of
+// the subject's type) is ambiguous — which alternative would `x` bind to?
+// Rejected with err_pattern_or_binding.
+TEST_F(SemaTest, OrPatternWithBindingAlternativeRejected) {
+    auto result = check(R"(
+        func main() {
+            let n: i32 = 5
+            match n {
+                x | 1 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_or_binding));
+}
+
+TEST_F(SemaTest, OrPatternAllLiteralsOk) {
+    auto result = check(R"(
+        func main() {
+            let n: i32 = 5
+            match n {
+                1 | 2 | 3 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_pattern_or_binding));
+}
+
+TEST_F(SemaTest, OrPatternBareEnumCasesOk) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red|Color.Blue => println(0)
+                Color.Green => println(1)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_pattern_or_binding));
+}
+
+// Or-pattern type mismatches are still caught PER-ALTERNATIVE: a string
+// literal alternative alongside int literals, matched against an int
+// subject, is a mismatch even though the other alternatives are fine.
+TEST_F(SemaTest, OrPatternMixedTypeAlternativeMismatch) {
+    auto result = check(R"(
+        func main() {
+            let n: i32 = 5
+            match n {
+                1 | "x" | 3 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
+// Exhaustiveness: all enum cases covered via or-alternatives across arms
+// (`Red|Blue =>`, `Green =>`) must NOT be flagged non-exhaustive, mirroring
+// the existing per-arm qualified-case coverage rule extended to or-pattern
+// alternatives (each alternative counts as its own covered case).
+TEST_F(SemaTest, OrPatternExhaustiveEnumCoverage) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red|Color.Blue => println(0)
+                Color.Green => println(1)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_nonexhaustive_match));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

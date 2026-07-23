@@ -511,6 +511,18 @@ private:
         int64_t rangeLo = 0;
         int64_t rangeHi = 0;
         bool rangeInclusive = false;
+
+        // Pattern Types Faz B, Task 4: or-patterns (`p1 | p2 | ...`) resolve
+        // to one PatternInfo per alternative (recursively, via
+        // resolveMatchPattern) rather than a single tag/comparison — the arm
+        // matches if ANY alternative's own condition (built the same way a
+        // bare pattern's would be — see IRGen::emitPatternCond) is true.
+        // `hasTag`/`isWildcard` stay false on the OUTER OrPattern info (it
+        // isn't itself a single discriminant), so it always takes the
+        // if-else-chain path (see visitMatchExpr's `hasOrPattern` check)
+        // instead of participating in CreateSwitch case-building.
+        bool isOr = false;
+        std::vector<PatternInfo> alternatives;
     };
 
     /// Resolve a Pattern AST node (Pattern AST — Faz B) into a flat
@@ -528,6 +540,15 @@ private:
     /// Emit nested pattern check: verify inner enum tag and extract bindings
     void emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nested,
                                 llvm::BasicBlock *failBB, llvm::Function *func);
+
+    /// Build the if-else-chain-mode "does this pattern match `tagVal`"
+    /// condition for ONE PatternInfo (float/string/range/tag-equality —
+    /// whichever the info's kind flags indicate), or nullptr when the
+    /// pattern has no runtime condition of its own (wildcard/binding —
+    /// always matches). Pattern Types Faz B, Task 4: factored out of
+    /// visitMatchExpr so an OrPattern's arm can OR together one call per
+    /// alternative instead of duplicating the per-kind logic.
+    llvm::Value *emitPatternCond(const PatternInfo &pat, llvm::Value *tagVal);
 
     llvm::Value *emitEnumCaseConstruct(const std::string &enumName,
                                         const std::string &caseName, int tag,

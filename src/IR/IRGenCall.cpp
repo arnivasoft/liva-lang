@@ -1490,10 +1490,24 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         }
     }
 
+    // Pattern Types Faz B, Task 4: an or-pattern (`p1 | p2 | ...`) is, like a
+    // range, not a single discrete tag CreateSwitch can dispatch on — its
+    // alternatives are OR'd together as a runtime condition (see
+    // emitPatternCond below) — so it forces if-else-chain mode too, for the
+    // same reasons documented on hasRangePattern above.
+    bool hasOrPattern = false;
+    for (auto &info : armInfos) {
+        if (info.pat.isOr) {
+            hasOrPattern = true;
+            break;
+        }
+    }
+
     // Use if-else chain for non-integer types (float/double/pointer), when
     // all arms are guarded bindings (no concrete switch cases), or when any
-    // arm is a range pattern.
-    bool useIfElseChain = !tagVal->getType()->isIntegerTy() || numCases == 0 || hasRangePattern;
+    // arm is a range or or-pattern.
+    bool useIfElseChain =
+        !tagVal->getType()->isIntegerTy() || numCases == 0 || hasRangePattern || hasOrPattern;
 
     // Create default block. Pattern Types Faz B, Task 2 REGRESSION FIX:
     // an earlier version of this fix routed the no-wildcard default
@@ -1599,73 +1613,41 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             }
         }
 
-        // Pattern-level comparison for string/float literal patterns
-        // (Pattern Types Faz B, Task 2): these always take the if-else-chain
-        // path (their subject's LLVM type is never an integer eligible for
-        // CreateSwitch — a pointer for string, a float/double for float), so
-        // unlike the switch path, nothing has verified the pattern actually
-        // matches yet. Bool literal patterns don't need this: they reuse
-        // the tag/hasTag switch-case machinery above instead.
+        // Pattern-level comparison for string/float/range/or/tag-bearing
+        // patterns (Pattern Types Faz B, Task 2/3/4): these always take the
+        // if-else-chain path, so unlike the switch path, nothing has
+        // verified the pattern actually matches yet. Bool literal patterns
+        // don't need this: they reuse the tag/hasTag switch-case machinery
+        // instead (handled by emitPatternCond's hasTag branch too, but
+        // switch mode never reaches here for them). See emitPatternCond for
+        // the per-kind logic (factored out so an or-arm's alternatives can
+        // reuse it — Task 4).
         llvm::Value *patternCond = nullptr;
         if (useIfElseChain) {
-            if (info.pat.isFloatLiteral) {
-                auto *litVal = llvm::ConstantFP::get(tagVal->getType(), info.pat.floatValue);
-                patternCond = builder_->CreateFCmpOEQ(tagVal, litVal, "pat.feq");
-            } else if (info.pat.isStringLiteral) {
-                auto *litStr = builder_->CreateGlobalString(info.pat.stringValue, "pat.str");
-                auto *equalFn = getOrPanic("liva_str_equal");
-                auto *rawResult = builder_->CreateCall(equalFn, {tagVal, litStr}, "pat.streq.raw");
-                patternCond = builder_->CreateICmpNE(rawResult, builder_->getInt32(0), "pat.streq");
-            } else if (info.pat.isRange && tagVal->getType()->isIntegerTy()) {
-                // Pattern Types Faz B, Task 3: `lo <= x && x < hi` (exclusive)
-                // / `lo <= x && x <= hi` (inclusive). Sema's
-                // err_pattern_type_mismatch rejects range arms on known
-                // non-int scalar and known-enum subjects, but subjects Sema
-                // cannot classify (struct/tuple/other Named) slip through —
-                // the isIntegerTy() guard keeps those on the legacy
-                // "patternCond stays null → arm matches unconditionally"
-                // fallback instead of hitting an invalid ICmp (LLVM verify
-                // failure). Same defense as the hasTag branch below.
-                auto *tagIntTy = llvm::cast<llvm::IntegerType>(tagVal->getType());
-                auto *loVal = llvm::ConstantInt::get(
-                    tagIntTy, static_cast<uint64_t>(info.pat.rangeLo), /*isSigned=*/true);
-                auto *hiVal = llvm::ConstantInt::get(
-                    tagIntTy, static_cast<uint64_t>(info.pat.rangeHi), /*isSigned=*/true);
-                auto *geLo = builder_->CreateICmpSGE(tagVal, loVal, "pat.range.ge");
-                auto *cmpHi = info.pat.rangeInclusive
-                                  ? builder_->CreateICmpSLE(tagVal, hiVal, "pat.range.le")
-                                  : builder_->CreateICmpSLT(tagVal, hiVal, "pat.range.lt");
-                patternCond = builder_->CreateAnd(geLo, cmpHi, "pat.range.and");
-            } else if (info.pat.hasTag && !info.pat.isWildcard &&
-                       tagVal->getType()->isIntegerTy()) {
-                // Pattern Types Faz B, Task 3: a tag-bearing arm (plain
-                // int-literal, or a bare/qualified no-payload enum case) that
-                // ends up sharing a match with a range arm is now in
-                // if-else-chain mode too (see hasRangePattern above), where
-                // — unlike switch mode — nothing has verified its tag
-                // actually equals the subject yet. Build that equality
-                // check explicitly. Guarded-binding arms (Identifier
-                // pattern, hasTag == false) are unaffected: they fall
-                // through with patternCond == nullptr exactly as before,
-                // i.e. always match (subject to any guard clause).
-                //
-                // REVIEW FIX: this branch is ALSO reachable via chain mode's
-                // OTHER two triggers — a non-integer subject (float/string)
-                // or numCases == 0 — not just hasRangePattern. Sema's
-                // err_pattern_type_mismatch now rejects an int-literal arm
-                // against a known non-int scalar subject at compile time
-                // (root-cause fix, TypeChecker.cpp), but an unresolved/
-                // generic subject that slips past that conservative check
-                // must still not reach an unconditional
-                // `cast<IntegerType>(tagVal->getType())` here — hence the
-                // explicit `isIntegerTy()` guard (defense in depth): when
-                // false, patternCond simply stays null, i.e. this arm falls
-                // back to the pre-generalization "always matches" behavior
-                // instead of crashing LLVM module verification.
-                auto *tagIntTy = llvm::cast<llvm::IntegerType>(tagVal->getType());
-                auto *litVal = llvm::ConstantInt::get(
-                    tagIntTy, static_cast<uint64_t>(info.pat.tag), /*isSigned=*/true);
-                patternCond = builder_->CreateICmpEQ(tagVal, litVal, "pat.tageq");
+            if (info.pat.isOr) {
+                // Pattern Types Faz B, Task 4: OR together each
+                // alternative's own condition. An alternative with no
+                // condition of its own (isWildcard, or — defensively —
+                // anything else emitPatternCond can't build a check for)
+                // makes the WHOLE arm match unconditionally, same as a bare
+                // wildcard/binding pattern would.
+                bool alwaysMatches = false;
+                llvm::Value *orCond = nullptr;
+                for (auto &alt : info.pat.alternatives) {
+                    if (alt.isWildcard) {
+                        alwaysMatches = true;
+                        break;
+                    }
+                    llvm::Value *altCond = emitPatternCond(alt, tagVal);
+                    if (!altCond) {
+                        alwaysMatches = true;
+                        break;
+                    }
+                    orCond = orCond ? builder_->CreateOr(orCond, altCond, "pat.or") : altCond;
+                }
+                patternCond = alwaysMatches ? nullptr : orCond;
+            } else {
+                patternCond = emitPatternCond(info.pat, tagVal);
             }
         }
 
@@ -1797,12 +1779,13 @@ void IRGen::resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs
         case Pattern::Kind::StringLiteral:
         case Pattern::Kind::FloatLiteral:
         case Pattern::Kind::Range:
-            // Pattern Types Faz B, Task 2/3 subpattern decision: TypeChecker's
-            // declarePatternSubBinding rejects these as Case(...) sub-slots
-            // before IRGen ever runs (err_pattern_literal_subpattern_
-            // unsupported) — this branch only keeps the switch exhaustive
-            // for `-Wswitch`; it is never reached by a successfully
-            // type-checked program.
+        case Pattern::Kind::Or:
+            // Pattern Types Faz B, Task 2/3/4 subpattern decision:
+            // TypeChecker's declarePatternSubBinding rejects these as
+            // Case(...) sub-slots before IRGen ever runs
+            // (err_pattern_literal_subpattern_unsupported) — this branch
+            // only keeps the switch exhaustive for `-Wswitch`; it is never
+            // reached by a successfully type-checked program.
             info.bindings.push_back("");
             info.nestedPatterns.push_back(IRGen::PatternInfo{});
             break;
@@ -1860,6 +1843,20 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
         info.rangeLo = rp->getLo().getValue();
         info.rangeHi = rp->getHi().getValue();
         info.rangeInclusive = rp->isInclusive();
+        return info;
+    }
+
+    case Pattern::Kind::Or: {
+        // Pattern Types Faz B, Task 4: recursively resolve each alternative
+        // with the SAME subjectEnumType (an alternative's bare/qualified
+        // enum-case tag lookup works identically to a top-level pattern's —
+        // see IdentifierPattern/EnumCase cases above). Sema's
+        // err_pattern_or_binding has already rejected any alternative that
+        // would introduce a binding by the time IRGen runs.
+        auto *op = static_cast<const OrPattern *>(pattern);
+        info.isOr = true;
+        for (auto &alt : op->getAlternatives())
+            info.alternatives.push_back(resolveMatchPattern(alt.get(), subjectEnumType));
         return info;
     }
 
@@ -1968,6 +1965,54 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
         builder_->CreateCondBr(cmp, matchBB, failBB);
         builder_->SetInsertPoint(matchBB);
     }
+}
+
+// Pattern Types Faz B, Task 4: the per-kind "does this pattern match
+// tagVal" condition, factored out of visitMatchExpr's if-else-chain arm loop
+// so an OrPattern's alternatives (each its own PatternInfo, see
+// resolveMatchPattern's Kind::Or case) can reuse exactly the same logic a
+// bare pattern's condition is built from. Returns nullptr when `pat` has no
+// condition of its own — wildcard/binding (hasTag == false) — meaning the
+// pattern always matches.
+llvm::Value *IRGen::emitPatternCond(const PatternInfo &pat, llvm::Value *tagVal) {
+    if (pat.isFloatLiteral) {
+        auto *litVal = llvm::ConstantFP::get(tagVal->getType(), pat.floatValue);
+        return builder_->CreateFCmpOEQ(tagVal, litVal, "pat.feq");
+    }
+    if (pat.isStringLiteral) {
+        auto *litStr = builder_->CreateGlobalString(pat.stringValue, "pat.str");
+        auto *equalFn = getOrPanic("liva_str_equal");
+        auto *rawResult = builder_->CreateCall(equalFn, {tagVal, litStr}, "pat.streq.raw");
+        return builder_->CreateICmpNE(rawResult, builder_->getInt32(0), "pat.streq");
+    }
+    if (pat.isRange && tagVal->getType()->isIntegerTy()) {
+        // Pattern Types Faz B, Task 3: `lo <= x && x < hi` (exclusive) /
+        // `lo <= x && x <= hi` (inclusive). The isIntegerTy() guard is
+        // defense-in-depth for subjects Sema can't classify (struct/tuple/
+        // other Named) — see the original inline comment history in
+        // visitMatchExpr for the full rationale.
+        auto *tagIntTy = llvm::cast<llvm::IntegerType>(tagVal->getType());
+        auto *loVal = llvm::ConstantInt::get(
+            tagIntTy, static_cast<uint64_t>(pat.rangeLo), /*isSigned=*/true);
+        auto *hiVal = llvm::ConstantInt::get(
+            tagIntTy, static_cast<uint64_t>(pat.rangeHi), /*isSigned=*/true);
+        auto *geLo = builder_->CreateICmpSGE(tagVal, loVal, "pat.range.ge");
+        auto *cmpHi = pat.rangeInclusive
+                          ? builder_->CreateICmpSLE(tagVal, hiVal, "pat.range.le")
+                          : builder_->CreateICmpSLT(tagVal, hiVal, "pat.range.lt");
+        return builder_->CreateAnd(geLo, cmpHi, "pat.range.and");
+    }
+    if (pat.hasTag && !pat.isWildcard && tagVal->getType()->isIntegerTy()) {
+        // A tag-bearing pattern (plain int-literal, or a bare/qualified
+        // no-payload enum case) sharing a chain-mode match with a range/or
+        // arm needs its own explicit equality check — unlike switch mode,
+        // nothing has verified its tag actually equals the subject yet.
+        auto *tagIntTy = llvm::cast<llvm::IntegerType>(tagVal->getType());
+        auto *litVal = llvm::ConstantInt::get(
+            tagIntTy, static_cast<uint64_t>(pat.tag), /*isSigned=*/true);
+        return builder_->CreateICmpEQ(tagVal, litVal, "pat.tageq");
+    }
+    return nullptr;
 }
 
 void IRGen::emitBoundsCheck(llvm::Value *indexVal, llvm::Value *sizeVal) {

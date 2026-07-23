@@ -2,10 +2,12 @@
 
 namespace liva {
 
-// Grammar (Pattern AST — Faz A, extended Faz B Task 3):
-//   pattern := '_' | int-literal [ rangeSuffix ] | ident | ident '(' subs ')'
-//            | ident '.' ident [ '(' subs ')' ]
-//   rangeSuffix := ('..' | '..=') int-literal   // -> RangePattern
+// Grammar (Pattern AST — Faz A, extended Faz B Task 3/4):
+//   pattern      := orPattern
+//   orPattern    := primary ( '|' primary )*     // >=1 '|' -> OrPattern
+//   primary      := '_' | int-literal [ rangeSuffix ] | ident
+//                 | ident '(' subs ')' | ident '.' ident [ '(' subs ')' ]
+//   rangeSuffix  := ('..' | '..=') int-literal   // -> RangePattern
 //   subs    := pattern (',' pattern)*
 // Negative int literals are the '-' punctuator immediately followed by an
 // integer_literal token, collapsed into a single IntLiteralPattern (matches
@@ -67,6 +69,27 @@ std::unique_ptr<Pattern> Parser::maybeParseRangePattern(
 }
 
 std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
+    auto startLoc = current_.getLocation();
+    auto first = parsePatternPrimary(inParens);
+
+    // Pattern Types Faz B, Task 4: `orPattern := primary ('|' primary)*`,
+    // left-associative. Only the single-pipe `pipe` token counts — `pipe_pipe`
+    // ("||", the closure/logical-or token) does NOT start an or-alternative,
+    // so `1 || 2 =>` is left alone here and fails naturally at the caller's
+    // subsequent `expect(fat_arrow)`/`expect(r_paren)`/`expect(comma)`.
+    if (!check(TokenKind::pipe))
+        return first;
+
+    std::vector<std::unique_ptr<Pattern>> alternatives;
+    alternatives.push_back(std::move(first));
+    while (check(TokenKind::pipe)) {
+        advance(); // consume '|'
+        alternatives.push_back(parsePatternPrimary(inParens));
+    }
+    return std::make_unique<OrPattern>(std::move(alternatives), rangeFrom(startLoc));
+}
+
+std::unique_ptr<Pattern> Parser::parsePatternPrimary(bool inParens) {
     auto startLoc = current_.getLocation();
 
     // Stop set for the best-effort blind-consumption fallbacks below: an arm

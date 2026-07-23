@@ -20,7 +20,9 @@ public:
         // Pattern Types Faz B, Task 2:
         BoolLiteral, StringLiteral, FloatLiteral,
         // Pattern Types Faz B, Task 3:
-        Range
+        Range,
+        // Pattern Types Faz B, Task 4:
+        Or
     };
 
     explicit Pattern(Kind k, SourceRange r) : kind_(k), range_(r) {}
@@ -189,6 +191,28 @@ public:
 private:
     std::unique_ptr<IntLiteralPattern> lo_, hi_;
     bool inclusive_;
+};
+
+/// `p1 | p2 | ... | pN` (N >= 2, left-associative `|` at the top of pattern
+/// parsing). Matches if ANY alternative matches; the guard (if any) applies
+/// to the whole arm, not per-alternative. Alternatives may not introduce a
+/// binding (Sema: err_pattern_or_binding) — a bare identifier alternative
+/// must resolve to a known no-payload enum case, not an ordinary variable
+/// binding, and a payload-carrying `Case(...)` alternative is rejected
+/// outright (ambiguous which alternative's payload a sub-binding would come
+/// from). Each enum-case alternative counts toward exhaustiveness coverage
+/// separately (see TypeChecker::visitMatchExpr's coveredCases walk).
+class OrPattern : public Pattern {
+public:
+    OrPattern(std::vector<std::unique_ptr<Pattern>> alternatives, SourceRange r)
+        : Pattern(Kind::Or, r), alternatives_(std::move(alternatives)) {}
+
+    const std::vector<std::unique_ptr<Pattern>> &getAlternatives() const { return alternatives_; }
+
+    static bool classof(const Pattern *p) { return p->getKind() == Kind::Or; }
+
+private:
+    std::vector<std::unique_ptr<Pattern>> alternatives_;
 };
 
 } // namespace liva

@@ -1018,6 +1018,101 @@ TEST(RuntimeExecTest, MatchRangeNegativeOnlyHi) {
     EXPECT_EQ(r.stdout_output, "1\n1\n0\n0\n") << "stdout: " << r.stdout_output;
 }
 
+// === Pattern Types (Faz B) Task 4: Or patterns ===
+// Or-patterns force the if-else-chain dispatch path (see visitMatchExpr's
+// `hasOrPattern` check), same rationale as Range in Task 3.
+
+TEST(RuntimeExecTest, MatchOrPatternIntLiterals) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                1|2|3 => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify(1))
+            println(classify(2))
+            println(classify(3))
+            println(classify(4))
+        }
+    )--", "match_or_int_literals");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n1\n1\n0\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MatchOrPatternEnumCase) {
+    auto r = compileAndRun(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func rank(c: Color) -> i32 {
+            let r = match c {
+                Color.Red|Color.Blue => 1
+                Color.Green => 2
+            }
+            return r
+        }
+
+        func main() {
+            println(rank(Color.Red))
+            println(rank(Color.Blue))
+            println(rank(Color.Green))
+        }
+    )--", "match_or_enum_case");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n1\n2\n") << "stdout: " << r.stdout_output;
+}
+
+// Mixed range+literal or-alternatives (`1..5 | 99`): a Range alternative and
+// a plain IntLiteral alternative in the same or-pattern.
+TEST(RuntimeExecTest, MatchOrPatternMixedRangeAndLiteral) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                1..5 | 99 => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify(1))
+            println(classify(4))
+            println(classify(5))
+            println(classify(99))
+            println(classify(50))
+        }
+    )--", "match_or_mixed_range_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n1\n0\n1\n0\n") << "stdout: " << r.stdout_output;
+}
+
+// An or-arm combined with a guard: the guard applies to the WHOLE arm (ANDed
+// with the OR of all alternatives), not per-alternative.
+TEST(RuntimeExecTest, MatchOrPatternArmWithGuard) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                1|2|3 if n % 2 == 0 => 1
+                1|2|3 => 2
+                _ => 3
+            }
+            return r
+        }
+        func main() {
+            println(classify(2))
+            println(classify(1))
+            println(classify(4))
+        }
+    )--", "match_or_arm_with_guard");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n2\n3\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

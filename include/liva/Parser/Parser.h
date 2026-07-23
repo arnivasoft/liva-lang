@@ -89,12 +89,21 @@ private:
     Token expect(TokenKind kind);
 
     /// Parse a single match-arm pattern (recursive descent) into the
-    /// structural Pattern AST.
+    /// structural Pattern AST: `orPattern := primary ('|' primary)*`
+    /// (Pattern Types Faz B, Task 4 — left-associative `|` at the very top
+    /// of pattern parsing; folds into an OrPattern only when at least one
+    /// `|` is present, otherwise returns the single primary unchanged).
     /// `inParens`: true when parsing a subpattern inside `Case(...)` — the
     /// best-effort blind-consumption fallbacks then additionally stop at
     /// `)`/`,` (current paren depth) instead of only at an arm terminator,
     /// so a malformed subpattern never swallows its enclosing parens/comma.
     std::unique_ptr<Pattern> parsePattern(bool inParens = false);
+
+    /// The former parsePattern() body: a single pattern "primary" (no `|`
+    /// handling) — wildcard/literal/range/identifier/enum-case forms. Pulled
+    /// out so parsePattern() can loop on `|` around it (Pattern Types Faz B,
+    /// Task 4).
+    std::unique_ptr<Pattern> parsePatternPrimary(bool inParens);
 
     /// Pattern Types Faz B, Task 3: after parsing an int-literal pattern
     /// atom (`lo`), look ahead for a `..`/`..=` range suffix and fold it

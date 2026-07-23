@@ -49,6 +49,20 @@ std::string Pattern::toString() const {
         }
         return out;
     }
+
+    case Kind::Or: {
+        // Normalized `|`-separated, no spaces — independent of whatever
+        // whitespace surrounded the `|` tokens in source (Pattern Types Faz
+        // B, Task 4).
+        const auto *op = static_cast<const OrPattern *>(this);
+        std::string out;
+        const auto &alts = op->getAlternatives();
+        for (size_t i = 0; i < alts.size(); ++i) {
+            if (i > 0) out += "|";
+            out += alts[i]->toString();
+        }
+        return out;
+    }
     }
     return {};
 }

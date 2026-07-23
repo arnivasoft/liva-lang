@@ -166,6 +166,17 @@ private:
     /// "_"/int-literal-ness, inside parens).
     void declarePatternSubBinding(const Pattern *sub);
 
+    /// Pattern Types Faz B, Task 4: does this or-pattern alternative
+    /// introduce a binding? Recurses through nested Or (defensive; the
+    /// grammar doesn't currently produce nested Or, but keeps this correct
+    /// if it ever does). A bare Identifier alternative is a binding UNLESS
+    /// it names a known case of `subjectEnum` (bare no-payload enum case);
+    /// a payload-carrying `Case(...)` alternative is always rejected
+    /// (ambiguous which alternative's payload a sub-binding would come
+    /// from — Task 4 scope only supports bare/qualified no-payload enum
+    /// cases as or-alternatives).
+    bool orAlternativeIsBinding(const Pattern *alt, const EnumDecl *subjectEnum) const;
+
     /// Async function tracking
     bool currentIsAsync_ = false;
     std::set<std::string> asyncFuncNames_;

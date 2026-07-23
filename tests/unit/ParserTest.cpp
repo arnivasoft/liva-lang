@@ -1524,6 +1524,105 @@ TEST_F(ParserTest, RangePatternMalformedHiSingleError) {
     EXPECT_EQ(errorCount, 1);
 }
 
+// === Pattern Types (Faz B) Task 4: Or patterns ===
+
+TEST_F(ParserTest, OrPatternIntLiteralsAST) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 2
+            match x {
+                1|2|3 => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *orArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(orArm, nullptr);
+    ASSERT_EQ(orArm->getKind(), Pattern::Kind::Or);
+    auto *op = static_cast<const OrPattern *>(orArm);
+    ASSERT_EQ(op->getAlternatives().size(), 3);
+    for (size_t i = 0; i < 3; ++i) {
+        ASSERT_EQ(op->getAlternatives()[i]->getKind(), Pattern::Kind::IntLiteral);
+        auto *lit = static_cast<const IntLiteralPattern *>(op->getAlternatives()[i].get());
+        EXPECT_EQ(lit->getValue(), static_cast<int64_t>(i + 1));
+    }
+    EXPECT_EQ(orArm->toString(), "1|2|3");
+    EXPECT_EQ(orArm->getSpelling(), "1|2|3");
+}
+
+TEST_F(ParserTest, OrPatternEnumCaseAST) {
+    auto result = parse(R"--(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red|Color.Blue => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[1].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *orArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(orArm, nullptr);
+    ASSERT_EQ(orArm->getKind(), Pattern::Kind::Or);
+    auto *op = static_cast<const OrPattern *>(orArm);
+    ASSERT_EQ(op->getAlternatives().size(), 2);
+
+    ASSERT_EQ(op->getAlternatives()[0]->getKind(), Pattern::Kind::EnumCase);
+    auto *ec0 = static_cast<const EnumCasePattern *>(op->getAlternatives()[0].get());
+    EXPECT_EQ(ec0->getEnumName(), "Color");
+    EXPECT_EQ(ec0->getCaseName(), "Red");
+
+    ASSERT_EQ(op->getAlternatives()[1]->getKind(), Pattern::Kind::EnumCase);
+    auto *ec1 = static_cast<const EnumCasePattern *>(op->getAlternatives()[1].get());
+    EXPECT_EQ(ec1->getEnumName(), "Color");
+    EXPECT_EQ(ec1->getCaseName(), "Blue");
+
+    EXPECT_EQ(orArm->toString(), "Color.Red|Color.Blue");
+}
+
+// `p1 || p2` (the closure/logical-or token) must NOT be treated as an
+// or-pattern — the pattern grammar's `|` alternative separator is the
+// single-pipe token only (see TokenKinds.def: `pipe` "|" vs `pipe_pipe`
+// "||"). `1 || 2 =>` should fail to parse (fat_arrow expected, not `||`).
+TEST_F(ParserTest, DoublePipeIsNotOrPattern) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 2
+            match x {
+                1 || 2 => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+}
+
 // === Doc Comment Tests ===
 
 TEST_F(ParserTest, DocCommentOnFunc) {
