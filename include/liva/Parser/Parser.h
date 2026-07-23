@@ -96,6 +96,13 @@ private:
     /// so a malformed subpattern never swallows its enclosing parens/comma.
     std::unique_ptr<Pattern> parsePattern(bool inParens = false);
 
+    /// Pattern Types Faz B, Task 3: after parsing an int-literal pattern
+    /// atom (`lo`), look ahead for a `..`/`..=` range suffix and fold it
+    /// (plus the second int-literal endpoint) into a RangePattern.
+    /// Returns `lo` unchanged (upcast to Pattern) when no suffix follows.
+    std::unique_ptr<Pattern> maybeParseRangePattern(std::unique_ptr<IntLiteralPattern> lo,
+                                                     SourceLocation startLoc);
+
     /// Advance tokens until a synchronization point (statement/declaration boundary)
     void synchronize();
 

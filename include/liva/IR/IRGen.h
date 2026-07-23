@@ -500,6 +500,17 @@ private:
         double floatValue = 0.0;
         bool isStringLiteral = false;
         std::string stringValue; // unescaped
+
+        // Pattern Types Faz B, Task 3: range patterns (`lo..hi` / `lo..=hi`)
+        // can't reuse tag/hasTag either — a range isn't a single discrete
+        // value, so it needs a `sge` + `slt`/`sle` comparison pair instead
+        // of a switch case (see visitMatchExpr's `hasRangePattern` check,
+        // which forces the whole match into if-else-chain mode whenever any
+        // arm is a range).
+        bool isRange = false;
+        int64_t rangeLo = 0;
+        int64_t rangeHi = 0;
+        bool rangeInclusive = false;
     };
 
     /// Resolve a Pattern AST node (Pattern AST — Faz B) into a flat

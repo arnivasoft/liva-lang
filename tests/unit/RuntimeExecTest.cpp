@@ -856,6 +856,119 @@ TEST(RuntimeExecTest, MatchFloatLiteralArms) {
     EXPECT_EQ(r.stdout_output, "111\n222\n") << "stdout: " << r.stdout_output;
 }
 
+// === Pattern Types (Faz B) Task 3: Range patterns ===
+// Ranges force the if-else-chain dispatch path (see visitMatchExpr's
+// `hasRangePattern` check) rather than CreateSwitch, since a range isn't a
+// single discrete tag value — it needs a `sge`+`slt`/`sle` comparison pair.
+
+// Exclusive range (`lo..hi`): lo is included, hi is NOT.
+TEST(RuntimeExecTest, MatchRangePatternExclusiveBoundary) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                1..5 => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify(1))
+            println(classify(4))
+            println(classify(5))
+        }
+    )--", "match_range_exclusive_boundary");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n1\n0\n") << "stdout: " << r.stdout_output;
+}
+
+// Inclusive range (`lo..=hi`): hi IS included.
+TEST(RuntimeExecTest, MatchRangePatternInclusiveBoundary) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                1..=5 => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify(5))
+            println(classify(6))
+        }
+    )--", "match_range_inclusive_boundary");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n0\n") << "stdout: " << r.stdout_output;
+}
+
+// Negative endpoints (`-5..=5`).
+TEST(RuntimeExecTest, MatchRangePatternNegativeEndpoints) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                -5..=5 => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify(-5))
+            println(classify(0))
+            println(classify(5))
+            println(classify(-6))
+            println(classify(6))
+        }
+    )--", "match_range_negative_endpoints");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n1\n1\n0\n0\n") << "stdout: " << r.stdout_output;
+}
+
+// A range arm alongside a plain int-literal arm and a wildcard: exercises
+// the if-else-chain generalization needed so a tag-bearing (int-literal)
+// arm still gets its own equality comparison once a Range arm in the same
+// match forces if-else-chain mode instead of CreateSwitch.
+TEST(RuntimeExecTest, MatchRangeAlongsideLiteralAndWildcard) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                0 => 100
+                1..10 => 200
+                _ => 300
+            }
+            return r
+        }
+        func main() {
+            println(classify(0))
+            println(classify(5))
+            println(classify(50))
+        }
+    )--", "match_range_alongside_literal_and_wildcard");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "100\n200\n300\n") << "stdout: " << r.stdout_output;
+}
+
+// A range arm combined with a guard: the guard is ANDed with the range's
+// own `sge`/`slt`-`sle` comparison, exactly like the float/string literal
+// pattern-plus-guard combination already exercised elsewhere.
+TEST(RuntimeExecTest, MatchRangeArmWithGuard) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                1..100 if n % 2 == 0 => 1
+                1..100 => 2
+                _ => 3
+            }
+            return r
+        }
+        func main() {
+            println(classify(4))
+            println(classify(5))
+            println(classify(200))
+        }
+    )--", "match_range_arm_with_guard");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n2\n3\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

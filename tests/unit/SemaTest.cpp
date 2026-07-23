@@ -416,6 +416,39 @@ TEST_F(SemaTest, MatchBoolPatternOnBoolSubjectOk) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_pattern_type_mismatch));
 }
 
+// Pattern Types (Faz B) Task 3: a range pattern only makes sense against an
+// int subject (`lo <= x && x < hi` / `<= hi`); a string subject matched
+// against a range arm is a clear, conservatively-detectable mismatch (the
+// subject type is concretely known, mirroring MatchStringPatternOnIntSubject
+// above for the bool/string/float literal kinds).
+TEST_F(SemaTest, MatchRangePatternOnStringSubject) {
+    auto result = check(R"(
+        func main() {
+            let s: string = "x"
+            match s {
+                1..10 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
+TEST_F(SemaTest, MatchRangePatternOnIntSubjectOk) {
+    auto result = check(R"(
+        func main() {
+            let x: i32 = 5
+            match x {
+                1..10 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

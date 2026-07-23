@@ -24,6 +24,12 @@ std::string Pattern::toString() const {
     case Kind::FloatLiteral:
         return static_cast<const FloatLiteralPattern *>(this)->getText();
 
+    case Kind::Range: {
+        const auto *rp = static_cast<const RangePattern *>(this);
+        return rp->getLo().getText() + (rp->isInclusive() ? "..=" : "..") +
+               rp->getHi().getText();
+    }
+
     case Kind::EnumCase: {
         const auto *ec = static_cast<const EnumCasePattern *>(this);
         std::string out;

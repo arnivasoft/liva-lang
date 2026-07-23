@@ -2,14 +2,55 @@
 
 namespace liva {
 
-// Grammar (Pattern AST — Faz A):
-//   pattern := '_' | int-literal | ident | ident '(' subs ')'
+// Grammar (Pattern AST — Faz A, extended Faz B Task 3):
+//   pattern := '_' | int-literal [ rangeSuffix ] | ident | ident '(' subs ')'
 //            | ident '.' ident [ '(' subs ')' ]
+//   rangeSuffix := ('..' | '..=') int-literal   // -> RangePattern
 //   subs    := pattern (',' pattern)*
 // Negative int literals are the '-' punctuator immediately followed by an
 // integer_literal token, collapsed into a single IntLiteralPattern (matches
 // the legacy parser's blind whitespace-free token concatenation, which
-// happened to already "support" this via string concatenation).
+// happened to already "support" this via string concatenation). The same
+// negative-literal handling applies to a range's `hi` endpoint (`-5..=5`).
+
+/// After parsing an int-literal pattern atom (`lo`), look ahead for a `..`
+/// (exclusive) / `..=` (inclusive) range suffix (Pattern Types Faz B, Task
+/// 3) and, if present, parse the second int-literal endpoint and wrap both
+/// into a RangePattern. Otherwise returns `lo` unchanged (upcast to
+/// Pattern) — the common case, so every existing plain-int-literal pattern
+/// call site is unaffected.
+std::unique_ptr<Pattern> Parser::maybeParseRangePattern(
+    std::unique_ptr<IntLiteralPattern> lo, SourceLocation startLoc) {
+    if (!check(TokenKind::dotdot) && !check(TokenKind::dotdotequal))
+        return lo;
+    bool inclusive = check(TokenKind::dotdotequal);
+    advance(); // consume '..' or '..='
+
+    auto hiStart = current_.getLocation();
+    std::unique_ptr<IntLiteralPattern> hi;
+    bool hiNegative = check(TokenKind::minus);
+    if (hiNegative)
+        advance();
+    if (check(TokenKind::integer_literal)) {
+        std::string digits = std::string(current_.getText());
+        int64_t value = current_.getIntegerValue();
+        advance();
+        hi = hiNegative
+                 ? std::make_unique<IntLiteralPattern>(-value, "-" + digits, rangeFrom(hiStart))
+                 : std::make_unique<IntLiteralPattern>(value, digits, rangeFrom(hiStart));
+    } else {
+        // Grammar-violating: '..'/'..=' not followed by an int literal
+        // (e.g. `1..x`). Diagnose and recover with a dummy 0 endpoint so the
+        // enclosing arm list can resync (mirrors the '-' recovery below).
+        diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                     "integer literal", std::string(current_.getText()));
+        hi = std::make_unique<IntLiteralPattern>(0, "0", rangeFrom(hiStart));
+    }
+
+    return std::make_unique<RangePattern>(std::move(lo), std::move(hi), inclusive,
+                                           rangeFrom(startLoc));
+}
+
 std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
     auto startLoc = current_.getLocation();
 
@@ -65,8 +106,9 @@ std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
             std::string digits = std::string(current_.getText());
             int64_t value = current_.getIntegerValue();
             advance();
-            return std::make_unique<IntLiteralPattern>(-value, "-" + digits,
-                                                        rangeFrom(startLoc));
+            auto lo = std::make_unique<IntLiteralPattern>(-value, "-" + digits,
+                                                           rangeFrom(startLoc));
+            return maybeParseRangePattern(std::move(lo), startLoc);
         }
         // Grammar-violating input (bare '-' not followed by a digit).
         // Faz A kept this behavior-preserving (silently dropped the '-' and
@@ -85,7 +127,8 @@ std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
         std::string text = std::string(current_.getText());
         int64_t value = current_.getIntegerValue();
         advance();
-        return std::make_unique<IntLiteralPattern>(value, text, rangeFrom(startLoc));
+        auto lo = std::make_unique<IntLiteralPattern>(value, text, rangeFrom(startLoc));
+        return maybeParseRangePattern(std::move(lo), startLoc);
     }
 
     // Identifier-rooted forms: Ident | Ident(subs) | Ident.Ident[(subs)].

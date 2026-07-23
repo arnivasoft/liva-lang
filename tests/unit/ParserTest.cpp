@@ -1402,6 +1402,103 @@ TEST_F(ParserTest, FloatLiteralPatternAST) {
     EXPECT_EQ(piArm->getSpelling(), "3.14");
 }
 
+// === Pattern Types (Faz B) Task 3: Range patterns ===
+
+TEST_F(ParserTest, RangePatternExclusiveAST) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 5
+            match x {
+                1..10 => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *rangeArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(rangeArm, nullptr);
+    ASSERT_EQ(rangeArm->getKind(), Pattern::Kind::Range);
+    auto *rp = static_cast<const RangePattern *>(rangeArm);
+    EXPECT_EQ(rp->getLo().getValue(), 1);
+    EXPECT_EQ(rp->getHi().getValue(), 10);
+    EXPECT_FALSE(rp->isInclusive());
+    EXPECT_EQ(rangeArm->toString(), "1..10");
+    EXPECT_EQ(rangeArm->getSpelling(), "1..10");
+}
+
+TEST_F(ParserTest, RangePatternInclusiveAST) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 5
+            match x {
+                1..=10 => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *rangeArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(rangeArm, nullptr);
+    ASSERT_EQ(rangeArm->getKind(), Pattern::Kind::Range);
+    auto *rp = static_cast<const RangePattern *>(rangeArm);
+    EXPECT_EQ(rp->getLo().getValue(), 1);
+    EXPECT_EQ(rp->getHi().getValue(), 10);
+    EXPECT_TRUE(rp->isInclusive());
+    EXPECT_EQ(rangeArm->toString(), "1..=10");
+    EXPECT_EQ(rangeArm->getSpelling(), "1..=10");
+}
+
+TEST_F(ParserTest, RangePatternNegativeEndpointsAST) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 0
+            match x {
+                -5..=5 => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *rangeArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(rangeArm, nullptr);
+    ASSERT_EQ(rangeArm->getKind(), Pattern::Kind::Range);
+    auto *rp = static_cast<const RangePattern *>(rangeArm);
+    EXPECT_EQ(rp->getLo().getValue(), -5);
+    EXPECT_EQ(rp->getHi().getValue(), 5);
+    EXPECT_TRUE(rp->isInclusive());
+    EXPECT_EQ(rangeArm->toString(), "-5..=5");
+}
+
 // === Doc Comment Tests ===
 
 TEST_F(ParserTest, DocCommentOnFunc) {

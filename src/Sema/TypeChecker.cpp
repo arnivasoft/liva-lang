@@ -2771,6 +2771,11 @@ void TypeChecker::extractPatternBindings(const Pattern *pattern) {
     case Pattern::Kind::FloatLiteral:
         // Same as IntLiteral: a top-level literal pattern binds nothing.
         return;
+
+    case Pattern::Kind::Range:
+        // Same as IntLiteral: a top-level range pattern binds nothing (its
+        // endpoints are literals, not names).
+        return;
     }
 }
 
@@ -2816,14 +2821,15 @@ void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
     case Pattern::Kind::BoolLiteral:
     case Pattern::Kind::StringLiteral:
     case Pattern::Kind::FloatLiteral:
-        // Pattern Types Faz B, Task 2 subpattern decision: bool/string/float
-        // literal patterns are NOT supported as a nested Case(...) sub-slot
-        // (IRGen has no payload-slot-vs-literal comparison codegen). Rather
-        // than silently declaring a bogus binding named after the literal's
-        // spelling (what the Identifier/Wildcard/IntLiteral branch above
-        // would do if this fell through to it), diagnose cleanly. Top-level
-        // use (direct match subject) is fully supported — see
-        // resolveMatchPattern in IRGenCall.cpp.
+    case Pattern::Kind::Range:
+        // Pattern Types Faz B, Task 2/3 subpattern decision: bool/string/
+        // float/range patterns are NOT supported as a nested Case(...)
+        // sub-slot (IRGen has no payload-slot-vs-literal/range comparison
+        // codegen). Rather than silently declaring a bogus binding named
+        // after the literal's spelling (what the Identifier/Wildcard/
+        // IntLiteral branch above would do if this fell through to it),
+        // diagnose cleanly. Top-level use (direct match subject) is fully
+        // supported — see resolveMatchPattern in IRGenCall.cpp.
         //
         // Reviewer minor (b): this is a DISPLAY context (diagnostic message
         // text), not a binding-name derivation — use toString(), not
@@ -2837,16 +2843,16 @@ void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
 void TypeChecker::visitMatchExpr(MatchExpr *node) {
     visit(const_cast<Expr *>(node->getSubject()));
 
-    // Pattern Types Faz B, Task 2: literal-pattern-vs-subject-type mismatch
-    // (err_pattern_type_mismatch). Conservative by construction: only fires
-    // when the subject's resolved type is one of the four scalar kinds a
-    // bool/string/float literal pattern could plausibly compare against
-    // (bool/int/float/string) — a Named/enum/generic/otherwise-unresolved
-    // subject is left alone entirely (avoids false positives, and leaves
-    // IntLiteral's existing enum-tag/int-subject dual role in
-    // resolveMatchPattern untouched). Only the three NEW literal pattern
-    // kinds participate; IntLiteral's existing semantics are intentionally
-    // not widened here — it already has a well-established dual role
+    // Pattern Types Faz B, Task 2/3: literal/range-pattern-vs-subject-type
+    // mismatch (err_pattern_type_mismatch). Conservative by construction:
+    // only fires when the subject's resolved type is one of the four scalar
+    // kinds a bool/string/float/range pattern could plausibly compare
+    // against (bool/int/float/string) — a Named/enum/generic/otherwise-
+    // unresolved subject is left alone entirely (avoids false positives, and
+    // leaves IntLiteral's existing enum-tag/int-subject dual role in
+    // resolveMatchPattern untouched). Only these NEW pattern kinds
+    // participate; IntLiteral's existing semantics are intentionally not
+    // widened here — it already has a well-established dual role
     // (plain-int subject match AND, historically, enum-tag-adjacent
     // handling elsewhere) that this task doesn't revisit.
     const TypeRepr *subjectType = node->getSubject()->getResolvedType();
@@ -2860,11 +2866,13 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
             bool isBoolPat = pk == Pattern::Kind::BoolLiteral;
             bool isStringPat = pk == Pattern::Kind::StringLiteral;
             bool isFloatPat = pk == Pattern::Kind::FloatLiteral;
-            if (!isBoolPat && !isStringPat && !isFloatPat) continue;
+            bool isRangePat = pk == Pattern::Kind::Range;
+            if (!isBoolPat && !isStringPat && !isFloatPat && !isRangePat) continue;
 
             bool ok = (isBoolPat && subjectType->isBool()) ||
                       (isStringPat && subjectType->getKind() == TypeRepr::Kind::String) ||
-                      (isFloatPat && subjectType->isFloat());
+                      (isFloatPat && subjectType->isFloat()) ||
+                      (isRangePat && subjectType->isInteger());
             if (!ok) {
                 diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
                              typeToString(subjectType), arm.patternNode->toString());

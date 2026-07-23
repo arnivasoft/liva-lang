@@ -18,7 +18,9 @@ public:
     enum class Kind {
         Wildcard, Identifier, EnumCase, IntLiteral,
         // Pattern Types Faz B, Task 2:
-        BoolLiteral, StringLiteral, FloatLiteral
+        BoolLiteral, StringLiteral, FloatLiteral,
+        // Pattern Types Faz B, Task 3:
+        Range
     };
 
     explicit Pattern(Kind k, SourceRange r) : kind_(k), range_(r) {}
@@ -165,6 +167,28 @@ public:
 private:
     double value_;
     std::string text_;
+};
+
+/// `lo..hi` (exclusive: `lo <= x && x < hi`) / `lo..=hi` (inclusive:
+/// `lo <= x && x <= hi`). Endpoints are always IntLiteralPattern (negative
+/// allowed, e.g. `-5..=5`) — the grammar only reaches RangePattern by
+/// looking ahead for `..`/`..=` after parsing an int-literal pattern atom.
+class RangePattern : public Pattern {
+public:
+    RangePattern(std::unique_ptr<IntLiteralPattern> lo, std::unique_ptr<IntLiteralPattern> hi,
+                 bool inclusive, SourceRange r)
+        : Pattern(Kind::Range, r), lo_(std::move(lo)), hi_(std::move(hi)),
+          inclusive_(inclusive) {}
+
+    const IntLiteralPattern &getLo() const { return *lo_; }
+    const IntLiteralPattern &getHi() const { return *hi_; }
+    bool isInclusive() const { return inclusive_; }
+
+    static bool classof(const Pattern *p) { return p->getKind() == Kind::Range; }
+
+private:
+    std::unique_ptr<IntLiteralPattern> lo_, hi_;
+    bool inclusive_;
 };
 
 } // namespace liva
