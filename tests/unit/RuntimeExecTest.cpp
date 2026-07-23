@@ -2978,4 +2978,156 @@ TEST(RuntimeExecTest, NilCoalesceMemberChainRegression) {
     EXPECT_EQ(r.stdout_output, "9\n0\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Monomorphized function/method per-function return-state setup
+// ============================================================
+// monomorphize()/monomorphizeMethod() used to skip the per-function
+// return-codegen state that visitFuncDecl establishes before visiting a
+// body (currentFuncOptionalInner_, currentIsAsync_, coroutine pointers).
+// Three visible failure modes, all "LLVM module verification failed":
+//   1. a monomorphized `-> T?` body never wraps its return value in the
+//      Optional struct (ret i32 from a function returning {i1, i32});
+//   2. the flag LEAKS from an Optional-returning caller into a mono body
+//      generated mid-call, wrapping a plain-T return with the caller's
+//      Optional type (Invalid InsertValueInst);
+//   3. an async caller's coro promise/final-block leak the same way, so
+//      the mono body stores/branches into ANOTHER function.
+
+TEST(RuntimeExecTest, GenericMethodOptionalReturn) {
+    // Roadmap 2.3 minimal repro: impl<T> method returning T? (i32).
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var val: T
+        }
+        impl<T> Box<T> {
+            func make(v: T) -> Box<T> {
+                return Box { val: v }
+            }
+            func peek(ref self, ok: bool) -> T? {
+                if ok { return self.val }
+                return nil
+            }
+        }
+        func main() {
+            let b = Box.make(42)
+            if let v = b.peek(true) {
+                println("got \(v)")
+            }
+            if let w = b.peek(false) {
+                println("unexpected \(w)")
+            } else {
+                println("empty")
+            }
+        }
+    )--", "mono_opt_return_i32");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "got 42\nempty\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, GenericMethodOptionalReturnString) {
+    // Same shape with T = string (different Optional payload representation).
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var val: T
+        }
+        impl<T> Box<T> {
+            func make(v: T) -> Box<T> {
+                return Box { val: v }
+            }
+            func peek(ref self) -> T? {
+                return self.val
+            }
+        }
+        func main() {
+            let b = Box.make("hello")
+            if let v = b.peek() {
+                println(v)
+            }
+        }
+    )--", "mono_opt_return_str");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "hello\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, GenericFreeFuncOptionalReturn) {
+    // Free generic function returning T? goes through monomorphize(), the
+    // sibling of monomorphizeMethod() with the same missing-state gap.
+    auto r = compileAndRun(R"--(
+        func pick<T>(v: T, ok: bool) -> T? {
+            if ok { return v }
+            return nil
+        }
+        func main() {
+            let a = pick(7, true) ?? -1
+            println(a)
+            let b = pick(7, false) ?? -1
+            println(b)
+        }
+    )--", "mono_opt_return_free");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "7\n-1\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MonoBodyInsideOptionalCallerNoStateLeak) {
+    // The mono body is generated MID-CALL while emitting `wrapper`'s body,
+    // whose currentFuncOptionalInner_ is i32?. Without save/reset, both
+    // Box_make (returns Box_i32) and Box_get (returns i32) get their plain
+    // return values wrapped with the CALLER's Optional type.
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var val: T
+        }
+        impl<T> Box<T> {
+            func make(v: T) -> Box<T> {
+                return Box { val: v }
+            }
+            func get(ref self) -> T {
+                return self.val
+            }
+        }
+        func wrapper(x: i32) -> i32? {
+            let b = Box.make(x)
+            let v = b.get()
+            if v > 0 { return v }
+            return nil
+        }
+        func main() {
+            if let r = wrapper(7) {
+                println("got \(r)")
+            }
+        }
+    )--", "mono_no_opt_state_leak");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "got 7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MonoBodyInsideAsyncCallerNoStateLeak) {
+    // Async caller: without save/reset the mono body stores its return
+    // value into the CALLER's coro promise and branches to the caller's
+    // coro.final block — cross-function references, verifier error.
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var val: T
+        }
+        impl<T> Box<T> {
+            func make(v: T) -> Box<T> {
+                return Box { val: v }
+            }
+            func get(ref self) -> T {
+                return self.val
+            }
+        }
+        async func compute(x: i32) -> i32 {
+            let b = Box.make(x)
+            return b.get() + 1
+        }
+        async func main() {
+            let r = await compute(41)
+            println("got \(r)")
+        }
+    )--", "mono_no_async_state_leak");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "got 42\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

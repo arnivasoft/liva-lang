@@ -74,6 +74,40 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
         }
     }
 
+    // Per-function return/coroutine codegen state. This body is emitted
+    // mid-visit of the CALLER's body, so the state visitFuncDecl established
+    // for the caller must not leak in here: a stale currentFuncOptionalInner_
+    // wraps plain returns with the caller's Optional type, and a stale coro
+    // promise makes returns store/branch into the caller's function. Mirrors
+    // visitFuncDecl's setup; monomorphized functions are always emitted as
+    // plain sync functions, so async/coro state is cleared unconditionally.
+    // Must run AFTER the substitution maps above so toLLVMType resolves T.
+    auto *savedFuncOptInner = currentFuncOptionalInner_;
+    bool savedIsAsync = currentIsAsync_;
+    auto *savedAsyncRetType = asyncDeclaredRetType_;
+    auto *savedCoroTask = currentCoroTask_;
+    auto *savedCoroHandle = currentCoroHandle_;
+    auto *savedCoroId = currentCoroId_;
+    auto *savedCoroPromise = currentCoroPromise_;
+    auto *savedCoroFinalBB = currentCoroFinalBB_;
+    auto *savedCoroCleanupBB = currentCoroCleanupBB_;
+    auto *savedCoroSuspendBB = currentCoroSuspendBB_;
+    currentIsAsync_ = false;
+    asyncDeclaredRetType_ = nullptr;
+    currentCoroTask_ = nullptr;
+    currentCoroHandle_ = nullptr;
+    currentCoroId_ = nullptr;
+    currentCoroPromise_ = nullptr;
+    currentCoroFinalBB_ = nullptr;
+    currentCoroCleanupBB_ = nullptr;
+    currentCoroSuspendBB_ = nullptr;
+    currentFuncOptionalInner_ = nullptr;
+    if (funcDecl->getReturnType() &&
+        funcDecl->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
+        auto *opt = static_cast<const OptionalTypeRepr *>(funcDecl->getReturnType());
+        currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+    }
+
     // Build function type with substituted types
     // Helper: compute the LLVM type for a monomorphized parameter, using the
     // same DynArray-struct promotion that visitFuncDecl uses for non-generic funcs.
@@ -189,6 +223,16 @@ llvm::Function *IRGen::monomorphize(const FuncDecl *funcDecl,
     ++monoStats_.funcCount;
 
     // Restore state: vars_ restored by guard dtor; type/const subst manually
+    currentFuncOptionalInner_ = savedFuncOptInner;
+    currentIsAsync_ = savedIsAsync;
+    asyncDeclaredRetType_ = savedAsyncRetType;
+    currentCoroTask_ = savedCoroTask;
+    currentCoroHandle_ = savedCoroHandle;
+    currentCoroId_ = savedCoroId;
+    currentCoroPromise_ = savedCoroPromise;
+    currentCoroFinalBB_ = savedCoroFinalBB;
+    currentCoroCleanupBB_ = savedCoroCleanupBB;
+    currentCoroSuspendBB_ = savedCoroSuspendBB;
     currentTypeSubst_ = std::move(savedSubst);
     currentConstSubst_ = std::move(savedConstSubst);
     if (savedInsertPoint)
@@ -400,6 +444,37 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
         currentTypeSubst_[methodParams[i]] = methodTypeArgs[i];
     }
 
+    // Per-function return/coroutine codegen state — same reasoning as in
+    // monomorphize() above: don't inherit the caller's Optional-return flag
+    // or coro pointers, and set up our own Optional inner type so `-> T?`
+    // bodies wrap their return values. Must run AFTER the substitution maps
+    // above so toLLVMType resolves T.
+    auto *savedFuncOptInner = currentFuncOptionalInner_;
+    bool savedIsAsync = currentIsAsync_;
+    auto *savedAsyncRetType = asyncDeclaredRetType_;
+    auto *savedCoroTask = currentCoroTask_;
+    auto *savedCoroHandle = currentCoroHandle_;
+    auto *savedCoroId = currentCoroId_;
+    auto *savedCoroPromise = currentCoroPromise_;
+    auto *savedCoroFinalBB = currentCoroFinalBB_;
+    auto *savedCoroCleanupBB = currentCoroCleanupBB_;
+    auto *savedCoroSuspendBB = currentCoroSuspendBB_;
+    currentIsAsync_ = false;
+    asyncDeclaredRetType_ = nullptr;
+    currentCoroTask_ = nullptr;
+    currentCoroHandle_ = nullptr;
+    currentCoroId_ = nullptr;
+    currentCoroPromise_ = nullptr;
+    currentCoroFinalBB_ = nullptr;
+    currentCoroCleanupBB_ = nullptr;
+    currentCoroSuspendBB_ = nullptr;
+    currentFuncOptionalInner_ = nullptr;
+    if (methodDecl->getReturnType() &&
+        methodDecl->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
+        auto *opt = static_cast<const OptionalTypeRepr *>(methodDecl->getReturnType());
+        currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+    }
+
     // Build function type: self is pointer, rest are substituted.
     // Dynamic arrays must be passed as the DynArray struct value, not ptr —
     // toLLVMType maps Array→ptr by default but the calling code treats [T]
@@ -515,6 +590,16 @@ llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
     ++monoStats_.methodCount;
 
     // Restore state: vars_ restored by guard dtor; type/const subst manually
+    currentFuncOptionalInner_ = savedFuncOptInner;
+    currentIsAsync_ = savedIsAsync;
+    asyncDeclaredRetType_ = savedAsyncRetType;
+    currentCoroTask_ = savedCoroTask;
+    currentCoroHandle_ = savedCoroHandle;
+    currentCoroId_ = savedCoroId;
+    currentCoroPromise_ = savedCoroPromise;
+    currentCoroFinalBB_ = savedCoroFinalBB;
+    currentCoroCleanupBB_ = savedCoroCleanupBB;
+    currentCoroSuspendBB_ = savedCoroSuspendBB;
     currentTypeSubst_ = std::move(savedSubst);
     currentConstSubst_ = std::move(savedConstSubst);
     if (savedInsertPoint)
