@@ -72,6 +72,7 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 | Integer widening kısıtlı | Yalnızca sabit-literal tarafında; genel coercion modeli yok | `IRGenExpr.cpp:234-243` |
 | String `==` struct-wrapper'da | Primitive `string` için çalışıyor (`IRGenExpr.cpp:192-203`); sorun wrapper bağlamında tip tanıma. Kalıcı çözüm: protokol tabanlı `Equatable` | `IRGenExpr.cpp:167-181` |
 | `Optional<Named>` yeniden atamada (`=`) bir sonraki okuma stale/kaymış değer verir (yeni bulundu, 2026-07, izlemede) | `while`/loop içinde aynı `Optional<NamedStruct>` değişkenine düz `=` ile yeniden atama; sıralı `let` ile üretilen ayrı değişkenlerde sorun yok | Task 2 raporu (`.superpowers/sdd/task-2-report.md`), minimal repro dahil |
+| Fonksiyon çağrısında değer-tipi Drop struct'ı hem çağıran hem çağrılan taraf drop'luyor (önceden var, bu branch'ten bağımsız, izlemede) | Argüman geçişi move olarak işaretlenmiyor — `take(a)` sonrası hem `take` içindeki parametre hem de çağıran taraftaki `a` scope-exit'te drop çağırıyor (aynı payload iki kez) | `probe_r2.liva` (final inceleme), `IRGenCall.cpp` argüman geçiş kodegen'i — henüz kök neden dosya/satır olarak izole edilmedi |
 
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 

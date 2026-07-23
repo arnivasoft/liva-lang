@@ -628,6 +628,17 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         // entry is still live at that point — the restore below runs only
         // AFTER visit(thenBody) returns).
         vars_.varStructTypes[node->getBindingName()] = dropStructName;
+        // IMPORTANT 5 fix: clear any stale moved-marker under the BINDING's
+        // own name (symmetric with VarDecl's redeclaration hygiene). Without
+        // this, an outer variable moved-from under the same name as this
+        // binding would wrongly suppress the binding's own fallthrough drop
+        // below (a leak) — see the fallthrough-drop guard's comment.
+        // Composed with the union-restore above: erasing here only affects
+        // movedVars for the DURATION of the body; if the outer name really
+        // was moved, savedMovedVars still has it and the union-restore after
+        // the body re-establishes that suppression once namedValues/
+        // varStructTypes flip back to the outer variable.
+        vars_.movedVars.erase(node->getBindingName());
     }
     // If the optional inner is a DynArray (`if let b = someOpt: [T]?`),
     // register the binding so `b.length`, `b[i]`, and for-iteration work
@@ -847,6 +858,9 @@ llvm::Value *IRGen::visitWhileLetStmt(WhileLetStmt *node) {
     vars_.namedValues[node->getBindingName()] = bindAlloca;
     if (bindingOwnsDrop) {
         vars_.varStructTypes[node->getBindingName()] = dropStructName;
+        // IMPORTANT 5 fix: clear any stale moved-marker under the binding's
+        // own name (see visitIfLetStmt's comment — identical rationale).
+        vars_.movedVars.erase(node->getBindingName());
     }
     loopStack_.push_back({exitBB, condBB});
     visit(node->getBody());

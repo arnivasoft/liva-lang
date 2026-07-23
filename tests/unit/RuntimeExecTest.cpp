@@ -2726,4 +2726,93 @@ func main() {
            "stdout: " << r.stdout_output;
 }
 
+// IMPORTANT 5: the if-let/while-let binding's own fallthrough-drop guard
+// (`!vars_.movedVars.count(bindingName)`) has no equivalent to VarDecl's
+// redeclaration hygiene (IRGenDecl.cpp erases movedVars[name] on every
+// VarDecl of `name`). If the binding's name happens to collide with an
+// OUTER variable that was already moved-from, the stale movedVars entry
+// wrongly suppresses the BINDING's own (unrelated) drop — a leak.
+TEST(RuntimeExecTest, IfLetBindingNameReusingMovedOuterNameStillDrops) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROP")
+        println(self.id)
+    }
+}
+func main() {
+    let v = Res { id: 1 }
+    let w = v
+    let opt: Res? = Res { id: 2 }
+    if let v = opt {
+        println(v.id)
+    }
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "iflet_binding_reuses_moved_outer_name");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROP\n2"), 1)
+        << "expected the if-let binding `v` (opt's payload, id 2) to drop "
+           "at its own body's normal exit — must not be suppressed by the "
+           "unrelated, stale movedVars entry for the outer `v` (moved into "
+           "w before the if-let); stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROP\n1"), 1)
+        << "expected the outer pair (v moved into w) to still drop exactly "
+           "once, for w, at function end — the fix must not disturb this; "
+           "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\nDROP\n2\ndone\nDROP\n1\n")
+        << "exact sequence: body prints v.id (2), binding's own drop (2), "
+           "done, w's drop (1) — stdout: " << r.stdout_output;
+}
+
+// IMPORTANT 4(b) — documented, NOT fixed by this task (protection/pinning
+// test): `let b = a` where `a: Res?` (Optional<Drop>) with NO type
+// annotation on `b` takes IRGenDecl's untyped-init "Fallback" VarDecl branch.
+// That branch registers `b` in vars_.varOptionalTypes (from the runtime
+// struct shape) but NEVER in vars_.varStructTypes — because the "Register
+// struct/enum type" section only matches a Sema-resolved NAMED type or an
+// LLVM-type-identity match against the PLAIN struct type, and `a`'s
+// resolved type is Optional<Res> (not Named), and its runtime LLVM type is
+// the Optional WRAPPER struct (not %Res) — neither matches. Since
+// emitScopeCleanup's conditional Optional-drop loop only considers names
+// present in varStructTypes, `b` is invisible to it: `b` never drops. `a`
+// (the source) IS registered in varStructTypes (from its OWN explicitly-
+// annotated `let a: Res? = ...` declaration) and gets marked moved by the
+// same-shape move hook — so `a`'s drop is correctly suppressed too. Net
+// result: NEITHER `a` nor `b` drops — a leak (safe, not a double-free), but
+// dishonest if undocumented. See docs/en/LANGUAGE-REFERENCE.md Known
+// Limitations.
+TEST(RuntimeExecTest, OptionalCopyWithNoAnnotationLeaksNeitherDropsDocumented) {
+    std::string source = R"LIVA(
+protocol Drop {
+    func drop(mut self)
+}
+struct Res { var id: i32 }
+impl Res: Drop {
+    func drop(mut self) {
+        println("DROPPED")
+    }
+}
+
+func main() {
+    let x: Res? = Res { id: 1 }
+    let b = x
+    println("done")
+}
+)LIVA";
+    auto r = compileAndRun(source, "opt_copy_no_annotation_leak_documented");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(countOccurrences(r.stdout_output, "DROPPED"), 0)
+        << "documented pre-existing gap (Known Limitations): an untyped "
+           "`let b = a` copy of an Optional<Drop> variable currently drops "
+           "NEITHER a nor b (leak, not a double-free) — this test pins that "
+           "honestly-documented behavior, not a fix; stdout: "
+        << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

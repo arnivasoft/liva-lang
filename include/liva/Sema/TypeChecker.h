@@ -113,7 +113,20 @@ public:
         auto it = protocolConformances_.find("Drop");
         if (it == protocolConformances_.end())
             return {};
-        return it->second;
+        // Dedupe (MINOR finding, final whole-branch review): diamond import
+        // graphs can cause the same type name to be pushed more than once
+        // (visitImplDecl registers direct impls; the import-propagation loop
+        // in check() separately re-registers the same imported ImplDecl for
+        // each import path that reaches it) — harmless functionally (every
+        // caller just tests set membership / iterates and calls
+        // dropImplementors_.count(...)), but a duplicate-free list is
+        // cheaper for callers that build a set from this directly.
+        std::vector<std::string> out;
+        std::set<std::string> seen;
+        for (auto &name : it->second) {
+            if (seen.insert(name).second) out.push_back(name);
+        }
+        return out;
     }
 
 private:

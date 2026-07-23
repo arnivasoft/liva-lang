@@ -1687,9 +1687,9 @@ impl FileHandle: Drop {
 
 func main() {
     let a = FileHandle { fd: 3 }
-    let b = a          // ownership moves from a to b
+    let b = a          // sahiplik a'dan b'ye taşınır
     println(b.fd)
-}   // only b is dropped here — "Closing file" prints exactly once
+}   // yalnızca b burada drop edilir — "Closing file" tam olarak bir kez basılır
 ```
 
 Taşınmış (moved-from) değişkeni tekrar bir operand olarak referans almak —
@@ -1700,7 +1700,7 @@ bir `if let`/`while let` — derleme zamanı hatasıdır:
 func main() {
     let a = FileHandle { fd: 3 }
     let b = a
-    let c = a   // error: use of moved value 'a'
+    let c = a   // hata: taşınmış değer 'a' kullanıldı
 }
 ```
 
@@ -1715,7 +1715,7 @@ struct Point { var x: i32 }
 func main() {
     let a = Point { x: 1 }
     let b = a
-    let c = a   // OK — Point does not conform to Drop, so this is unaffected
+    let c = a   // OK — Point Drop'a uymuyor, bu yüzden etkilenmez
 }
 ```
 
@@ -1753,8 +1753,8 @@ func main() {
     } else {
         println("was nil")
     }
-    // 'value' owned the payload and was dropped at the end of the if-let
-    // block above — "Closing file" prints exactly once, not twice.
+    // 'value' payload'un sahibiydi ve yukarıdaki if-let bloğunun sonunda
+    // drop edildi — "Closing file" tam olarak bir kez basılır, iki kez değil.
 }
 ```
 
@@ -1764,7 +1764,7 @@ func main() {
     if let value = maybe {
         println(value.fd)
     }
-    if let value2 = maybe {   // error: use of moved value 'maybe'
+    if let value2 = maybe {   // hata: taşınmış değer 'maybe' kullanıldı
         println(value2.fd)
     }
 }
@@ -1790,12 +1790,31 @@ belgelenmiştir:
 - **`clone()` yok.** Şu an `Drop`'a uyan bir değerin bağımsız bir kopyasını
   oluşturmanın bir yolu yoktur — bir değeri çoğaltmaya çalışmak yerine iki
   ayrı değer inşa edin.
-- **`if let`/`while let`'in "moved" işareti derleme zamanında koşulsuzdur**,
-  oysa payload'u gerçekten tüketen yalnızca has-value çalışma zamanı yoludur.
-  Bu yüzden kaynağı `else` dalında (veya bir `while let` çıktıktan sonra)
-  kullanmak, kaynağın çalışma zamanında gerçekten `nil` olduğu ve hiçbir
-  şeyin gerçekten taşınmadığı bir çalıştırmada bile reddedilir — muhafazakâr
-  bir yanlış pozitif, asla bir soundness deliği değil.
+- **`if let`/`while let`, binding'in sahiplik alabileceği HER durumda kaynağı
+  derleme zamanında moved işaretler — hangi çalışma zamanı dalının fiilen
+  çalıştığından bağımsız olarak.** Ama bir identifier kaynak için bu devir
+  artık çalışma zamanında da gerçektir, salt derleme-zamanı kayıt tutma
+  kurgusu değil: `if let`/`while let` gövdesini almak kaynağın has-value
+  bayrağını temizler, böylece aynı identifier üzerindeki sonraki bir kontrol
+  (başka bir `if let`, ya da çevreleyen bir loop'un bir sonraki geçişi)
+  doğru şekilde "değer yok" görür — bir `while let v = birIdentifier`'ın,
+  yeniden atanmayan bir kaynak üzerinde kendiliğinden sonlanmasını (aynı
+  payload'u sonsuza dek yeniden unwrap edip yeniden drop etmek yerine)
+  sağlayan da budur. Muhafazakâr kalan kısım derleme-zamanı *reddir*:
+  kaynağın `nil`/`else` dalının çalıştığı ve o çalıştırmada hiçbir şeyin
+  gerçekten taşınmadığı bir durumda bile kaynağı tekrar kullanmak
+  `err_use_after_move` olarak işaretlenir. Bu bir yanlış pozitiftir
+  (denetleyici bazen gerekmediği halde bir kullanımı reddeder), soundness
+  sorunu değil — gerçekten taşınmış bir değerin yeniden kullanılmasına asla
+  izin vermez.
+- **`let b = a` (`a: T?`, `T` `Drop`'a uyar) ve `b`'nin tip anotasyonu yoksa,
+  şu an ne `a` ne de `b` drop edilir.** Anotasyonsuz-kopya yolu `b`'nin
+  Optional-payload şeklini okuma erişimi için kaydeder (`b.field` vb.) ama
+  kapsam-çıkışı temizliği için kaydetmez; `a` ise — doğru şekilde
+  taşınmış-kaynak olarak tanınıp — kendi drop'u tasarım gereği bastırılır.
+  Net sonuç: bir sızıntı (leak, double-free değil), şu an işaretlenmiyor.
+  Bunu önlemek için `b`'ye açık bir `T?` anotasyonu verin (`let b: T? = a`)
+  — o yol temizliği doğru kaydeder.
 - **Shadowing, gölgelenen değişkenin drop'unu kaybettirir.** Aynı ismi iç
   içe bir blokta yeniden bildirmek (örn. bir iç `if`, dış kapsamdaki bir ismi
   yeniden bildiriyor) *ilk* değişkenin drop yükümlülüğünü erişilemez hale
@@ -1811,6 +1830,12 @@ belgelenmiştir:
   bir `T` için `Optional<T>` döndüren bazı factory-tarzı çağrılardan elde
   edilen bir değer de şu an kapsam-çıkışı drop'u için kayıtlı değildir —
   bu bir sızıntıdır (leak), bir corruption riski değil.
+- **Bir `Drop`'a uyan değeri bir çağrı argümanı olarak değer-tipi geçmek
+  onu çift drop eder.** `take(a)`, `a`'nın drop'unu hem `take` içinde
+  (değer-tipi parametresinin kapsam çıkışında) hem de çağıran tarafta
+  (`a`'nın kendi kapsam çıkışında) çağırır — argüman geçişi yolu bu
+  move-takip çalışmasının kapsamına hiç girmiyor. Önceden var olan bir
+  durum, bu özellikten önce de mevcuttu; izlemede, burada düzeltilmedi.
 - **Ayrı, önceden var olan bir hata (Drop ile ilgisiz):** bir
   `Optional<NamedType>` değişkenini bir loop içinde düz `=` ile yeniden
   atamak, sonraki bir iterasyonda eski (stale) bir değer okunmasına yol

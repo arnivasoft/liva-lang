@@ -1833,11 +1833,29 @@ is intentionally conservative in scope. Current gaps, documented honestly:
 - **No `clone()`.** There is currently no way to make an independent copy of
   a `Drop`-conforming value — build two separate values instead of trying to
   duplicate one.
-- **`if let`/`while let`'s "moved" mark is unconditional at compile time**,
-  even though only the has-value runtime path truly consumes the payload.
-  So using the source in the `else` branch (or after a `while let` exits) is
-  rejected even on a run where the source was actually `nil` and nothing was
-  really moved — a conservative false positive, never a soundness hole.
+- **`if let`/`while let` marks the source moved at compile time whenever the
+  binding could take ownership — regardless of which runtime branch actually
+  runs.** For an identifier source, though, the transfer is genuinely
+  real at runtime, not just a compile-time bookkeeping fiction: taking the
+  `if let`/`while let` body clears the source's has-value flag, so a later
+  check on that same identifier (another `if let`, or the next pass of a
+  surrounding loop) correctly sees "no value" — this is also what makes a
+  bare `while let v = someIdentifier` over a source that is never reassigned
+  terminate on its own, instead of re-unwrapping (and re-dropping) the same
+  payload forever. What remains conservative is the compile-time
+  *rejection*: using the source again is flagged as `err_use_after_move`
+  even on a run where the `nil`/`else` branch was taken and nothing was
+  actually moved that time. That is a false positive (the checker sometimes
+  rejects a use it didn't strictly need to), not unsoundness — it never
+  permits reuse of a value that really was moved.
+- **`let b = a` where `a: T?` (`T` conforming to `Drop`) and `b` has no type
+  annotation currently drops *neither* `a` nor `b`.** The untyped-copy path
+  registers `b`'s Optional-payload shape for read access (`b.field`, etc.)
+  but not for scope-exit cleanup, while `a` — correctly recognized as
+  moved-from — has its own drop suppressed as designed. Net effect: a leak
+  (safe, not a double-free), not currently flagged. Give `b` an explicit
+  `T?` annotation (`let b: T? = a`) to avoid it — that path registers
+  cleanup correctly.
 - **Shadowing loses the shadowed variable's drop.** Redeclaring the same
   name in a nested block (e.g. an inner `if` re-declares an outer-scope
   name) can make the *first* variable's drop obligation unreachable. This is
@@ -1851,6 +1869,11 @@ is intentionally conservative in scope. Current gaps, documented honestly:
   mechanism; a value obtained from certain factory-style calls returning
   `Optional<T>` (where `T` differs from the receiver's own type) is also not
   currently registered for scope-exit drop — a leak, not a corruption risk.
+- **Passing a `Drop`-conforming value by value as a call argument double-
+  drops it.** `take(a)` calls `a`'s drop both inside `take` (its by-value
+  parameter's scope exit) and again in the caller (`a`'s own scope exit) —
+  the argument-passing path is not covered by this move-tracking work at
+  all. Pre-existing, predates this feature; tracked, not fixed here.
 - **Separate, pre-existing bug (unrelated to Drop):** reassigning an
   `Optional<NamedType>` variable via plain `=` inside a loop can read back a
   stale value on a later iteration. If you need a fresh optional each pass,
