@@ -1193,8 +1193,9 @@ println(find([1, 2, 3], 9) ?? loudDefault())   // prints "computing default" the
 
 **Innermost RHS must be a plain (non-optional) type.** In a chain, every step's
 final RHS must resolve to a non-optional value — an optional RHS (outside of a
-`?? `chain that later collapses to plain `T`) is a compile-time type error, not
-a runtime crash:
+`??` chain that later collapses to plain `T`) is a compile-time type error, not
+a runtime crash. (Known exception: a literal `nil` RHS — `a ?? nil` — is not yet
+caught by this check; tracked in the roadmap.)
 
 ```liva
 let a: i32? = nil

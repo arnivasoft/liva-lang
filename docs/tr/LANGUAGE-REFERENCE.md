@@ -1189,7 +1189,8 @@ println(find([1, 2, 3], 9) ?? loudDefault())   // "varsayılan hesaplanıyor" so
 **En içteki RHS düz (optional olmayan) bir tip olmalı.** Bir zincirde, her adımın
 son RHS'i optional-olmayan bir değere çözülmelidir — optional bir RHS (sonunda düz
 `T`'ye çöken bir `??` zincirinin parçası olmadığı sürece) çalışma-zamanı çökmesi
-değil, DERLEME-ZAMANI tip hatasıdır:
+değil, DERLEME-ZAMANI tip hatasıdır. (Bilinen istisna: literal `nil` RHS —
+`a ?? nil` — bu kontrole henüz yakalanmıyor; roadmap'te izleniyor.):
 
 ```liva
 let a: i32? = nil
