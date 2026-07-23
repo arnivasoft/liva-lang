@@ -689,6 +689,34 @@ TEST(RuntimeExecTest, SimpleEnum_AsParamAndStructField_LowersToI32) {
         << "stdout: " << r.stdout_output;
 }
 
+// Pattern Types (Faz B) Task 1: negative-int arm regression test. Today
+// visitMatchExpr's consumption loop filters arms via `tag >= 0`, which is
+// also the sentinel PatternInfo uses for "no concrete tag" (wildcard/binding
+// arms) — so a `-1 =>` arm's tag (-1) collides with that sentinel and the
+// arm is silently excluded from both the switch's case list and its
+// numCases count, making it permanently unreachable. Exercises exactly the
+// case+wildcard mix that trips this: a negative literal arm, a positive
+// literal arm, and a wildcard fallback, on a plain (non-enum) i32 subject.
+TEST(RuntimeExecTest, MatchNegativeIntLiteralArm) {
+    auto r = compileAndRun(R"--(
+        func classify(x: i32) -> i32 {
+            let r = match x {
+                -1 => 111
+                1 => 222
+                _ => 333
+            }
+            return r
+        }
+        func main() {
+            println(classify(-1))
+            println(classify(1))
+            println(classify(5))
+        }
+    )--", "match_negative_int_arm");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "111\n222\n333\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

@@ -479,6 +479,13 @@ private:
         std::string caseName;
         std::vector<std::string> bindings;
         int tag = -1;
+        // Whether `tag` holds a real, meaningful discriminant (enum-case
+        // tag or int-literal value) rather than the default-constructed
+        // sentinel. Needed because a negative IntLiteral arm (e.g. `-1 =>`)
+        // legitimately sets tag = -1, which used to collide with "tag
+        // unset" (previously tested via `tag >= 0`) and made negative-int
+        // arms permanently unreachable (Pattern Types Faz B, Task 1 fix).
+        bool hasTag = false;
         bool isWildcard = false;
         std::vector<PatternInfo> nestedPatterns; // one per binding slot
     };

@@ -24,7 +24,21 @@ public:
     SourceRange getRange() const { return range_; }
 
     /// Legacy-identical text: whitespace-free token concatenation.
+    /// DISPLAY ONLY (ASTPrinter, diagnostics) — do not use this to derive a
+    /// binding/identifier name; use getSpelling() for that (Pattern Types
+    /// Faz B, Task 1: the two calls used to be aliases, and code that wanted
+    /// a load-bearing name reused this display helper by coincidence).
     std::string toString() const;
+
+    /// Load-bearing identifier derivation: the exact text used to name a
+    /// variable binding introduced by this (sub)pattern (e.g. an
+    /// IntLiteral subslot's binding name in the legacy string-splitter
+    /// fallback, or declarePatternSubBinding's symbol name). Currently
+    /// identical to toString() byte-for-byte, but the two are kept as
+    /// separate entry points so a future pattern kind can make toString()'s
+    /// display form diverge from the spelling used for binding-name
+    /// derivation without silently breaking the other.
+    std::string getSpelling() const;
 
 private:
     Kind kind_;

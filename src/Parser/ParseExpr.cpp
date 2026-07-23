@@ -42,10 +42,16 @@ std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
             return std::make_unique<IntLiteralPattern>(-value, "-" + digits,
                                                         rangeFrom(startLoc));
         }
-        // Grammar-violating input (bare '-' not followed by a digit); not
-        // observed anywhere in the repo (Task 0). Best-effort: keep
-        // consuming like the old loop and fall through to a plain
-        // identifier pattern below, rather than erroring.
+        // Grammar-violating input (bare '-' not followed by a digit).
+        // Faz A kept this behavior-preserving (silently dropped the '-' and
+        // fell through to a plain identifier pattern below) because the
+        // legacy string splitter had no way to error here either; Faz B
+        // lifts that constraint — this is a proper parse error now.
+        diag_.report(current_.getLocation(), DiagID::err_expected_token,
+                     "integer literal", std::string(current_.getText()));
+        // Recovery: keep consuming like the old best-effort loop (below)
+        // instead of getting stuck, so the enclosing pattern/arm list can
+        // resync.
     }
 
     // Non-negative integer literal.

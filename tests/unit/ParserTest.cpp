@@ -1106,6 +1106,27 @@ TEST_F(ParserTest, ErrorExpectedToken) {
     EXPECT_TRUE(found);
 }
 
+// Pattern Types (Faz B) Task 1: `-` in pattern position not immediately
+// followed by an integer literal must be a parse error, not Faz A's silent
+// best-effort fallback (which dropped the '-' and parsed the rest as a
+// plain identifier pattern).
+TEST_F(ParserTest, ErrorPatternMinusNotFollowedByIntLiteral) {
+    auto result = parse(R"--(
+        func main() {
+            let x: i32 = 5
+            match x {
+                -y => println(1)
+                _ => println(2)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    bool found = false;
+    for (auto &d : result.diag.getDiagnostics())
+        if (d.id == DiagID::err_expected_token) found = true;
+    EXPECT_TRUE(found);
+}
+
 // === M35: Const Declaration Tests ===
 
 TEST_F(ParserTest, ConstDeclBasic) {

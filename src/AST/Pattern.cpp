@@ -36,4 +36,12 @@ std::string Pattern::toString() const {
     return {};
 }
 
+std::string Pattern::getSpelling() const {
+    // Today identical to toString() byte-for-byte (Pattern Types Faz B,
+    // Task 1 hardening) — kept as a distinct entry point so binding-name
+    // derivation call sites don't silently ride whatever toString() happens
+    // to produce once a future pattern kind needs a different display form.
+    return toString();
+}
+
 } // namespace liva

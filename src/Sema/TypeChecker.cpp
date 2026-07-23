@@ -2771,7 +2771,12 @@ void TypeChecker::extractPatternBindings(const Pattern *pattern) {
 void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
     if (!sub) return;
 
-    if (sub->getKind() == Pattern::Kind::EnumCase) {
+    // Explicit kind-switch (no default) so `-Wswitch` catches a future
+    // Pattern::Kind addition that needs its own subslot-binding rule
+    // instead of silently falling into the Identifier/Wildcard/IntLiteral
+    // catch-all below (Pattern Types Faz B, Task 1 hardening).
+    switch (sub->getKind()) {
+    case Pattern::Kind::EnumCase:
         // A nested enum-case sub-pattern (e.g. "Inner.Val(n)" inside
         // "Outer.Some(Inner.Val(n))") recurses through the top-level
         // dispatch above, which itself branches on hasParens(). This is a
@@ -2784,18 +2789,24 @@ void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
         // (Task 0); recursing here is strictly more correct.
         extractPatternBindings(sub);
         return;
-    }
 
-    // Identifier/Wildcard/IntLiteral subslot: the legacy string splitter
-    // declared the *whole slot text* as a binding unconditionally once it
-    // determined the slot had no '.' — no "_"/int-literal exclusion inside
-    // parens (unlike the top-level no-parens branch). Preserve that
-    // byte-for-byte via toString().
-    Symbol sym;
-    sym.name = sub->toString();
-    sym.kind = Symbol::Kind::Variable;
-    sym.isMutable = false;
-    scopes_.declare(sym.name, sym);
+    case Pattern::Kind::Identifier:
+    case Pattern::Kind::Wildcard:
+    case Pattern::Kind::IntLiteral: {
+        // Identifier/Wildcard/IntLiteral subslot: the legacy string
+        // splitter declared the *whole slot text* as a binding
+        // unconditionally once it determined the slot had no '.' — no
+        // "_"/int-literal exclusion inside parens (unlike the top-level
+        // no-parens branch). Preserve that byte-for-byte via getSpelling()
+        // (load-bearing identifier derivation, not display).
+        Symbol sym;
+        sym.name = sub->getSpelling();
+        sym.kind = Symbol::Kind::Variable;
+        sym.isMutable = false;
+        scopes_.declare(sym.name, sym);
+        return;
+    }
+    }
 }
 
 void TypeChecker::visitMatchExpr(MatchExpr *node) {

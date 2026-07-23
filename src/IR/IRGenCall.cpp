@@ -1460,10 +1460,13 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     // Create default block
     llvm::BasicBlock *defaultBB = (defaultIdx >= 0) ? armInfos[defaultIdx].bb : mergeBB;
 
-    // Count non-default, non-wildcard cases
+    // Count non-default, non-wildcard cases. Uses hasTag (not `tag >= 0` —
+    // see PatternInfo::hasTag) so a negative int-literal arm (e.g. `-1 =>`)
+    // is correctly counted as a real switch case instead of being mistaken
+    // for the "no tag" sentinel.
     unsigned numCases = 0;
     for (auto &info : armInfos) {
-        if (!info.pat.isWildcard && info.pat.tag >= 0)
+        if (!info.pat.isWildcard && info.pat.hasTag)
             ++numCases;
     }
 
@@ -1477,7 +1480,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     if (!useIfElseChain) {
         auto *switchInst = builder_->CreateSwitch(tagVal, defaultBB, numCases);
         for (auto &info : armInfos) {
-            if (!info.pat.isWildcard && info.pat.tag >= 0) {
+            if (!info.pat.isWildcard && info.pat.hasTag) {
                 switchInst->addCase(builder_->getInt32(info.pat.tag), info.bb);
             }
         }
@@ -1514,7 +1517,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                     builder_->getInt8Ty(), payloadPtr, offset,
                     "bind." + std::to_string(b));
 
-                if (b < info.pat.nestedPatterns.size() && info.pat.nestedPatterns[b].tag >= 0) {
+                if (b < info.pat.nestedPatterns.size() && info.pat.nestedPatterns[b].hasTag) {
                     // Nested enum pattern: check inner tag and extract inner bindings
                     emitNestedPatternMatch(fieldPtr, info.pat.nestedPatterns[b], defaultBB, func);
                 } else if (!info.pat.bindings[b].empty()) {
@@ -1627,10 +1630,11 @@ void IRGen::resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs
             break;
         case Pattern::Kind::IntLiteral:
             // Not observed anywhere in the repo as a subslot: fall back to
-            // its spelling as a (almost certainly unused) binding name,
-            // matching the old code's blind "whatever the slot text was"
-            // fallback.
-            info.bindings.push_back(sub->toString());
+            // its spelling (load-bearing identifier derivation, not
+            // display — see Pattern::getSpelling()) as a (almost certainly
+            // unused) binding name, matching the old code's blind "whatever
+            // the slot text was" fallback.
+            info.bindings.push_back(sub->getSpelling());
             info.nestedPatterns.push_back(IRGen::PatternInfo{});
             break;
         }
@@ -1651,6 +1655,7 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
     case Pattern::Kind::IntLiteral: {
         auto *lit = static_cast<const IntLiteralPattern *>(pattern);
         info.tag = static_cast<int>(lit->getValue());
+        info.hasTag = true; // real value, including negatives (e.g. -1)
         return info;
     }
 
@@ -1671,8 +1676,10 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
         auto ecIt = enumCases_.find(info.enumName);
         if (ecIt != enumCases_.end()) {
             auto cIt = ecIt->second.find(info.caseName);
-            if (cIt != ecIt->second.end())
+            if (cIt != ecIt->second.end()) {
                 info.tag = cIt->second;
+                info.hasTag = true;
+            }
         }
         return info;
     }
@@ -1692,6 +1699,7 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
                     info.enumName = subjectEnumType;
                     info.caseName = name;
                     info.tag = cIt->second;
+                    info.hasTag = true;
                     return info;
                 }
             }
