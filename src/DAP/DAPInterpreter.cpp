@@ -1007,19 +1007,16 @@ DAPValue DAPInterpreter::evaluateExpr(const Expr *expr) {
         auto *me = static_cast<const MatchExpr *>(expr);
         auto subject = evaluateExpr(me->getSubject());
         for (const auto &arm : me->getArms()) {
-            // Bind pattern variable if present
-            if (!arm.bindings.empty()) {
-                setVariable(arm.bindings[0], subject);
-            }
             // Check guard condition
             if (arm.guard) {
                 auto guardVal = evaluateExpr(arm.guard.get());
                 if (!guardVal.isTruthy()) continue;
             }
-            // Wildcard "_" or matching pattern
+            // Wildcard "_" matches (DAP's match interpreter does not yet
+            // distinguish enum-case/int-literal patterns; see Task 0).
             bool isWildcard = arm.patternNode &&
                                arm.patternNode->getKind() == Pattern::Kind::Wildcard;
-            if (isWildcard || !arm.bindings.empty()) {
+            if (isWildcard) {
                 auto result = evaluateExpr(arm.body.get());
                 return result;
             }

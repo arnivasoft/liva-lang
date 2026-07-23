@@ -1270,7 +1270,9 @@ TEST_F(ParserTest, NestedPatternMatch) {
     ASSERT_NE(matchExpr, nullptr);
     ASSERT_EQ(matchExpr->getArms().size(), 3);
     // First arm pattern should contain nested pattern string
-    EXPECT_NE(matchExpr->getArms()[0].pattern.find("Inner.Val"), std::string::npos);
+    ASSERT_NE(matchExpr->getArms()[0].patternNode, nullptr);
+    EXPECT_NE(matchExpr->getArms()[0].patternNode->toString().find("Inner.Val"),
+              std::string::npos);
 }
 
 // === Doc Comment Tests ===

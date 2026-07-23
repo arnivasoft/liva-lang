@@ -413,7 +413,7 @@ void ASTPrinter::visitMatchExpr(MatchExpr *node) {
     visit(const_cast<Expr *>(node->getSubject()));
     for (auto &arm : node->getArms()) {
         indent();
-        os_ << "Arm '" << arm.pattern << "':\n";
+        os_ << "Arm '" << (arm.patternNode ? arm.patternNode->toString() : std::string()) << "':\n";
         increaseIndent();
         visit(arm.body.get());
         decreaseIndent();

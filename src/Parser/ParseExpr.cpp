@@ -1,5 +1,4 @@
 #include "liva/Parser/Parser.h"
-#include <cstdio>
 
 namespace liva {
 
@@ -11,11 +10,7 @@ namespace liva {
 // integer_literal token, collapsed into a single IntLiteralPattern (matches
 // the legacy parser's blind whitespace-free token concatenation, which
 // happened to already "support" this via string concatenation).
-//
-// Single token pass, dual output: every token consumed here is ALSO
-// appended (verbatim, no separators) to `legacyOut`, in the exact order the
-// old blind-consumption loop in parseMatchExpr used to build `arm.pattern`.
-std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inParens) {
+std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
     auto startLoc = current_.getLocation();
 
     // Stop set for the best-effort blind-consumption fallbacks below: an arm
@@ -33,19 +28,16 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inPar
 
     // Wildcard: `_`
     if (check(TokenKind::underscore)) {
-        legacyOut += std::string(current_.getText());
         advance();
         return std::make_unique<WildcardPattern>(rangeFrom(startLoc));
     }
 
     // Negative integer literal: `-` immediately followed by an int literal.
     if (check(TokenKind::minus)) {
-        legacyOut += std::string(current_.getText());
         advance();
         if (check(TokenKind::integer_literal)) {
             std::string digits = std::string(current_.getText());
             int64_t value = current_.getIntegerValue();
-            legacyOut += digits;
             advance();
             return std::make_unique<IntLiteralPattern>(-value, "-" + digits,
                                                         rangeFrom(startLoc));
@@ -60,7 +52,6 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inPar
     if (check(TokenKind::integer_literal)) {
         std::string text = std::string(current_.getText());
         int64_t value = current_.getIntegerValue();
-        legacyOut += text;
         advance();
         return std::make_unique<IntLiteralPattern>(value, text, rangeFrom(startLoc));
     }
@@ -68,7 +59,6 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inPar
     // Identifier-rooted forms: Ident | Ident(subs) | Ident.Ident[(subs)].
     if (check(TokenKind::identifier)) {
         std::string name = std::string(current_.getText());
-        legacyOut += name;
         advance();
 
         std::string enumName;
@@ -76,28 +66,22 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inPar
         bool isDotted = false;
 
         if (check(TokenKind::dot)) {
-            legacyOut += std::string(current_.getText());
             advance();
             isDotted = true;
             enumName = name;
             if (check(TokenKind::identifier)) {
                 caseName = std::string(current_.getText());
-                legacyOut += caseName;
                 advance();
             } else {
                 // Grammar-violating: 'Ident.' not followed by an
                 // identifier (e.g. `Foo.123 =>`). Not observed in the repo
-                // (Task 0); best-effort: rather than returning early and
-                // leaving the remaining tokens unconsumed (which the
-                // toString()==legacyOut check can't detect, since both
-                // would just stop at "Name." in lockstep), continue blind
-                // consumption from here — INCLUDING the already-consumed
-                // "Name." prefix — until the fallback stop set, exactly
-                // like the old flat loop would have.
+                // (Task 0); best-effort: continue blind consumption from
+                // here — INCLUDING the already-consumed "Name." prefix —
+                // until the fallback stop set, exactly like the old flat
+                // loop would have.
                 std::string full = name + ".";
                 while (!atFallbackStop()) {
                     full += std::string(current_.getText());
-                    legacyOut += std::string(current_.getText());
                     advance();
                 }
                 return std::make_unique<IdentifierPattern>(std::move(full), rangeFrom(startLoc));
@@ -105,14 +89,12 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inPar
         }
 
         if (check(TokenKind::l_paren)) {
-            legacyOut += std::string(current_.getText());
             advance();
             std::vector<std::unique_ptr<Pattern>> subs;
             if (!check(TokenKind::r_paren)) {
                 while (true) {
-                    subs.push_back(parsePattern(legacyOut, /*inParens=*/true));
+                    subs.push_back(parsePattern(/*inParens=*/true));
                     if (check(TokenKind::comma)) {
-                        legacyOut += std::string(current_.getText());
                         advance();
                         continue;
                     }
@@ -120,7 +102,6 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inPar
                 }
             }
             if (check(TokenKind::r_paren)) {
-                legacyOut += std::string(current_.getText());
                 advance();
             }
             auto pat = std::make_unique<EnumCasePattern>(
@@ -150,7 +131,6 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inPar
     std::string fallback;
     while (!atFallbackStop()) {
         fallback += std::string(current_.getText());
-        legacyOut += std::string(current_.getText());
         advance();
     }
     return std::make_unique<IdentifierPattern>(std::move(fallback), rangeFrom(startLoc));
@@ -882,23 +862,8 @@ std::unique_ptr<Expr> Parser::parseMatchExpr() {
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         MatchArm arm;
 
-        // Parse pattern: parsePattern() consumes tokens once, producing BOTH
-        // the structured Pattern AST and (via legacyOut) the legacy
-        // whitespace-free token concatenation — single pass, dual output.
-        std::string pattern;
-        arm.patternNode = parsePattern(pattern);
-        arm.pattern = pattern;
-
-        // TEMPORARY (Pattern AST — Faz A, Task 1): prove toString() is
-        // byte-identical to the legacy concatenation across the full test
-        // suite before any consumer is switched over. Removed in Task 5/6
-        // once the legacy string field is deleted.
-        if (arm.patternNode) {
-            std::string toStr = arm.patternNode->toString();
-            if (toStr != arm.pattern) {
-                fprintf(stderr, "PATTERN-MISMATCH: %s vs %s\n", toStr.c_str(), arm.pattern.c_str());
-            }
-        }
+        // Parse pattern into the structured Pattern AST.
+        arm.patternNode = parsePattern();
 
         // Parse optional guard clause: where <expr> or if <expr>
         if (match(TokenKind::kw_where) || match(TokenKind::kw_if)) {

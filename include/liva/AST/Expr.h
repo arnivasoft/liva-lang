@@ -336,9 +336,7 @@ private:
 
 /// Match arm for pattern matching
 struct MatchArm {
-    std::string pattern;                        // Pattern string (legacy; kept during transition)
     std::unique_ptr<Pattern> patternNode;       // Structured pattern AST (Pattern AST — Faz A)
-    std::vector<std::string> bindings;          // Bound variables in pattern
     std::unique_ptr<Expr> body;                 // Body expression
     std::unique_ptr<Expr> guard;                // Optional where condition
 };
