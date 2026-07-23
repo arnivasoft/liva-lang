@@ -191,7 +191,11 @@ private:
     /// enum-case pattern — out of scope for Task 5 (IRGen's whole-subject
     /// binding path and its payload-enum destructuring path are mutually
     /// incompatible; see err_pattern_binding_enum_case_unsupported).
-    bool patternContainsEnumCase(const Pattern *p) const;
+    /// Final review Important 5: `subjectEnum` (optional — pass nullptr when
+    /// unknown) additionally lets a BARE identifier naming one of its cases
+    /// count as containing an enum case too, same as a qualified/parenthesized
+    /// EnumCasePattern node already did unconditionally.
+    bool patternContainsEnumCase(const Pattern *p, const EnumDecl *subjectEnum = nullptr) const;
 
     /// Async function tracking
     bool currentIsAsync_ = false;

@@ -831,6 +831,72 @@ TEST_F(SemaTest, BindingOverBindingOverTuplePatternRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_binding_tuple_unsupported));
 }
 
+// === Final review Important 4: range-vs-enum-subject check on an
+// UNQUALIFIED match ===
+
+// `checkEnumRangeMismatch`'s original `subjectEnum` derivation only looked
+// at qualified arm patterns (`Enum.Case`) — a match using EXCLUSIVELY
+// int-literal/range/wildcard arms against an enum-typed subject never
+// resolved it, so `1..5` silently numerically compared the enum's tag
+// against a range with no diagnostic. Must now also resolve the enum from
+// the subject expression's OWN resolved type. `let d: Weekday = ...` needs
+// the EXPLICIT annotation (a separate, pre-existing var-type-inference gap:
+// inferring `d`'s type from a bare `Weekday.Mon` initializer alone doesn't
+// populate its resolved type as `Named("Weekday")` — out of this review's
+// scope; an explicit annotation is the realistic way this subject shape
+// actually reaches visitMatchExpr with a known type today).
+TEST_F(SemaTest, MatchRangePatternOnEnumSubjectViaResolvedTypeNoQualifiedArm) {
+    auto result = check(R"(
+        enum Weekday {
+            case Mon
+            case Tue
+            case Wed
+            case Thu
+            case Fri
+        }
+
+        func main() {
+            let d: Weekday = Weekday.Mon
+            match d {
+                1..5 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
+// === Final review Important 5: bare (unqualified) case name under `@` ===
+
+// `v @ Red` — "Red" (no "Color." prefix) parses as a plain IdentifierPattern,
+// not an EnumCasePattern, so the original patternContainsEnumCase (which
+// only checked Kind::EnumCase) let it slip past the `@`-over-enum-case ban:
+// IRGen's whole-subject binding path would bind `v` to the raw subject
+// value, silently aliasing payload slot 0 on a payload enum. Must be
+// rejected the same way `v @ Color.Red` already is. `let c: Color = ...`
+// needs the explicit annotation for the same pre-existing var-type-
+// inference reason noted on MatchRangePatternOnEnumSubjectViaResolvedType
+// NoQualifiedArm above.
+TEST_F(SemaTest, BindingPatternBareCaseNameRejected) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+        func main() {
+            let c: Color = Color.Red
+            match c {
+                v @ Red => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_binding_enum_case_unsupported));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

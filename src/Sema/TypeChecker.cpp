@@ -2980,17 +2980,35 @@ bool TypeChecker::orAlternativeIsBinding(const Pattern *alt, const EnumDecl *sub
     return false;
 }
 
-bool TypeChecker::patternContainsEnumCase(const Pattern *p) const {
+bool TypeChecker::patternContainsEnumCase(const Pattern *p, const EnumDecl *subjectEnum) const {
     if (!p) return false;
     switch (p->getKind()) {
     case Pattern::Kind::EnumCase:
         return true;
+    case Pattern::Kind::Identifier: {
+        // Final review Important 5: a BARE identifier that names a case of
+        // the subject's own enum (e.g. `Red` — no "Color." prefix) is
+        // semantically an enum-case pattern too: Sema's bare-case-vs-
+        // binding resolution (mirrored in IRGen's resolveMatchPattern) is
+        // exactly the one below, and IRGen's whole-subject binding path
+        // treats an unresolved bare Identifier as "bind the whole subject",
+        // so a bare case slipping past this ban would silently alias the
+        // payload struct instead of erroring. Only fires when `subjectEnum`
+        // is known (same conservative-lookup shape orAlternativeIsBinding
+        // uses for its own bare-case-vs-binding distinction).
+        auto *idp = static_cast<const IdentifierPattern *>(p);
+        if (subjectEnum) {
+            for (auto &c : subjectEnum->getCases())
+                if (c->getName() == idp->getName()) return true;
+        }
+        return false;
+    }
     case Pattern::Kind::Or:
         for (auto &alt : static_cast<const OrPattern *>(p)->getAlternatives())
-            if (patternContainsEnumCase(alt.get())) return true;
+            if (patternContainsEnumCase(alt.get(), subjectEnum)) return true;
         return false;
     case Pattern::Kind::Binding:
-        return patternContainsEnumCase(static_cast<const BindingPattern *>(p)->getSub());
+        return patternContainsEnumCase(static_cast<const BindingPattern *>(p)->getSub(), subjectEnum);
     case Pattern::Kind::Tuple:
         // Pattern Types Faz B, Task 6: recurse into every element — closes
         // the gap for a `@` binding wrapping a tuple containing an enum-case
@@ -2999,10 +3017,9 @@ bool TypeChecker::patternContainsEnumCase(const Pattern *p) const {
         // doc comment) even though the grammar's `@`-lookahead is top-level
         // only and doesn't itself special-case Tuple.
         for (auto &elem : static_cast<const TuplePattern *>(p)->getElements())
-            if (patternContainsEnumCase(elem.get())) return true;
+            if (patternContainsEnumCase(elem.get(), subjectEnum)) return true;
         return false;
     case Pattern::Kind::Wildcard:
-    case Pattern::Kind::Identifier:
     case Pattern::Kind::IntLiteral:
     case Pattern::Kind::BoolLiteral:
     case Pattern::Kind::StringLiteral:
@@ -3040,6 +3057,28 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
         (subjectType->isBool() || subjectType->isInteger() || subjectType->isFloat() ||
          subjectType->getKind() == TypeRepr::Kind::String);
 
+    // Final review Important 4/5: resolve the subject's enum type directly
+    // from its OWN resolved TypeRepr (conservative — only when it's a Named
+    // type that resolves to a known EnumType symbol), independent of
+    // whether any arm pattern happens to be a qualified `Enum.Case`. Used
+    // ONLY by the two checks below that need "is the subject known to be
+    // enum X" as a yes/no signal (range-vs-enum mismatch; bare-case-under-
+    // `@`-binding ban) — deliberately NOT folded into the arm-derived
+    // `subjectEnum` computed further down (which drives or-binding coverage
+    // tracking AND exhaustiveness): widening THAT one instead would make an
+    // existing, legitimate match using only BARE case patterns (no
+    // qualified arm anywhere, relying on no wildcard) suddenly look
+    // "not covered" per case and spuriously fail exhaustiveness — coverage
+    // tracking only ever counts a QUALIFIED `Enum.Case` arm today, by
+    // design (see qualifiedEnumCaseOf below).
+    const EnumDecl *typeResolvedEnum = nullptr;
+    if (subjectType && subjectType->getKind() == TypeRepr::Kind::Named) {
+        auto *namedSubjectTy = static_cast<const NamedTypeRepr *>(subjectType);
+        auto *subjectSym = scopes_.lookup(namedSubjectTy->getName());
+        if (subjectSym && subjectSym->kind == Symbol::Kind::EnumType && subjectSym->enumDecl)
+            typeResolvedEnum = subjectSym->enumDecl;
+    }
+
     // Pattern Types Faz B, Task 5: `name @ sub` is transparent to every
     // mismatch/coverage/wildcard check below — they all need to "see
     // through" the wrapper to `sub` (unwrapping through any number of
@@ -3059,6 +3098,14 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     // instead. Only fires for an ACTUAL Binding-wrapped pattern (arm.patternNode
     // still equal to its own unwrap is a no-op check for a non-Binding arm).
     //
+    // Final review Important 5: `typeResolvedEnum` (resolved above) lets
+    // patternContainsEnumCase also catch a BARE case name (`v @ Red`, no
+    // "Color." prefix) — previously only a Kind::EnumCase node (qualified
+    // OR bare-but-parenthesized) tripped this ban; a bare no-payload case
+    // parses as a plain IdentifierPattern, which fell through untouched and
+    // silently bound `v` to the whole payload-enum struct via IRGen's
+    // whole-subject binding path.
+    //
     // Final review Critical 1: a sibling ban for `@` binding a TUPLE
     // pattern (`t @ (a, b)`) — resolveMatchPattern's Kind::Binding case
     // prepends the binding's own name to `info.bindings`, but a tuple's
@@ -3070,7 +3117,7 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     for (auto &arm : node->getArms()) {
         if (!arm.patternNode || arm.patternNode->getKind() != Pattern::Kind::Binding) continue;
         auto *bp = static_cast<const BindingPattern *>(arm.patternNode.get());
-        if (patternContainsEnumCase(bp->getSub())) {
+        if (patternContainsEnumCase(bp->getSub(), typeResolvedEnum)) {
             diag_.report(node->getStartLoc(), DiagID::err_pattern_binding_enum_case_unsupported,
                          arm.patternNode->toString());
         }
@@ -3267,12 +3314,19 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     // arms against an enum-typed subject (e.g. `1..5 => ...` with no
     // `Enum.Case` arm anywhere) never resolved it, and this check silently
     // never fired even though numerically comparing an enum's tag against a
-    // range is just as meaningless there.
-    if (subjectEnum) {
+    // range is just as meaningless there. Falls back to `typeResolvedEnum`
+    // (resolved from the subject's own type, above) — deliberately used only
+    // for THIS check's condition/message, not folded into the shared
+    // `subjectEnum`/`enumName` (see typeResolvedEnum's own comment for why).
+    const EnumDecl *rangeCheckEnum = subjectEnum ? subjectEnum : typeResolvedEnum;
+    if (rangeCheckEnum) {
+        const std::string &rangeCheckEnumName =
+            subjectEnum ? enumName
+                        : static_cast<const NamedTypeRepr *>(subjectType)->getName();
         auto checkEnumRangeMismatch = [&](const Pattern *p) {
             if (p && p->getKind() == Pattern::Kind::Range) {
                 diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
-                             p->toString(), enumName);
+                             p->toString(), rangeCheckEnumName);
             }
         };
         for (auto &arm : node->getArms()) {

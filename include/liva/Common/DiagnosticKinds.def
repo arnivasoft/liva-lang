@@ -78,7 +78,7 @@ DIAG(err_tuple_index_out_of_range,  error,   "tuple index %0 is out of range for
 DIAG(err_missing_associated_type,   error,   "implementation of '%0' is missing associated type '%1' required by '%2'")
 
 // === Pattern Types (Faz B) ===
-// Reviewer minor (b): %1 is the pattern's own spelling (e.g. `"x"`, `true`,
+// Reviewer minor (b): %0 is the pattern's own spelling (e.g. `"x"`, `true`,
 // `3.14`) rather than an abstract type-category name, so the message is
 // worded around a spelling, not a %0-style type-vs-type comparison.
 DIAG(err_pattern_type_mismatch,      error,   "pattern '%0' cannot match a value of type '%1'")
