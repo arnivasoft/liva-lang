@@ -116,7 +116,7 @@ private:
 
 - [ ] **Step 1:** Pattern.h'yi normatif koddan oluştur (SourceRange include'unu mevcut AST header'larından doğrula); Pattern.cpp'de toString.
 - [ ] **Step 2:** MatchArm'a alan ekle (string ve bindings alanları KALIR).
-- [ ] **Step 3:** ParseExpr.cpp'de `parsePattern()` yaz (gramer: spec + Task 0 Step 4 haritası); `parseMatchExpr` içinde: token-birleştirme AYNEN kalır (string alanına), ayrıca token akışının pattern kısmı `parsePattern()`'la ikinci kez... — DİKKAT: token akışı tek yönlü; iki kez parse edilemez. Çözüm: parseMatchExpr pattern bölümünü ÖNCE token listesine biriktirmek yerine, `parsePattern()` token'ları tüketirken aynı anda string'i de biriktirir (her advance'te `current_.getText()` ekleme — mevcut birleştirmeyle aynı sıra/aynı token seti). Yani tek geçiş, iki çıktı.
+- [ ] **Step 3:** ParseExpr.cpp'de `parsePattern()` yaz (gramer: spec + Task 0 Step 4 haritası); `parseMatchExpr` içinde: token-birleştirme AYNEN kalır (string alanına), ayrıca token akışının pattern kısmı `parsePattern()`'la ikinci kez... — DİKKAT: token akışı tek yönlü; iki kez parse edilemez. Çözüm: parseMatchExpr pattern bölümünü ÖNCE token listesine biriktirmek yerine, `parsePattern()` token'ları tüketirken aynı anda string'i de biriktirir (her advance'te `current_.getText()` ekleme — mevcut birleştirmeyle aynı sıra/aynı token seti). Yani tek geçiş, iki çıktı. **Task 0 zorunlulukları:** (a) negatif int pattern (`-1`) desteklenmeli — `-` + digit token çifti IntLiteralPattern'e birleşir (text="-1"); (b) bare `Ident(alt)` formu bugün yanlış-parse ediliyor ve repo'da hiç kullanılmıyor — yeni gramer spec gereği EnumCase üretir (bilinçli, raporlanmış sapma).
 - [ ] **Step 4:** Geçici kontrol: pattern parse bitince `patternNode->toString() != pattern` ise `fprintf(stderr, "PATTERN-MISMATCH: ...")`.
 - [ ] **Step 5:** Derle; tam seri suite; **stderr'de PATTERN-MISMATCH ara** (ctest çıktısını dosyaya yönlendirip grep) → sıfır olmalı. Testler 2340/2340.
 - [ ] **Step 6:** Commit — `refactor(pattern-ast): Pattern AST hiyerarşisi + parser çift-alan üretimi`
@@ -151,11 +151,11 @@ private:
 
 ---
 
-### Task 5: ASTPrinter + MacroExpander + string alanının silinmesi
+### Task 5: ASTPrinter + string alanının silinmesi (Task 0 bulgularıyla güncellendi)
 
-**Files:** Modify: `src/AST/ASTPrinter.cpp` (pattern yazdırma → `patternNode->toString()`), `src/Macro/MacroExpander.cpp` (klonlama/kopyalama → Pattern klonu; Pattern'e `clone()` eklemek gerekebilir — eklenirse Pattern.h'ye virtual clone, raporlanır), `include/liva/AST/Expr.h` (`MatchArm::pattern` string alanı SİLİNİR; `bindings` alanı Task 0 haritasına göre hâlâ gerekliyse kalır, raporlanır), `src/Parser/ParseExpr.cpp` (string biriktirme + PATTERN-MISMATCH kontrolü SİLİNİR).
+**Files:** Modify: `src/AST/ASTPrinter.cpp` (pattern yazdırma → `patternNode->toString()`), `tests/unit/ParserTest.cpp:1273` (`.pattern` assertion'ı → `patternNode` üzerinden eşdeğer assertion), `include/liva/AST/Expr.h` (`MatchArm::pattern` string alanı SİLİNİR; **`bindings` alanı da SİLİNİR** — Task 0 kanıtı: hiç yazılmıyor, tek okuyucu DAPInterpreter:1011-1020'deki ölü koşul; DAP'taki ölü okuma da temizlenir), `src/Parser/ParseExpr.cpp` (string biriktirme + PATTERN-MISMATCH kontrolü SİLİNİR). NOT: MacroExpander kapsam DIŞI — `.pattern` referansları alakasız `MacroArm::pattern` (Task 0 bulgusu); macro gövdeleri normal parseMatchExpr'den geçtiği için otomatik kapsanır.
 
-- [ ] **Step 1:** ASTPrinter + MacroExpander dönüşümü.
+- [ ] **Step 1:** ASTPrinter dönüşümü + ParserTest assertion güncellemesi.
 - [ ] **Step 2:** `pattern` string alanını sil; derleme hataları kalan tüm string tüketicilerini gösterir — hepsini dönüştür (yeni keşifler raporlanır).
 - [ ] **Step 3:** Kanıt: `grep -rn "arm\.pattern\b\|\.pattern\b" src/ --include=*.cpp` → MatchArm'ın string alanına referans SIFIR (başka yapıların .pattern üyeleri hariç — raporda ayıklanır).
 - [ ] **Step 4:** Derle + tam seri suite 2340/2340 → **Step 5:** Commit — `refactor(pattern-ast): MatchArm string pattern alanı silindi — Pattern AST tek kaynak`
