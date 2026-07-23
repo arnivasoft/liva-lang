@@ -52,6 +52,7 @@ add_library(liva_ast STATIC
     src/AST/Stmt.cpp
     src/AST/Expr.cpp
     src/AST/Type.cpp
+    src/AST/Pattern.cpp
     src/AST/ASTPrinter.cpp
 )
 target_link_libraries(liva_ast PUBLIC liva_common)

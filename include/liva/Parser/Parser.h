@@ -88,6 +88,12 @@ private:
     bool match(TokenKind kind);
     Token expect(TokenKind kind);
 
+    /// Parse a single match-arm pattern (recursive descent) while ALSO
+    /// accumulating the legacy whitespace-free token concatenation into
+    /// `legacyOut`, in the exact order the old blind-consumption loop did.
+    /// Single token pass, dual output (Pattern AST + legacy string).
+    std::unique_ptr<Pattern> parsePattern(std::string &legacyOut);
+
     /// Advance tokens until a synchronization point (statement/declaration boundary)
     void synchronize();
 

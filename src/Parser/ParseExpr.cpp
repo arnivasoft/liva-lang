@@ -1,6 +1,132 @@
 #include "liva/Parser/Parser.h"
+#include <cstdio>
 
 namespace liva {
+
+// Grammar (Pattern AST — Faz A):
+//   pattern := '_' | int-literal | ident | ident '(' subs ')'
+//            | ident '.' ident [ '(' subs ')' ]
+//   subs    := pattern (',' pattern)*
+// Negative int literals are the '-' punctuator immediately followed by an
+// integer_literal token, collapsed into a single IntLiteralPattern (matches
+// the legacy parser's blind whitespace-free token concatenation, which
+// happened to already "support" this via string concatenation).
+//
+// Single token pass, dual output: every token consumed here is ALSO
+// appended (verbatim, no separators) to `legacyOut`, in the exact order the
+// old blind-consumption loop in parseMatchExpr used to build `arm.pattern`.
+std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut) {
+    auto startLoc = current_.getLocation();
+
+    // Wildcard: `_`
+    if (check(TokenKind::underscore)) {
+        legacyOut += std::string(current_.getText());
+        advance();
+        return std::make_unique<WildcardPattern>(rangeFrom(startLoc));
+    }
+
+    // Negative integer literal: `-` immediately followed by an int literal.
+    if (check(TokenKind::minus)) {
+        legacyOut += std::string(current_.getText());
+        advance();
+        if (check(TokenKind::integer_literal)) {
+            std::string digits = std::string(current_.getText());
+            int64_t value = current_.getIntegerValue();
+            legacyOut += digits;
+            advance();
+            return std::make_unique<IntLiteralPattern>(-value, "-" + digits,
+                                                        rangeFrom(startLoc));
+        }
+        // Grammar-violating input (bare '-' not followed by a digit); not
+        // observed anywhere in the repo (Task 0). Best-effort: keep
+        // consuming like the old loop and fall through to a plain
+        // identifier pattern below, rather than erroring.
+    }
+
+    // Non-negative integer literal.
+    if (check(TokenKind::integer_literal)) {
+        std::string text = std::string(current_.getText());
+        int64_t value = current_.getIntegerValue();
+        legacyOut += text;
+        advance();
+        return std::make_unique<IntLiteralPattern>(value, text, rangeFrom(startLoc));
+    }
+
+    // Identifier-rooted forms: Ident | Ident(subs) | Ident.Ident[(subs)].
+    if (check(TokenKind::identifier)) {
+        std::string name = std::string(current_.getText());
+        legacyOut += name;
+        advance();
+
+        std::string enumName;
+        std::string caseName = name;
+        bool isDotted = false;
+
+        if (check(TokenKind::dot)) {
+            legacyOut += std::string(current_.getText());
+            advance();
+            isDotted = true;
+            enumName = name;
+            if (check(TokenKind::identifier)) {
+                caseName = std::string(current_.getText());
+                legacyOut += caseName;
+                advance();
+            } else {
+                // Grammar-violating: 'Ident.' not followed by an
+                // identifier. Not observed in the repo; best-effort.
+                caseName.clear();
+            }
+        }
+
+        if (check(TokenKind::l_paren)) {
+            legacyOut += std::string(current_.getText());
+            advance();
+            std::vector<std::unique_ptr<Pattern>> subs;
+            if (!check(TokenKind::r_paren)) {
+                while (true) {
+                    subs.push_back(parsePattern(legacyOut));
+                    if (check(TokenKind::comma)) {
+                        legacyOut += std::string(current_.getText());
+                        advance();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if (check(TokenKind::r_paren)) {
+                legacyOut += std::string(current_.getText());
+                advance();
+            }
+            auto pat = std::make_unique<EnumCasePattern>(
+                std::move(enumName), std::move(caseName), std::move(subs), rangeFrom(startLoc));
+            pat->setHasParens(true);
+            return pat;
+        }
+
+        if (isDotted) {
+            auto pat = std::make_unique<EnumCasePattern>(
+                std::move(enumName), std::move(caseName),
+                std::vector<std::unique_ptr<Pattern>>{}, rangeFrom(startLoc));
+            pat->setHasParens(false);
+            return pat;
+        }
+
+        // Plain identifier: binding or unqualified no-payload case.
+        return std::make_unique<IdentifierPattern>(std::move(name), rangeFrom(startLoc));
+    }
+
+    // Grammar-violating: none of the above (not observed in the repo per
+    // Task 0). Best-effort: consume tokens exactly like the old blind loop
+    // and wrap them in an IdentifierPattern rather than erroring.
+    std::string fallback;
+    while (!check(TokenKind::fat_arrow) && !check(TokenKind::kw_where) &&
+           !check(TokenKind::kw_if) && !check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+        fallback += std::string(current_.getText());
+        legacyOut += std::string(current_.getText());
+        advance();
+    }
+    return std::make_unique<IdentifierPattern>(std::move(fallback), rangeFrom(startLoc));
+}
 
 std::unique_ptr<Expr> Parser::parseExpression() {
     auto expr = parsePrecedenceExpr(0);
@@ -728,15 +854,23 @@ std::unique_ptr<Expr> Parser::parseMatchExpr() {
     while (!check(TokenKind::r_brace) && !check(TokenKind::eof)) {
         MatchArm arm;
 
-        // Parse pattern (simplified: just consume tokens until =>, where, or if guard)
+        // Parse pattern: parsePattern() consumes tokens once, producing BOTH
+        // the structured Pattern AST and (via legacyOut) the legacy
+        // whitespace-free token concatenation — single pass, dual output.
         std::string pattern;
-        while (!check(TokenKind::fat_arrow) && !check(TokenKind::kw_where) &&
-               !check(TokenKind::kw_if) &&
-               !check(TokenKind::r_brace) && !check(TokenKind::eof)) {
-            pattern += std::string(current_.getText());
-            advance();
-        }
+        arm.patternNode = parsePattern(pattern);
         arm.pattern = pattern;
+
+        // TEMPORARY (Pattern AST — Faz A, Task 1): prove toString() is
+        // byte-identical to the legacy concatenation across the full test
+        // suite before any consumer is switched over. Removed in Task 5/6
+        // once the legacy string field is deleted.
+        if (arm.patternNode) {
+            std::string toStr = arm.patternNode->toString();
+            if (toStr != arm.pattern) {
+                fprintf(stderr, "PATTERN-MISMATCH: %s vs %s\n", toStr.c_str(), arm.pattern.c_str());
+            }
+        }
 
         // Parse optional guard clause: where <expr> or if <expr>
         if (match(TokenKind::kw_where) || match(TokenKind::kw_if)) {
