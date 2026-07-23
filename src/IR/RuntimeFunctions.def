@@ -1,0 +1,772 @@
+// RuntimeFunctions.def — runtime ABI'nin tek kaynağı.
+// LIVA_RT(name, RET, PARAMS)        IRGen decl (native link çözer)
+// LIVA_RT_JIT(name, RET, PARAMS)    IRGen decl + JIT REG
+// LIVA_RT_VA / LIVA_RT_JIT_VA       varargs varyantları
+// PARAMS: RT_ARGS(kod, ...) — parametresiz için RT_ARGS()
+// Tüketici, kullanmadığı makroları boş tanımlamak ZORUNDADIR.
+//
+// Type codes: RT_VOID RT_PTR RT_I8 RT_I32 RT_I64 RT_F64
+//
+// printf declaration
+LIVA_RT_VA(printf, I32, RT_ARGS(PTR))
+// String runtime functions
+LIVA_RT(liva_str_dup, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_str_concat, PTR, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_equal, I32, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_compare, I32, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_length, I64, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_str_byte_length, I64, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_i32_to_str, PTR, RT_ARGS(I32))
+// liva_char_to_str(i32) -> i8* (char code point to string)
+LIVA_RT(liva_char_to_str, PTR, RT_ARGS(I32))
+LIVA_RT_JIT(liva_f64_to_str, PTR, RT_ARGS(F64))
+LIVA_RT_JIT(liva_bool_to_str, PTR, RT_ARGS(I8))
+LIVA_RT_JIT(liva_i64_to_str, PTR, RT_ARGS(I64))
+// String method runtime functions
+LIVA_RT_JIT(liva_str_contains, I8, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_starts_with, I8, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_ends_with, I8, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_index_of, I64, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_substring, PTR, RT_ARGS(PTR, I64, I64))
+LIVA_RT_JIT(liva_str_trim, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_str_to_upper, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_str_to_lower, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_str_replace, PTR, RT_ARGS(PTR, PTR, PTR))
+LIVA_RT_JIT(liva_str_split, PTR, RT_ARGS(PTR, PTR, PTR))
+// Type conversion: string → number (returns i8 success flag, writes to output ptr)
+LIVA_RT_JIT(liva_str_parse_i32, I8, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_parse_i64, I8, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_parse_f64, I8, RT_ARGS(PTR, PTR))
+// File I/O runtime
+LIVA_RT_JIT(liva_file_open, PTR, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_file_close, VOID, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_file_read_line, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_file_read_all, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_file_write, VOID, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_file_write_line, VOID, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_read_line, PTR, RT_ARGS())
+// Dynamic array runtime
+LIVA_RT_JIT(liva_array_new, PTR, RT_ARGS(I64, I64))
+LIVA_RT_JIT(liva_array_free, VOID, RT_ARGS(PTR))
+// liva_array_push(ptr*, i64*, i64*, ptr, i64)
+LIVA_RT_JIT(liva_array_push, VOID, RT_ARGS(PTR, PTR, PTR, PTR, I64))
+LIVA_RT_JIT(liva_array_pop, VOID, RT_ARGS(PTR))
+// liva_array_contains(ptr, i64, ptr, i64, i8) -> i8
+LIVA_RT_JIT(liva_array_contains, I8, RT_ARGS(PTR, I64, PTR, I64, I8))
+// liva_array_index_of(ptr, i64, ptr, i64, i8) -> i64
+LIVA_RT_JIT(liva_array_index_of, I64, RT_ARGS(PTR, I64, PTR, I64, I8))
+// liva_array_reverse(ptr, i64, i64) -> void
+LIVA_RT_JIT(liva_array_reverse, VOID, RT_ARGS(PTR, I64, I64))
+// Hash map runtime
+// liva_map_new(capacity, entry_stride) -> ptr
+LIVA_RT_JIT(liva_map_new, PTR, RT_ARGS(I64, I64))
+LIVA_RT_JIT(liva_map_free, VOID, RT_ARGS(PTR))
+// liva_map_insert(ptr*, i64*, i64*, ptr, ptr, i64, i64, i8)
+LIVA_RT_JIT(liva_map_insert, VOID, RT_ARGS(PTR, PTR, PTR, PTR, PTR, I64, I64, I8))
+// liva_map_get(ptr, i64, ptr, i64, i64, i8) -> ptr
+LIVA_RT_JIT(liva_map_get, PTR, RT_ARGS(PTR, I64, PTR, I64, I64, I8))
+// liva_map_remove(ptr, i64*, i64, ptr, i64, i64, i8) -> i8
+LIVA_RT_JIT(liva_map_remove, I8, RT_ARGS(PTR, PTR, I64, PTR, I64, I64, I8))
+// liva_map_contains(ptr, i64, ptr, i64, i64, i8) -> i8
+LIVA_RT_JIT(liva_map_contains, I8, RT_ARGS(PTR, I64, PTR, I64, I64, I8))
+// Hash set runtime
+LIVA_RT_JIT(liva_set_new, PTR, RT_ARGS(I64, I64))
+LIVA_RT_JIT(liva_set_free, VOID, RT_ARGS(PTR))
+// liva_set_insert(ptr*, i64*, i64*, ptr, i64, i8)
+LIVA_RT_JIT(liva_set_insert, VOID, RT_ARGS(PTR, PTR, PTR, PTR, I64, I8))
+// liva_set_contains(ptr, i64, ptr, i64, i8) -> i8
+LIVA_RT_JIT(liva_set_contains, I8, RT_ARGS(PTR, I64, PTR, I64, I8))
+// liva_set_remove(ptr, i64*, i64, ptr, i64, i8) -> i8
+LIVA_RT_JIT(liva_set_remove, I8, RT_ARGS(PTR, PTR, I64, PTR, I64, I8))
+// liva_panic(msg) — noreturn
+LIVA_RT(liva_panic, VOID, RT_ARGS(PTR))
+// P1-8 alt-spec 2: built-in Hashable. `expr.hash()` on primitive receivers
+// (i8/i16/i32/i64/u8/u16/u32/u64/string/bool/Char) lowers to one of these.
+LIVA_RT(liva_hash_i64, I64, RT_ARGS(I64))
+LIVA_RT(liva_hash_i32, I64, RT_ARGS(I32))
+LIVA_RT(liva_hash_string, I64, RT_ARGS(PTR))
+LIVA_RT(liva_hash_bool, I64, RT_ARGS(I8))
+LIVA_RT(liva_hash_char, I64, RT_ARGS(I32))
+// liva_init_args(i32 argc, ptr argv) -> void
+LIVA_RT_JIT(liva_init_args, VOID, RT_ARGS(I32, PTR))
+// === Stdlib: Random ===
+LIVA_RT_JIT(liva_rand_int, I32, RT_ARGS(I32, I32))
+LIVA_RT_JIT(liva_rand_float, F64, RT_ARGS())
+LIVA_RT_JIT(liva_rand_seed, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_rand_i64, I64, RT_ARGS())
+LIVA_RT_JIT(liva_rand_uuid, PTR, RT_ARGS())
+LIVA_RT_JIT(liva_rand_uuid_v7, PTR, RT_ARGS())
+// === Stdlib: Process/Env ===
+LIVA_RT_JIT(liva_env_get, PTR, RT_ARGS(PTR))
+LIVA_RT(liva_exit, VOID, RT_ARGS(I32))
+LIVA_RT_JIT(liva_args, PTR, RT_ARGS(PTR))
+// === Stdlib: Date/Time ===
+LIVA_RT_JIT(liva_clock, F64, RT_ARGS())
+LIVA_RT_JIT(liva_clock_ms, I64, RT_ARGS())
+LIVA_RT_JIT(liva_sleep, VOID, RT_ARGS(I64))
+// === Stdlib: Benchmarking ===
+LIVA_RT_JIT(liva_bench_start, I64, RT_ARGS())
+LIVA_RT_JIT(liva_bench_iter, I64, RT_ARGS(I64))
+LIVA_RT_JIT(liva_bench_done, I64, RT_ARGS(I64))
+LIVA_RT_JIT(liva_bench_report, VOID, RT_ARGS(PTR, I64))
+LIVA_RT_JIT(liva_bench_reset, VOID, RT_ARGS(I64))
+// === Stdlib: Regex ===
+LIVA_RT_JIT(liva_regex_match, I8, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_regex_find, PTR, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_regex_find_all, PTR, RT_ARGS(PTR, PTR, PTR))
+// regexSplit(str, pattern, &count) -> char**
+LIVA_RT(liva_regex_split, PTR, RT_ARGS(PTR, PTR, PTR))
+LIVA_RT_JIT(liva_regex_replace, PTR, RT_ARGS(PTR, PTR, PTR))
+// regexFindGroups(str, pattern, &count) -> char**
+LIVA_RT_JIT(liva_regex_find_groups, PTR, RT_ARGS(PTR, PTR, PTR))
+// regexCompile(pattern) -> i64 handle
+LIVA_RT_JIT(liva_regex_compile, I64, RT_ARGS(PTR))
+// regexTest(handle, str) -> i8 (bool)
+LIVA_RT_JIT(liva_regex_test, I8, RT_ARGS(I64, PTR))
+// regexExec(handle, str) -> char*
+LIVA_RT_JIT(liva_regex_exec, PTR, RT_ARGS(I64, PTR))
+// regexExecGroups(handle, str, &count) -> char**
+LIVA_RT_JIT(liva_regex_exec_groups, PTR, RT_ARGS(I64, PTR, PTR))
+// regexReplaceCompiled(handle, str, replacement) -> char*
+LIVA_RT_JIT(liva_regex_replace_compiled, PTR, RT_ARGS(I64, PTR, PTR))
+// regexFree(handle) -> void
+LIVA_RT_JIT(liva_regex_free, VOID, RT_ARGS(I64))
+// === Stdlib: Networking ===
+// httpStatus(handle) -> i32
+LIVA_RT_JIT(liva_http_req_status, I32, RT_ARGS(I64))
+// httpBody(handle) -> char*
+LIVA_RT_JIT(liva_http_req_body, PTR, RT_ARGS(I64))
+// httpClose(handle) -> void
+LIVA_RT_JIT(liva_http_req_close, VOID, RT_ARGS(I64))
+// httpRequestEx(method, url, body, headersBlob, timeout) -> i64 handle
+LIVA_RT_JIT(liva_http_req_ex, I64, RT_ARGS(PTR, PTR, PTR, PTR, I64))
+// httpRawHeaders(handle) -> char*
+LIVA_RT_JIT(liva_http_raw_headers, PTR, RT_ARGS(I64))
+// httpHeaderLookup(blob, name) -> char* (nullable)
+LIVA_RT_JIT(liva_http_header_lookup, PTR, RT_ARGS(PTR, PTR))
+// URL component accessors: (ptr) -> ptr, except port (ptr) -> i32
+LIVA_RT_JIT(liva_url_scheme, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_url_host, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_url_path, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_url_query, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_url_fragment, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_url_port, I32, RT_ARGS(PTR))
+// === Stdlib: WebSocket ===
+// wsSend(handle, msg) -> i32
+LIVA_RT(liva_ws_send_text, I32, RT_ARGS(I64, PTR))
+// wsClose(handle, status, reason) -> i32
+LIVA_RT(liva_ws_close, I32, RT_ARGS(I64, I32, PTR))
+// wsIsOpen(handle) -> i32 (treated as bool by Liva)
+LIVA_RT(liva_ws_is_open, I32, RT_ARGS(I64))
+// wsConnectEx(url, headersBlob, subprotocol, keepAliveMs) -> i64
+LIVA_RT(liva_ws_connect_ex, I64, RT_ARGS(PTR, PTR, PTR, I64))
+// wsRecvKind(handle) -> i32
+LIVA_RT(liva_ws_recv, I32, RT_ARGS(I64))
+// wsMsgText(handle) -> i8*
+LIVA_RT(liva_ws_msg_text, PTR, RT_ARGS(I64))
+// wsMsgBytes(handle, out_len*) -> i8*
+LIVA_RT(liva_ws_msg_bytes, PTR, RT_ARGS(I64, PTR))
+// wsSendBinary(handle, data*, len) -> i32
+LIVA_RT(liva_ws_send_binary, I32, RT_ARGS(I64, PTR, I64))
+// === Stdlib: SQLite ===
+// sqliteOpen(path) -> i64
+LIVA_RT(liva_sqlite_open, I64, RT_ARGS(PTR))
+// sqliteClose(handle) -> void
+LIVA_RT(liva_sqlite_close, VOID, RT_ARGS(I64))
+// sqliteExec(handle, sql) -> i32
+LIVA_RT(liva_sqlite_exec, I32, RT_ARGS(I64, PTR))
+// sqliteQueryFirst(handle, sql) -> char* (nullable)
+LIVA_RT(liva_sqlite_query_first, PTR, RT_ARGS(I64, PTR))
+// sqliteQueryInt(handle, sql, *ok) -> i64
+LIVA_RT(liva_sqlite_query_int, I64, RT_ARGS(I64, PTR, PTR))
+// sqliteQueryAllFirstCol(handle, sql) -> char*
+LIVA_RT(liva_sqlite_query_all_first_col, PTR, RT_ARGS(I64, PTR))
+// sqliteLastInsertRowid(handle) -> i64
+LIVA_RT(liva_sqlite_last_insert_rowid, I64, RT_ARGS(I64))
+// sqliteChanges(handle) -> i32
+LIVA_RT(liva_sqlite_changes, I32, RT_ARGS(I64))
+// sqliteErrmsg(handle) -> char*
+LIVA_RT(liva_sqlite_errmsg, PTR, RT_ARGS(I64))
+// --- Prepared statements ---
+// sqlitePrepare(db, sql) -> i64
+LIVA_RT(liva_sqlite_prepare, I64, RT_ARGS(I64, PTR))
+// sqliteBindText(stmt, idx, val) -> i32
+LIVA_RT(liva_sqlite_bind_text, I32, RT_ARGS(I64, I32, PTR))
+// sqliteBindInt(stmt, idx, val) -> i32
+LIVA_RT(liva_sqlite_bind_int, I32, RT_ARGS(I64, I32, I64))
+// sqliteBindDouble(stmt, idx, val) -> i32
+LIVA_RT(liva_sqlite_bind_double, I32, RT_ARGS(I64, I32, F64))
+// sqliteBindNull(stmt, idx) -> i32
+LIVA_RT(liva_sqlite_bind_null, I32, RT_ARGS(I64, I32))
+// sqliteStep(stmt) -> i32 (1=row, 2=done, 0=error)
+LIVA_RT(liva_sqlite_step, I32, RT_ARGS(I64))
+// sqliteReset(stmt) -> i32
+LIVA_RT(liva_sqlite_reset, I32, RT_ARGS(I64))
+// sqliteColumnCount(stmt) -> i32
+LIVA_RT(liva_sqlite_column_count, I32, RT_ARGS(I64))
+// sqliteColumnText(stmt, col) -> char*
+LIVA_RT(liva_sqlite_column_text, PTR, RT_ARGS(I64, I32))
+// sqliteColumnInt(stmt, col) -> i64
+LIVA_RT(liva_sqlite_column_int, I64, RT_ARGS(I64, I32))
+// sqliteColumnDouble(stmt, col) -> f64
+LIVA_RT(liva_sqlite_column_double, F64, RT_ARGS(I64, I32))
+// sqliteColumnName(stmt, col) -> char*
+LIVA_RT(liva_sqlite_column_name, PTR, RT_ARGS(I64, I32))
+// sqliteColumnType(stmt, col) -> i32
+LIVA_RT(liva_sqlite_column_type, I32, RT_ARGS(I64, I32))
+// sqliteBindByName(stmt, name, val) -> i32
+LIVA_RT(liva_sqlite_bind_by_name, I32, RT_ARGS(I64, PTR, PTR))
+// sqliteBindBlob(stmt, idx, data, len) -> i32
+LIVA_RT(liva_sqlite_bind_blob, I32, RT_ARGS(I64, I32, PTR, I64))
+// sqliteColumnBlob(stmt, col, out_len) -> i8*
+LIVA_RT(liva_sqlite_column_blob, PTR, RT_ARGS(I64, I32, PTR))
+// sqliteFinalize(stmt) -> void
+LIVA_RT(liva_sqlite_finalize, VOID, RT_ARGS(I64))
+// === Stdlib: PostgreSQL ===
+// pgNormalizeParams(sql) -> char*
+LIVA_RT(liva_pg_normalize_params, PTR, RT_ARGS(PTR))
+// pgConnect(conninfo) -> i64
+LIVA_RT(liva_pg_connect, I64, RT_ARGS(PTR))
+// pgClose(handle) -> void
+LIVA_RT(liva_pg_close, VOID, RT_ARGS(I64))
+// pgExec(handle, sql) -> i32
+LIVA_RT(liva_pg_exec, I32, RT_ARGS(I64, PTR))
+// pgErrmsg(handle) -> i8*
+LIVA_RT(liva_pg_errmsg, PTR, RT_ARGS(I64))
+// pgQuery(handle, sql) -> i64 (PGresult* handle)
+LIVA_RT(liva_pg_query, I64, RT_ARGS(I64, PTR))
+// pgClear(result) -> void
+LIVA_RT(liva_pg_clear, VOID, RT_ARGS(I64))
+// pgNtuples(result) -> i32
+LIVA_RT(liva_pg_ntuples, I32, RT_ARGS(I64))
+// pgNfields(result) -> i32
+LIVA_RT(liva_pg_nfields, I32, RT_ARGS(I64))
+// pgGetvalue(result, row, col) -> i8*
+LIVA_RT(liva_pg_getvalue, PTR, RT_ARGS(I64, I32, I32))
+// pgGetisnull(result, row, col) -> i32
+LIVA_RT(liva_pg_getisnull, I32, RT_ARGS(I64, I32, I32))
+// pgFname(result, col) -> i8*
+LIVA_RT(liva_pg_fname, PTR, RT_ARGS(I64, I32))
+// pgQueryParams(handle, sql, values, nparams) -> i64
+LIVA_RT(liva_pg_query_params, I64, RT_ARGS(I64, PTR, PTR, I64))
+// === File I/O: seek/tell/size ===
+// liva_file_seek(fp, offset, whence) -> i32
+LIVA_RT_JIT(liva_file_seek, I32, RT_ARGS(PTR, I64, I32))
+// liva_file_tell(fp) -> i64
+LIVA_RT_JIT(liva_file_tell, I64, RT_ARGS(PTR))
+// liva_file_size(fp) -> i64
+LIVA_RT_JIT(liva_file_size, I64, RT_ARGS(PTR))
+// === Directory operations ===
+// liva_dir_list(path, &count) -> char**
+LIVA_RT_JIT(liva_dir_list, PTR, RT_ARGS(PTR, PTR))
+// liva_dir_create(path) -> i8
+LIVA_RT_JIT(liva_dir_create, I8, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_dir_remove, I8, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_dir_exists, I8, RT_ARGS(PTR))
+// === Path operations ===
+// liva_path_join(a, b) -> char*
+LIVA_RT_JIT(liva_path_join, PTR, RT_ARGS(PTR, PTR))
+// liva_path_dirname(path) -> char*
+LIVA_RT_JIT(liva_path_dirname, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_path_basename, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_path_extension, PTR, RT_ARGS(PTR))
+// liva_path_exists(path) -> i8
+LIVA_RT_JIT(liva_path_exists, I8, RT_ARGS(PTR))
+// liva_file_is_file(path) -> i8
+LIVA_RT_JIT(liva_file_is_file, I8, RT_ARGS(PTR))
+// liva_path_is_dir(path) -> i8
+LIVA_RT(liva_path_is_dir, I8, RT_ARGS(PTR))
+// liva_path_size(path) -> i64
+LIVA_RT(liva_path_size, I64, RT_ARGS(PTR))
+// liva_path_modified_time(path) -> i64
+LIVA_RT(liva_path_modified_time, I64, RT_ARGS(PTR))
+// liva_file_read(path) -> char* (nullable)
+LIVA_RT(liva_file_read, PTR, RT_ARGS(PTR))
+// liva_file_write_path(path, content) -> i8
+LIVA_RT(liva_file_write_path, I8, RT_ARGS(PTR, PTR))
+// liva_file_append(path, content) -> i8
+LIVA_RT(liva_file_append, I8, RT_ARGS(PTR, PTR))
+// liva_file_remove(path) -> i8
+LIVA_RT(liva_file_remove, I8, RT_ARGS(PTR))
+// liva_file_copy(src, dst) -> i8
+LIVA_RT(liva_file_copy, I8, RT_ARGS(PTR, PTR))
+// liva_path_absolute(path) -> char*
+LIVA_RT(liva_path_absolute, PTR, RT_ARGS(PTR))
+// liva_str_array_free(arr, count) -> void
+LIVA_RT_JIT(liva_str_array_free, VOID, RT_ARGS(PTR, I64))
+// === Subprocess ===
+// liva_exec(command) -> i32
+LIVA_RT_JIT(liva_exec, I32, RT_ARGS(PTR))
+// liva_exec_output(command) -> char*
+LIVA_RT_JIT(liva_exec_output, PTR, RT_ARGS(PTR))
+// liva_process_start(command) -> i64
+LIVA_RT_JIT(liva_process_start, I64, RT_ARGS(PTR))
+// liva_process_wait(handle) -> i32
+LIVA_RT_JIT(liva_process_wait, I32, RT_ARGS(I64))
+// liva_process_kill(handle) -> i8
+LIVA_RT_JIT(liva_process_kill, I8, RT_ARGS(I64))
+// liva_process_read(handle) -> char*
+LIVA_RT_JIT(liva_process_read, PTR, RT_ARGS(I64))
+// liva_process_close(handle) -> void
+LIVA_RT_JIT(liva_process_close, VOID, RT_ARGS(I64))
+// === JSON DOM (parse-tree) natives ===
+// liva_json_parse(s) -> i64
+LIVA_RT(liva_json_parse, I64, RT_ARGS(PTR))
+// liva_json_free_doc(docH) -> void
+LIVA_RT(liva_json_free_doc, VOID, RT_ARGS(I64))
+// liva_json_root(docH) -> i64
+LIVA_RT(liva_json_root, I64, RT_ARGS(I64))
+// liva_json_node_kind(nodeH) -> i32
+LIVA_RT(liva_json_node_kind, I32, RT_ARGS(I64))
+// liva_json_node_as_int(nodeH) -> i64
+LIVA_RT(liva_json_node_as_int, I64, RT_ARGS(I64))
+// liva_json_node_as_float(nodeH) -> f64
+LIVA_RT(liva_json_node_as_float, F64, RT_ARGS(I64))
+// liva_json_node_as_bool(nodeH) -> i8
+LIVA_RT(liva_json_node_as_bool, I8, RT_ARGS(I64))
+// liva_json_node_as_string(nodeH) -> char*
+LIVA_RT(liva_json_node_as_string, PTR, RT_ARGS(I64))
+// liva_json_to_string(nodeH) -> char*
+LIVA_RT(liva_json_to_string, PTR, RT_ARGS(I64))
+// liva_json_to_string_pretty(nodeH, indent) -> char*
+LIVA_RT(liva_json_to_string_pretty, PTR, RT_ARGS(I64, I32))
+// liva_json_obj_get(nodeH, key) -> i64
+LIVA_RT(liva_json_obj_get, I64, RT_ARGS(I64, PTR))
+// liva_json_obj_has(nodeH, key) -> i8
+LIVA_RT(liva_json_obj_has, I8, RT_ARGS(I64, PTR))
+// liva_json_obj_count(nodeH) -> i32
+LIVA_RT(liva_json_obj_count, I32, RT_ARGS(I64))
+// liva_json_arr_count(nodeH) -> i32
+LIVA_RT(liva_json_arr_count, I32, RT_ARGS(I64))
+// liva_json_arr_at(nodeH, idx) -> i64
+LIVA_RT(liva_json_arr_at, I64, RT_ARGS(I64, I64))
+// liva_json_obj_keys(nodeH, &count) -> char**
+LIVA_RT(liva_json_obj_keys, PTR, RT_ARGS(I64, PTR))
+// === JSON DOM Building / Mutation ===
+LIVA_RT(liva_json_new_object, I64, RT_ARGS())
+LIVA_RT(liva_json_new_array, I64, RT_ARGS())
+LIVA_RT(liva_json_obj_set_string, VOID, RT_ARGS(I64, I64, PTR, PTR))
+LIVA_RT(liva_json_obj_set_int, VOID, RT_ARGS(I64, I64, PTR, I64))
+LIVA_RT(liva_json_obj_set_float, VOID, RT_ARGS(I64, I64, PTR, F64))
+LIVA_RT(liva_json_obj_set_bool, VOID, RT_ARGS(I64, I64, PTR, I8))
+LIVA_RT(liva_json_obj_set_null, VOID, RT_ARGS(I64, I64, PTR))
+LIVA_RT(liva_json_obj_set_object, I64, RT_ARGS(I64, I64, PTR))
+LIVA_RT(liva_json_obj_set_array, I64, RT_ARGS(I64, I64, PTR))
+LIVA_RT(liva_json_obj_remove, VOID, RT_ARGS(I64, PTR))
+LIVA_RT(liva_json_arr_add_string, VOID, RT_ARGS(I64, I64, PTR))
+LIVA_RT(liva_json_arr_add_int, VOID, RT_ARGS(I64, I64, I64))
+LIVA_RT(liva_json_arr_add_float, VOID, RT_ARGS(I64, I64, F64))
+LIVA_RT(liva_json_arr_add_bool, VOID, RT_ARGS(I64, I64, I8))
+LIVA_RT(liva_json_arr_add_null, VOID, RT_ARGS(I64, I64))
+LIVA_RT(liva_json_arr_add_object, I64, RT_ARGS(I64, I64))
+LIVA_RT(liva_json_arr_add_array, I64, RT_ARGS(I64, I64))
+// liva_json_path_get(nodeH, path) -> i64
+LIVA_RT(liva_json_path_get, I64, RT_ARGS(I64, PTR))
+// liva_json_path_set_*(docH, nodeH, path, val) -> void
+LIVA_RT(liva_json_path_set_string, VOID, RT_ARGS(I64, I64, PTR, PTR))
+LIVA_RT(liva_json_path_set_int, VOID, RT_ARGS(I64, I64, PTR, I64))
+LIVA_RT(liva_json_path_set_float, VOID, RT_ARGS(I64, I64, PTR, F64))
+LIVA_RT(liva_json_path_set_bool, VOID, RT_ARGS(I64, I64, PTR, I8))
+// === Logging ===
+LIVA_RT_JIT(liva_log_debug, VOID, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_log_info, VOID, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_log_warn, VOID, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_log_error, VOID, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_log_set_level, VOID, RT_ARGS(I32))
+// === Testing ===
+LIVA_RT_JIT(liva_assert, VOID, RT_ARGS(I8))
+LIVA_RT_JIT(liva_assert_msg, VOID, RT_ARGS(I8, PTR))
+LIVA_RT_JIT(liva_assert_eq, VOID, RT_ARGS(I64, I64))
+LIVA_RT_JIT(liva_assert_eq_str, VOID, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_assert_eq_float, VOID, RT_ARGS(F64, F64))
+// === Test Runner ===
+LIVA_RT_JIT(liva_test_begin, VOID, RT_ARGS())
+// liva_test_run(name, fn_ptr) — fn_ptr is void(*)()
+LIVA_RT_JIT(liva_test_run, VOID, RT_ARGS(PTR, PTR))
+// liva_test_run_closure(name, fn_ptr, env_ptr) -> i8
+LIVA_RT(liva_test_run_closure, I8, RT_ARGS(PTR, PTR, PTR))
+LIVA_RT_JIT(liva_test_end, I32, RT_ARGS())
+LIVA_RT_JIT(liva_test_fail, VOID, RT_ARGS(PTR))
+// === DateTime ===
+LIVA_RT_JIT(liva_date_now, PTR, RT_ARGS())
+LIVA_RT_JIT(liva_time_now, PTR, RT_ARGS())
+LIVA_RT_JIT(liva_datetime_now, PTR, RT_ARGS())
+LIVA_RT_JIT(liva_date_format, PTR, RT_ARGS(F64, PTR))
+LIVA_RT_JIT(liva_date_year, I32, RT_ARGS(F64))
+LIVA_RT_JIT(liva_date_month, I32, RT_ARGS(F64))
+LIVA_RT_JIT(liva_date_day, I32, RT_ARGS(F64))
+LIVA_RT_JIT(liva_date_weekday, I32, RT_ARGS(F64))
+// liva_date_timestamp() -> f64
+LIVA_RT(liva_date_timestamp, F64, RT_ARGS())
+// liva_date_parse(str, fmt) -> f64
+LIVA_RT(liva_date_parse, F64, RT_ARGS(PTR, PTR))
+// liva_date_add(ts, secs) -> f64
+LIVA_RT(liva_date_add, F64, RT_ARGS(F64, F64))
+// liva_date_diff(ts1, ts2) -> f64
+LIVA_RT(liva_date_diff, F64, RT_ARGS(F64, F64))
+// liva_date_hour/minute/second(ts) -> i32
+LIVA_RT(liva_date_hour, I32, RT_ARGS(F64))
+LIVA_RT(liva_date_minute, I32, RT_ARGS(F64))
+LIVA_RT(liva_date_second, I32, RT_ARGS(F64))
+// === Encoding/Compression ===
+// base64Encode/hexEncode: (ptr) -> ptr (same as strNoArgTy)
+LIVA_RT_JIT(liva_base64_encode, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_base64_decode, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_hex_encode, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_hex_decode, PTR, RT_ARGS(PTR))
+// urlEncode/urlDecode: (ptr) -> ptr
+LIVA_RT(liva_url_encode, PTR, RT_ARGS(PTR))
+LIVA_RT(liva_url_decode, PTR, RT_ARGS(PTR))
+// base64UrlEncode/base64UrlDecode: (ptr) -> ptr (RFC 4648 §5)
+LIVA_RT_JIT(liva_base64_url_encode, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_base64_url_decode, PTR, RT_ARGS(PTR))
+// jwtHS256Sig/jwtHS512Sig: (ptr, ptr) -> ptr (HMAC + base64url, binary-safe)
+LIVA_RT_JIT(liva_jwt_hs256_sig, PTR, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_jwt_hs512_sig, PTR, RT_ARGS(PTR, PTR))
+// constTimeEq(a, b) -> i8 (1 if equal, 0 otherwise)
+LIVA_RT_JIT(liva_const_time_eq, I8, RT_ARGS(PTR, PTR))
+// arrayClone(data, count, elem_size) -> ptr  (deep-copy buffer)
+LIVA_RT_JIT(liva_array_clone, PTR, RT_ARGS(PTR, I64, I64))
+// === Bytes <-> String / hex / base64url with explicit byte length ===
+// strToBytes(s, *out_len) -> ptr
+LIVA_RT_JIT(liva_str_to_bytes, PTR, RT_ARGS(PTR, PTR))
+// bytesToStr(data, len) -> ptr
+LIVA_RT_JIT(liva_bytes_to_str, PTR, RT_ARGS(PTR, I64))
+// hexDecodeBytes(s, *out_len, *ok) -> ptr
+LIVA_RT_JIT(liva_hex_decode_bytes, PTR, RT_ARGS(PTR, PTR, PTR))
+LIVA_RT_JIT(liva_base64_url_decode_bytes, PTR, RT_ARGS(PTR, PTR, PTR))
+// hexEncodeBytes(data, len) -> ptr
+LIVA_RT_JIT(liva_hex_encode_bytes, PTR, RT_ARGS(PTR, I64))
+LIVA_RT_JIT(liva_base64_url_encode_bytes, PTR, RT_ARGS(PTR, I64))
+// gzipEncodeBytes(data, len, *out_len) -> ptr
+LIVA_RT_JIT(liva_gzip_encode_bytes, PTR, RT_ARGS(PTR, I64, PTR))
+// gzipDecodeBytes(data, len, *out_len, *ok) -> ptr
+LIVA_RT_JIT(liva_gzip_decode_bytes, PTR, RT_ARGS(PTR, I64, PTR, PTR))
+// isoFormatUtc(ts: f64) -> ptr; isoParse(str, *ok) -> f64
+LIVA_RT_JIT(liva_iso_format_utc, PTR, RT_ARGS(F64))
+LIVA_RT_JIT(liva_iso_parse, F64, RT_ARGS(PTR, PTR))
+// crc32: (ptr) -> i64
+LIVA_RT_JIT(liva_crc32, I64, RT_ARGS(PTR))
+// === Crypto ===
+// sha256(data) -> hex string, md5(data) -> hex string
+LIVA_RT_JIT(liva_sha256, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_md5, PTR, RT_ARGS(PTR))
+// hmacSha256(key, data) -> hex string
+LIVA_RT_JIT(liva_hmac_sha256, PTR, RT_ARGS(PTR, PTR))
+// sha1(data), sha512(data) -> hex string
+LIVA_RT_JIT(liva_sha1, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_sha512, PTR, RT_ARGS(PTR))
+// hmacSha1(key, data), hmacSha512(key, data) -> hex string
+LIVA_RT_JIT(liva_hmac_sha1, PTR, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_hmac_sha512, PTR, RT_ARGS(PTR, PTR))
+// === Stdlib: Synchronization ===
+// mutexCreate() -> i64
+LIVA_RT_JIT(liva_mutex_create, I64, RT_ARGS())
+// mutexLock(handle), mutexUnlock(handle), mutexFree(handle) -> void
+LIVA_RT_JIT(liva_mutex_lock, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_mutex_unlock, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_mutex_free, VOID, RT_ARGS(I64))
+// mutexTryLock(handle) -> i8
+LIVA_RT_JIT(liva_mutex_try_lock, I8, RT_ARGS(I64))
+// atomicCreate(initial) -> i64
+LIVA_RT_JIT(liva_atomic_create, I64, RT_ARGS(I64))
+// atomicLoad(handle) -> i64
+LIVA_RT_JIT(liva_atomic_load, I64, RT_ARGS(I64))
+// atomicStore(handle, value) -> void
+LIVA_RT_JIT(liva_atomic_store, VOID, RT_ARGS(I64, I64))
+// atomicAdd(handle, value) -> i64, atomicSub(handle, value) -> i64
+LIVA_RT_JIT(liva_atomic_add, I64, RT_ARGS(I64, I64))
+LIVA_RT_JIT(liva_atomic_sub, I64, RT_ARGS(I64, I64))
+// atomicCas(handle, expected, desired) -> i8
+LIVA_RT_JIT(liva_atomic_cas, I8, RT_ARGS(I64, I64, I64))
+// atomicFree(handle) -> void
+LIVA_RT_JIT(liva_atomic_free, VOID, RT_ARGS(I64))
+// === Stdlib: RWLock ===
+// rwlockCreate() -> i64
+LIVA_RT_JIT(liva_rwlock_create, I64, RT_ARGS())
+// rwlock*Lock/*Unlock/Free(handle) -> void
+LIVA_RT_JIT(liva_rwlock_read_lock, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_rwlock_read_unlock, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_rwlock_write_lock, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_rwlock_write_unlock, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_rwlock_free, VOID, RT_ARGS(I64))
+// rwlockTry*Lock(handle) -> i8
+LIVA_RT_JIT(liva_rwlock_try_read_lock, I8, RT_ARGS(I64))
+LIVA_RT_JIT(liva_rwlock_try_write_lock, I8, RT_ARGS(I64))
+// === Stdlib: ConditionVariable ===
+// condVarCreate() -> i64
+LIVA_RT_JIT(liva_condvar_create, I64, RT_ARGS())
+// condVarWait(cv, mtx) -> void
+LIVA_RT_JIT(liva_condvar_wait, VOID, RT_ARGS(I64, I64))
+// condVarNotifyOne/All/Free(handle) -> void
+LIVA_RT_JIT(liva_condvar_notify_one, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_condvar_notify_all, VOID, RT_ARGS(I64))
+LIVA_RT_JIT(liva_condvar_free, VOID, RT_ARGS(I64))
+// === Stdlib: Channel ===
+// channelCreate(capacity) -> i64
+LIVA_RT_JIT(liva_channel_create, I64, RT_ARGS(I64))
+// channelSend(handle, value) -> void
+LIVA_RT_JIT(liva_channel_send, VOID, RT_ARGS(I64, I64))
+// channelReceive(handle, &ok) -> i64
+LIVA_RT_JIT(liva_channel_receive, I64, RT_ARGS(I64, PTR))
+// channelClose(handle) -> void
+LIVA_RT_JIT(liva_channel_close, VOID, RT_ARGS(I64))
+// channelLen(handle) -> i64
+LIVA_RT_JIT(liva_channel_len, I64, RT_ARGS(I64))
+// channelFree(handle) -> void
+LIVA_RT_JIT(liva_channel_free, VOID, RT_ARGS(I64))
+// channelTrySend(handle, value) -> i8
+LIVA_RT_JIT(liva_channel_try_send, I8, RT_ARGS(I64, I64))
+// channelTryReceive(handle, &ok) -> i64
+LIVA_RT_JIT(liva_channel_try_receive, I64, RT_ARGS(I64, PTR))
+// === Stdlib: TOML ===
+// tomlParse(text) -> i64
+LIVA_RT_JIT(liva_toml_parse, I64, RT_ARGS(PTR))
+// tomlGetString(handle, section, key) -> char*
+LIVA_RT_JIT(liva_toml_get_string, PTR, RT_ARGS(I64, PTR, PTR))
+// tomlGetInt(handle, section, key, &ok) -> i64
+LIVA_RT_JIT(liva_toml_get_int, I64, RT_ARGS(I64, PTR, PTR, PTR))
+// tomlGetBool(handle, section, key, &ok) -> i8
+LIVA_RT_JIT(liva_toml_get_bool, I8, RT_ARGS(I64, PTR, PTR, PTR))
+// tomlHasKey(handle, section, key) -> i8
+LIVA_RT_JIT(liva_toml_has_key, I8, RT_ARGS(I64, PTR, PTR))
+// tomlFree(handle) -> void
+LIVA_RT_JIT(liva_toml_free, VOID, RT_ARGS(I64))
+// === Stdlib: TaskGroup ===
+// taskGroupCreate() -> i64
+LIVA_RT_JIT(liva_task_group_create, I64, RT_ARGS())
+// taskGroupSpawn(group, task*) -> void
+LIVA_RT_JIT(liva_task_group_spawn, VOID, RT_ARGS(I64, PTR))
+// taskGroupAwaitAll(group) -> void
+LIVA_RT_JIT(liva_task_group_await_all, VOID, RT_ARGS(I64))
+// taskGroupCancelAll(group) -> void
+LIVA_RT_JIT(liva_task_group_cancel_all, VOID, RT_ARGS(I64))
+// taskGroupCount(group) -> i64
+LIVA_RT_JIT(liva_task_group_count, I64, RT_ARGS(I64))
+// taskGroupFree(group) -> void
+LIVA_RT_JIT(liva_task_group_free, VOID, RT_ARGS(I64))
+// === Stdlib: String utility functions ===
+// liva_str_repeat(ptr, i64) -> ptr
+LIVA_RT_JIT(liva_str_repeat, PTR, RT_ARGS(PTR, I64))
+// liva_str_pad_left(ptr, i64, ptr) -> ptr, liva_str_pad_right(ptr, i64, ptr) -> ptr
+LIVA_RT_JIT(liva_str_pad_left, PTR, RT_ARGS(PTR, I64, PTR))
+LIVA_RT_JIT(liva_str_pad_right, PTR, RT_ARGS(PTR, I64, PTR))
+// liva_str_join(ptr*, i64, ptr) -> ptr
+LIVA_RT_JIT(liva_str_join, PTR, RT_ARGS(PTR, I64, PTR))
+// liva_str_trim_left(ptr) -> ptr, liva_str_trim_right(ptr) -> ptr
+// liva_str_reverse(ptr) -> ptr — reuse strNoArgTy: (ptr) -> ptr
+LIVA_RT_JIT(liva_str_trim_left, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_str_trim_right, PTR, RT_ARGS(PTR))
+LIVA_RT_JIT(liva_str_reverse, PTR, RT_ARGS(PTR))
+// liva_str_chars(ptr, ptr) -> ptr, liva_str_lines(ptr, ptr) -> ptr
+LIVA_RT_JIT(liva_str_chars, PTR, RT_ARGS(PTR, PTR))
+LIVA_RT_JIT(liva_str_lines, PTR, RT_ARGS(PTR, PTR))
+// === Stdlib: UTF-8 helpers ===
+// liva_str_char_count(ptr) -> i64
+LIVA_RT(liva_str_char_count, I64, RT_ARGS(PTR))
+// liva_str_codepoint_at(ptr, i64) -> i32
+LIVA_RT(liva_str_codepoint_at, I32, RT_ARGS(PTR, I64))
+// liva_str_is_ascii(ptr) -> i8
+LIVA_RT(liva_str_is_ascii, I8, RT_ARGS(PTR))
+// char predicates: (i32) -> i8
+LIVA_RT(liva_char_is_alpha, I8, RT_ARGS(I32))
+LIVA_RT(liva_char_is_digit, I8, RT_ARGS(I32))
+LIVA_RT(liva_char_is_alnum, I8, RT_ARGS(I32))
+LIVA_RT(liva_char_is_space, I8, RT_ARGS(I32))
+LIVA_RT(liva_char_is_upper, I8, RT_ARGS(I32))
+LIVA_RT(liva_char_is_lower, I8, RT_ARGS(I32))
+// case conversion: (i32) -> i32
+LIVA_RT(liva_char_to_upper, I32, RT_ARGS(I32))
+LIVA_RT(liva_char_to_lower, I32, RT_ARGS(I32))
+// === Stdlib: Collection utility functions ===
+// liva_array_reversed(ptr, i64, i64, ptr, ptr, ptr) -> void
+LIVA_RT_JIT(liva_array_reversed, VOID, RT_ARGS(PTR, I64, I64, PTR, PTR, PTR))
+// liva_array_sorted(ptr, i64, i64, ptr, ptr, ptr, ptr) -> void
+LIVA_RT_JIT(liva_array_sorted, VOID, RT_ARGS(PTR, I64, I64, PTR, PTR, PTR, PTR))
+// liva_array_any(ptr, i64, i64, ptr) -> i8
+LIVA_RT_JIT(liva_array_any, I8, RT_ARGS(PTR, I64, I64, PTR))
+LIVA_RT_JIT(liva_array_all, I8, RT_ARGS(PTR, I64, I64, PTR))
+// liva_array_count(ptr, i64, i64, ptr) -> i64
+LIVA_RT_JIT(liva_array_count, I64, RT_ARGS(PTR, I64, I64, PTR))
+// === Stdlib: UI (wxWidgets wrapper) ===
+// () -> void
+LIVA_RT(liva_ui_app_init, VOID, RT_ARGS())
+LIVA_RT(liva_ui_app_run, VOID, RT_ARGS())
+LIVA_RT(liva_ui_app_quit, VOID, RT_ARGS())
+// () -> i32
+// create_window(i32 w, i32 h, ptr title) -> i32
+LIVA_RT(liva_ui_create_window, I32, RT_ARGS(I32, I32, PTR))
+// window_show(i32 handle, i32 show) -> void
+LIVA_RT(liva_ui_window_show, VOID, RT_ARGS(I32, I32))
+// window_set_title(i32 handle, ptr title) -> void
+LIVA_RT(liva_ui_window_set_title, VOID, RT_ARGS(I32, PTR))
+// window_get_width/height(i32 handle) -> i32
+LIVA_RT(liva_ui_window_get_width, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_window_get_height, I32, RT_ARGS(I32))
+// Callback type: (i32 handle, ptr func, ptr env, i32 env_size) -> void.
+// env_size > 0 tells the runtime to heap-copy the (stack) env and free it
+// when the widget is destroyed; 0 keeps the caller-owned (stack) env.
+LIVA_RT(liva_ui_window_on_close, VOID, RT_ARGS(I32, PTR, PTR, I32))
+LIVA_RT(liva_ui_on_click, VOID, RT_ARGS(I32, PTR, PTR, I32))
+LIVA_RT(liva_ui_on_change, VOID, RT_ARGS(I32, PTR, PTR, I32))
+LIVA_RT(liva_ui_on_select, VOID, RT_ARGS(I32, PTR, PTR, I32))
+LIVA_RT(liva_ui_on_key, VOID, RT_ARGS(I32, PTR, PTR, I32))
+LIVA_RT(liva_ui_canvas_on_paint, VOID, RT_ARGS(I32, PTR, PTR, I32))
+// ── Phase 2: menu / statusbar / toolbar ──────────────────────────
+LIVA_RT(liva_ui_create_menu_bar, I32, RT_ARGS())
+LIVA_RT(liva_ui_create_menu, I32, RT_ARGS(PTR))
+LIVA_RT(liva_ui_menu_add_item, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_menu_add_check_item, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_menu_add_separator, VOID, RT_ARGS(I32))
+LIVA_RT(liva_ui_menu_add_submenu, VOID, RT_ARGS(I32, PTR, I32))
+LIVA_RT(liva_ui_menu_bar_add_menu, VOID, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_window_set_menu_bar, VOID, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_menu_item_set_enabled, VOID, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_menu_item_set_checked, VOID, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_menu_item_on_click, VOID, RT_ARGS(I32, PTR, PTR, I32))
+LIVA_RT(liva_ui_menu_popup, VOID, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_on_right_click, VOID, RT_ARGS(I32, PTR, PTR, I32))
+LIVA_RT(liva_ui_create_status_bar, I32, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_status_bar_set_text, VOID, RT_ARGS(I32, I32, PTR))
+LIVA_RT(liva_ui_create_toolbar, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_toolbar_add_tool, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_toolbar_add_separator, VOID, RT_ARGS(I32))
+LIVA_RT(liva_ui_toolbar_realize, VOID, RT_ARGS(I32))
+LIVA_RT(liva_ui_tool_item_set_enabled, VOID, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_tool_item_on_click, VOID, RT_ARGS(I32, PTR, PTR, I32))
+// create_widget(i32 parent) -> i32
+LIVA_RT(liva_ui_create_panel, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_create_listbox, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_create_tabview, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_create_scrollview, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_create_divider, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_create_canvas, I32, RT_ARGS(I32))
+// create_widget(i32 parent, ptr text) -> i32
+LIVA_RT(liva_ui_create_button, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_create_label, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_create_textinput, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_create_checkbox, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_create_textarea, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_create_radiogroup, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_create_dropdown, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_create_imageview, I32, RT_ARGS(I32, PTR))
+// create_slider(i32 parent, i32 min, i32 max, i32 val) -> i32
+LIVA_RT(liva_ui_create_slider, I32, RT_ARGS(I32, I32, I32, I32))
+// create_progressbar(i32 parent, i32 range) -> i32
+LIVA_RT(liva_ui_create_progressbar, I32, RT_ARGS(I32, I32))
+// set_text(i32 handle, ptr text) -> void
+LIVA_RT(liva_ui_set_text, VOID, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_set_tooltip, VOID, RT_ARGS(I32, PTR))
+// get_text(i32 handle) -> ptr
+LIVA_RT(liva_ui_get_text, PTR, RT_ARGS(I32))
+// set_value(i32 handle, i32 val) -> void
+LIVA_RT(liva_ui_set_value, VOID, RT_ARGS(I32, I32))
+// get_value(i32 handle) -> i32
+LIVA_RT(liva_ui_get_value, I32, RT_ARGS(I32))
+// set_enabled/visible(i32 handle, i32 flag) -> void
+LIVA_RT(liva_ui_set_enabled, VOID, RT_ARGS(I32, I32))
+LIVA_RT(liva_ui_set_visible, VOID, RT_ARGS(I32, I32))
+// set_size(i32 handle, i32 w, i32 h) -> void
+LIVA_RT(liva_ui_set_size, VOID, RT_ARGS(I32, I32, I32))
+// set_bounds(i32 handle, i32 x, i32 y, i32 w, i32 h) -> void
+LIVA_RT(liva_ui_set_bounds, VOID, RT_ARGS(I32, I32, I32, I32, I32))
+// set_font(i32 handle, i32 size, i32 bold) -> void
+LIVA_RT(liva_ui_set_font, VOID, RT_ARGS(I32, I32, I32))
+// set_bg_color / set_fg_color(i32 handle, i32 r, i32 g, i32 b) -> void
+LIVA_RT(liva_ui_set_bg_color, VOID, RT_ARGS(I32, I32, I32, I32))
+LIVA_RT(liva_ui_set_fg_color, VOID, RT_ARGS(I32, I32, I32, I32))
+// destroy_widget(i32 handle) -> void
+LIVA_RT(liva_ui_destroy_widget, VOID, RT_ARGS(I32))
+// Sizer creation: () -> i32
+LIVA_RT(liva_ui_create_vbox_sizer, I32, RT_ARGS())
+LIVA_RT(liva_ui_create_hbox_sizer, I32, RT_ARGS())
+// create_grid_sizer / create_flex_grid_sizer(rows, cols, hgap, vgap) -> i32
+LIVA_RT(liva_ui_create_grid_sizer, I32, RT_ARGS(I32, I32, I32, I32))
+LIVA_RT(liva_ui_create_flex_grid_sizer, I32, RT_ARGS(I32, I32, I32, I32))
+// sizer_add(i32 sizer, i32 widget, i32 proportion, i32 flags, i32 border) -> void
+LIVA_RT(liva_ui_sizer_add, VOID, RT_ARGS(I32, I32, I32, I32, I32))
+// set_sizer(i32 parent, i32 sizer) -> void
+LIVA_RT(liva_ui_set_sizer, VOID, RT_ARGS(I32, I32))
+// list_add_item(i32 handle, ptr item) -> void
+LIVA_RT(liva_ui_list_add_item, VOID, RT_ARGS(I32, PTR))
+// list_clear(i32 handle) -> void
+LIVA_RT(liva_ui_list_clear, VOID, RT_ARGS(I32))
+// list_get_selection(i32 handle) -> i32
+LIVA_RT(liva_ui_list_get_selection, I32, RT_ARGS(I32))
+// tab_add_page(i32 tab, i32 page, ptr title) -> void
+LIVA_RT(liva_ui_tab_add_page, VOID, RT_ARGS(I32, I32, PTR))
+// tab_get_selection(i32 handle) -> i32
+LIVA_RT(liva_ui_tab_get_selection, I32, RT_ARGS(I32))
+// message_box(ptr title, ptr message, i32 style) -> void
+LIVA_RT(liva_ui_message_box, VOID, RT_ARGS(PTR, PTR, I32))
+// file_dialog(i32 parent, ptr title, ptr wildcard, i32 style) -> ptr
+LIVA_RT(liva_ui_file_dialog, PTR, RT_ARGS(I32, PTR, PTR, I32))
+// color_dialog(i32 parent) -> i32
+LIVA_RT(liva_ui_color_dialog, I32, RT_ARGS(I32))
+// create_timer(i32 intervalMs, ptr func, ptr env) -> i32
+LIVA_RT(liva_ui_create_timer, I32, RT_ARGS(I32, PTR, PTR))
+// stop_timer(i32 handle) -> void
+LIVA_RT(liva_ui_stop_timer, VOID, RT_ARGS(I32))
+// get_clipboard_text() -> ptr
+LIVA_RT(liva_ui_get_clipboard_text, PTR, RT_ARGS())
+// set_clipboard_text(ptr) -> void
+LIVA_RT(liva_ui_set_clipboard_text, VOID, RT_ARGS(PTR))
+// canvas_refresh(i32 handle) -> void
+LIVA_RT(liva_ui_canvas_refresh, VOID, RT_ARGS(I32))
+// dc_clear(i32 dc, i32 r, i32 g, i32 b) -> void
+LIVA_RT(liva_ui_dc_clear, VOID, RT_ARGS(I32, I32, I32, I32))
+// dc_draw_rect(i32 dc, i32 x, i32 y, i32 w, i32 h, i32 r, i32 g, i32 b) -> void
+LIVA_RT(liva_ui_dc_draw_rect, VOID, RT_ARGS(I32, I32, I32, I32, I32, I32, I32, I32))
+// dc_draw_text(i32 dc, ptr text, i32 x, i32 y, i32 r, i32 g, i32 b) -> void
+LIVA_RT(liva_ui_dc_draw_text, VOID, RT_ARGS(I32, PTR, I32, I32, I32, I32, I32))
+// dc_draw_line(i32 dc, i32 x1, i32 y1, i32 x2, i32 y2, i32 r, i32 g, i32 b) -> void
+LIVA_RT(liva_ui_dc_draw_line, VOID, RT_ARGS(I32, I32, I32, I32, I32, I32, I32, I32))
+// dc_draw_circle(i32 dc, i32 cx, i32 cy, i32 radius, i32 r, i32 g, i32 b) -> void
+LIVA_RT(liva_ui_dc_draw_circle, VOID, RT_ARGS(I32, I32, I32, I32, I32, I32, I32))
+// ── Phase 3: new widgets ─────────────────────────────────────────
+// create_spin_ctrl(i32 parent, i32 min, i32 max, i32 val) -> i32
+LIVA_RT(liva_ui_create_spin_ctrl, I32, RT_ARGS(I32, I32, I32, I32))
+// create_date_picker(i32 parent) -> i32 ; date_get_value(i32) -> ptr
+LIVA_RT(liva_ui_create_date_picker, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_date_get_value, PTR, RT_ARGS(I32))
+// create_combo_box(i32, ptr) -> i32 ; combo_add_item(i32, ptr) -> void
+LIVA_RT(liva_ui_create_combo_box, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_combo_add_item, VOID, RT_ARGS(I32, PTR))
+// TreeView: create(i32)->i32, add_root(i32,ptr)->i32,
+//           add_node(i32,i32,ptr)->i32, get_selection(i32)->i32
+LIVA_RT(liva_ui_create_tree_view, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_tree_add_root, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_tree_add_node, I32, RT_ARGS(I32, I32, PTR))
+LIVA_RT(liva_ui_tree_get_selection, I32, RT_ARGS(I32))
+// DataGrid: create(i32,i32,i32)->i32, set_cell(i32,i32,i32,ptr)->void,
+//           get_cell(i32,i32,i32)->ptr, set_col_label(i32,i32,ptr)->void
+LIVA_RT(liva_ui_create_data_grid, I32, RT_ARGS(I32, I32, I32))
+LIVA_RT(liva_ui_grid_set_cell, VOID, RT_ARGS(I32, I32, I32, PTR))
+LIVA_RT(liva_ui_grid_get_cell, PTR, RT_ARGS(I32, I32, I32))
+LIVA_RT(liva_ui_grid_set_col_label, VOID, RT_ARGS(I32, I32, PTR))
+// Splitter: create(i32)->i32, split_v/h(i32,i32,i32)->void, set_sash(i32,i32)->void
+LIVA_RT(liva_ui_create_splitter, I32, RT_ARGS(I32))
+LIVA_RT(liva_ui_splitter_split_v, VOID, RT_ARGS(I32, I32, I32))
+LIVA_RT(liva_ui_splitter_split_h, VOID, RT_ARGS(I32, I32, I32))
+LIVA_RT(liva_ui_splitter_set_sash, VOID, RT_ARGS(I32, I32))
+// ── Phase 4: Align/Anchors layout ────────────────────────────────
+// set_align(i32 handle, i32 align) -> void
+LIVA_RT(liva_ui_set_align, VOID, RT_ARGS(I32, I32))
+// set_anchors(i32 handle, i32 l, i32 t, i32 r, i32 b) -> void
+LIVA_RT(liva_ui_set_anchors, VOID, RT_ARGS(I32, I32, I32, I32, I32))
+// ── Phase 5: data binding ────────────────────────────────────────
+LIVA_RT(liva_ui_model_create, I32, RT_ARGS())
+LIVA_RT(liva_ui_model_set_text, VOID, RT_ARGS(I32, PTR, PTR))
+LIVA_RT(liva_ui_model_get_text, PTR, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_model_bind_text, VOID, RT_ARGS(I32, PTR, I32))
+LIVA_RT(liva_ui_model_set_int, VOID, RT_ARGS(I32, PTR, I32))
+LIVA_RT(liva_ui_model_get_int, I32, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_model_bind_int, VOID, RT_ARGS(I32, PTR, I32))
+// ── Phase 6: collection binding ──────────────────────────────────
+LIVA_RT(liva_ui_model_bind_list, VOID, RT_ARGS(I32, PTR, I32))
+LIVA_RT(liva_ui_model_list_add, VOID, RT_ARGS(I32, PTR, PTR))
+LIVA_RT(liva_ui_model_list_clear, VOID, RT_ARGS(I32, PTR))
+LIVA_RT(liva_ui_model_list_count, I32, RT_ARGS(I32, PTR))
+// ── Phase 6.1: list readback ─────────────────────────────────────
+LIVA_RT(liva_ui_model_list_get, PTR, RT_ARGS(I32, PTR, I32))
+// Coroutine + async runtime
