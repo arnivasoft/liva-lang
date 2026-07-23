@@ -23,9 +23,14 @@ Rapor → `.superpowers/sdd/task-0-report.md`, her iddia file:line:
 - [ ] (d) `a ?? b ?? c` parse assoc'u ve mevcut codegen davranışı (derle-çalıştır probe).
 - [ ] (e) Korpus: tests/examples/stdlib'de `??` kullanan yerler — fallback'e düşen şekil var mı (davranışı fix'le DEĞİŞECEK kullanım).
 
-## Task 1: Genel lowering (TDD)
+## Task 1: Genel lowering (TDD) — Task 0 bulgularıyla genişletilmiş kapsam
 
-**Files:** `src/IR/IRGenExpr.cpp` (+`include/liva/IR/IRGen.h` helper bildirimi), testler.
+**Files:** `src/IR/IRGenExpr.cpp` (+`include/liva/IR/IRGen.h` helper bildirimi), `src/Parser/ParseExpr.cpp` (`??` sağ-assoc), `src/Sema/TypeChecker.cpp` (NilCoalesce sonuç tipi cloneTypeRepr), testler.
+
+**Task 0 kapsam ekleri (onaylı sapma — controller):**
+1. `??` SAĞ-assoc yapılır (`ParseExpr.cpp:378` — Swift uyumlu; sol-assoc zincirde `(a??b)` T üretip `T ?? c`'yi anlamsız kılıyor; sağ-assoc `a ?? (b ?? c)` ile her aşamanın LHS'i Optional kalır ve bugünkü PHI-mismatch zinciri doğal çözülür). Yapısal tespit ölçütü: `optionalTypes_` map değerlerine pointer-identity ters arama (isim/şekil sezgisi YASAK — kullanıcı struct'ıyla çakışır).
+2. Sema `NilCoalesce` sonuç tipi `makePrimitiveType` yerine `cloneTypeRepr` (TypeChecker.cpp:2127-2132; visitGroupExpr'ın :2602-2613'teki aynı-sınıf düzeltmesi şablon) — named/karmaşık RHS tiplerinde slicing'i önler.
+3. RHS'i Optional olan `lhs ?? rhs` (zincir dışında) bugün PHI-crash: v1 kuralı = RHS düz T olmalı; zincir sağ-assoc'la kapsanır. RHS Optional gelirse davranışı raporla (temiz Sema diagnostiği eklemek UCUZSA ekle ve raporla; değilse dokümante et).
 
 - [ ] TDD RED: RuntimeExec `NilCoalesceCallLHS` (`f() ?? d`: f değerli→f sonucu, f nil→d; RED'de yanlış), `NilCoalesceRHSLazy` (RHS'te println izi; dolu yolda iz YOK — RED'de mevcut fallback RHS'i hiç üretmediğinden dolu yol tesadüfen geçebilir, nil yolda yanlış döner; RED durumunu ölçüp raporla), `NilCoalesceChained` (`a ?? b ?? c` — Task 0 (d) bulgusuna göre), `NilCoalesceSubscriptLHS` (ifade edilebilirse; değilse raporla), regresyon: `NilCoalesceIdentifierRegression`, `NilCoalesceMemberChainRegression`.
 - [ ] `emitOptionalCoalesce(lhsVal, rhsExpr)` helper'ı (member-chain kodu verbatim); fallback → LHS değerlendir + yapısal Optional testi (Task 0 (b) ölçütü) → helper; Optional değilse mevcut davranış + yorum.
