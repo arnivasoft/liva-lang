@@ -763,6 +763,75 @@ TEST(RuntimeExecTest, MatchNestedNegativeDiscriminant) {
     EXPECT_EQ(r.stdout_output, "111\n222\n") << "stdout: " << r.stdout_output;
 }
 
+// Pattern Types (Faz B) Task 2: bool/string/float literal match arms.
+// Bool literal patterns reuse the existing tag/hasTag switch-case
+// machinery (bool subject -> i1 tagVal, a valid CreateSwitch condition);
+// this test exercises both the `true` and `false` arms so a
+// switch-case-constant width bug (i1 condition vs. a hardcoded i32 case
+// constant) would show up as a build/verify failure, not just wrong output.
+TEST(RuntimeExecTest, MatchBoolLiteralArms) {
+    auto r = compileAndRun(R"--(
+        func describe(b: bool) -> i32 {
+            let r = match b {
+                true => 111
+                false => 222
+            }
+            return r
+        }
+        func main() {
+            println(describe(true))
+            println(describe(false))
+        }
+    )--", "match_bool_literal_arms");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "111\n222\n") << "stdout: " << r.stdout_output;
+}
+
+// String literal match arms: a string subject's tagVal is an i8* pointer
+// (not an LLVM integer), so this always takes the if-else-chain path and
+// exercises the liva_str_equal-based pattern comparison plus wildcard
+// fallback for an unmatched value.
+TEST(RuntimeExecTest, MatchStringLiteralArms) {
+    auto r = compileAndRun(R"--(
+        func describe(method: string) -> i32 {
+            let r = match method {
+                "GET" => 111
+                "POST" => 222
+                _ => 333
+            }
+            return r
+        }
+        func main() {
+            println(describe("GET"))
+            println(describe("POST"))
+            println(describe("DELETE"))
+        }
+    )--", "match_string_literal_arms");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "111\n222\n333\n") << "stdout: " << r.stdout_output;
+}
+
+// Float literal match arms: a float subject's tagVal is a double (not an
+// LLVM integer either), exercising the fcmp-oeq-based pattern comparison
+// in the same if-else-chain path.
+TEST(RuntimeExecTest, MatchFloatLiteralArms) {
+    auto r = compileAndRun(R"--(
+        func describe(f: f64) -> i32 {
+            let r = match f {
+                3.14 => 111
+                _ => 222
+            }
+            return r
+        }
+        func main() {
+            println(describe(3.14))
+            println(describe(2.71))
+        }
+    )--", "match_float_literal_arms");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "111\n222\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

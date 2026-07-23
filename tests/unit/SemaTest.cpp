@@ -383,6 +383,39 @@ TEST_F(SemaTest, MatchNonExhaustiveSingleCase) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_nonexhaustive_match));
 }
 
+// Pattern Types (Faz B) Task 2: literal-pattern-vs-subject-type mismatch.
+// An i32 subject matched against a string-literal arm is a clear,
+// conservatively-detectable mismatch (subject type is concretely known —
+// not inferred/unresolved) that TypeChecker should flag rather than
+// silently accepting a pattern that can never match.
+TEST_F(SemaTest, MatchStringPatternOnIntSubject) {
+    auto result = check(R"(
+        func main() {
+            let x: i32 = 5
+            match x {
+                "x" => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
+TEST_F(SemaTest, MatchBoolPatternOnBoolSubjectOk) {
+    auto result = check(R"(
+        func main() {
+            let b: bool = true
+            match b {
+                true => println(1)
+                false => println(0)
+            }
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

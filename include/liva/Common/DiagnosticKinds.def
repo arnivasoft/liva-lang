@@ -77,6 +77,11 @@ DIAG(err_tuple_arity_mismatch,      error,   "tuple destructuring arity mismatch
 DIAG(err_tuple_index_out_of_range,  error,   "tuple index %0 is out of range for tuple with %1 elements")
 DIAG(err_missing_associated_type,   error,   "implementation of '%0' is missing associated type '%1' required by '%2'")
 
+// === Pattern Types (Faz B) ===
+DIAG(err_pattern_type_mismatch,      error,   "pattern type does not match subject type: expected '%0', found '%1'")
+DIAG(err_pattern_literal_subpattern_unsupported, error,
+     "literal pattern '%0' is not supported as a nested sub-pattern here")
+
 // === Sema - Operator Overloading ===
 DIAG(err_binary_op_on_struct, error, "binary operator '%0' cannot be applied to type '%1'; implement protocol '%2'")
 

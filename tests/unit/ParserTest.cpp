@@ -1,6 +1,7 @@
 #include "liva/AST/ASTPrinter.h"
 #include "liva/AST/Decl.h"
 #include "liva/AST/Expr.h"
+#include "liva/AST/Pattern.h"
 #include "liva/AST/Stmt.h"
 #include "liva/Common/Diagnostics.h"
 #include "liva/Common/SourceLocation.h"
@@ -1294,6 +1295,111 @@ TEST_F(ParserTest, NestedPatternMatch) {
     ASSERT_NE(matchExpr->getArms()[0].patternNode, nullptr);
     EXPECT_NE(matchExpr->getArms()[0].patternNode->toString().find("Inner.Val"),
               std::string::npos);
+}
+
+// === Pattern Types (Faz B) Task 2: Bool/String/Float literal patterns ===
+
+TEST_F(ParserTest, BoolLiteralPatternAST) {
+    auto result = parse(R"--(
+        func main() {
+            let b = true
+            match b {
+                true => println(1)
+                false => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *trueArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(trueArm, nullptr);
+    ASSERT_EQ(trueArm->getKind(), Pattern::Kind::BoolLiteral);
+    EXPECT_TRUE(static_cast<const BoolLiteralPattern *>(trueArm)->getValue());
+    EXPECT_EQ(trueArm->toString(), "true");
+    EXPECT_EQ(trueArm->getSpelling(), "true");
+
+    auto *falseArm = matchExpr->getArms()[1].patternNode.get();
+    ASSERT_NE(falseArm, nullptr);
+    ASSERT_EQ(falseArm->getKind(), Pattern::Kind::BoolLiteral);
+    EXPECT_FALSE(static_cast<const BoolLiteralPattern *>(falseArm)->getValue());
+    EXPECT_EQ(falseArm->toString(), "false");
+}
+
+TEST_F(ParserTest, StringLiteralPatternAST) {
+    auto result = parse(R"--(
+        func main() {
+            let m = "GET"
+            match m {
+                "GET" => println(1)
+                "POST" => println(2)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 3);
+
+    auto *getArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(getArm, nullptr);
+    ASSERT_EQ(getArm->getKind(), Pattern::Kind::StringLiteral);
+    auto *getLit = static_cast<const StringLiteralPattern *>(getArm);
+    EXPECT_EQ(getLit->getValue(), "GET");            // unescaped
+    EXPECT_EQ(getLit->getSourceText(), "\"GET\"");    // raw incl. quotes
+    EXPECT_EQ(getArm->toString(), "\"GET\"");
+    EXPECT_EQ(getArm->getSpelling(), "\"GET\"");
+
+    auto *postArm = matchExpr->getArms()[1].patternNode.get();
+    ASSERT_NE(postArm, nullptr);
+    ASSERT_EQ(postArm->getKind(), Pattern::Kind::StringLiteral);
+    EXPECT_EQ(static_cast<const StringLiteralPattern *>(postArm)->getValue(), "POST");
+}
+
+TEST_F(ParserTest, FloatLiteralPatternAST) {
+    auto result = parse(R"--(
+        func main() {
+            let f = 3.14
+            match f {
+                3.14 => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    ASSERT_FALSE(result.hasErrors);
+    auto *fn = dynamic_cast<FuncDecl *>(result.tu->getDeclarations()[0].get());
+    ASSERT_NE(fn, nullptr);
+    auto &stmts = fn->getBody()->getStatements();
+    ASSERT_GE(stmts.size(), 2);
+    auto *exprStmt = dynamic_cast<ExprStmt *>(stmts[1].get());
+    ASSERT_NE(exprStmt, nullptr);
+    auto *matchExpr = dynamic_cast<MatchExpr *>(exprStmt->getExpr());
+    ASSERT_NE(matchExpr, nullptr);
+    ASSERT_EQ(matchExpr->getArms().size(), 2);
+
+    auto *piArm = matchExpr->getArms()[0].patternNode.get();
+    ASSERT_NE(piArm, nullptr);
+    ASSERT_EQ(piArm->getKind(), Pattern::Kind::FloatLiteral);
+    auto *piLit = static_cast<const FloatLiteralPattern *>(piArm);
+    EXPECT_DOUBLE_EQ(piLit->getValue(), 3.14);
+    EXPECT_EQ(piLit->getText(), "3.14");
+    EXPECT_EQ(piArm->toString(), "3.14");
+    EXPECT_EQ(piArm->getSpelling(), "3.14");
 }
 
 // === Doc Comment Tests ===

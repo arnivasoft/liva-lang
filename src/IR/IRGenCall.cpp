@@ -1457,9 +1457,6 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         armInfos.push_back({armBB, std::move(pat)});
     }
 
-    // Create default block
-    llvm::BasicBlock *defaultBB = (defaultIdx >= 0) ? armInfos[defaultIdx].bb : mergeBB;
-
     // Count non-default, non-wildcard cases. Uses hasTag (not `tag >= 0` —
     // see PatternInfo::hasTag) so a negative int-literal arm (e.g. `-1 =>`)
     // is correctly counted as a real switch case instead of being mistaken
@@ -1477,12 +1474,51 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     // all arms are guarded bindings (no concrete switch cases)
     bool useIfElseChain = !tagVal->getType()->isIntegerTy() || numCases == 0;
 
+    // Create default block. When there's no wildcard arm AND we're in switch
+    // mode, a dedicated `unreachable` block is used instead of routing
+    // straight into mergeBB (Pattern Types Faz B, Task 2 fix): a bool
+    // subject's `true`/`false` arms are a common no-wildcard-needed case
+    // (both i1 values are listed as switch cases, so LLVM's default edge is
+    // provably dead code), but mergeBB's PHI node only gets an incoming
+    // value per *arm* body (via armResults below) — an extra live
+    // predecessor edge straight from the switch itself, with no
+    // corresponding PHI value, makes the IR invalid ("PHINode should have
+    // one entry for each predecessor") the instant the match is used as an
+    // expression. The if-else-chain path is untouched (still mergeBB): a
+    // guard-only chain's final fallthrough can be genuinely reachable at
+    // runtime (all guards false), unlike a fully-cased switch's default.
+    llvm::BasicBlock *unreachableDefaultBB = nullptr;
+    llvm::BasicBlock *defaultBB;
+    if (defaultIdx >= 0) {
+        defaultBB = armInfos[defaultIdx].bb;
+    } else if (!useIfElseChain) {
+        defaultBB = llvm::BasicBlock::Create(*context_, "match.default.unreachable", func);
+        unreachableDefaultBB = defaultBB;
+    } else {
+        defaultBB = mergeBB;
+    }
+
     if (!useIfElseChain) {
         auto *switchInst = builder_->CreateSwitch(tagVal, defaultBB, numCases);
+        // Case constant width must match tagVal's integer type — usually
+        // i32 (enum tag / int-literal subject), but a bool subject's tagVal
+        // is i1 (Pattern Types Faz B, Task 2: BoolLiteralPattern reuses this
+        // switch path via tag/hasTag). A hardcoded getInt32() here would
+        // build an i32 case constant against an i1 switch condition, which
+        // LLVM rejects.
+        auto *tagIntTy = llvm::cast<llvm::IntegerType>(tagVal->getType());
         for (auto &info : armInfos) {
             if (!info.pat.isWildcard && info.pat.hasTag) {
-                switchInst->addCase(builder_->getInt32(info.pat.tag), info.bb);
+                auto *caseVal = llvm::ConstantInt::get(
+                    tagIntTy, static_cast<uint64_t>(info.pat.tag), /*isSigned=*/true);
+                switchInst->addCase(caseVal, info.bb);
             }
+        }
+        if (unreachableDefaultBB) {
+            auto *savedIP = builder_->GetInsertBlock();
+            builder_->SetInsertPoint(unreachableDefaultBB);
+            builder_->CreateUnreachable();
+            builder_->SetInsertPoint(savedIP);
         }
     } else {
         // If-else chain: check guards in order, fall through to next arm
@@ -1544,9 +1580,35 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             }
         }
 
-        // Guard clause: if guard is false, jump to next arm or default
-        if (arm.guard) {
-            auto *guardVal = visit(arm.guard.get());
+        // Pattern-level comparison for string/float literal patterns
+        // (Pattern Types Faz B, Task 2): these always take the if-else-chain
+        // path (their subject's LLVM type is never an integer eligible for
+        // CreateSwitch — a pointer for string, a float/double for float), so
+        // unlike the switch path, nothing has verified the pattern actually
+        // matches yet. Bool literal patterns don't need this: they reuse
+        // the tag/hasTag switch-case machinery above instead.
+        llvm::Value *patternCond = nullptr;
+        if (useIfElseChain) {
+            if (info.pat.isFloatLiteral) {
+                auto *litVal = llvm::ConstantFP::get(tagVal->getType(), info.pat.floatValue);
+                patternCond = builder_->CreateFCmpOEQ(tagVal, litVal, "pat.feq");
+            } else if (info.pat.isStringLiteral) {
+                auto *litStr = builder_->CreateGlobalString(info.pat.stringValue, "pat.str");
+                auto *equalFn = getOrPanic("liva_str_equal");
+                auto *rawResult = builder_->CreateCall(equalFn, {tagVal, litStr}, "pat.streq.raw");
+                patternCond = builder_->CreateICmpNE(rawResult, builder_->getInt32(0), "pat.streq");
+            }
+        }
+
+        // Guard clause, ANDed with any pattern-level comparison above: if
+        // the combined condition is false, jump to next arm or default.
+        llvm::Value *guardVal = arm.guard ? visit(arm.guard.get()) : nullptr;
+        llvm::Value *branchCond = patternCond;
+        if (guardVal) {
+            branchCond = branchCond ? builder_->CreateAnd(branchCond, guardVal, "pat.guard.and")
+                                     : guardVal;
+        }
+        if (branchCond) {
             auto *bodyBB = llvm::BasicBlock::Create(*context_,
                 "match.arm." + std::to_string(i) + ".body", func);
             // Determine fallthrough: next arm's BB, or defaultBB
@@ -1554,7 +1616,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
             if (useIfElseChain && i + 1 < armInfos.size()) {
                 nextBB = armInfos[i + 1].bb;
             }
-            builder_->CreateCondBr(guardVal, bodyBB, nextBB);
+            builder_->CreateCondBr(branchCond, bodyBB, nextBB);
             builder_->SetInsertPoint(bodyBB);
         }
 
@@ -1637,6 +1699,19 @@ void IRGen::resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs
             info.bindings.push_back(sub->getSpelling());
             info.nestedPatterns.push_back(IRGen::PatternInfo{});
             break;
+
+        case Pattern::Kind::BoolLiteral:
+        case Pattern::Kind::StringLiteral:
+        case Pattern::Kind::FloatLiteral:
+            // Pattern Types Faz B, Task 2 subpattern decision: TypeChecker's
+            // declarePatternSubBinding rejects these as Case(...) sub-slots
+            // before IRGen ever runs (err_pattern_literal_subpattern_
+            // unsupported) — this branch only keeps the switch exhaustive
+            // for `-Wswitch`; it is never reached by a successfully
+            // type-checked program.
+            info.bindings.push_back("");
+            info.nestedPatterns.push_back(IRGen::PatternInfo{});
+            break;
         }
     }
 }
@@ -1656,6 +1731,32 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
         auto *lit = static_cast<const IntLiteralPattern *>(pattern);
         info.tag = static_cast<int>(lit->getValue());
         info.hasTag = true; // real value, including negatives (e.g. -1)
+        return info;
+    }
+
+    case Pattern::Kind::BoolLiteral: {
+        // Reuses the tag/hasTag switch-case machinery: a bool subject's
+        // tagVal is i1, which CreateSwitch accepts directly (see the
+        // ConstantInt::get(tagVal->getType(), ...) fix in visitMatchExpr —
+        // needed so the case constant's bit-width matches an i1 subject
+        // instead of the enum/int path's hardcoded i32).
+        auto *lit = static_cast<const BoolLiteralPattern *>(pattern);
+        info.tag = lit->getValue() ? 1 : 0;
+        info.hasTag = true;
+        return info;
+    }
+
+    case Pattern::Kind::FloatLiteral: {
+        auto *lit = static_cast<const FloatLiteralPattern *>(pattern);
+        info.isFloatLiteral = true;
+        info.floatValue = lit->getValue();
+        return info;
+    }
+
+    case Pattern::Kind::StringLiteral: {
+        auto *lit = static_cast<const StringLiteralPattern *>(pattern);
+        info.isStringLiteral = true;
+        info.stringValue = lit->getValue(); // unescaped
         return info;
     }
 

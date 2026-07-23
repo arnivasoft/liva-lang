@@ -488,6 +488,18 @@ private:
         bool hasTag = false;
         bool isWildcard = false;
         std::vector<PatternInfo> nestedPatterns; // one per binding slot
+
+        // Pattern Types Faz B, Task 2: bool literal patterns reuse tag/
+        // hasTag above (bool subject -> i1 tagVal, eligible for
+        // CreateSwitch, exactly like an enum-case/int-literal tag).
+        // string/float literal patterns can't: their subject is never an
+        // LLVM integer, so visitMatchExpr's if-else-chain path emits a
+        // dedicated comparison (fcmp oeq / liva_str_equal) from these
+        // fields instead of a switch case.
+        bool isFloatLiteral = false;
+        double floatValue = 0.0;
+        bool isStringLiteral = false;
+        std::string stringValue; // unescaped
     };
 
     /// Resolve a Pattern AST node (Pattern AST — Faz B) into a flat

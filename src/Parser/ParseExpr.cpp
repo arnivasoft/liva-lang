@@ -32,6 +32,32 @@ std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
         return std::make_unique<WildcardPattern>(rangeFrom(startLoc));
     }
 
+    // Bool literal: `true` / `false` (Pattern Types Faz B, Task 2).
+    if (check(TokenKind::bool_literal)) {
+        bool value = (current_.getText() == "true");
+        advance();
+        return std::make_unique<BoolLiteralPattern>(value, rangeFrom(startLoc));
+    }
+
+    // String literal: `"GET"` (Pattern Types Faz B, Task 2). sourceText
+    // keeps the raw spelling (incl. quotes) for toString()/getSpelling();
+    // value is the unescaped content used for runtime comparison.
+    if (check(TokenKind::string_literal)) {
+        std::string sourceText = std::string(current_.getText());
+        std::string value = current_.getStringValue();
+        advance();
+        return std::make_unique<StringLiteralPattern>(std::move(value), std::move(sourceText),
+                                                        rangeFrom(startLoc));
+    }
+
+    // Float literal: `3.14` (Pattern Types Faz B, Task 2).
+    if (check(TokenKind::float_literal)) {
+        std::string text = std::string(current_.getText());
+        double value = current_.getFloatValue();
+        advance();
+        return std::make_unique<FloatLiteralPattern>(value, std::move(text), rangeFrom(startLoc));
+    }
+
     // Negative integer literal: `-` immediately followed by an int literal.
     if (check(TokenKind::minus)) {
         advance();

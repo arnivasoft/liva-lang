@@ -15,7 +15,11 @@ namespace liva {
 /// single token pass during the transitional period.
 class Pattern {
 public:
-    enum class Kind { Wildcard, Identifier, EnumCase, IntLiteral };
+    enum class Kind {
+        Wildcard, Identifier, EnumCase, IntLiteral,
+        // Pattern Types Faz B, Task 2:
+        BoolLiteral, StringLiteral, FloatLiteral
+    };
 
     explicit Pattern(Kind k, SourceRange r) : kind_(k), range_(r) {}
     virtual ~Pattern() = default;
@@ -109,6 +113,57 @@ public:
 
 private:
     int64_t value_;
+    std::string text_;
+};
+
+/// `true` / `false`.
+class BoolLiteralPattern : public Pattern {
+public:
+    BoolLiteralPattern(bool value, SourceRange r)
+        : Pattern(Kind::BoolLiteral, r), value_(value) {}
+
+    bool getValue() const { return value_; }
+
+    static bool classof(const Pattern *p) { return p->getKind() == Kind::BoolLiteral; }
+
+private:
+    bool value_;
+};
+
+/// `"GET"`, etc. `value_` is the unescaped string content — the value used
+/// for runtime comparison (liva_str_equal). `sourceText_` is the original
+/// raw source spelling INCLUDING the surrounding quotes (e.g. `"GET"`,
+/// quotes and all) — used for toString()/getSpelling() display purposes,
+/// mirroring IntLiteralPattern's getText() convention.
+class StringLiteralPattern : public Pattern {
+public:
+    StringLiteralPattern(std::string value, std::string sourceText, SourceRange r)
+        : Pattern(Kind::StringLiteral, r), value_(std::move(value)),
+          sourceText_(std::move(sourceText)) {}
+
+    const std::string &getValue() const { return value_; }          // unescaped
+    const std::string &getSourceText() const { return sourceText_; } // e.g. "\"GET\""
+
+    static bool classof(const Pattern *p) { return p->getKind() == Kind::StringLiteral; }
+
+private:
+    std::string value_;
+    std::string sourceText_;
+};
+
+/// `3.14`, etc.
+class FloatLiteralPattern : public Pattern {
+public:
+    FloatLiteralPattern(double value, std::string text, SourceRange r)
+        : Pattern(Kind::FloatLiteral, r), value_(value), text_(std::move(text)) {}
+
+    double getValue() const { return value_; }
+    const std::string &getText() const { return text_; } // original spelling (e.g. "3.14")
+
+    static bool classof(const Pattern *p) { return p->getKind() == Kind::FloatLiteral; }
+
+private:
+    double value_;
     std::string text_;
 };
 

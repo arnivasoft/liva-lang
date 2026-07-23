@@ -13,6 +13,17 @@ std::string Pattern::toString() const {
     case Kind::IntLiteral:
         return static_cast<const IntLiteralPattern *>(this)->getText();
 
+    case Kind::BoolLiteral:
+        return static_cast<const BoolLiteralPattern *>(this)->getValue() ? "true" : "false";
+
+    case Kind::StringLiteral:
+        // Raw source spelling INCLUDING quotes (e.g. `"GET"`), not the
+        // unescaped comparison value — see StringLiteralPattern's doc comment.
+        return static_cast<const StringLiteralPattern *>(this)->getSourceText();
+
+    case Kind::FloatLiteral:
+        return static_cast<const FloatLiteralPattern *>(this)->getText();
+
     case Kind::EnumCase: {
         const auto *ec = static_cast<const EnumCasePattern *>(this);
         std::string out;

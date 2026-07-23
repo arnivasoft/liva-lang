@@ -2765,6 +2765,12 @@ void TypeChecker::extractPatternBindings(const Pattern *pattern) {
         // nothing — matches the legacy no-parens branch's "_"/int-literal
         // exclusion.
         return;
+
+    case Pattern::Kind::BoolLiteral:
+    case Pattern::Kind::StringLiteral:
+    case Pattern::Kind::FloatLiteral:
+        // Same as IntLiteral: a top-level literal pattern binds nothing.
+        return;
     }
 }
 
@@ -2806,11 +2812,61 @@ void TypeChecker::declarePatternSubBinding(const Pattern *sub) {
         scopes_.declare(sym.name, sym);
         return;
     }
+
+    case Pattern::Kind::BoolLiteral:
+    case Pattern::Kind::StringLiteral:
+    case Pattern::Kind::FloatLiteral:
+        // Pattern Types Faz B, Task 2 subpattern decision: bool/string/float
+        // literal patterns are NOT supported as a nested Case(...) sub-slot
+        // (IRGen has no payload-slot-vs-literal comparison codegen). Rather
+        // than silently declaring a bogus binding named after the literal's
+        // spelling (what the Identifier/Wildcard/IntLiteral branch above
+        // would do if this fell through to it), diagnose cleanly. Top-level
+        // use (direct match subject) is fully supported — see
+        // resolveMatchPattern in IRGenCall.cpp.
+        diag_.report(sub->getRange().start, DiagID::err_pattern_literal_subpattern_unsupported,
+                     sub->getSpelling());
+        return;
     }
 }
 
 void TypeChecker::visitMatchExpr(MatchExpr *node) {
     visit(const_cast<Expr *>(node->getSubject()));
+
+    // Pattern Types Faz B, Task 2: literal-pattern-vs-subject-type mismatch
+    // (err_pattern_type_mismatch). Conservative by construction: only fires
+    // when the subject's resolved type is one of the four scalar kinds a
+    // bool/string/float literal pattern could plausibly compare against
+    // (bool/int/float/string) — a Named/enum/generic/otherwise-unresolved
+    // subject is left alone entirely (avoids false positives, and leaves
+    // IntLiteral's existing enum-tag/int-subject dual role in
+    // resolveMatchPattern untouched). Only the three NEW literal pattern
+    // kinds participate; IntLiteral's existing semantics are intentionally
+    // not widened here — it already has a well-established dual role
+    // (plain-int subject match AND, historically, enum-tag-adjacent
+    // handling elsewhere) that this task doesn't revisit.
+    const TypeRepr *subjectType = node->getSubject()->getResolvedType();
+    bool subjectIsKnownScalar = subjectType &&
+        (subjectType->isBool() || subjectType->isInteger() || subjectType->isFloat() ||
+         subjectType->getKind() == TypeRepr::Kind::String);
+    if (subjectIsKnownScalar) {
+        for (auto &arm : node->getArms()) {
+            if (!arm.patternNode) continue;
+            auto pk = arm.patternNode->getKind();
+            bool isBoolPat = pk == Pattern::Kind::BoolLiteral;
+            bool isStringPat = pk == Pattern::Kind::StringLiteral;
+            bool isFloatPat = pk == Pattern::Kind::FloatLiteral;
+            if (!isBoolPat && !isStringPat && !isFloatPat) continue;
+
+            bool ok = (isBoolPat && subjectType->isBool()) ||
+                      (isStringPat && subjectType->getKind() == TypeRepr::Kind::String) ||
+                      (isFloatPat && subjectType->isFloat());
+            if (!ok) {
+                diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
+                             typeToString(subjectType), arm.patternNode->toString());
+            }
+        }
+    }
 
     // Determine if subject is an enum type by examining arm patterns
     const EnumDecl *subjectEnum = nullptr;
