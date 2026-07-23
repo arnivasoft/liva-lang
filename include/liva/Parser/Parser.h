@@ -88,10 +88,8 @@ private:
     bool match(TokenKind kind);
     Token expect(TokenKind kind);
 
-    /// Parse a single match-arm pattern (recursive descent) while ALSO
-    /// accumulating the legacy whitespace-free token concatenation into
-    /// `legacyOut`, in the exact order the old blind-consumption loop did.
-    /// Single token pass, dual output (Pattern AST + legacy string).
+    /// Parse a single match-arm pattern (recursive descent) into the
+    /// structural Pattern AST.
     /// `inParens`: true when parsing a subpattern inside `Case(...)` — the
     /// best-effort blind-consumption fallbacks then additionally stop at
     /// `)`/`,` (current paren depth) instead of only at an arm terminator,
