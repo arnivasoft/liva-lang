@@ -92,7 +92,11 @@ private:
     /// accumulating the legacy whitespace-free token concatenation into
     /// `legacyOut`, in the exact order the old blind-consumption loop did.
     /// Single token pass, dual output (Pattern AST + legacy string).
-    std::unique_ptr<Pattern> parsePattern(std::string &legacyOut);
+    /// `inParens`: true when parsing a subpattern inside `Case(...)` — the
+    /// best-effort blind-consumption fallbacks then additionally stop at
+    /// `)`/`,` (current paren depth) instead of only at an arm terminator,
+    /// so a malformed subpattern never swallows its enclosing parens/comma.
+    std::unique_ptr<Pattern> parsePattern(std::string &legacyOut, bool inParens = false);
 
     /// Advance tokens until a synchronization point (statement/declaration boundary)
     void synchronize();

@@ -15,8 +15,21 @@ namespace liva {
 // Single token pass, dual output: every token consumed here is ALSO
 // appended (verbatim, no separators) to `legacyOut`, in the exact order the
 // old blind-consumption loop in parseMatchExpr used to build `arm.pattern`.
-std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut) {
+std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut, bool inParens) {
     auto startLoc = current_.getLocation();
+
+    // Stop set for the best-effort blind-consumption fallbacks below: an arm
+    // terminator always stops; `)`/`,` at the current depth additionally
+    // stop when parsing a subpattern, so a malformed subpattern can never
+    // swallow its enclosing Case(...)'s closing paren or comma.
+    auto atFallbackStop = [this, inParens]() {
+        if (check(TokenKind::fat_arrow) || check(TokenKind::kw_where) ||
+            check(TokenKind::kw_if) || check(TokenKind::r_brace) || check(TokenKind::eof))
+            return true;
+        if (inParens && (check(TokenKind::r_paren) || check(TokenKind::comma)))
+            return true;
+        return false;
+    };
 
     // Wildcard: `_`
     if (check(TokenKind::underscore)) {
@@ -73,8 +86,21 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut) {
                 advance();
             } else {
                 // Grammar-violating: 'Ident.' not followed by an
-                // identifier. Not observed in the repo; best-effort.
-                caseName.clear();
+                // identifier (e.g. `Foo.123 =>`). Not observed in the repo
+                // (Task 0); best-effort: rather than returning early and
+                // leaving the remaining tokens unconsumed (which the
+                // toString()==legacyOut check can't detect, since both
+                // would just stop at "Name." in lockstep), continue blind
+                // consumption from here — INCLUDING the already-consumed
+                // "Name." prefix — until the fallback stop set, exactly
+                // like the old flat loop would have.
+                std::string full = name + ".";
+                while (!atFallbackStop()) {
+                    full += std::string(current_.getText());
+                    legacyOut += std::string(current_.getText());
+                    advance();
+                }
+                return std::make_unique<IdentifierPattern>(std::move(full), rangeFrom(startLoc));
             }
         }
 
@@ -84,7 +110,7 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut) {
             std::vector<std::unique_ptr<Pattern>> subs;
             if (!check(TokenKind::r_paren)) {
                 while (true) {
-                    subs.push_back(parsePattern(legacyOut));
+                    subs.push_back(parsePattern(legacyOut, /*inParens=*/true));
                     if (check(TokenKind::comma)) {
                         legacyOut += std::string(current_.getText());
                         advance();
@@ -117,10 +143,12 @@ std::unique_ptr<Pattern> Parser::parsePattern(std::string &legacyOut) {
 
     // Grammar-violating: none of the above (not observed in the repo per
     // Task 0). Best-effort: consume tokens exactly like the old blind loop
-    // and wrap them in an IdentifierPattern rather than erroring.
+    // and wrap them in an IdentifierPattern rather than erroring. Depth-aware
+    // via atFallbackStop(): if this triggers while parsing a Case(...)
+    // subpattern, it stops at `)`/`,` too, instead of swallowing the
+    // enclosing parens/comma.
     std::string fallback;
-    while (!check(TokenKind::fat_arrow) && !check(TokenKind::kw_where) &&
-           !check(TokenKind::kw_if) && !check(TokenKind::r_brace) && !check(TokenKind::eof)) {
+    while (!atFallbackStop()) {
         fallback += std::string(current_.getText());
         legacyOut += std::string(current_.getText());
         advance();
