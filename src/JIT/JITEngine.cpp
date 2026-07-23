@@ -48,13 +48,16 @@ static void registerRuntimeSymbols(llvm::orc::LLJIT &jit) {
     #undef RT_ARGS
 
     // The following 26 names were registered in the original hand-written
-    // REG block but are NOT declared via RuntimeFunctions.def (Task 0
-    // baseline diff): 4 coroutine/async symbols declared outside
-    // createRuntimeDecls (liva_coro_resume/liva_coro_destroy/
-    // liva_scheduler_run/liva_async_sleep) plus 22 apparently-dead
-    // registrations (no matching IRGen decl found). Kept verbatim for
-    // behavior preservation; their cleanup is a separately-reported
-    // follow-up, not part of this task.
+    // REG block but are NOT declared via RuntimeFunctions.def: 11 are LIVE
+    // symbols declared outside createRuntimeDecls in declareAsyncRuntimeFuncs
+    // (the 7 liva_task_* plus liva_coro_resume/liva_coro_destroy/
+    // liva_scheduler_run/liva_async_sleep — do NOT remove these), and 15 are
+    // apparently-dead registrations with no IRGen decl or call site anywhere
+    // in src/ (liva_alloc, liva_free, liva_alloc_zeroed, liva_string_free,
+    // liva_string_compare, liva_print_i32/i64/f64/bool/str, liva_println_str,
+    // liva_http_response_free/status/body, liva_args_free). Kept verbatim for
+    // behavior preservation; cleaning up the 15 dead ones is a separately-
+    // tracked follow-up.
     // tabloda yok — elle korunuyor (bkz. task raporu)
     REG(liva_alloc);
     REG(liva_free);

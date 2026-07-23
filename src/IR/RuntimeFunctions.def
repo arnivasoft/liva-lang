@@ -5,7 +5,9 @@
 // PARAMS: RT_ARGS(kod, ...) — parametresiz için RT_ARGS()
 // Tüketici, kullanmadığı makroları boş tanımlamak ZORUNDADIR.
 //
-// Type codes: RT_VOID RT_PTR RT_I8 RT_I32 RT_I64 RT_F64
+// Tip kodları (girdilerde bu YALIN yazımla kullanılır): VOID PTR I8 I32 I64 F64
+// (IRGen tarafında RtTypeCode enum'una — RT_VOID..RT_F64 — alias makrolarla köprülenir;
+//  girdilerde RT_ önekli yazım KULLANMAYIN.)
 //
 // printf declaration
 LIVA_RT_VA(printf, I32, RT_ARGS(PTR))
