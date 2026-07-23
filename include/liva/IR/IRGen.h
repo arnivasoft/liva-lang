@@ -483,8 +483,17 @@ private:
         std::vector<PatternInfo> nestedPatterns; // one per binding slot
     };
 
-    PatternInfo parseMatchPattern(const std::string &pattern,
-                                   const std::string &subjectEnumType);
+    /// Resolve a Pattern AST node (Pattern AST — Faz B) into a flat
+    /// PatternInfo (tag lookup, ordered bindings, nested tag-checks) for
+    /// switch/PHI codegen. Replaces the deleted string-reparsing
+    /// `parseMatchPattern`; same case-vs-binding/tag-lookup semantics.
+    PatternInfo resolveMatchPattern(const Pattern *pattern,
+                                     const std::string &subjectEnumType);
+
+    /// Resolve an EnumCasePattern's subpattern slots into index-aligned
+    /// `info.bindings` / `info.nestedPatterns`. Helper for resolveMatchPattern.
+    void resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs,
+                             PatternInfo &info);
 
     /// Emit nested pattern check: verify inner enum tag and extract bindings
     void emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nested,

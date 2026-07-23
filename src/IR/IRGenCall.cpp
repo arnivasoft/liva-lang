@@ -1451,7 +1451,7 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         auto &arm = node->getArms()[i];
         auto *armBB = llvm::BasicBlock::Create(*context_,
             "match.arm." + std::to_string(i), func);
-        auto pat = parseMatchPattern(arm.pattern, enumTypeName);
+        auto pat = resolveMatchPattern(arm.patternNode.get(), enumTypeName);
         if (pat.isWildcard)
             defaultIdx = static_cast<int>(i);
         armInfos.push_back({armBB, std::move(pat)});
@@ -1600,83 +1600,74 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
     return phi;
 }
 
-/// Split a string by top-level commas (respecting nested parentheses)
-static std::vector<std::string> splitTopLevelCommas(const std::string &s) {
-    std::vector<std::string> result;
-    int depth = 0;
-    size_t start = 0;
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '(') depth++;
-        else if (s[i] == ')') depth--;
-        else if (s[i] == ',' && depth == 0) {
-            result.push_back(s.substr(start, i - start));
-            start = i + 1;
+/// Resolve one EnumCasePattern's subpattern slots into `info.bindings` /
+/// `info.nestedPatterns` (index-aligned), mirroring the legacy string
+/// splitter's per-slot rule: a nested EnumCasePattern recurses (with an
+/// empty subjectEnumType, exactly like the old code's `parseMatchPattern(
+/// trimmed, "")`); anything else contributes a binding name — an
+/// IdentifierPattern's name, or "" for a WildcardPattern (ignored slot; the
+/// legacy string form had no such concept and would instead have bound a
+/// literal variable named "_", which is dead-in-practice, never referenced
+/// by guard/body — see task-2-report.md).
+void IRGen::resolvePatternSubs(const std::vector<std::unique_ptr<Pattern>> &subs,
+                                PatternInfo &info) {
+    for (auto &sub : subs) {
+        switch (sub->getKind()) {
+        case Pattern::Kind::EnumCase:
+            info.bindings.push_back(""); // placeholder — no slot-local name
+            info.nestedPatterns.push_back(resolveMatchPattern(sub.get(), ""));
+            break;
+        case Pattern::Kind::Identifier:
+            info.bindings.push_back(static_cast<const IdentifierPattern *>(sub.get())->getName());
+            info.nestedPatterns.push_back(IRGen::PatternInfo{}); // empty (tag=-1)
+            break;
+        case Pattern::Kind::Wildcard:
+            info.bindings.push_back(""); // ignored slot
+            info.nestedPatterns.push_back(IRGen::PatternInfo{});
+            break;
+        case Pattern::Kind::IntLiteral:
+            // Not observed anywhere in the repo as a subslot: fall back to
+            // its spelling as a (almost certainly unused) binding name,
+            // matching the old code's blind "whatever the slot text was"
+            // fallback.
+            info.bindings.push_back(sub->toString());
+            info.nestedPatterns.push_back(IRGen::PatternInfo{});
+            break;
         }
     }
-    if (start < s.size())
-        result.push_back(s.substr(start));
-    return result;
 }
 
-/// Trim whitespace from both ends
-static std::string trimStr(const std::string &s) {
-    size_t b = s.find_first_not_of(" \t");
-    if (b == std::string::npos) return "";
-    size_t e = s.find_last_not_of(" \t");
-    return s.substr(b, e - b + 1);
-}
-
-IRGen::PatternInfo IRGen::parseMatchPattern(const std::string &pattern,
-                                             const std::string &subjectEnumType) {
+IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
+                                               const std::string &subjectEnumType) {
     PatternInfo info;
+    if (!pattern)
+        return info;
 
-    // Wildcard
-    if (pattern == "_") {
+    switch (pattern->getKind()) {
+    case Pattern::Kind::Wildcard:
         info.isWildcard = true;
+        return info;
+
+    case Pattern::Kind::IntLiteral: {
+        auto *lit = static_cast<const IntLiteralPattern *>(pattern);
+        info.tag = static_cast<int>(lit->getValue());
         return info;
     }
 
-    // Check for "EnumName.CaseName" or "EnumName.CaseName(bindings)"
-    auto dotPos = pattern.find('.');
-    if (dotPos != std::string::npos) {
-        info.enumName = pattern.substr(0, dotPos);
-        auto rest = pattern.substr(dotPos + 1);
+    case Pattern::Kind::EnumCase: {
+        auto *ec = static_cast<const EnumCasePattern *>(pattern);
+        // Bare `Case(subs)` (no enum prefix): the legacy string parser mis-
+        // handled this form (it never appears in the repo) by treating the
+        // whole "Case(subs)" text as one broken binding name. Sane
+        // deviation (per task brief): resolve it the same way as a bare
+        // Case with an enum prefix, using the subject's own enum type —
+        // i.e. identical to the `Enum.Case(subs)` path below.
+        info.enumName = ec->getEnumName().empty() ? subjectEnumType : ec->getEnumName();
+        info.caseName = ec->getCaseName();
 
-        // Check for parenthesized bindings: CaseName(r) or CaseName(w, h)
-        auto parenPos = rest.find('(');
-        if (parenPos != std::string::npos) {
-            info.caseName = rest.substr(0, parenPos);
-            // Find matching closing paren (depth-aware for nested patterns)
-            int depth = 0;
-            size_t closePos = std::string::npos;
-            for (size_t ci = parenPos; ci < rest.size(); ++ci) {
-                if (rest[ci] == '(') depth++;
-                else if (rest[ci] == ')') {
-                    depth--;
-                    if (depth == 0) { closePos = ci; break; }
-                }
-            }
-            if (closePos != std::string::npos) {
-                auto innerStr = rest.substr(parenPos + 1, closePos - parenPos - 1);
-                // Split by top-level commas (respecting nested parens)
-                auto slots = splitTopLevelCommas(innerStr);
-                for (auto &slot : slots) {
-                    auto trimmed = trimStr(slot);
-                    if (trimmed.find('.') != std::string::npos) {
-                        // Nested enum pattern — recurse
-                        info.bindings.push_back(""); // placeholder
-                        info.nestedPatterns.push_back(parseMatchPattern(trimmed, ""));
-                    } else {
-                        info.bindings.push_back(trimmed);
-                        info.nestedPatterns.push_back(PatternInfo{}); // empty (tag=-1)
-                    }
-                }
-            }
-        } else {
-            info.caseName = rest;
-        }
+        if (ec->hasParens())
+            resolvePatternSubs(ec->getSubpatterns(), info);
 
-        // Look up tag
         auto ecIt = enumCases_.find(info.enumName);
         if (ecIt != enumCases_.end()) {
             auto cIt = ecIt->second.find(info.caseName);
@@ -1686,31 +1677,29 @@ IRGen::PatternInfo IRGen::parseMatchPattern(const std::string &pattern,
         return info;
     }
 
-    // Try integer literal
-    char *end = nullptr;
-    long val = std::strtol(pattern.c_str(), &end, 10);
-    if (end != pattern.c_str() && *end == '\0') {
-        info.tag = static_cast<int>(val);
-        return info;
-    }
+    case Pattern::Kind::Identifier: {
+        auto *idp = static_cast<const IdentifierPattern *>(pattern);
+        const std::string &name = idp->getName();
 
-    // Try bare case name using subject's enum type
-    if (!subjectEnumType.empty()) {
-        auto ecIt = enumCases_.find(subjectEnumType);
-        if (ecIt != enumCases_.end()) {
-            auto cIt = ecIt->second.find(pattern);
-            if (cIt != ecIt->second.end()) {
-                info.enumName = subjectEnumType;
-                info.caseName = pattern;
-                info.tag = cIt->second;
-                return info;
+        // Bare-case-vs-binding resolution: matches a case of the subject's
+        // known enum type -> bare case pattern; otherwise a plain binding
+        // that binds the whole subject value (always matches).
+        if (!subjectEnumType.empty()) {
+            auto ecIt = enumCases_.find(subjectEnumType);
+            if (ecIt != enumCases_.end()) {
+                auto cIt = ecIt->second.find(name);
+                if (cIt != ecIt->second.end()) {
+                    info.enumName = subjectEnumType;
+                    info.caseName = name;
+                    info.tag = cIt->second;
+                    return info;
+                }
             }
         }
-    }
 
-    // Simple identifier — treat as variable binding (e.g., "s" in "s if s >= 90.0")
-    if (info.tag < 0 && !info.isWildcard && info.bindings.empty() && !pattern.empty()) {
-        info.bindings.push_back(pattern);
+        info.bindings.push_back(name);
+        return info;
+    }
     }
 
     return info;
