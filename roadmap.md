@@ -120,7 +120,7 @@ Geniş widget seti mevcut (23+ widget, menü/toolbar, data binding Faz 6.x). Eks
 
 | # | İş | Tür | Etki |
 |---|-----|------|------|
-| 1 | `visitCallExpr`'ı parçala — **IRGenCall tamamlandı (2026-07)**, TypeChecker bekliyor | Refactor | Tüm gelecek işlerin hızını artırır |
+| 1 | `visitCallExpr`'ı parçala — **IRGenCall + TypeChecker tamamlandı (2026-07)** | Refactor | Tüm gelecek işlerin hızını artırır |
 | 2 | Runtime ABI'yi tek `.def` tablosuna indir | Refactor | 3 yönlü senkron hatası sınıfını yok eder |
 | 3 | Yapısal Pattern AST + eksik pattern türleri | Dil | En büyük dil sağlamlığı açığı |
 | 4 | Atama/if-let move takibi → double-drop ve Drop/Optional düzeltmesi | Bug/Dil | Bilinen 3 memory hatasını kökten çözer |
