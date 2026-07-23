@@ -2,8 +2,6 @@
 
 #ifdef LIVA_HAS_LLVM
 
-#include <llvm/IR/Intrinsics.h>
-
 namespace liva {
 
 std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
@@ -2002,7 +2000,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
         }
 
         return nullptr;
-    return std::nullopt;   // orijinal fall-through
+    return std::nullopt;   // unreachable (body always returns); kept as the helper-contract terminator
 }
 
 } // namespace liva

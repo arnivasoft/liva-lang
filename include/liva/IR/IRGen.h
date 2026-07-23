@@ -124,6 +124,10 @@ public:
                                                     const std::string &funcName);
     std::optional<llvm::Value *> tryEmitUIBuiltin(CallExpr *node,
                                                     const std::string &funcName);
+    // Ensure an integer-typed value is i64 (sign-extend from smaller widths).
+    // Liva integer literals default to i32, but most stdlib runtime functions
+    // expect i64. Shared by the Concurrency and Data helpers.
+    llvm::Value *toI64(llvm::Value *v);
 
     llvm::Value *visitAssignExpr(AssignExpr *node);
     llvm::Value *visitGroupExpr(GroupExpr *node);

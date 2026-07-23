@@ -2,8 +2,6 @@
 
 #ifdef LIVA_HAS_LLVM
 
-#include <llvm/IR/Intrinsics.h>
-
 namespace liva {
 
 std::optional<llvm::Value *>

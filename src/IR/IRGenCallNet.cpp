@@ -2,8 +2,6 @@
 
 #ifdef LIVA_HAS_LLVM
 
-#include <llvm/IR/Intrinsics.h>
-
 namespace liva {
 
 std::optional<llvm::Value *>
@@ -638,6 +636,26 @@ IRGen::tryEmitNetBuiltin(CallExpr *node, const std::string &funcName) {
         auto *fn = getOrPanic("liva_sqlite_finalize");
         builder_->CreateCall(fn, {stmtArg});
         return nullptr;
+    }
+
+    // === Url component accessors ===
+    if ((funcName == "urlScheme" || funcName == "urlHost" || funcName == "urlPath" ||
+         funcName == "urlQuery" || funcName == "urlFragment") && !node->getArgs().empty()) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        if (!urlArg) return nullptr;
+        const char *sym = funcName == "urlScheme" ? "liva_url_scheme"
+                        : funcName == "urlHost" ? "liva_url_host"
+                        : funcName == "urlPath" ? "liva_url_path"
+                        : funcName == "urlQuery" ? "liva_url_query"
+                                                 : "liva_url_fragment";
+        auto *r = builder_->CreateCall(getOrPanic(sym), {urlArg}, "url.part");
+        trackStringTemp(r);
+        return r;
+    }
+    if (funcName == "urlPort" && !node->getArgs().empty()) {
+        auto *urlArg = visit(node->getArgs()[0].get());
+        if (!urlArg) return nullptr;
+        return builder_->CreateCall(getOrPanic("liva_url_port"), {urlArg}, "url.port");
     }
 
     return std::nullopt;

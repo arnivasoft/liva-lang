@@ -2,23 +2,19 @@
 
 #ifdef LIVA_HAS_LLVM
 
-#include <llvm/IR/Intrinsics.h>
-
 namespace liva {
+
+llvm::Value *IRGen::toI64(llvm::Value *v) {
+    if (!v) return v;
+    auto *t = v->getType();
+    if (t->isIntegerTy() && !t->isIntegerTy(64))
+        return builder_->CreateSExt(v, builder_->getInt64Ty(), "i64.coerce");
+    return v;
+}
 
 std::optional<llvm::Value *>
 IRGen::tryEmitConcurrencyBuiltin(CallExpr *node, const std::string &funcName) {
     // === Stdlib: Synchronization ===
-
-    // Helper: ensure an integer-typed value is i64 (sign-extend from smaller widths).
-    // Liva integer literals default to i32, but most stdlib runtime functions expect i64.
-    auto toI64 = [&](llvm::Value *v) -> llvm::Value * {
-        if (!v) return v;
-        auto *t = v->getType();
-        if (t->isIntegerTy() && !t->isIntegerTy(64))
-            return builder_->CreateSExt(v, builder_->getInt64Ty(), "i64.coerce");
-        return v;
-    };
 
     // mutexCreate() -> i64
     if (funcName == "mutexCreate" && node->getArgs().empty()) {
@@ -260,6 +256,44 @@ IRGen::tryEmitConcurrencyBuiltin(CallExpr *node, const std::string &funcName) {
         auto *fn = getOrPanic("liva_channel_try_send");
         auto *result = builder_->CreateCall(fn, {toI64(handleArg), toI64(valArg)}, "ch.try_send");
         return builder_->CreateTrunc(result, builder_->getInt1Ty(), "ch.try_send.bool");
+    }
+
+    // channelTryReceive(handle) -> i64? (Optional<i64>)
+    if (funcName == "channelTryReceive" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_try_receive");
+        auto *curFunc = builder_->GetInsertBlock()->getParent();
+        auto *okAlloca = createEntryBlockAlloca(curFunc, "ch.tryrecv.ok", builder_->getInt8Ty());
+        builder_->CreateStore(builder_->getInt8(0), okAlloca);
+        auto *result = builder_->CreateCall(fn, {handleArg, okAlloca}, "ch.tryrecv.val");
+        auto *okVal = builder_->CreateLoad(builder_->getInt8Ty(), okAlloca, "ch.tryrecv.ok.val");
+        auto *hasVal = builder_->CreateICmpNE(okVal, builder_->getInt8(0), "ch.tryrecv.hasval");
+        // Wrap in Optional<i64> {i1, i64}
+        auto *optTy = getOptionalType(builder_->getInt64Ty());
+        auto *optAlloca = createEntryBlockAlloca(curFunc, "ch.tryrecv.opt", optTy);
+        auto *hasValPtr = builder_->CreateStructGEP(optTy, optAlloca, 0);
+        builder_->CreateStore(hasVal, hasValPtr);
+        auto *valPtr = builder_->CreateStructGEP(optTy, optAlloca, 1);
+        builder_->CreateStore(result, valPtr);
+        return builder_->CreateLoad(optTy, optAlloca, "ch.tryrecv.result");
+    }
+
+    // channelLen(handle) -> i64
+    if (funcName == "channelLen" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_len");
+        return builder_->CreateCall(fn, {handleArg}, "channel.len");
+    }
+
+    // channelFree(handle) -> void
+    if (funcName == "channelFree" && !node->getArgs().empty()) {
+        auto *handleArg = visit(node->getArgs()[0].get());
+        if (!handleArg) return nullptr;
+        auto *fn = getOrPanic("liva_channel_free");
+        builder_->CreateCall(fn, {handleArg});
+        return llvm::Constant::getNullValue(builder_->getInt64Ty());
     }
 
     // === Stdlib: TaskGroup ===
