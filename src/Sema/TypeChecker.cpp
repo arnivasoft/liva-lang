@@ -2884,7 +2884,7 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
                       (isIntPat && subjectType->isInteger());
             if (!ok) {
                 diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
-                             typeToString(subjectType), arm.patternNode->toString());
+                             arm.patternNode->toString(), typeToString(subjectType));
             }
         }
     }
@@ -2920,7 +2920,7 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
         for (auto &arm : node->getArms()) {
             if (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::Range) {
                 diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
-                             enumName, arm.patternNode->toString());
+                             arm.patternNode->toString(), enumName);
             }
         }
     }
