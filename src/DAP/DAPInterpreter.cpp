@@ -1017,7 +1017,9 @@ DAPValue DAPInterpreter::evaluateExpr(const Expr *expr) {
                 if (!guardVal.isTruthy()) continue;
             }
             // Wildcard "_" or matching pattern
-            if (arm.pattern == "_" || !arm.bindings.empty()) {
+            bool isWildcard = arm.patternNode &&
+                               arm.patternNode->getKind() == Pattern::Kind::Wildcard;
+            if (isWildcard || !arm.bindings.empty()) {
                 auto result = evaluateExpr(arm.body.get());
                 return result;
             }
