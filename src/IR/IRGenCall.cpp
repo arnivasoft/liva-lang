@@ -1633,7 +1633,8 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                                   ? builder_->CreateICmpSLE(tagVal, hiVal, "pat.range.le")
                                   : builder_->CreateICmpSLT(tagVal, hiVal, "pat.range.lt");
                 patternCond = builder_->CreateAnd(geLo, cmpHi, "pat.range.and");
-            } else if (info.pat.hasTag && !info.pat.isWildcard) {
+            } else if (info.pat.hasTag && !info.pat.isWildcard &&
+                       tagVal->getType()->isIntegerTy()) {
                 // Pattern Types Faz B, Task 3: a tag-bearing arm (plain
                 // int-literal, or a bare/qualified no-payload enum case) that
                 // ends up sharing a match with a range arm is now in
@@ -1644,6 +1645,20 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                 // pattern, hasTag == false) are unaffected: they fall
                 // through with patternCond == nullptr exactly as before,
                 // i.e. always match (subject to any guard clause).
+                //
+                // REVIEW FIX: this branch is ALSO reachable via chain mode's
+                // OTHER two triggers — a non-integer subject (float/string)
+                // or numCases == 0 — not just hasRangePattern. Sema's
+                // err_pattern_type_mismatch now rejects an int-literal arm
+                // against a known non-int scalar subject at compile time
+                // (root-cause fix, TypeChecker.cpp), but an unresolved/
+                // generic subject that slips past that conservative check
+                // must still not reach an unconditional
+                // `cast<IntegerType>(tagVal->getType())` here — hence the
+                // explicit `isIntegerTy()` guard (defense in depth): when
+                // false, patternCond simply stays null, i.e. this arm falls
+                // back to the pre-generalization "always matches" behavior
+                // instead of crashing LLVM module verification.
                 auto *tagIntTy = llvm::cast<llvm::IntegerType>(tagVal->getType());
                 auto *litVal = llvm::ConstantInt::get(
                     tagIntTy, static_cast<uint64_t>(info.pat.tag), /*isSigned=*/true);

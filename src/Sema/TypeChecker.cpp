@@ -2846,15 +2846,22 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     // Pattern Types Faz B, Task 2/3: literal/range-pattern-vs-subject-type
     // mismatch (err_pattern_type_mismatch). Conservative by construction:
     // only fires when the subject's resolved type is one of the four scalar
-    // kinds a bool/string/float/range pattern could plausibly compare
+    // kinds a bool/string/float/int/range pattern could plausibly compare
     // against (bool/int/float/string) — a Named/enum/generic/otherwise-
-    // unresolved subject is left alone entirely (avoids false positives, and
-    // leaves IntLiteral's existing enum-tag/int-subject dual role in
-    // resolveMatchPattern untouched). Only these NEW pattern kinds
-    // participate; IntLiteral's existing semantics are intentionally not
-    // widened here — it already has a well-established dual role
-    // (plain-int subject match AND, historically, enum-tag-adjacent
-    // handling elsewhere) that this task doesn't revisit.
+    // unresolved subject is left alone entirely (avoids false positives).
+    //
+    // REVIEW FIX (Task 3): IntLiteral now participates too. It didn't
+    // originally, on the theory that its existing enum-tag/int-subject dual
+    // role in resolveMatchPattern shouldn't be "revisited" — but that dual
+    // role only ever applies to a genuinely enum-typed subject (Named,
+    // excluded from subjectIsKnownScalar below), never to a float/string/bool
+    // subject. Leaving IntLiteral out let `match f: f64 { 5 => ... }` compile
+    // silently, reach IRGen's if-else-chain path with a bogus tag-equality
+    // `icmp eq` between a double and an i32 constant, and crash LLVM module
+    // verification (reviewer-reported). Including it here is a strict
+    // narrowing of what was previously (wrongly) accepted, not a behavior
+    // change for any of its legitimate uses (plain-int subject, or enum
+    // subject where subjectType is Named and this gate never fires).
     const TypeRepr *subjectType = node->getSubject()->getResolvedType();
     bool subjectIsKnownScalar = subjectType &&
         (subjectType->isBool() || subjectType->isInteger() || subjectType->isFloat() ||
@@ -2867,12 +2874,14 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
             bool isStringPat = pk == Pattern::Kind::StringLiteral;
             bool isFloatPat = pk == Pattern::Kind::FloatLiteral;
             bool isRangePat = pk == Pattern::Kind::Range;
-            if (!isBoolPat && !isStringPat && !isFloatPat && !isRangePat) continue;
+            bool isIntPat = pk == Pattern::Kind::IntLiteral;
+            if (!isBoolPat && !isStringPat && !isFloatPat && !isRangePat && !isIntPat) continue;
 
             bool ok = (isBoolPat && subjectType->isBool()) ||
                       (isStringPat && subjectType->getKind() == TypeRepr::Kind::String) ||
                       (isFloatPat && subjectType->isFloat()) ||
-                      (isRangePat && subjectType->isInteger());
+                      (isRangePat && subjectType->isInteger()) ||
+                      (isIntPat && subjectType->isInteger());
             if (!ok) {
                 diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
                              typeToString(subjectType), arm.patternNode->toString());
@@ -2896,6 +2905,23 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
                 subjectEnum = sym->enumDecl;
             }
             break;
+        }
+    }
+
+    // Pattern Types Faz B, Task 3 REVIEW FIX: a range pattern against a
+    // confidently-known enum subject (subjectEnum resolved just above, the
+    // same conservative derivation the exhaustiveness check below relies
+    // on) is a clear mismatch — the enum's tag has no meaningful numeric
+    // range semantics. The scalar-mismatch loop above can't catch this: it
+    // is gated on subjectIsKnownScalar, which by construction excludes
+    // Named/enum subjects (avoiding false positives there), so a range arm
+    // needs its own check once subjectEnum is known.
+    if (subjectEnum) {
+        for (auto &arm : node->getArms()) {
+            if (arm.patternNode && arm.patternNode->getKind() == Pattern::Kind::Range) {
+                diag_.report(node->getStartLoc(), DiagID::err_pattern_type_mismatch,
+                             enumName, arm.patternNode->toString());
+            }
         }
     }
 

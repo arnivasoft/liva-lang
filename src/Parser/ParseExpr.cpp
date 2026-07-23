@@ -18,9 +18,11 @@ namespace liva {
 /// 3) and, if present, parse the second int-literal endpoint and wrap both
 /// into a RangePattern. Otherwise returns `lo` unchanged (upcast to
 /// Pattern) — the common case, so every existing plain-int-literal pattern
-/// call site is unaffected.
+/// call site is unaffected. `inParens` is threaded through from the calling
+/// parsePattern() so the malformed-input recovery below can stay paren-
+/// depth-aware, mirroring parsePattern's own atFallbackStop rule.
 std::unique_ptr<Pattern> Parser::maybeParseRangePattern(
-    std::unique_ptr<IntLiteralPattern> lo, SourceLocation startLoc) {
+    std::unique_ptr<IntLiteralPattern> lo, SourceLocation startLoc, bool inParens) {
     if (!check(TokenKind::dotdot) && !check(TokenKind::dotdotequal))
         return lo;
     bool inclusive = check(TokenKind::dotdotequal);
@@ -44,6 +46,19 @@ std::unique_ptr<Pattern> Parser::maybeParseRangePattern(
         // enclosing arm list can resync (mirrors the '-' recovery below).
         diag_.report(current_.getLocation(), DiagID::err_expected_token,
                      "integer literal", std::string(current_.getText()));
+        // REVIEW FIX: consume the offending token (unless it's already an
+        // arm/subpattern terminator) so the caller's next `expect(...)`
+        // (fat_arrow in parseMatchExpr, or ')'/',' when this is a Case(...)
+        // subpattern) doesn't immediately cascade a second, misleading
+        // diagnostic pointing at the exact same spot. Before this fix,
+        // `1..x =>` reported err_expected_token TWICE: once here, once from
+        // parseMatchExpr's expect(fat_arrow) still sitting on `x`.
+        bool atStop = check(TokenKind::fat_arrow) || check(TokenKind::kw_where) ||
+                      check(TokenKind::kw_if) || check(TokenKind::r_brace) ||
+                      check(TokenKind::eof) ||
+                      (inParens && (check(TokenKind::r_paren) || check(TokenKind::comma)));
+        if (!atStop)
+            advance();
         hi = std::make_unique<IntLiteralPattern>(0, "0", rangeFrom(hiStart));
     }
 
@@ -108,7 +123,7 @@ std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
             advance();
             auto lo = std::make_unique<IntLiteralPattern>(-value, "-" + digits,
                                                            rangeFrom(startLoc));
-            return maybeParseRangePattern(std::move(lo), startLoc);
+            return maybeParseRangePattern(std::move(lo), startLoc, inParens);
         }
         // Grammar-violating input (bare '-' not followed by a digit).
         // Faz A kept this behavior-preserving (silently dropped the '-' and
@@ -128,7 +143,7 @@ std::unique_ptr<Pattern> Parser::parsePattern(bool inParens) {
         int64_t value = current_.getIntegerValue();
         advance();
         auto lo = std::make_unique<IntLiteralPattern>(value, text, rangeFrom(startLoc));
-        return maybeParseRangePattern(std::move(lo), startLoc);
+        return maybeParseRangePattern(std::move(lo), startLoc, inParens);
     }
 
     // Identifier-rooted forms: Ident | Ident(subs) | Ident.Ident[(subs)].

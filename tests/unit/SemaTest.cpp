@@ -449,6 +449,70 @@ TEST_F(SemaTest, MatchRangePatternOnIntSubjectOk) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_pattern_type_mismatch));
 }
 
+// Pattern Types (Faz B) Task 3 REVIEW FIX: an int-literal pattern (`5 =>`)
+// against a known non-int scalar subject was previously accepted silently
+// by TypeChecker (only Bool/String/Float/Range literal *pattern kinds*
+// participated in the mismatch loop — IntLiteral never did). This let a
+// float subject reach IRGen's if-else-chain path with a bogus tag-equality
+// comparison over a non-integer tagVal, crashing LLVM module verification.
+// Root-cause fix: extend the mismatch loop to also cover IntLiteral.
+TEST_F(SemaTest, MatchIntLiteralPatternOnFloatSubject) {
+    auto result = check(R"(
+        func main() {
+            let f: f64 = 3.14
+            match f {
+                5 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
+TEST_F(SemaTest, MatchIntLiteralPatternOnStringSubject) {
+    auto result = check(R"(
+        func main() {
+            let s: string = "x"
+            match s {
+                5 => println(0)
+                _ => println(1)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
+// Pattern Types (Faz B) Task 3 REVIEW FIX: a range pattern against a
+// confidently-known ENUM subject (subjectEnum resolved via a qualified
+// `Enum.Case` arm elsewhere in the same match, exactly like the existing
+// exhaustiveness-check derivation) is also a clear mismatch — the enum's
+// tag would silently be compared against numeric bounds instead. The
+// original mismatch loop only ever gated on subjectIsKnownScalar (bool/
+// int/float/string), which by construction excludes Named/enum subjects,
+// so this needs its own check once subjectEnum is known.
+TEST_F(SemaTest, MatchRangePatternOnEnumSubject) {
+    auto result = check(R"(
+        enum Color {
+            case Red
+            case Green
+            case Blue
+        }
+
+        func main() {
+            let c = Color.Red
+            match c {
+                Color.Red => println(0)
+                1..10 => println(1)
+                _ => println(2)
+            }
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_type_mismatch));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {

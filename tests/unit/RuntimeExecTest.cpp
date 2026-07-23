@@ -969,6 +969,31 @@ TEST(RuntimeExecTest, MatchRangeArmWithGuard) {
     EXPECT_EQ(r.stdout_output, "1\n2\n3\n") << "stdout: " << r.stdout_output;
 }
 
+// Pattern Types (Faz B) Task 3 REVIEW FIX (minor b): negative-only-hi range
+// (`-10..-5`, both endpoints negative) — exercises the '-'-prefixed hi
+// endpoint path in maybeParseRangePattern, not just a negative lo alongside
+// a non-negative hi (already covered by MatchRangePatternNegativeEndpoints'
+// `-5..=5`).
+TEST(RuntimeExecTest, MatchRangeNegativeOnlyHi) {
+    auto r = compileAndRun(R"--(
+        func classify(n: i32) -> i32 {
+            let r = match n {
+                -10..-5 => 1
+                _ => 0
+            }
+            return r
+        }
+        func main() {
+            println(classify(-10))
+            println(classify(-6))
+            println(classify(-5))
+            println(classify(-11))
+        }
+    )--", "match_range_negative_only_hi");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n1\n0\n0\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, SqliteColumnName) {
     auto r = compileAndRun(
         "import sqlite::sqlite\n"

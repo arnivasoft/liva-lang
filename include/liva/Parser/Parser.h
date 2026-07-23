@@ -100,8 +100,10 @@ private:
     /// atom (`lo`), look ahead for a `..`/`..=` range suffix and fold it
     /// (plus the second int-literal endpoint) into a RangePattern.
     /// Returns `lo` unchanged (upcast to Pattern) when no suffix follows.
+    /// `inParens`: forwarded from parsePattern's own parameter of the same
+    /// name — keeps the malformed-suffix recovery path paren-depth-aware.
     std::unique_ptr<Pattern> maybeParseRangePattern(std::unique_ptr<IntLiteralPattern> lo,
-                                                     SourceLocation startLoc);
+                                                     SourceLocation startLoc, bool inParens);
 
     /// Advance tokens until a synchronization point (statement/declaration boundary)
     void synchronize();

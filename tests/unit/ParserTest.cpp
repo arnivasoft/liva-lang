@@ -1499,6 +1499,31 @@ TEST_F(ParserTest, RangePatternNegativeEndpointsAST) {
     EXPECT_EQ(rangeArm->toString(), "-5..=5");
 }
 
+// Pattern Types (Faz B) Task 3 REVIEW FIX: a malformed range suffix (`..`/
+// `..=` not followed by an int literal, e.g. `1..x`) must report exactly
+// ONE diagnostic. Before the fix, maybeParseRangePattern's error-recovery
+// path built a dummy `0` hi endpoint and returned WITHOUT consuming the
+// offending token (`x`) — leaving current_ pointed at it, so the caller
+// (parseMatchExpr's `expect(fat_arrow)`) immediately cascaded a second,
+// misleading err_expected_token diagnostic at the same spot.
+TEST_F(ParserTest, RangePatternMalformedHiSingleError) {
+    auto result = parse(R"--(
+        func main() {
+            let x = 5
+            match x {
+                1..x => println(1)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.hasErrors);
+    int errorCount = 0;
+    for (auto &d : result.diag.getDiagnostics()) {
+        if (d.level == DiagLevel::Error) ++errorCount;
+    }
+    EXPECT_EQ(errorCount, 1);
+}
+
 // === Doc Comment Tests ===
 
 TEST_F(ParserTest, DocCommentOnFunc) {
