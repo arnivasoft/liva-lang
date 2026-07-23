@@ -65,12 +65,13 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 
 | Hata | Kök neden | Konum |
 |------|-----------|-------|
-| `let b = a` double-drop | `markMoved` yalnızca fonksiyon argümanlarında çağrılıyor; `VarDecl` init ve atamada move takibi yok | `OwnershipChecker.cpp:149-154`, `IRGenStmt.cpp:72-88` |
-| Drop, Optional+if-let'te çalışmıyor | Koşullu temizlik sadece `heapOptionalStringVars` için var | `IRGenStmt.cpp:135-162` |
+| `let b = a` double-drop (çözüldü 2026-07) | `markMoved` yalnızca fonksiyon argümanlarında çağrılıyor; `VarDecl` init ve atamada move takibi yok | `OwnershipChecker.cpp:149-154`, `IRGenStmt.cpp:72-88` |
+| Drop, Optional+if-let'te çalışmıyor (çözüldü 2026-07) | Koşullu temizlik sadece `heapOptionalStringVars` için var | `IRGenStmt.cpp:135-162` |
 | `??` bazı bağlamlarda yanlış | Yalnızca bare identifier + MemberExpr chain doğru; diğer LHS'ler (çağrı sonucu, subscript) unwrap edilmeden aynen dönüyor | `IRGenExpr.cpp:302-352`, fallback `:350-351` |
 | `return self` from `mut self` | Codegen yolu yok | — |
 | Integer widening kısıtlı | Yalnızca sabit-literal tarafında; genel coercion modeli yok | `IRGenExpr.cpp:234-243` |
 | String `==` struct-wrapper'da | Primitive `string` için çalışıyor (`IRGenExpr.cpp:192-203`); sorun wrapper bağlamında tip tanıma. Kalıcı çözüm: protokol tabanlı `Equatable` | `IRGenExpr.cpp:167-181` |
+| `Optional<Named>` yeniden atamada (`=`) bir sonraki okuma stale/kaymış değer verir (yeni bulundu, 2026-07, izlemede) | `while`/loop içinde aynı `Optional<NamedStruct>` değişkenine düz `=` ile yeniden atama; sıralı `let` ile üretilen ayrı değişkenlerde sorun yok | Task 2 raporu (`.superpowers/sdd/task-2-report.md`), minimal repro dahil |
 
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 
@@ -123,7 +124,7 @@ Geniş widget seti mevcut (23+ widget, menü/toolbar, data binding Faz 6.x). Eks
 | 1 | `visitCallExpr`'ı parçala — **IRGenCall + TypeChecker tamamlandı (2026-07)** | Refactor | Tüm gelecek işlerin hızını artırır |
 | 2 | Runtime ABI'yi tek `.def` tablosuna indir — **tamamlandı (2026-07, RuntimeFunctions.def)** | Refactor | 3 yönlü senkron hatası sınıfını yok eder |
 | 3 | Yapısal Pattern AST + eksik pattern türleri — **Faz A+B tamamlandı (2026-07)** — kalan: struct destructuring, if-let tam pattern, editör gramerleri (ayrı işler) | Dil | En büyük dil sağlamlığı açığı |
-| 4 | Atama/if-let move takibi → double-drop ve Drop/Optional düzeltmesi | Bug/Dil | Bilinen 3 memory hatasını kökten çözer |
+| 4 | Atama/if-let move takibi — **tamamlandı (2026-07, muhafazakâr kapsam: Drop'lu tipler)** — kalan: clone(), atamada eski-değer drop'u, koleksiyon/alan drop'ları | Bug/Dil | Bilinen 3 memory hatasını kökten çözer |
 | 5 | `??` operatörünü genel LHS'lerde doğru üret | Bug | Sessiz yanlış davranış |
 | 6 | Generic `Map<K,V>` + CLI arg parser | Stdlib | En görünür kullanıcı boşlukları |
 | 7 | Networking/db/json örnekleri + artifact temizliği | Docs | Düşük maliyet, yüksek getiri |

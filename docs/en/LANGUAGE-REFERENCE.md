@@ -1708,6 +1708,156 @@ func main() {
 - The compiler inserts `drop()` calls at scope exit
 - Drop is called in reverse declaration order
 
+### Move Semantics for Drop-Conforming Types
+
+For a `struct` that conforms to `Drop`, `let b = a` and `b = a` (a plain
+identifier on both sides, plain `=`) **move** ownership from `a` to `b`
+instead of copying: only `b` is dropped when its scope ends.
+
+```liva
+protocol Drop {
+    func drop(mut self)
+}
+
+struct FileHandle {
+    var fd: i32
+}
+
+impl FileHandle: Drop {
+    func drop(mut self) {
+        println("Closing file")
+    }
+}
+
+func main() {
+    let a = FileHandle { fd: 3 }
+    let b = a          // ownership moves from a to b
+    println(b.fd)
+}   // only b is dropped here — "Closing file" prints exactly once
+```
+
+Referencing the moved-from variable again as an operand — another `let`,
+another assignment, a function-call argument, or a second `if let`/`while let`
+— is a compile-time error:
+
+```liva
+func main() {
+    let a = FileHandle { fd: 3 }
+    let b = a
+    let c = a   // error: use of moved value 'a'
+}
+```
+
+This move tracking is scoped **conservatively to `Drop`-conforming named
+struct types only**. A plain struct with no `Drop` impl keeps today's
+copy-like behavior completely unchanged — the same code shape compiles and
+both variables stay usable:
+
+```liva
+struct Point { var x: i32 }
+
+func main() {
+    let a = Point { x: 1 }
+    let b = a
+    let c = a   // OK — Point does not conform to Drop, so this is unaffected
+}
+```
+
+### `Optional<T>` Drop at Scope Exit
+
+When `T` conforms to `Drop`, a variable of type `T?` drops its payload
+exactly once, at scope exit, if it holds a value; a `nil` optional drops
+nothing:
+
+```liva
+func main() {
+    let some: FileHandle? = FileHandle { fd: 1 }
+    let none: FileHandle? = nil
+    println("before scope end")
+}   // 'some' holds a value -> "Closing file" prints exactly once
+    // 'none' is nil -> nothing is dropped for it
+```
+
+### `if let` / `while let` Ownership Transfer
+
+When the source of `if let`/`while let` is a variable of type `T?` (`T`
+conforming to `Drop`), the binding takes ownership of the unwrapped payload:
+
+- the binding is dropped normally at the end of its own scope (once per
+  iteration for `while let`), not the source;
+- the source variable is marked moved, so using it again afterward — including
+  a second `if let`/`while let` over the same source — is a compile-time
+  `err_use_after_move`.
+
+```liva
+func main() {
+    let maybe: FileHandle? = FileHandle { fd: 7 }
+    if let value = maybe {
+        println(value.fd)
+    } else {
+        println("was nil")
+    }
+    // 'value' owned the payload and was dropped at the end of the if-let
+    // block above — "Closing file" prints exactly once, not twice.
+}
+```
+
+```liva
+func main() {
+    let maybe: FileHandle? = FileHandle { fd: 7 }
+    if let value = maybe {
+        println(value.fd)
+    }
+    if let value2 = maybe {   // error: use of moved value 'maybe'
+        println(value2.fd)
+    }
+}
+```
+
+### Known Limitations
+
+This move/drop tracking closes the most dangerous cases (double-free-shaped
+double drops, and a real heap-corruption bug in `Optional<Drop>` cleanup) but
+is intentionally conservative in scope. Current gaps, documented honestly:
+
+- **Identifier-level tracking, not full flow analysis.** A moved-from
+  variable is rejected when it is used again *as an operand* (another `let`,
+  an assignment RHS, a call argument, a second `if let`/`while let`); reading
+  a field through it (`a.field`) is not currently flagged by the checker.
+  Treat any variable the compiler says was moved as fully off-limits, not
+  just "don't pass it again".
+- **`b = a` does not drop `b`'s previous value.** The overwritten old value
+  is leaked, not double-freed — safe, but not cleaned up. There is no
+  workaround yet other than dropping the old value manually before
+  reassigning.
+- **No `clone()`.** There is currently no way to make an independent copy of
+  a `Drop`-conforming value — build two separate values instead of trying to
+  duplicate one.
+- **`if let`/`while let`'s "moved" mark is unconditional at compile time**,
+  even though only the has-value runtime path truly consumes the payload.
+  So using the source in the `else` branch (or after a `while let` exits) is
+  rejected even on a run where the source was actually `nil` and nothing was
+  really moved — a conservative false positive, never a soundness hole.
+- **Shadowing loses the shadowed variable's drop.** Redeclaring the same
+  name in a nested block (e.g. an inner `if` re-declares an outer-scope
+  name) can make the *first* variable's drop obligation unreachable. This is
+  a pre-existing, architecture-wide gap — not specific to `Drop`/`Optional`.
+- **`break`/`continue` skip that iteration's cleanup.** Leaving a loop body
+  early bypasses the scope drop for any `Drop`-conforming local declared in
+  that body, including a `while let` binding — pre-existing, not specific to
+  this feature.
+- **Only named-struct variables (and `Optional` thereof) are tracked.**
+  Collection elements and individual struct fields are not covered by this
+  mechanism; a value obtained from certain factory-style calls returning
+  `Optional<T>` (where `T` differs from the receiver's own type) is also not
+  currently registered for scope-exit drop — a leak, not a corruption risk.
+- **Separate, pre-existing bug (unrelated to Drop):** reassigning an
+  `Optional<NamedType>` variable via plain `=` inside a loop can read back a
+  stale value on a later iteration. If you need a fresh optional each pass,
+  prefer binding it directly in the loop condition (e.g.
+  `while let item = source.next() { ... }`) rather than reassigning an
+  existing `Optional` variable.
+
 ---
 
 ## 24. Standard Library

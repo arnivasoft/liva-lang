@@ -1664,6 +1664,160 @@ func main() {
 - Derleyici kapsam çıkışında `drop()` çağrılarını yerleştirir
 - Drop, ters bildirim sırasında çağrılır
 
+### Drop'a Uyan Tipler için Move Semantiği
+
+`Drop` protocol'üne uyan bir `struct` için `let b = a` ve `b = a` (her iki
+tarafta da düz bir identifier, düz `=`) ownership'i kopyalamak yerine `a`'dan
+`b`'ye **taşır** (move): kapsam sona erdiğinde yalnızca `b` drop edilir.
+
+```liva
+protocol Drop {
+    func drop(mut self)
+}
+
+struct FileHandle {
+    var fd: i32
+}
+
+impl FileHandle: Drop {
+    func drop(mut self) {
+        println("Closing file")
+    }
+}
+
+func main() {
+    let a = FileHandle { fd: 3 }
+    let b = a          // ownership moves from a to b
+    println(b.fd)
+}   // only b is dropped here — "Closing file" prints exactly once
+```
+
+Taşınmış (moved-from) değişkeni tekrar bir operand olarak referans almak —
+başka bir `let`, başka bir atama, bir fonksiyon çağrısı argümanı veya ikinci
+bir `if let`/`while let` — derleme zamanı hatasıdır:
+
+```liva
+func main() {
+    let a = FileHandle { fd: 3 }
+    let b = a
+    let c = a   // error: use of moved value 'a'
+}
+```
+
+Bu move takibi **yalnızca `Drop`'a uyan named struct tiplerle sınırlı,
+muhafazakâr bir kapsamdadır**. `Drop` impl'i olmayan düz bir struct bugünkü
+kopya-benzeri davranışını tamamen korur — aynı kod şekli derlenir ve her iki
+değişken de kullanılabilir kalır:
+
+```liva
+struct Point { var x: i32 }
+
+func main() {
+    let a = Point { x: 1 }
+    let b = a
+    let c = a   // OK — Point does not conform to Drop, so this is unaffected
+}
+```
+
+### Kapsam Çıkışında `Optional<T>` Drop'u
+
+`T` tipi `Drop`'a uyduğunda, `T?` tipindeki bir değişken bir değer tutuyorsa
+kapsam çıkışında payload'ını TAM BİR KEZ drop eder; `nil` bir optional hiçbir
+şey drop etmez:
+
+```liva
+func main() {
+    let some: FileHandle? = FileHandle { fd: 1 }
+    let none: FileHandle? = nil
+    println("before scope end")
+}   // 'some' holds a value -> "Closing file" prints exactly once
+    // 'none' is nil -> nothing is dropped for it
+```
+
+### `if let` / `while let` Sahiplik Devri
+
+`if let`/`while let`'in kaynağı `T?` tipinde bir değişken olduğunda (`T`
+`Drop`'a uyar), binding, unwrap edilen payload'un sahipliğini alır:
+
+- binding kendi kapsamının sonunda normal şekilde drop edilir (`while let`
+  için her iterasyonda bir kez), kaynak değil;
+- kaynak değişken moved olarak işaretlenir, bu yüzden onu daha sonra tekrar
+  kullanmak — aynı kaynak üzerinde ikinci bir `if let`/`while let` dahil —
+  derleme zamanı `err_use_after_move` hatasıdır.
+
+```liva
+func main() {
+    let maybe: FileHandle? = FileHandle { fd: 7 }
+    if let value = maybe {
+        println(value.fd)
+    } else {
+        println("was nil")
+    }
+    // 'value' owned the payload and was dropped at the end of the if-let
+    // block above — "Closing file" prints exactly once, not twice.
+}
+```
+
+```liva
+func main() {
+    let maybe: FileHandle? = FileHandle { fd: 7 }
+    if let value = maybe {
+        println(value.fd)
+    }
+    if let value2 = maybe {   // error: use of moved value 'maybe'
+        println(value2.fd)
+    }
+}
+```
+
+### Bilinen Sınırlar
+
+Bu move/drop takibi en tehlikeli durumları kapatır (double-free şeklindeki
+çift drop'lar ve `Optional<Drop>` temizliğindeki gerçek bir heap-corruption
+hatası) ama kapsamı kasıtlı olarak muhafazakârdır. Güncel boşluklar, dürüstçe
+belgelenmiştir:
+
+- **Identifier seviyesinde takip, tam bir akış analizi değil.** Taşınmış bir
+  değişken yalnızca tekrar bir *operand olarak* kullanıldığında reddedilir
+  (başka bir `let`, bir atamanın sağ tarafı, bir çağrı argümanı, ikinci bir
+  `if let`/`while let`); onun üzerinden bir alana erişmek (`a.field`)
+  denetleyici tarafından şu an işaretlenmez. Derleyicinin "moved" dediği bir
+  değişkeni yalnızca "tekrar geçme" değil, tamamen kullanım dışı sayın.
+- **`b = a`, `b`'nin önceki değerini drop etmez.** Üzerine yazılan eski değer
+  drop edilmek yerine sızdırılır (leak) — double-free'den güvenlidir ama
+  temizlenmez. Şu an için tekrar atamadan önce eski değeri elle drop etmek
+  dışında bir çözüm yolu yoktur.
+- **`clone()` yok.** Şu an `Drop`'a uyan bir değerin bağımsız bir kopyasını
+  oluşturmanın bir yolu yoktur — bir değeri çoğaltmaya çalışmak yerine iki
+  ayrı değer inşa edin.
+- **`if let`/`while let`'in "moved" işareti derleme zamanında koşulsuzdur**,
+  oysa payload'u gerçekten tüketen yalnızca has-value çalışma zamanı yoludur.
+  Bu yüzden kaynağı `else` dalında (veya bir `while let` çıktıktan sonra)
+  kullanmak, kaynağın çalışma zamanında gerçekten `nil` olduğu ve hiçbir
+  şeyin gerçekten taşınmadığı bir çalıştırmada bile reddedilir — muhafazakâr
+  bir yanlış pozitif, asla bir soundness deliği değil.
+- **Shadowing, gölgelenen değişkenin drop'unu kaybettirir.** Aynı ismi iç
+  içe bir blokta yeniden bildirmek (örn. bir iç `if`, dış kapsamdaki bir ismi
+  yeniden bildiriyor) *ilk* değişkenin drop yükümlülüğünü erişilemez hale
+  getirebilir. Bu, `Drop`/`Optional`'a özgü olmayan, önceden var olan,
+  mimari çapında bir boşluktur.
+- **`break`/`continue` o iterasyonun temizliğini atlar.** Bir loop body'sini
+  erken terk etmek, o body içinde bildirilen herhangi bir `Drop`'a uyan
+  yerel değişkenin (bir `while let` binding'i dahil) kapsam drop'unu atlar —
+  önceden var olan, bu özelliğe özgü olmayan bir durum.
+- **Yalnızca named-struct değişkenleri (ve bunların `Optional`'ları)
+  takip edilir.** Koleksiyon elemanları ve tek tek struct alanları bu
+  mekanizma tarafından kapsanmaz; alıcının (receiver) kendi tipinden farklı
+  bir `T` için `Optional<T>` döndüren bazı factory-tarzı çağrılardan elde
+  edilen bir değer de şu an kapsam-çıkışı drop'u için kayıtlı değildir —
+  bu bir sızıntıdır (leak), bir corruption riski değil.
+- **Ayrı, önceden var olan bir hata (Drop ile ilgisiz):** bir
+  `Optional<NamedType>` değişkenini bir loop içinde düz `=` ile yeniden
+  atamak, sonraki bir iterasyonda eski (stale) bir değer okunmasına yol
+  açabilir. Her geçişte taze bir optional'a ihtiyacınız varsa, mevcut bir
+  `Optional` değişkeni yeniden atamak yerine onu doğrudan loop koşulunda
+  bağlamayı tercih edin (örn. `while let item = source.next() { ... }`).
+
 ---
 
 ## 24. Standart Kütüphane
