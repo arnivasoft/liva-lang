@@ -562,9 +562,18 @@ private:
                                       PatternInfo &info,
                                       const std::string &subjectEnumType);
 
-    /// Emit nested pattern check: verify inner enum tag and extract bindings
+    /// Emit nested pattern check: verify inner enum tag and extract bindings.
+    /// Final review Critical 2: `defaultEdgePreds`/`trueDefaultBB` (both
+    /// optional) let the caller track this check's fail-edge into the same
+    /// PHI-placeholder bookkeeping every other "no wildcard arm" default edge
+    /// in visitMatchExpr gets, whenever `failBB` happens to BE the match's
+    /// true global default (see visitMatchExpr's call site for why `failBB`
+    /// itself must be the arm's own "next arm or default" target, not always
+    /// the global default directly).
     void emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nested,
-                                llvm::BasicBlock *failBB, llvm::Function *func);
+                                llvm::BasicBlock *failBB, llvm::Function *func,
+                                std::vector<llvm::BasicBlock *> *defaultEdgePreds = nullptr,
+                                llvm::BasicBlock *trueDefaultBB = nullptr);
 
     /// Pattern Types Faz B, Task 6: extract each of a TuplePattern's element
     /// values (via CreateExtractValue on the subject's first-class LLVM

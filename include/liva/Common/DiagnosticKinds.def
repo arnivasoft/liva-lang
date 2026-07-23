@@ -97,6 +97,18 @@ DIAG(err_pattern_or_binding,          error,   "or-pattern alternative '%0' cann
 // slotunda" scope note / task-5-report.md).
 DIAG(err_pattern_binding_enum_case_unsupported, error,
      "binding pattern '%0' cannot bind an enum-case pattern (unsupported)")
+// Final review Critical 1: `@` binding a tuple pattern (e.g. `t @ (a, b)`)
+// is a sibling gap to the enum-case one directly above — resolveMatchPattern's
+// Kind::Binding case PREPENDS the binding's own name to info.bindings, but a
+// tuple's bindings/nestedPatterns are INDEX-ALIGNED with its elements (see
+// resolveTuplePatternElements), so prepending shifts every element binding
+// one slot to the right and leaves `nestedPatterns` one short — IRGen's
+// emitTuplePatternBindings then does an out-of-range CreateExtractValue
+// (ICE). Sema-reject cleanly instead (a NEW sibling diagnostic, not a reuse
+// of err_pattern_binding_enum_case_unsupported — that message is worded
+// around "an enum-case pattern" specifically).
+DIAG(err_pattern_binding_tuple_unsupported, error,
+     "binding pattern '%0' cannot bind a tuple pattern (unsupported)")
 // Pattern Types (Faz B) Task 6: a parenthesized pattern with fewer than 2
 // elements (e.g. `(p)`) is a parse error — the grammar has no
 // "parenthesized grouping" form elsewhere, so a lone parenthesized pattern

@@ -811,6 +811,171 @@ TEST(RuntimeExecTest, MatchRangeOnStructSubjectNoICE) {
         << "stdout: " << r.stdout_output;
 }
 
+// Final review Critical 3: same class of ICE as MatchRangeOnStructSubjectNoICE
+// above (bbc6fe0), for the FLOAT branch of emitPatternCond — a subject Sema
+// cannot classify (struct) must not hit ConstantFP::get's type assert.
+TEST(RuntimeExecTest, MatchFloatLiteralOnStructSubjectNoICE) {
+    auto r = compileAndRun(R"--(
+        struct Point { x: i32 }
+        func main() {
+            let p = Point{x: 1}
+            match p {
+                3.14 => println("float")
+                _ => println("other")
+            }
+            println("after")
+        }
+    )--", "match_float_struct_subject_no_ice");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("after"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+// Final review Critical 3: STRING branch of emitPatternCond — a struct
+// subject's tagVal is not a pointer, so liva_str_equal's call must not be
+// built (ill-typed call -> module verify failure) against it.
+TEST(RuntimeExecTest, MatchStringLiteralOnStructSubjectNoICE) {
+    auto r = compileAndRun(R"--(
+        struct Point { x: i32 }
+        func main() {
+            let p = Point{x: 1}
+            match p {
+                "x" => println("str")
+                _ => println("other")
+            }
+            println("after")
+        }
+    )--", "match_string_struct_subject_no_ice");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("after"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+// Final review Critical 3: TUPLE PROLOGUE (visitMatchExpr's
+// emitTuplePatternBindings call, NOT emitPatternCond's isTuple branch, which
+// already had an isStructTy() guard) must not hit an out-of-range
+// CreateExtractValue.
+//
+// Unlike the float/string arms above, a PLAIN struct-typed local variable
+// subject (`let p = Point{x:1}; match p {(a,b) => ...}`) is actually already
+// caught by Sema (checkTuplePatternType fires whenever the arm pattern
+// itself is Tuple, for ANY non-null subjectType, Named included — verified:
+// it correctly reports err_pattern_type_mismatch there). The genuinely
+// Sema-unclassifiable case is a subject whose OWN AST node never gets a
+// resolved type annotated at all — a nested match EXPRESSION used directly
+// as the outer match's subject (`match (match y {...}) {...}`): TypeChecker
+// never calls setResolvedType on a MatchExpr node, so
+// `node->getSubject()->getResolvedType()` is null, and the loop above
+// (`if (!arm.patternNode || !subjectType) continue;`) skips this arm
+// entirely — the ONLY way to reach IRGen with a tuple pattern against a
+// struct subject uncaught. `--check-only` confirms Sema passes; without the
+// isStructTy()/element-count guard, this used to crash IRGen (assert or
+// segfault depending on build config) on the 2nd element's out-of-range
+// CreateExtractValue against Point's 1-field struct type.
+TEST(RuntimeExecTest, MatchTuplePatternOnStructSubjectNoICE) {
+    auto r = compileAndRun(R"--(
+        struct Point { x: i32 }
+        func main() {
+            let y: i32 = 1
+            match (match y { _ => Point{x: 1} }) {
+                (a, b) => println("tuple")
+                _ => println("other")
+            }
+            println("after")
+        }
+    )--", "match_tuple_struct_subject_no_ice");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("after"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
+// === Final review Critical 2: chain-mode + payload-enum + nested enum
+// pattern — wrong-arm dispatch / PHI verifier abort ===
+//
+// emitNestedPatternMatch was called from the arm prologue with a hardcoded
+// `failBB=defaultBB` — correct ONLY under the switch-mode contract ("arm
+// entered only after outer tag matched"). Here `Outer.Y | Outer.Z` (an
+// or-pattern) forces the WHOLE match into if-else-chain mode, where
+// `Outer.X(Inner.A(n))`'s own outer tag has NOT been verified yet by the
+// time this prologue runs. For subject `Outer.Y`: arm0 misreads Y's payload
+// bytes as if they were X's, and on the (near-certain) nested-tag mismatch
+// jumped straight to the GLOBAL default — skipping arm1 (`Outer.Y|Outer.Z`)
+// entirely and printing "3" instead of the correct "2". `Inner.B` is
+// deliberately case index 0 (not `Inner.A`): Outer.Y's unused payload region
+// reads back as all-zero bytes, which would otherwise coincidentally equal
+// Inner.A's own tag if it were index 0 too, masking the bug (a "spurious
+// match" on garbage that still resolves correctly once the REAL outer-tag
+// check runs afterward). A subject is bound to a named local (`sy`/`sx`,
+// not passed as a literal enum-case call argument directly) — an unrelated,
+// pre-existing limitation independently rejects passing a bare no-payload
+// case of a mixed payload/non-payload enum straight through as a call
+// argument (out of this review's scope).
+TEST(RuntimeExecTest, MatchChainModeNestedEnumDispatchOrder) {
+    auto r = compileAndRun(R"--(
+        enum Inner {
+            case B
+            case A(i32)
+        }
+        enum Outer {
+            case X(Inner)
+            case Y
+            case Z
+        }
+        func classify(o: Outer) -> i32 {
+            let r = match o {
+                Outer.X(Inner.A(n)) => 1
+                Outer.Y | Outer.Z => 2
+                _ => 3
+            }
+            return r
+        }
+        func main() {
+            let sy: Outer = Outer.Y
+            println(classify(sy))
+            let sx: Outer = Outer.X(Inner.A(42))
+            println(classify(sx))
+        }
+    )--", "match_chain_nested_enum_dispatch_order");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // Outer.Y must fall through arm0 (its own pattern doesn't match) into
+    // arm1's Or-pattern (2), NOT skip straight to the wildcard (3). A real
+    // Outer.X(Inner.A(...)) subject must still take arm0 (1).
+    EXPECT_EQ(r.stdout_output, "2\n1\n") << "stdout: " << r.stdout_output;
+}
+
+// Same match, with the wildcard arm removed: without a wildcard, the "no
+// match" default edge is mergeBB directly — before the fix, the nested
+// check's fail edge landing there was untracked in `defaultEdgePreds`,
+// giving mergeBB a PHI predecessor with no incoming value ("PHINode should
+// have one entry for each predecessor" verifier abort). Pins "compiles and
+// runs to completion", not just the arm choice.
+TEST(RuntimeExecTest, MatchChainModeNestedEnumNoWildcardNoAbort) {
+    auto r = compileAndRun(R"--(
+        enum Inner {
+            case B
+            case A(i32)
+        }
+        enum Outer {
+            case X(Inner)
+            case Y
+            case Z
+        }
+        func classify(o: Outer) -> i32 {
+            let r = match o {
+                Outer.X(Inner.A(n)) => 1
+                Outer.Y | Outer.Z => 2
+            }
+            return r
+        }
+        func main() {
+            let sy: Outer = Outer.Y
+            println(classify(sy))
+        }
+    )--", "match_chain_nested_enum_no_wildcard_no_abort");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
+}
+
 // Pattern Types (Faz B) Task 2: bool/string/float literal match arms.
 // Bool literal patterns reuse the existing tag/hasTag switch-case
 // machinery (bool subject -> i1 tagVal, a valid CreateSwitch condition);

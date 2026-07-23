@@ -3058,11 +3058,27 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     // them would silently mis-codegen rather than crash. Diagnosed cleanly
     // instead. Only fires for an ACTUAL Binding-wrapped pattern (arm.patternNode
     // still equal to its own unwrap is a no-op check for a non-Binding arm).
+    //
+    // Final review Critical 1: a sibling ban for `@` binding a TUPLE
+    // pattern (`t @ (a, b)`) — resolveMatchPattern's Kind::Binding case
+    // prepends the binding's own name to `info.bindings`, but a tuple's
+    // bindings/nestedPatterns are index-aligned with its elements, so the
+    // prepend shifts every element binding one slot right and leaves
+    // `nestedPatterns` one short, causing an out-of-range CreateExtractValue
+    // in IRGen's emitTuplePatternBindings (ICE). Unwraps through any number
+    // of nested `@` (e.g. `a @ b @ (x, y)`), mirroring `unwrapBinding` above.
     for (auto &arm : node->getArms()) {
         if (!arm.patternNode || arm.patternNode->getKind() != Pattern::Kind::Binding) continue;
         auto *bp = static_cast<const BindingPattern *>(arm.patternNode.get());
         if (patternContainsEnumCase(bp->getSub())) {
             diag_.report(node->getStartLoc(), DiagID::err_pattern_binding_enum_case_unsupported,
+                         arm.patternNode->toString());
+        }
+        const Pattern *bindingSub = bp->getSub();
+        while (bindingSub && bindingSub->getKind() == Pattern::Kind::Binding)
+            bindingSub = static_cast<const BindingPattern *>(bindingSub)->getSub();
+        if (bindingSub && bindingSub->getKind() == Pattern::Kind::Tuple) {
+            diag_.report(node->getStartLoc(), DiagID::err_pattern_binding_tuple_unsupported,
                          arm.patternNode->toString());
         }
     }
@@ -3245,6 +3261,13 @@ void TypeChecker::visitMatchExpr(MatchExpr *node) {
     // Named/enum subjects (avoiding false positives there), so a range arm
     // needs its own check once subjectEnum is known. Task 4: also applies
     // per-alternative inside an OrPattern.
+    //
+    // Final review Important 4: `subjectEnum` above is derived ONLY from a
+    // qualified arm pattern, so a match using EXCLUSIVELY int-literal/range
+    // arms against an enum-typed subject (e.g. `1..5 => ...` with no
+    // `Enum.Case` arm anywhere) never resolved it, and this check silently
+    // never fired even though numerically comparing an enum's tag against a
+    // range is just as meaningless there.
     if (subjectEnum) {
         auto checkEnumRangeMismatch = [&](const Pattern *p) {
             if (p && p->getKind() == Pattern::Kind::Range) {

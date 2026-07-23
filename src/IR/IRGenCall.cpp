@@ -1587,6 +1587,16 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         auto &info = armInfos[i];
         builder_->SetInsertPoint(info.bb);
 
+        // Final review Critical 2: hoisted from its original position further
+        // below (right where the arm's own pattern-condition CondBr uses it)
+        // so the payload-extraction prologue below — specifically its nested-
+        // enum-pattern check — can also target it. See emitNestedPatternMatch
+        // call below for the full rationale.
+        llvm::BasicBlock *nextBB = defaultBB;
+        if (useIfElseChain && i + 1 < armInfos.size()) {
+            nextBB = armInfos[i + 1].bb;
+        }
+
         // Save named values for binding scope
         auto guard = pushVarState();
 
@@ -1605,8 +1615,47 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                     "bind." + std::to_string(b));
 
                 if (b < info.pat.nestedPatterns.size() && info.pat.nestedPatterns[b].hasTag) {
-                    // Nested enum pattern: check inner tag and extract inner bindings
-                    emitNestedPatternMatch(fieldPtr, info.pat.nestedPatterns[b], defaultBB, func);
+                    // Final review Critical 2: this prologue runs at the TOP
+                    // of the arm's block, UNCONDITIONALLY — in CHAIN mode
+                    // (forced by any hasOr/hasRange/hasBinding arm elsewhere
+                    // in the SAME match), that means it runs BEFORE this
+                    // arm's own outer-tag has been verified to match the
+                    // subject at all (switch mode's "arm entered only after
+                    // outer tag matched" contract does NOT hold here). The
+                    // original hardcoded `defaultBB` failBB sent a nested-tag
+                    // mismatch straight to the match's GLOBAL default,
+                    // skipping every arm in between — wrong-arm dispatch, and
+                    // (with no wildcard) an untracked mergeBB predecessor
+                    // that aborts PHI verification. `nextBB` (this arm's own
+                    // "try the next arm" target, same value its later
+                    // CondBr below uses) is the uniformly correct failBB
+                    // instead: in chain mode it's the next arm's block (a
+                    // nested-pattern failure — from EITHER an outer-tag
+                    // mismatch misreading garbage payload bytes, or a
+                    // genuine inner-tag mismatch — behaves exactly like any
+                    // other patternCond-false and falls through to the next
+                    // candidate); in switch mode it degrades to `defaultBB`
+                    // unchanged (useIfElseChain is false there), preserving
+                    // the original switch-mode contract exactly.
+                    // `defaultEdgePreds`/`trueMergeDefaultBB` are threaded
+                    // through so a fail edge that DOES land on the true
+                    // GLOBAL default (mergeBB itself — only possible when
+                    // there's no wildcard arm, defaultIdx < 0) still gets its
+                    // PHI placeholder tracked, same as every other default
+                    // edge in this function. REGRESSION GUARD: when a
+                    // wildcard arm DOES exist (defaultIdx >= 0), `defaultBB`
+                    // is that wildcard arm's OWN block, not mergeBB — control
+                    // reaching it flows through the wildcard arm normally
+                    // (its own real value lands in armResults, tracked
+                    // elsewhere) and is NOT a direct mergeBB predecessor at
+                    // all, so `trueMergeDefaultBB` must stay nullptr in that
+                    // case, or trackDefaultEdge would wrongly register a
+                    // phantom PHI predecessor for a block that never actually
+                    // branches into mergeBB directly (this exact mistake
+                    // broke MatchNestedNegativeDiscriminant during review).
+                    llvm::BasicBlock *trueMergeDefaultBB = (defaultIdx < 0) ? defaultBB : nullptr;
+                    emitNestedPatternMatch(fieldPtr, info.pat.nestedPatterns[b], nextBB, func,
+                                           &defaultEdgePreds, trueMergeDefaultBB);
                 } else if (!info.pat.bindings[b].empty()) {
                     auto *val = builder_->CreateLoad(payloadTypes[b], fieldPtr,
                                                       info.pat.bindings[b]);
@@ -1647,7 +1696,17 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         // (their `tagVal` is never an LLVM integer type), so this check is
         // effectively unconditional in practice — kept for symmetry with the
         // other prologue blocks.
-        if (useIfElseChain && info.pat.isTuple) {
+        //
+        // Final review Critical 3: guard against a subject Sema couldn't
+        // classify as a tuple (a struct/other Named subject whose resolved
+        // type checkTuplePatternType's arm-loop never got to compare — it
+        // bails out early whenever `subjectType` is unresolved/null; see
+        // that function's call site in visitMatchExpr). Without an
+        // isStructTy() check here, emitTuplePatternBindings's
+        // CreateExtractValue on a non-struct `tagVal` (e.g. a plain i32)
+        // asserts. The COND path (emitPatternCond's isTuple branch above)
+        // already has this exact guard; the prologue didn't.
+        if (useIfElseChain && info.pat.isTuple && tagVal->getType()->isStructTy()) {
             emitTuplePatternBindings(tagVal, info.pat, func);
         }
 
@@ -1700,11 +1759,9 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
         if (branchCond) {
             auto *bodyBB = llvm::BasicBlock::Create(*context_,
                 "match.arm." + std::to_string(i) + ".body", func);
-            // Determine fallthrough: next arm's BB, or defaultBB
-            llvm::BasicBlock *nextBB = defaultBB;
-            if (useIfElseChain && i + 1 < armInfos.size()) {
-                nextBB = armInfos[i + 1].bb;
-            }
+            // `nextBB` (fallthrough: next arm's BB, or defaultBB) is computed
+            // once, up front — see its hoisted declaration above, near
+            // `builder_->SetInsertPoint(info.bb)` — and reused here as-is.
             auto *condBrOriginBB = builder_->GetInsertBlock();
             builder_->CreateCondBr(branchCond, bodyBB, nextBB);
             // This is the if-else-chain counterpart of the switch-mode
@@ -2046,7 +2103,21 @@ IRGen::PatternInfo IRGen::resolveMatchPattern(const Pattern *pattern,
 }
 
 void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nested,
-                                    llvm::BasicBlock *failBB, llvm::Function *func) {
+                                    llvm::BasicBlock *failBB, llvm::Function *func,
+                                    std::vector<llvm::BasicBlock *> *defaultEdgePreds,
+                                    llvm::BasicBlock *trueDefaultBB) {
+    // Final review Critical 2: `failBB` may legitimately BE the match's true
+    // global default (e.g. this is the last arm, so its own "try next arm"
+    // target already IS defaultBB) — when so, this CondBr's false-edge is
+    // exactly the same kind of "no wildcard arm" default edge visitMatchExpr
+    // tracks everywhere else (switch-mode default, if-else-chain arm-level
+    // CondBr), so it needs the same PHI-placeholder bookkeeping. Captured
+    // BEFORE the CondBr since that call moves the insertion point to matchBB.
+    auto *originBB = builder_->GetInsertBlock();
+    auto trackDefaultEdge = [&]() {
+        if (defaultEdgePreds && failBB == trueDefaultBB)
+            defaultEdgePreds->push_back(originBB);
+    };
     auto etIt = enumTypes_.find(nested.enumName);
     if (etIt != enumTypes_.end()) {
         // Payload enum: struct {i32 tag, [payload bytes]}
@@ -2057,6 +2128,7 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
         auto *cmp = builder_->CreateICmpEQ(innerTag, builder_->getInt32(nested.tag), "nested.cmp");
         auto *matchBB = llvm::BasicBlock::Create(*context_, "nested.match", func);
         builder_->CreateCondBr(cmp, matchBB, failBB);
+        trackDefaultEdge();
         builder_->SetInsertPoint(matchBB);
 
         // Extract inner bindings
@@ -2075,8 +2147,10 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
                             "nested.bind." + std::to_string(b));
 
                         if (b < nested.nestedPatterns.size() && nested.nestedPatterns[b].hasTag) {
-                            // Deeper nesting — recurse
-                            emitNestedPatternMatch(innerFieldPtr, nested.nestedPatterns[b], failBB, func);
+                            // Deeper nesting — recurse, threading the same
+                            // failBB/defaultEdgePreds/trueDefaultBB through.
+                            emitNestedPatternMatch(innerFieldPtr, nested.nestedPatterns[b], failBB,
+                                                   func, defaultEdgePreds, trueDefaultBB);
                         } else if (!nested.bindings[b].empty()) {
                             auto *val = builder_->CreateLoad(innerPayloadTypes[b], innerFieldPtr, nested.bindings[b]);
                             auto *bindAlloca = createEntryBlockAlloca(func, nested.bindings[b], innerPayloadTypes[b]);
@@ -2094,13 +2168,24 @@ void IRGen::emitNestedPatternMatch(llvm::Value *fieldPtr, const PatternInfo &nes
         auto *cmp = builder_->CreateICmpEQ(innerTag, builder_->getInt32(nested.tag), "nested.cmp");
         auto *matchBB = llvm::BasicBlock::Create(*context_, "nested.match", func);
         builder_->CreateCondBr(cmp, matchBB, failBB);
+        trackDefaultEdge();
         builder_->SetInsertPoint(matchBB);
     }
 }
 
 void IRGen::emitTuplePatternBindings(llvm::Value *tupleVal, const PatternInfo &pat,
                                       llvm::Function *func) {
-    for (size_t i = 0; i < pat.bindings.size(); ++i) {
+    // Final review Critical 3: defense-in-depth bound check, mirroring the
+    // isStructTy() guard the visitMatchExpr call site now has — caps the
+    // loop at the subject's ACTUAL element count so an unclassifiable-
+    // subject mismatch (or any other bindings/struct-arity divergence) hits
+    // a documented no-op fallback instead of an out-of-range
+    // CreateExtractValue assert.
+    auto *tupleStructTy = llvm::dyn_cast<llvm::StructType>(tupleVal->getType());
+    if (!tupleStructTy) return;
+    size_t elemCount = std::min(pat.bindings.size(),
+                                 static_cast<size_t>(tupleStructTy->getNumElements()));
+    for (size_t i = 0; i < elemCount; ++i) {
         auto *elemVal = builder_->CreateExtractValue(tupleVal, {static_cast<unsigned>(i)},
                                                        "tuple.pat.bind.elem");
         if (i < pat.nestedPatterns.size() && pat.nestedPatterns[i].isTuple) {
@@ -2133,8 +2218,19 @@ llvm::Value *IRGen::emitPatternCond(const PatternInfo &pat, llvm::Value *tagVal)
         // element reuses this SAME branch recursively (its own
         // nestedPatterns[i].isTuple is true), extracting from the
         // just-extracted element value instead of the outer `tagVal`.
+        //
+        // Final review Critical 3: this isStructTy() guard alone isn't an
+        // ARITY bound — a Sema-unclassifiable subject (see
+        // MatchTuplePatternOnStructSubjectNoICE) can still reach here with a
+        // struct that legitimately has FEWER fields than the tuple pattern
+        // has elements, and an out-of-range CreateExtractValue crashes just
+        // as it did in the prologue. Cap the loop the same way
+        // emitTuplePatternBindings now does.
+        auto *tupleStructTy = llvm::cast<llvm::StructType>(tagVal->getType());
+        size_t elemCount = std::min(pat.nestedPatterns.size(),
+                                     static_cast<size_t>(tupleStructTy->getNumElements()));
         llvm::Value *andCond = nullptr;
-        for (size_t i = 0; i < pat.nestedPatterns.size(); ++i) {
+        for (size_t i = 0; i < elemCount; ++i) {
             auto *elemVal = builder_->CreateExtractValue(tagVal, {static_cast<unsigned>(i)},
                                                            "tuple.pat.elem");
             llvm::Value *elemCond = emitPatternCond(pat.nestedPatterns[i], elemVal);
@@ -2143,11 +2239,23 @@ llvm::Value *IRGen::emitPatternCond(const PatternInfo &pat, llvm::Value *tagVal)
         }
         return andCond;
     }
-    if (pat.isFloatLiteral) {
+    // Final review Critical 3: guard both literal-comparison branches against
+    // a subject Sema couldn't classify (struct/tuple/other Named — Sema's
+    // subjectIsKnownScalar gate conservatively skips those, same class as the
+    // isRange guard below and the isTuple/isStructTy guard above). Without
+    // this, a float-literal arm on a non-FP subject asserts inside
+    // ConstantFP::get, and a string-literal arm on a non-pointer subject
+    // builds an ill-typed call to liva_str_equal that fails module
+    // verification. Falls back to the documented null-cond/no-op convention
+    // (same as the pre-existing isRange/hasTag guards below and
+    // MatchRangeOnStructSubjectNoICE's rationale): a nullptr condition makes
+    // the arm match UNCONDITIONALLY — semantically wrong for an
+    // un-classifiable subject, but Sema-legal and non-fatal, not a crash.
+    if (pat.isFloatLiteral && tagVal->getType()->isFloatingPointTy()) {
         auto *litVal = llvm::ConstantFP::get(tagVal->getType(), pat.floatValue);
         return builder_->CreateFCmpOEQ(tagVal, litVal, "pat.feq");
     }
-    if (pat.isStringLiteral) {
+    if (pat.isStringLiteral && tagVal->getType()->isPointerTy()) {
         auto *litStr = builder_->CreateGlobalString(pat.stringValue, "pat.str");
         auto *equalFn = getOrPanic("liva_str_equal");
         auto *rawResult = builder_->CreateCall(equalFn, {tagVal, litStr}, "pat.streq.raw");

@@ -791,6 +791,46 @@ TEST_F(SemaTest, TupleElementOrPatternRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_tuple_element_unsupported));
 }
 
+// === Final review Critical 1: `@` binding a TUPLE pattern ===
+
+// `t @ (a, b)` — resolveMatchPattern's Kind::Binding case prepends the
+// binding's own name to `info.bindings`, but a tuple's bindings/
+// nestedPatterns are index-aligned with its elements: the prepend shifts
+// every element binding one slot right and leaves `nestedPatterns` one
+// short, so IRGen's emitTuplePatternBindings does an out-of-range
+// CreateExtractValue (ICE). Sibling rejection to the enum-case one above,
+// via a NEW diagnostic (err_pattern_binding_tuple_unsupported) since the
+// enum-case message is worded specifically around "an enum-case pattern".
+TEST_F(SemaTest, BindingOverTuplePatternRejected) {
+    auto result = check(R"--(
+        func main() {
+            let t = (1, 2)
+            match t {
+                b @ (x, y) => println(x + y)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_binding_tuple_unsupported));
+}
+
+// Nested `@` unwrapping: `a @ b @ (x, y)` must also be rejected — the
+// eventual effective sub-pattern is still a Tuple.
+TEST_F(SemaTest, BindingOverBindingOverTuplePatternRejected) {
+    auto result = check(R"--(
+        func main() {
+            let t = (1, 2)
+            match t {
+                a @ b @ (x, y) => println(x + y)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_pattern_binding_tuple_unsupported));
+}
+
 TEST_F(SemaTest, MatchDuplicateArm) {
     auto result = check(R"(
         enum Color {
