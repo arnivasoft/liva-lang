@@ -140,7 +140,18 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
     // (same conservative scope as the `let b = a` case above). Note: `b`'s
     // OVERWRITTEN old value is not dropped here — that's a documented,
     // double-free-safe leak (see spec point 2), out of scope for this task.
-    if (node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+    //
+    // Gate mirrors IRGen's suppression EXACTLY (IRGenCall.cpp's plain-
+    // identifier-target branch, itself gated on `Op::Assign`): IRGen only
+    // suppresses the source's drop when the op is plain `=` AND the
+    // assignment TARGET is a bare identifier. For any other target shape
+    // (`x.f = a`, `arr[i] = a`) or any compound op (`+=` etc.), IRGen does
+    // NOT suppress the drop — `a` still gets dropped normally at scope exit
+    // — so marking it moved here would make Sema reject programs that
+    // compile and run correctly (spurious err_use_after_move).
+    if (node->getOp() == AssignExpr::Op::Assign &&
+        node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr &&
+        node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *valIdent = static_cast<IdentifierExpr *>(
             const_cast<Expr *>(node->getValue()));
         auto *srcInfo = getInfo(valIdent->getName());

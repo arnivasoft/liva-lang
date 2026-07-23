@@ -5205,6 +5205,60 @@ TEST_F(SemaTest, UseAfterMoveDropType) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
 }
 
+// Reviewer-caught over-marking fix: Sema's visitAssignExpr move-marking must
+// mirror IRGen's suppression gate EXACTLY (IRGenCall.cpp's plain-identifier-
+// target branch, itself gated on Op::Assign) — otherwise Sema rejects
+// programs IRGen compiles and runs just fine. `x.f = a` (member TARGET) must
+// NOT mark `a` as moved: IRGen only suppresses the drop for a plain-
+// identifier target, so `a` still gets dropped normally at scope exit
+// regardless of this assignment — using `a` again afterward is fine.
+TEST_F(SemaTest, MemberAssignNoSpuriousMove) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Res { var id: i32 }
+        impl Res: Drop {
+            func drop(mut self) {
+                let v: i32 = self.id
+            }
+        }
+        struct Box { var r: Res }
+        func main() {
+            var x = Box { r: Res { id: 1 } }
+            let a = Res { id: 2 }
+            x.r = a
+            let c = a
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+// Same gate, compound-assignment operator: `x += a` is NOT `Op::Assign`, so
+// IRGen's plain-identifier-target branch does not suppress the drop for it
+// either (see IRGenCall.cpp's `node->getOp() == AssignExpr::Op::Assign`
+// guard) — Sema must not mark `a` as moved here.
+TEST_F(SemaTest, CompoundAssignNoMove) {
+    auto result = check(R"--(
+        protocol Drop {
+            func drop(mut self)
+        }
+        struct Res { var id: i32 }
+        impl Res: Drop {
+            func drop(mut self) {
+                let v: i32 = self.id
+            }
+        }
+        func main() {
+            var x = Res { id: 1 }
+            let a = Res { id: 2 }
+            x += a
+            let c = a
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
 // Protection test: plain structs (no Drop conformance) are OUTSIDE this
 // task's conservative scope — the SAME shape as UseAfterMoveDropType above
 // must NOT error for a plain struct (copy semantics unchanged).
