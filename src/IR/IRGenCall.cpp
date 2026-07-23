@@ -1616,13 +1616,16 @@ llvm::Value *IRGen::visitMatchExpr(MatchExpr *node) {
                 auto *equalFn = getOrPanic("liva_str_equal");
                 auto *rawResult = builder_->CreateCall(equalFn, {tagVal, litStr}, "pat.streq.raw");
                 patternCond = builder_->CreateICmpNE(rawResult, builder_->getInt32(0), "pat.streq");
-            } else if (info.pat.isRange) {
+            } else if (info.pat.isRange && tagVal->getType()->isIntegerTy()) {
                 // Pattern Types Faz B, Task 3: `lo <= x && x < hi` (exclusive)
-                // / `lo <= x && x <= hi` (inclusive). tagVal is guaranteed an
-                // LLVM integer here — a range pattern only reaches this
-                // point in a real program via a match on an int subject
-                // (Sema's err_pattern_type_mismatch rejects any other known
-                // scalar subject type; see visitMatchExpr in TypeChecker.cpp).
+                // / `lo <= x && x <= hi` (inclusive). Sema's
+                // err_pattern_type_mismatch rejects range arms on known
+                // non-int scalar and known-enum subjects, but subjects Sema
+                // cannot classify (struct/tuple/other Named) slip through —
+                // the isIntegerTy() guard keeps those on the legacy
+                // "patternCond stays null → arm matches unconditionally"
+                // fallback instead of hitting an invalid ICmp (LLVM verify
+                // failure). Same defense as the hasTag branch below.
                 auto *tagIntTy = llvm::cast<llvm::IntegerType>(tagVal->getType());
                 auto *loVal = llvm::ConstantInt::get(
                     tagIntTy, static_cast<uint64_t>(info.pat.rangeLo), /*isSigned=*/true);

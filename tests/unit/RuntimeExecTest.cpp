@@ -787,6 +787,30 @@ TEST(RuntimeExecTest, MatchNonExhaustiveStatementNoTrap) {
     EXPECT_EQ(r.stdout_output, "after\n") << "stdout: " << r.stdout_output;
 }
 
+// Pattern Types (Faz B) Task 3 re-review ICE regression: a range arm on a
+// subject Sema cannot classify (struct) must NOT hit an invalid ICmp / LLVM
+// verify failure. The guarded fallback keeps the legacy behavior: the range
+// arm's patternCond stays null, so it matches unconditionally (semantically
+// wrong but Sema-legal and non-fatal — closing the Sema gap for unclassified
+// subjects is tracked separately). This test pins "compiles and runs", not
+// the arm choice.
+TEST(RuntimeExecTest, MatchRangeOnStructSubjectNoICE) {
+    auto r = compileAndRun(R"--(
+        struct Point { x: i32 }
+        func main() {
+            let p = Point{x: 1}
+            match p {
+                1..10 => println("range")
+                _ => println("other")
+            }
+            println("after")
+        }
+    )--", "match_range_struct_subject_no_ice");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("after"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
 // Pattern Types (Faz B) Task 2: bool/string/float literal match arms.
 // Bool literal patterns reuse the existing tag/hasTag switch-case
 // machinery (bool subject -> i1 tagVal, a valid CreateSwitch condition);
