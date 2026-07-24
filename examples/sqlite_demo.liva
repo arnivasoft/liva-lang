@@ -1,0 +1,56 @@
+// sqlite_demo.liva
+//
+// A tour of Liva's embedded SQLite client (sqlite::sqlite).
+//
+// Demonstrates:
+//   - SqliteDB.openMemory(): open an in-memory database (":memory:")
+//   - exec(): CREATE TABLE and a plain INSERT
+//   - prepare()/bindInt()/bindText()/step(): a parameterized INSERT
+//   - prepare()/step()/columnInt()/columnText(): SELECT loop reading
+//     typed columns (bind indices are 1-based, column indices 0-based)
+//   - queryInt(): aggregate COUNT(*) and SUM() in one call each
+//   - finalize()/close(): proper resource cleanup
+//
+// How to run:
+//   livac sqlite_demo.liva -o sqlite_demo && ./sqlite_demo
+
+import sqlite::sqlite
+
+func main() {
+    if let db = SqliteDB.openMemory() {
+        var d = db
+        d.exec("CREATE TABLE users(id INTEGER, name TEXT, score INTEGER)")
+        d.exec("INSERT INTO users(id, name, score) VALUES (1, 'Ada', 90)")
+        d.exec("INSERT INTO users(id, name, score) VALUES (2, 'Linus', 85)")
+
+        if let s = d.prepare("INSERT INTO users(id, name, score) VALUES (?, ?, ?)") {
+            var stmt = s
+            stmt.bindInt(1, 3 as i64)
+            stmt.bindText(2, "Grace")
+            stmt.bindInt(3, 95 as i64)
+            stmt.step()
+            stmt.finalize()
+        }
+
+        if let s2 = d.prepare("SELECT id, name, score FROM users ORDER BY id") {
+            var stmt2 = s2
+            while stmt2.step() {
+                println(stmt2.columnInt(0))
+                println(stmt2.columnText(1))
+                println(stmt2.columnInt(2))
+            }
+            stmt2.finalize()
+        }
+
+        if let count = d.queryInt("SELECT COUNT(*) FROM users") {
+            println(count)
+        }
+        if let total = d.queryInt("SELECT SUM(score) FROM users") {
+            println(total)
+        }
+
+        d.close()
+    } else {
+        println("open failed")
+    }
+}

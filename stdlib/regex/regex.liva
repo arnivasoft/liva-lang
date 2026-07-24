@@ -13,23 +13,23 @@ impl Regex {
     }
 
     pub func isMatch(ref self, text: String) -> bool {
-        return regexMatch(self.pattern, text)
+        return regexMatch(text, self.pattern)
     }
 
     pub func find(ref self, text: String) -> String? {
-        return regexFind(self.pattern, text)
+        return regexFind(text, self.pattern)
     }
 
     pub func findAll(ref self, text: String) -> [String] {
-        return regexFindAll(self.pattern, text)
+        return regexFindAll(text, self.pattern)
     }
 
     pub func replace(ref self, text: String, replacement: String) -> String {
-        return regexReplace(self.pattern, text, replacement)
+        return regexReplace(text, self.pattern, replacement)
     }
 
     pub func groups(ref self, text: String) -> [String] {
-        return regexFindGroups(self.pattern, text)
+        return regexFindGroups(text, self.pattern)
     }
 
     pub func split(ref self, text: String) -> [String] {

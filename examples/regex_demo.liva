@@ -1,0 +1,54 @@
+// regex_demo.liva
+//
+// A tour of Liva's regular expression wrapper (regex::regex).
+//
+// Demonstrates the documented Regex API (pattern held by Regex.new,
+// text passed to each call):
+//   - Regex.new(pattern) + isMatch(text): true/false cases
+//   - find(text): first match, via `if let`
+//   - findAll(text): count + each match
+//   - replace(text, replacement)
+//   - groups(text): capture groups (index 0 is always the full match)
+//
+// Also shows the underlying raw builtins (no import needed) to make a
+// semantics point: regexMatch() is FULL-STRING match (the whole subject
+// must match), while regexFind() is CONTAINS-a-match. Regex.isMatch()
+// forwards to regexMatch(), so the same distinction applies there.
+//
+// How to run:
+//   livac regex_demo.liva -o regex_demo && ./regex_demo
+
+import regex::regex
+
+func main() {
+    let digits = Regex.new("[0-9]+")
+
+    println(digits.isMatch("42"))          // true  - the ENTIRE string is digits
+    println(digits.isMatch("abc123"))      // false - not a full match (see note below)
+
+    if let first = digits.find("abc123def456") {
+        println(first)
+    }
+
+    let all: [String] = digits.findAll("a1b22c333")
+    println(all.length)
+    for m in all {
+        println(m)
+    }
+
+    println(digits.replace("x9y8", "N"))
+
+    let pair = Regex.new("(\\w+)@(\\w+)")
+    let gs: [String] = pair.groups("user@host")
+    println(gs.length)
+    for g in gs {
+        println(g)
+    }
+
+    // Raw builtin comparison: regexMatch (full-string) vs regexFind
+    // (contains) on the identical pattern/text pair.
+    println(regexMatch("abc123", "[0-9]+"))   // false - "abc123" isn't ENTIRELY digits
+    if let f = regexFind("abc123", "[0-9]+") {
+        println(f)                            // 123  - found as a substring
+    }
+}

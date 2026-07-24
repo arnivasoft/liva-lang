@@ -1,0 +1,53 @@
+// crypto_jwt_demo.liva
+//
+// A tour of Liva's cryptographic hashing (crypto::crypto) and JWT
+// (jwt::jwt) wrappers.
+//
+// Demonstrates:
+//   - Hash.sha256(data).hex(): SHA-256 digest of a fixed string
+//   - Hmac.sha256(key, data).hex(): keyed HMAC-SHA256 digest
+//   - Jwt.signHS256(secret, payloadJson): sign a fixed payload, print
+//     the resulting compact token (header.payload.signature)
+//   - Jwt.verifyHS256(token, secret): verify the genuine token (true —
+//     the original payload JSON comes back) and a tampered token
+//     (false — signature check fails, nil returned)
+//
+// All inputs are fixed strings (no randomness/timestamps involved), so
+// every digest, the token itself, and both verify outcomes are
+// deterministic across runs.
+//
+// How to run:
+//   livac crypto_jwt_demo.liva -o crypto_jwt_demo && ./crypto_jwt_demo
+
+import crypto::crypto
+import jwt::jwt
+
+func main() {
+    let message: String = "liva-lang"
+    let h = Hash.sha256(message)
+    println(h.hex())
+
+    let secret: String = "topsecret"
+    let hm = Hmac.sha256(secret, message)
+    println(hm.hex())
+
+    let payload: string = "{\"sub\":\"alice\",\"role\":\"admin\"}"
+    let tok = Jwt.signHS256(secret, payload)
+    let tokStr: string = tok.toString()
+    println(tokStr)
+
+    if let got = Jwt.verifyHS256(tokStr, secret) {
+        println(got)
+    } else {
+        println("verify failed")
+    }
+
+    // Tamper with the token by appending a character; the signature no
+    // longer matches, so verification fails and nil is returned.
+    let tampered: string = tokStr + "x"
+    if let got2 = Jwt.verifyHS256(tampered, secret) {
+        println(got2)
+    } else {
+        println("verify failed")
+    }
+}

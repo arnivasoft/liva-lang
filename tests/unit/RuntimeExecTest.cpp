@@ -3724,4 +3724,67 @@ TEST(RuntimeExecTest, BranchDeclaredMapSetNoCorruption) {
     EXPECT_EQ(r.stdout_output, "-1\n1\n-1\n1\ndone\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// regex::regex wrapper — argument-order fix pinning tests
+//
+// stdlib/regex/regex.liva's isMatch/find/findAll/replace/groups methods
+// used to pass (pattern, text) to the underlying regexMatch/regexFind/...
+// builtins, which actually expect (text, pattern) — an inverted-argument
+// bug. These tests pin the CORRECT (pattern held by Regex.new, text passed
+// to the method) semantics; they fail against the pre-fix wrapper.
+// ============================================================
+
+TEST(RuntimeExecTest, RegexWrapperIsMatchTrueFalse) {
+    auto r = compileAndRun(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\"^[a-z]+$\")\n"
+        "    println(re.isMatch(\"abc\"))\n"
+        "    println(re.isMatch(\"abc123\"))\n"
+        "}\n",
+        "regex_wrapper_ismatch");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "true\nfalse\n") << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, RegexWrapperFindAllCount) {
+    auto r = compileAndRun(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\"[0-9]+\")\n"
+        "    let all: [String] = re.findAll(\"a1b22c333\")\n"
+        "    println(all.length)\n"
+        "    for m in all { println(m) }\n"
+        "}\n",
+        "regex_wrapper_findall");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n1\n22\n333\n") << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, RegexWrapperReplace) {
+    auto r = compileAndRun(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\"[0-9]+\")\n"
+        "    println(re.replace(\"x9y8\", \"N\"))\n"
+        "}\n",
+        "regex_wrapper_replace");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "xNyN\n") << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, RegexWrapperGroups) {
+    auto r = compileAndRun(
+        "import regex::regex\n"
+        "func main() {\n"
+        "    let re = Regex.new(\"(\\\\w+)@(\\\\w+)\")\n"
+        "    let gs: [String] = re.groups(\"user@host\")\n"
+        "    println(gs.length)\n"
+        "    for g in gs { println(g) }\n"
+        "}\n",
+        "regex_wrapper_groups");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\nuser@host\nuser\nhost\n") << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

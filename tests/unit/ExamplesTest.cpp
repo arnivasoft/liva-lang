@@ -202,4 +202,32 @@ TEST(ExamplesTest, TomlDemo) {
               "true\nliva\n3\ntrue\nkadir\nfalse\ntrue\nfalse\n");
 }
 
+TEST(ExamplesTest, SqliteDemo) {
+    auto r = compileAndRunExample("sqlite_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "1\nAda\n90\n2\nLinus\n85\n3\nGrace\n95\n3\n270\n");
+}
+
+TEST(ExamplesTest, RegexDemo) {
+    auto r = compileAndRunExample("regex_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "true\nfalse\n123\n3\n1\n22\n333\nxNyN\n3\nuser@host\nuser\nhost\n"
+              "false\n123\n");
+}
+
+TEST(ExamplesTest, CryptoJwtDemo) {
+    auto r = compileAndRunExample("crypto_jwt_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "466da7edcf7a3a5d085bdce101e8c6e16cc794fc1f7e0e734d5d485de22916d0\n"
+              "9c9755c4e374d0f7d765de6ae9d3ef087f696a745a031d3fa3e53f28e5fd3b94\n"
+              "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+              "eyJzdWIiOiJhbGljZSIsInJvbGUiOiJhZG1pbiJ9."
+              "eBidO_y2cBiPgKXCxhaHNruZro_NSlYOmd8bsSy_cWw\n"
+              "{\"sub\":\"alice\",\"role\":\"admin\"}\n"
+              "verify failed\n");
+}
+
 #endif // LIVA_HAS_LLVM
