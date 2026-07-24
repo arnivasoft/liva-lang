@@ -3511,4 +3511,134 @@ TEST(RuntimeExecTest, CliUsageOutput) {
     EXPECT_NE(r.stdout_output.find("<input>"), std::string::npos);
 }
 
+// ============================================================
+// `&&` / `||` short-circuit semantics (roadmap 2.3, 2026-07)
+// ============================================================
+// visitBinaryExpr used to visit BOTH operands eagerly and lower And/Or as
+// bitwise CreateAnd/CreateOr — no control flow at all. Side effects on the
+// RHS always ran, and the `i >= len || a[i]` bounds-guard idiom panicked
+// out-of-bounds. These tests pin the short-circuit lowering.
+
+TEST(RuntimeExecTest, LogicalOrShortCircuits) {
+    auto r = compileAndRun(R"--(
+        func loud(v: bool) -> bool {
+            println("EVAL")
+            return v
+        }
+        func main() {
+            if true || loud(true) {
+                println("t1")
+            }
+            if false || loud(true) {
+                println("t2")
+            }
+            if false || loud(false) {
+                println("unexpected")
+            } else {
+                println("t3")
+            }
+        }
+    )--", "sc_or");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // Case 1: LHS true → RHS must NOT run (no EVAL). Case 2/3: RHS runs once.
+    EXPECT_EQ(r.stdout_output, "t1\nEVAL\nt2\nEVAL\nt3\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, LogicalAndShortCircuits) {
+    auto r = compileAndRun(R"--(
+        func loud(v: bool) -> bool {
+            println("EVAL")
+            return v
+        }
+        func main() {
+            if false && loud(true) {
+                println("unexpected")
+            } else {
+                println("t1")
+            }
+            if true && loud(true) {
+                println("t2")
+            }
+            if true && loud(false) {
+                println("unexpected")
+            } else {
+                println("t3")
+            }
+        }
+    )--", "sc_and");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // Case 1: LHS false → RHS must NOT run. Case 2/3: RHS runs once.
+    EXPECT_EQ(r.stdout_output, "t1\nEVAL\nt2\nEVAL\nt3\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ShortCircuitBoundsGuard) {
+    // The motivating cli::cli idiom: the RHS index is only safe when the
+    // LHS bounds check already decided the outcome. Used to PANIC.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [i32] = [10]
+            var i = 5
+            if i >= 1 || a[i] > 0 {
+                println("or-guard-ok")
+            }
+            if i < 1 && a[i] > 0 {
+                println("unexpected")
+            } else {
+                println("and-guard-ok")
+            }
+        }
+    )--", "sc_bounds_guard");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "or-guard-ok\nand-guard-ok\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ShortCircuitChained) {
+    auto r = compileAndRun(R"--(
+        func loud(tag: string, v: bool) -> bool {
+            println(tag)
+            return v
+        }
+        func main() {
+            if loud("a", false) || loud("b", true) || loud("c", true) {
+                println("or-chain")
+            }
+            if loud("x", true) && loud("y", false) && loud("z", true) {
+                println("unexpected")
+            } else {
+                println("and-chain")
+            }
+        }
+    )--", "sc_chained");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // a=false → b runs, b=true → c must NOT run.
+    // x=true → y runs, y=false → z must NOT run.
+    EXPECT_EQ(r.stdout_output, "a\nb\nor-chain\nx\ny\nand-chain\n")
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ShortCircuitInWhileCondition) {
+    // Loop conditions are re-evaluated every iteration; the short-circuit
+    // blocks live inside the loop's cond region and must not break the
+    // back-edge. Also the classic linear-scan idiom.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [i32] = [3, 7, 9]
+            var i = 0 as i64
+            while i < a.length && a[i] != 7 {
+                i = i + 1
+            }
+            println(i)
+            var j = 0
+            var steps = 0
+            while j < 10 && steps < 3 {
+                j = j + 2
+                steps = steps + 1
+            }
+            println(j)
+        }
+    )--", "sc_while_cond");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n6\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

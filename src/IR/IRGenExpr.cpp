@@ -93,6 +93,68 @@ llvm::Value *IRGen::visitBinaryExpr(BinaryExpr *node) {
         return emitNilCoalesce(node);
     }
 
+    // Logical && / || must SHORT-CIRCUIT: the RHS is evaluated only when the
+    // LHS hasn't already decided the result. Lowering: CondBr into an RHS
+    // block + i1 PHI at the merge. The eager visit-both-then-bitwise path
+    // below evaluated RHS side effects unconditionally and sent the
+    // `i >= len || a[i]` bounds-guard idiom out of bounds.
+    if (node->getOp() == BinaryExpr::Op::And ||
+        node->getOp() == BinaryExpr::Op::Or) {
+        auto *lhs = visit(node->getLHS());
+        if (!lhs)
+            return nullptr;
+        if (lhs->getType()->isIntegerTy(1)) {
+            bool isAnd = node->getOp() == BinaryExpr::Op::And;
+            auto *func = builder_->GetInsertBlock()->getParent();
+            auto *lhsEndBB = builder_->GetInsertBlock();
+            auto *rhsBB = llvm::BasicBlock::Create(
+                *context_, isAnd ? "and.rhs" : "or.rhs", func);
+            auto *mergeBB = llvm::BasicBlock::Create(
+                *context_, isAnd ? "and.end" : "or.end", func);
+            if (isAnd)
+                builder_->CreateCondBr(lhs, rhsBB, mergeBB);
+            else
+                builder_->CreateCondBr(lhs, mergeBB, rhsBB);
+
+            builder_->SetInsertPoint(rhsBB);
+            // Temp strings produced while evaluating the RHS must be freed
+            // INSIDE the RHS block: the statement-level cleanup pass runs
+            // after the merge, where rhsBB-defined values don't dominate.
+            size_t tempMark = vars_.tempStrings.size();
+            auto *rhs = visit(node->getRHS());
+            if (!rhs)
+                return nullptr;
+            if (!rhs->getType()->isIntegerTy(1))
+                rhs = builder_->CreateICmpNE(
+                    rhs, llvm::Constant::getNullValue(rhs->getType()),
+                    "tobool");
+            if (vars_.tempStrings.size() > tempMark) {
+                if (auto *freeFn = module_->getFunction("free")) {
+                    for (size_t i = tempMark; i < vars_.tempStrings.size(); ++i)
+                        builder_->CreateCall(freeFn, {vars_.tempStrings[i]});
+                }
+                vars_.tempStrings.resize(tempMark);
+            }
+            auto *rhsEndBB = builder_->GetInsertBlock();
+            builder_->CreateBr(mergeBB);
+
+            builder_->SetInsertPoint(mergeBB);
+            auto *phi = builder_->CreatePHI(builder_->getInt1Ty(), 2,
+                                            isAnd ? "and.result" : "or.result");
+            phi->addIncoming(builder_->getInt1(!isAnd), lhsEndBB);
+            phi->addIncoming(rhs, rhsEndBB);
+            return phi;
+        }
+        // Non-bool LHS (legacy/unspecified): keep the old eager bitwise
+        // behavior rather than inventing semantics here.
+        auto *rhsEager = visit(node->getRHS());
+        if (!rhsEager)
+            return nullptr;
+        return node->getOp() == BinaryExpr::Op::And
+                   ? builder_->CreateAnd(lhs, rhsEager, "andtmp")
+                   : builder_->CreateOr(lhs, rhsEager, "ortmp");
+    }
+
     auto *lhs = visit(node->getLHS());
     auto *rhs = visit(node->getRHS());
     if (!lhs || !rhs)

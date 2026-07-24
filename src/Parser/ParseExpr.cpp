@@ -783,8 +783,16 @@ std::unique_ptr<Expr> Parser::parsePostfixExpr(std::unique_ptr<Expr> base) {
             }
             base = parseCallExpr(std::move(base));
             // Check for trailing closure after call: apply(5) |x| { ... }
+            // Disambiguation for `pipe_pipe`: `f() || x` is logical-or, while
+            // `f() || { ... }` is a zero-param trailing closure — only treat
+            // `||` as a closure head when a `{` body follows, otherwise leave
+            // it for the binary-operator loop. (Single `pipe` keeps the
+            // historical closure-first behavior: `f() |x| { ... }`.)
+            bool trailingClosureHead =
+                check(TokenKind::pipe) ||
+                (check(TokenKind::pipe_pipe) && peek().is(TokenKind::l_brace));
             if (base && base->getKind() == ASTNode::NodeKind::CallExpr &&
-                (check(TokenKind::pipe) || check(TokenKind::pipe_pipe))) {
+                trailingClosureHead) {
                 auto *call = static_cast<CallExpr *>(base.get());
                 auto trailingClosure = parseClosureExpr();
                 if (trailingClosure) {
