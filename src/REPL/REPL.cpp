@@ -309,14 +309,32 @@ bool REPLSession::hasUnclosedDelimiters(const std::string &input) const {
 
 // ── generateFullSource ──────────────────────────────────────────────────
 
+// Top-level `var`/`let` are rejected by Sema (err_global_var_unsupported):
+// the REPL keeps interactive variable declarations in declarations_, but
+// they must be emitted INSIDE the synthesized main body, where they are
+// legal. Everything else (func/struct/const/...) stays at top level.
+static bool isVarLetDecl(const std::string &decl) {
+    size_t start = decl.find_first_not_of(" \t");
+    if (start == std::string::npos)
+        return false;
+    size_t end = decl.find_first_of(" \t(", start);
+    std::string first = decl.substr(
+        start, end == std::string::npos ? std::string::npos : end - start);
+    return first == "let" || first == "var";
+}
+
 std::string
 REPLSession::generateFullSource(const std::string &exprOrStmt,
                                 bool isExpression) const {
     std::string source;
     for (const auto &decl : declarations_)
-        source += decl + "\n";
+        if (!isVarLetDecl(decl))
+            source += decl + "\n";
 
     source += "func main() {\n";
+    for (const auto &decl : declarations_)
+        if (isVarLetDecl(decl))
+            source += "    " + decl + "\n";
     if (isExpression)
         source += "    " + exprOrStmt + "\n";
     else
@@ -393,14 +411,23 @@ bool REPLSession::validateSource(const std::string &source,
 
 bool REPLSession::validateDeclaration(const std::string &decl,
                                       std::string &errorOut) const {
-    // Build a source with all existing declarations + new one
+    // Build a source with all existing declarations + new one. `var`/`let`
+    // declarations go INSIDE the synthesized main (top-level var/let is a
+    // Sema error — err_global_var_unsupported); the rest stay top-level.
     std::string source;
     for (const auto &d : declarations_)
-        source += d + "\n";
-    source += decl + "\n";
+        if (!isVarLetDecl(d))
+            source += d + "\n";
+    if (!isVarLetDecl(decl))
+        source += decl + "\n";
 
-    // Add an empty main() so the source is a valid translation unit
-    source += "func main() {}\n";
+    source += "func main() {\n";
+    for (const auto &d : declarations_)
+        if (isVarLetDecl(d))
+            source += "    " + d + "\n";
+    if (isVarLetDecl(decl))
+        source += "    " + decl + "\n";
+    source += "}\n";
 
     SourceManager sm("<repl>", source);
     DiagnosticsEngine diag(&sm);

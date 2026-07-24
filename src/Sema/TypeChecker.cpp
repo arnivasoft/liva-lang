@@ -564,15 +564,18 @@ void TypeChecker::check(TranslationUnit &tu) {
     for (auto &decl : tu.getDeclarations()) {
         // Top-level `var`/`let` have no runtime storage model (IRGen's
         // visitVarDecl assumes a function's insert block and would segfault
-        // on a null deref). Reject here with a clean diagnostic and skip the
-        // decl entirely; top-level `const` (compile-time constant) is fine.
+        // on a null deref). Reject here with a clean diagnostic; top-level
+        // `const` (compile-time constant) is fine. The decl is still VISITED
+        // after reporting so type inference runs — the LSP relies on the
+        // resolved type for inlay hints on documents that contain top-level
+        // vars (analysis fails overall, so nothing reaches IRGen).
         if (decl->getKind() == ASTNode::NodeKind::VarDecl) {
             auto *varDecl = static_cast<VarDecl *>(decl.get());
             if (!varDecl->isConst()) {
                 diag_.report(varDecl->getStartLoc(),
                              DiagID::err_global_var_unsupported,
-                             varDecl->getName());
-                continue;
+                             varDecl->getName().empty() ? "(destructured)"
+                                                        : varDecl->getName());
             }
         }
         visit(decl.get());
