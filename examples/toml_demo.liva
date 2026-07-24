@@ -1,0 +1,42 @@
+// toml_demo.liva
+//
+// A tour of Liva's toml::toml TomlDocument: parsing a config string with
+// multiple [section] headers, reading string/int/bool values, and checking
+// for missing keys.
+//
+// NOTE: TomlDocument.parse() returns a TomlDocument directly (NOT an
+// optional) — check success via isValid(), not `if let`. There is no Drop
+// impl, so free() must be called manually once done.
+//
+// How to run:
+//   livac toml_demo.liva -o toml_demo && ./toml_demo
+
+import toml::toml
+
+func main() {
+    let text = "[project]\nname = \"liva\"\nversion = 3\nstable = true\n\n[author]\nname = \"kadir\"\nactive = false\n"
+    var doc = TomlDocument.parse(text)
+    println(doc.isValid())
+
+    if let name = doc.getString("project", "name") {
+        println(name)
+    }
+    if let version = doc.getInt("project", "version") {
+        println(version)
+    }
+    if let stable = doc.getBool("project", "stable") {
+        println(stable)
+    }
+
+    if let author = doc.getString("author", "name") {
+        println(author)
+    }
+    if let active = doc.getBool("author", "active") {
+        println(active)
+    }
+
+    println(doc.hasKey("project", "name"))
+    println(doc.hasKey("project", "missing"))
+
+    doc.free()
+}

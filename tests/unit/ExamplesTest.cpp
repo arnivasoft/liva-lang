@@ -179,4 +179,27 @@ TEST(ExamplesTest, MapSetDemo) {
               "true\ntrue\nfalse\n3\n0\ntrue\n");
 }
 
+TEST(ExamplesTest, JsonDemo) {
+    auto r = compileAndRunExample("json_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "liva\n3\ntrue\n3\nlang,llvm,rust-like\n"
+              "{\"lang\":\"liva\",\"year\":2026,\"ok\":true}\n");
+}
+
+TEST(ExamplesTest, CsvDemo) {
+    auto r = compileAndRunExample("csv_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "3\nname\nAda\n36\nNew York, NY\nname,age,city\n"
+              "Linus,56,\"Portland, OR\"\n");
+}
+
+TEST(ExamplesTest, TomlDemo) {
+    auto r = compileAndRunExample("toml_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "true\nliva\n3\ntrue\nkadir\nfalse\ntrue\nfalse\n");
+}
+
 #endif // LIVA_HAS_LLVM

@@ -1,0 +1,37 @@
+// csv_demo.liva
+//
+// A tour of Liva's csv::csv free functions: parsing a multi-line CSV string
+// row by row, reading fields by row/column, and building a new CSV string
+// with csvJoinRow/csvEscapeField.
+//
+// NOTE: csv::csv operates ONE row at a time (no embedded-newline support),
+// so a multi-line CSV blob must be split by "\n" first, then each line
+// passed to csvParseRow individually.
+//
+// How to run:
+//   livac csv_demo.liva -o csv_demo && ./csv_demo
+
+import csv::csv
+
+func main() {
+    let text = "name,age,city\nAda,36,London\nGrace,85,\"New York, NY\""
+    let lines: [string] = text.split("\n")
+    println(lines.length)
+
+    let header: [string] = csvParseRow(lines[0])
+    println(header[0])
+
+    let row1: [string] = csvParseRow(lines[1])
+    println(row1[0])
+    println(row1[1])
+
+    let row2: [string] = csvParseRow(lines[2])
+    println(row2[2])
+
+    var out: [string] = [header[0], header[1], header[2]]
+    let outRow = csvJoinRow(out)
+    println(outRow)
+
+    var newFields: [string] = ["Linus", "56", "Portland, OR"]
+    println(csvJoinRow(newFields))
+}

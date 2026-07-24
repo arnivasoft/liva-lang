@@ -1,0 +1,43 @@
+// json_demo.liva
+//
+// A tour of Liva's json::json DOM: parsing, reading typed fields (string,
+// number, bool), iterating a nested array, and building a JSON value
+// programmatically before serializing it back to a string.
+//
+// NOTE: json::json is an owning DOM — the value returned by Json.parse()/
+// Json.object()/Json.array() must be BOUND to a let/var; chaining methods
+// directly off the temporary call result leaks the doc (no Drop runs).
+//
+// How to run:
+//   livac json_demo.liva -o json_demo && ./json_demo
+
+import json::json
+
+func main() {
+    let doc = Json.parse("{\"name\":\"liva\",\"version\":3,\"stable\":true,\"tags\":[\"lang\",\"llvm\",\"rust-like\"]}")
+    let o = doc.object()
+
+    println(o.getString("name"))
+    println(o.getInt("version"))
+    println(o.getBool("stable"))
+
+    let tags = o.getArray("tags")
+    println(tags.count())
+
+    var i = 0
+    var joined = ""
+    while i < tags.count() {
+        joined = joined + tags.getString(i as i64)
+        if i < tags.count() - 1 {
+            joined = joined + ","
+        }
+        i = i + 1
+    }
+    println(joined)
+
+    var b = Json.object()
+    b.setString("lang", "liva")
+    b.setInt("year", 2026)
+    b.setBool("ok", true)
+    println(b.toString())
+}
