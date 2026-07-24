@@ -5,9 +5,14 @@ function(liva_set_compiler_flags target)
     set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
 
     if(MSVC)
+        if(LIVA_WERROR)
+            set(_liva_wx_flag /WX)
+        else()
+            set(_liva_wx_flag /WX-)
+        endif()
         target_compile_options(${target} PRIVATE
             /W4
-            /WX-
+            ${_liva_wx_flag}
             /permissive-
             /Zc:__cplusplus
             /utf-8
@@ -27,6 +32,9 @@ function(liva_set_compiler_flags target)
             -Wno-unused-variable
             -fno-exceptions
         )
+        if(LIVA_WERROR)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
         # Sanitizer support (standalone, works with Clang and GCC)
         if(NOT LIVA_SANITIZER STREQUAL "none")
             target_compile_options(${target} PRIVATE

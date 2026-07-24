@@ -207,7 +207,6 @@ TEST_F(PropertyTest, ValidProgramsPassSema) {
     for (int i = 0; i < 30; ++i) {
         rng_.seed(6000 + i);
         std::string code = genProgram(randInt(1, 5), randInt(0, 3));
-        int errors = pipelineErrors(code);
         // Generated programs should compile (some may fail due to type mismatches
         // from random literals, but should never crash)
         ASSERT_NO_FATAL_FAILURE(pipelineErrors(code))

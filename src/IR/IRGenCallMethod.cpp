@@ -562,7 +562,6 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     !node->getArgs().empty()) {
                     // Save DynArray info BEFORE visiting closure (which invalidates map iterators)
                     auto *elemType = daIt->second.elementType;
-                    uint64_t elemSize = daIt->second.elemSize;
                     auto *savedArrAlloca = arrAlloca;
 
                     auto *closureVal = visit(node->getArgs()[0].get());

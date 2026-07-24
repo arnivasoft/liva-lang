@@ -22,7 +22,7 @@ jobs:
           version: 13.2.0
 
       - name: Configure CMake
-        run: cmake -G "MinGW Makefiles" -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -G "MinGW Makefiles" -B build -DCMAKE_BUILD_TYPE=Release -DLIVA_WERROR=ON
         shell: bash
 
       - name: Build test targets
@@ -61,7 +61,8 @@ jobs:
         run: |
           cmake -G Ninja -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=g++-${{ matrix.gcc }}
+            -DCMAKE_CXX_COMPILER=g++-${{ matrix.gcc }} \
+            -DLIVA_WERROR=ON
 
       - name: Build test targets
         run: |
@@ -106,7 +107,8 @@ jobs:
       - name: Configure CMake
         run: |
           cmake -G Ninja -B build \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLIVA_WERROR=ON
 
       - name: Build test targets
         run: |

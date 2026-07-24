@@ -503,11 +503,8 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
         // "Do not know how to promote this operator's operand!".
         func->addFnAttr(llvm::Attribute::PresplitCoroutine);
 
-        auto *i8Ty = builder_->getInt8Ty();
         auto *i32Ty = builder_->getInt32Ty();
         auto *i64Ty = builder_->getInt64Ty();
-        auto *i1Ty = builder_->getInt1Ty();
-        auto *tokenTy = llvm::Type::getTokenTy(*context_);
 
         // Promise alloca — stores the return value
         currentCoroPromise_ = createEntryBlockAlloca(func, "coro.promise", asyncInnerRetType);
@@ -700,9 +697,6 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
 
     // === Phase 2 Coroutine Final/Cleanup/Suspend blocks ===
     if ((node->isAsync() || node->isGenerator()) && currentCoroFinalBB_) {
-        auto *i8Ty = builder_->getInt8Ty();
-        auto *tokenTy = llvm::Type::getTokenTy(*context_);
-
         // coro.final: mark task complete + final suspend
         builder_->SetInsertPoint(currentCoroFinalBB_);
         auto *taskLoad = builder_->CreateLoad(ptrTy, currentCoroTask_, "task.final");
@@ -943,8 +937,6 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             }
 
             if (!concreteType.empty() && dataAlloca) {
-                auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-
                 auto *dataGEP = builder_->CreateStructGEP(traitTy, alloca, 0, "dyn.data");
                 builder_->CreateStore(dataAlloca, dataGEP);
 
@@ -992,8 +984,6 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 }
 
                 if (!concreteType.empty() && dataAlloca) {
-                    auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-
                     // Store data pointer (pointer to concrete struct)
                     auto *dataGEP = builder_->CreateStructGEP(traitTy, alloca, 0, "trait.data");
                     builder_->CreateStore(dataAlloca, dataGEP);
@@ -2435,7 +2425,6 @@ void IRGen::preDeclareClass(ClassDecl *node) {
 
     // Inherit parent vtable methods
     if (!parentChain.empty()) {
-        auto &rootParent = parentChain.front();
         // Walk from root to immediate parent
         for (auto &parent : parentChain) {
             auto vit = classVtableMethods_.find(parent);
@@ -3231,7 +3220,6 @@ llvm::Value *IRGen::visitTestDecl(TestDecl *node) {
 
     auto *entry = llvm::BasicBlock::Create(*context_, "entry", func);
     auto *prevBB = builder_->GetInsertBlock();
-    auto *prevFn = prevBB ? prevBB->getParent() : nullptr;
 
     builder_->SetInsertPoint(entry);
 

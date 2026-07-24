@@ -2141,7 +2141,7 @@ void TypeChecker::visitBinaryExpr(BinaryExpr *node) {
             if (node->getRHS()->getResolvedType()->getKind() == TypeRepr::Kind::Optional) {
                 diag_.report(node->getStartLoc(), DiagID::err_type_mismatch,
                              "non-optional value",
-                             "optional value (RHS of '??' must not itself be optional)");
+                             "optional value (RHS of '?" "?' must not itself be optional)");
             }
             // Use cloneTypeRepr (not makePrimitiveType) so a non-primitive
             // RHS type (Named/Array/Optional/...) keeps its concrete

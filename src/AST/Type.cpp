@@ -52,6 +52,8 @@ std::string TypeRepr::toString() const {
         return "<dyn>";
     case Kind::AssociatedType:
         return "<assoc>";
+    case Kind::ConstValue:
+        return "const";
     }
     return "<unknown>";
 }

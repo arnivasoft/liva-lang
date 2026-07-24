@@ -58,7 +58,6 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
     uint64_t elemSize = dl.getTypeAllocSize(elemType);
 
     // GEP to the DynArray struct field within the parent struct
-    auto *dynStructTy = getDynArrayStructTy();
     auto *fieldGEP = builder_->CreateStructGEP(structTy, basePtr, idx, fieldName + ".da");
 
     MemberDynArrayInfo info;

@@ -203,7 +203,6 @@ IRGen::tryEmitSysBuiltin(CallExpr *node, const std::string &funcName) {
         auto *pathArg = visit(node->getArgs()[0].get());
         if (!pathArg) return nullptr;
         auto *fn = getOrPanic("liva_dir_list");
-        auto *ptrTy = llvm::PointerType::getUnqual(*context_);
         auto *i64Ty = builder_->getInt64Ty();
         auto *curFunc = builder_->GetInsertBlock()->getParent();
 

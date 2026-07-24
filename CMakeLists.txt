@@ -9,6 +9,7 @@ project(liva-lang
 # Fuzzing option (requires Clang with libFuzzer)
 option(LIVA_ENABLE_FUZZING "Build libFuzzer fuzz targets" OFF)
 option(LIVA_HAS_WXWIDGETS "Enable UI library (requires wxWidgets)" OFF)
+option(LIVA_WERROR "Treat compiler warnings as errors (CI)" OFF)
 set(LIVA_SANITIZER "none" CACHE STRING "Sanitizer to enable (none/address/undefined/address,undefined)")
 
 # Include CMake modules

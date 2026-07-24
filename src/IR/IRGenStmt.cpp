@@ -271,7 +271,6 @@ void IRGen::emitStructFieldCleanup(const std::string &varName,
     auto *structAlloca = namedIt->second;
     auto *structTy = stIt->second;
     const auto &fieldTypeReprs = ftrIt->second;
-    const auto &fieldNames = fnIt->second;
 
     for (size_t i = 0; i < fieldTypeReprs.size(); ++i) {
         const TypeRepr *ft = fieldTypeReprs[i];

@@ -1111,7 +1111,6 @@ std::unique_ptr<ClassDecl> Parser::parseClassDecl(bool isPublic, bool isFinal) {
                         if (stmt) stmts.push_back(std::move(stmt));
                         else break;
                     }
-                    auto bodyEnd = current_.getLocation();
                     expect(TokenKind::r_brace);
                     getterBody = std::make_unique<BlockStmt>(
                         std::move(stmts), rangeFrom(subStart));

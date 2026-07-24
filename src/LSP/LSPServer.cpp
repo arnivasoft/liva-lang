@@ -600,7 +600,7 @@ LSPServer::extractCompletionContext(const std::string &content,
 
 std::string LSPServer::resolveTypeName(const TranslationUnit *tu,
                                         const std::string &varName,
-                                        uint32_t line, uint32_t col) {
+                                        uint32_t line, uint32_t /*col*/) {
     if (!tu)
         return "";
 
@@ -999,7 +999,7 @@ void LSPServer::addMemberCompletions(JSONValue &items,
 
 void LSPServer::addLocalCompletions(JSONValue &items,
                                      const TranslationUnit *tu,
-                                     uint32_t line, uint32_t col) {
+                                     uint32_t line, uint32_t /*col*/) {
     if (!tu)
         return;
 
@@ -2595,8 +2595,6 @@ JSONValue LSPServer::handleCodeAction(const JSONValue &id,
 
     int rangeStartLine = static_cast<int>(params["range"]["start"]["line"].getInteger());
     int rangeEndLine = static_cast<int>(params["range"]["end"]["line"].getInteger());
-    int rangeStartCol = static_cast<int>(params["range"]["start"]["character"].getInteger());
-    int rangeEndCol = static_cast<int>(params["range"]["end"]["character"].getInteger());
 
     const auto &diags = doc.diag.getDiagnostics();
 

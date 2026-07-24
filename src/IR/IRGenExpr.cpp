@@ -1322,7 +1322,6 @@ llvm::Value *IRGen::visitIndexExpr(IndexExpr *node) {
             }
             auto *arrAlloca = allocaIt->second;
             auto *structTy = getDynArrayStructTy();
-            auto *elemType = daIt->second.elementType;
             auto elemSize = builder_->getInt64(daIt->second.elemSize);
             auto *ptrTy = llvm::PointerType::getUnqual(*context_);
             // Read array length for bounds check

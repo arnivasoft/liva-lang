@@ -49,7 +49,7 @@ function(liva_add_test test_name test_source)
     endif()
     liva_set_compiler_flags(${test_name})
     # Tests need exceptions for GoogleTest
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
         target_compile_options(${test_name} PRIVATE -fexceptions)
     endif()
     gtest_discover_tests(${test_name})
