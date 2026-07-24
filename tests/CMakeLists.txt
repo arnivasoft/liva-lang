@@ -184,6 +184,28 @@ if(LIVA_HAS_LLVM AND NOT MINGW)
     add_dependencies(ui_codegen_exec_test livac)
 endif()
 
+# examples/*.liva coverage harness — compile+run curated example programs
+# and pin their stdout. Guards examples/ against silent bit-rot as the
+# stdlib/language evolve. Mirrors runtime_exec_test linkage.
+if(LIVA_HAS_LLVM AND NOT MINGW)
+    liva_add_test(examples_test
+        unit/ExamplesTest.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/CompilerInstance.cpp
+        ${PROJECT_SOURCE_DIR}/src/Driver/Driver.cpp
+    )
+    target_link_libraries(examples_test PRIVATE
+        liva_codegen liva_irgen liva_sema liva_parser liva_driver liva_plugin
+        liva_lsp liva_dap liva_repl liva_jit liva_runtime)
+    if(WIN32)
+        target_link_libraries(examples_test PRIVATE winhttp)
+    endif()
+    target_compile_definitions(examples_test PRIVATE
+        LIVA_HAS_LLVM=1
+        LIVA_BUILD_DIR="${CMAKE_BINARY_DIR}"
+        LIVA_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
+    add_dependencies(examples_test liva_runtime)
+endif()
+
 # Fuzz targets (requires Clang with libFuzzer: -DLIVA_ENABLE_FUZZING=ON)
 if(LIVA_ENABLE_FUZZING)
     function(liva_add_fuzz_target name source)

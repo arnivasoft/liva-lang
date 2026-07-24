@@ -1,0 +1,76 @@
+// map_set_demo.liva
+//
+// A tour of Liva's built-in Map<K, V> and Set<T> collection types.
+//
+// Demonstrates:
+//   - Map<string, i32>: insert, get (via if-let), contains, remove,
+//     size(), isEmpty(), for (k, v) in m iteration, keys(), values(), clear()
+//   - Set<i64>: insert, contains, size(), clear()
+//
+// NOTE: hash-table iteration order is unspecified, so this example only
+// prints order-independent aggregates (counts / sums) inside `for (k, v)`
+// loops — never per-entry lines — to keep stdout deterministic.
+//
+// How to run:
+//   livac map_set_demo.liva -o map_set_demo && ./map_set_demo
+
+func main() {
+    var m: Map<string, i32>
+    println(m.isEmpty())
+
+    m.insert("alice", 90)
+    m.insert("bob", 85)
+    m.insert("carol", 95)
+
+    if let score = m.get("alice") {
+        println(score)
+    }
+
+    println(m.contains("bob"))
+    println(m.contains("dave"))
+
+    m.remove("bob")
+    println(m.contains("bob"))
+
+    println(m.size())
+    println(m.isEmpty())
+
+    var count = 0
+    var total = 0
+    for (k, v) in m {
+        count = count + 1
+        total = total + v
+    }
+    println(count)
+    println(total)
+
+    let ks: [string] = m.keys()
+    println(ks.length)
+
+    let vs: [i32] = m.values()
+    var valSum = 0
+    for v in vs {
+        valSum = valSum + v
+    }
+    println(valSum)
+
+    m.clear()
+    println(m.size())
+    println(m.isEmpty())
+
+    var s: Set<i64>
+    println(s.isEmpty())
+
+    s.insert(10)
+    s.insert(20)
+    s.insert(30)
+    s.insert(10)
+
+    println(s.contains(20))
+    println(s.contains(99))
+    println(s.size())
+
+    s.clear()
+    println(s.size())
+    println(s.isEmpty())
+}
