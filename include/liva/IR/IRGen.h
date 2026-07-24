@@ -193,6 +193,19 @@ private:
     /// values (heap/stack corruption; roadmap 2.3 [[T]]).
     llvm::Type *dynArrayElemLLVMType(const TypeRepr *elemRepr);
 
+    /// When `outerArrRepr`'s element is ITSELF a dynamic array (i.e.
+    /// outerArrRepr is `[[T]]` and its element is `[T]`), derive the LLVM
+    /// type/size of `[T]`'s OWN elements (`T`). This is what a for-in loop
+    /// variable bound to one `[T]` row needs registered in
+    /// vars_.varDynArrayTypes so that a nested `for x in row` can find it —
+    /// registering `row` only in vars_.namedValues (as [[T]]'s element,
+    /// getDynArrayStructTy()) is not enough for the inner loop to resolve
+    /// `row` as an iterable DynArray itself. No-op (nulls/zero) when
+    /// outerArrRepr's element is not a dynamic array.
+    void deriveNestedDynArrayInner(const ArrayTypeRepr *outerArrRepr,
+                                   llvm::Type *&innerElemType,
+                                   uint64_t &innerElemSize);
+
     /// Create runtime function declarations (print, println)
     void createRuntimeDecls();
 
@@ -230,6 +243,12 @@ private:
         llvm::Value *arrGEP;      // GEP pointing to the DynArray struct within the parent struct
         llvm::Type *elementType;
         uint64_t elemSize;
+        // Populated only when elementType == getDynArrayStructTy() (nested
+        // [[T]] member field): the inner `[T]` row's OWN element type/size,
+        // needed to register a for-in loop variable (`for row in self.rows`)
+        // as an iterable DynArray itself (see deriveNestedDynArrayInner).
+        llvm::Type *innerElemType = nullptr;
+        uint64_t innerElemSize = 0;
     };
 
     /// Resolve a MemberExpr to a DynArray field GEP if it is a struct.dynArrayField
@@ -257,6 +276,15 @@ private:
     struct DynArrayInfo {
         llvm::Type *elementType;
         uint64_t elemSize;
+        // Populated only when elementType == getDynArrayStructTy() (this
+        // variable is itself a nested [[T]]): the inner `[T]` row's OWN
+        // element type/size, needed so a for-in loop variable bound to one
+        // row (`for row in rows`) can be registered as an iterable DynArray
+        // itself for a nested `for x in row` (see deriveNestedDynArrayInner).
+        // Defaulted so pre-existing 2-field brace-inits ({elemType, elemSize})
+        // stay valid at every other registration site.
+        llvm::Type *innerElemType = nullptr;
+        uint64_t innerElemSize = 0;
     };
 
     /// Tuple variable tracking

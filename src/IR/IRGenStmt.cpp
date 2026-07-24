@@ -649,10 +649,13 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
     if (innerType == getDynArrayStructTy()) {
         llvm::Type *elemLLVM = nullptr;
         uint64_t elemSize = 0;
+        llvm::Type *innerElemLLVM = nullptr;
+        uint64_t innerElemSize = 0;
         auto deriveFromArrayRepr = [&](const ArrayTypeRepr *arrRepr) {
             if (!arrRepr || !arrRepr->isDynamic()) return;
             elemLLVM = dynArrayElemLLVMType(arrRepr->getElement());
             elemSize = module_->getDataLayout().getTypeAllocSize(elemLLVM);
+            deriveNestedDynArrayInner(arrRepr, innerElemLLVM, innerElemSize);
         };
         if (auto *resolved = node->getOptionalExpr()->getResolvedType()) {
             if (resolved->getKind() == TypeRepr::Kind::Optional) {
@@ -675,10 +678,13 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
             if (daIt != vars_.varDynArrayTypes.end()) {
                 elemLLVM = daIt->second.elementType;
                 elemSize = daIt->second.elemSize;
+                innerElemLLVM = daIt->second.innerElemType;
+                innerElemSize = daIt->second.innerElemSize;
             }
         }
         if (elemLLVM) {
-            vars_.varDynArrayTypes[node->getBindingName()] = {elemLLVM, elemSize};
+            vars_.varDynArrayTypes[node->getBindingName()] =
+                {elemLLVM, elemSize, innerElemLLVM, innerElemSize};
             // Borrowed from the Optional storage: skip cleanup to avoid
             // double-freeing the buffer when the surrounding scope drops.
             vars_.movedVars.insert(node->getBindingName());
@@ -1109,6 +1115,17 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
                 vars_.varProtocolTypes[node->getVarName()] = dapIt->second;
             }
 
+            // If the element type is ITSELF a DynArray struct (nested
+            // [[T]]: `for row in rows` where rows: [[T]]), the loop var
+            // must also be registered in vars_.varDynArrayTypes with the
+            // INNER element info (derived at `rows`'s own registration
+            // site, see deriveNestedDynArrayInner) so a nested
+            // `for x in row` can resolve `row` as an iterable DynArray.
+            if (elemType == getDynArrayStructTy() && daIt->second.innerElemType) {
+                vars_.varDynArrayTypes[node->getVarName()] =
+                    {daIt->second.innerElemType, daIt->second.innerElemSize};
+            }
+
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
             auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);
             auto *latchBB = llvm::BasicBlock::Create(*context_, "for.latch", func);
@@ -1462,6 +1479,14 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
 
             auto *loopVar = createEntryBlockAlloca(func, node->getVarName(), elemType);
             vars_.namedValues[node->getVarName()] = loopVar;
+
+            // Nested [[T]] member field (`for row in self.rows`): register
+            // the loop var's INNER element info too, same as the identifier
+            // path above, so a nested `for x in row` can resolve it.
+            if (elemType == getDynArrayStructTy() && daInfo->innerElemType) {
+                vars_.varDynArrayTypes[node->getVarName()] =
+                    {daInfo->innerElemType, daInfo->innerElemSize};
+            }
 
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
             auto *bodyBB = llvm::BasicBlock::Create(*context_, "for.body", func);

@@ -3958,4 +3958,87 @@ TEST(RuntimeExecTest, NestedArrayInnerReadViaBinding) {
     EXPECT_EQ(r.stdout_output, "7\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, NestedArrayPushLocalAndMember) {
+    auto r = compileAndRun(R"--(
+        struct Grid {
+            var rows: [[i32]]
+        }
+        impl Grid {
+            func addRow(ref mut self, row: [i32]) {
+                self.rows.push(row)
+            }
+        }
+        func main() {
+            var rows: [[i32]] = []
+            let a: [i32] = [1, 2, 3]
+            rows.push(a)
+            println(rows.length)
+            let back: [i32] = rows[0]
+            println(back[2])
+
+            var g = Grid { rows: [] }
+            let b: [i32] = [9, 8]
+            g.addRow(b)
+            println(g.rows.length)
+            let gr: [i32] = g.rows[0]
+            println(gr[0])
+        }
+    )--", "nested_push_local_member");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n3\n1\n9\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArrayForInAndElemAssign) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var rows: [[i32]] = [[1, 2], [3, 4]]
+            var total = 0
+            for row in rows {
+                for x in row {
+                    total = total + x
+                }
+            }
+            println(total)
+            let repl: [i32] = [100]
+            rows[0] = repl
+            let got: [i32] = rows[0]
+            println(got[0])
+            println(got.length)
+        }
+    )--", "nested_forin_elemassign");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "10\n100\n1\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArrayChurnNoCorruption) {
+    // UAF-family pattern: 200 iterations with heap churn; any layout-
+    // dependent corruption shows as a nonzero bad count.
+    auto r = compileAndRun(R"--(
+        func fill() -> [[i32]] {
+            var rows: [[i32]] = []
+            let a: [i32] = [1, 2]
+            rows.push(a)
+            let b: [i32] = [3]
+            rows.push(b)
+            return rows
+        }
+        func main() {
+            var bad = 0
+            var i = 0
+            while i < 200 {
+                let rows: [[i32]] = fill()
+                let junk: string = strToUpper("recycle-me-please")
+                let x: [i32] = rows[0]
+                let y: [i32] = rows[1]
+                if x.length != 2 { bad = bad + 1 }
+                if y[0] != 3 { bad = bad + 1 }
+                i = i + 1
+            }
+            println(bad)
+        }
+    )--", "nested_churn");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

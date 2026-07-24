@@ -56,6 +56,9 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
     auto *elemType = dynArrayElemLLVMType(arrRepr->getElement());
     const llvm::DataLayout &dl = module_->getDataLayout();
     uint64_t elemSize = dl.getTypeAllocSize(elemType);
+    llvm::Type *innerElemType = nullptr;
+    uint64_t innerElemSize = 0;
+    deriveNestedDynArrayInner(arrRepr, innerElemType, innerElemSize);
 
     // GEP to the DynArray struct field within the parent struct
     auto *fieldGEP = builder_->CreateStructGEP(structTy, basePtr, idx, fieldName + ".da");
@@ -64,6 +67,8 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
     info.arrGEP = fieldGEP;
     info.elementType = elemType;
     info.elemSize = elemSize;
+    info.innerElemType = innerElemType;
+    info.innerElemSize = innerElemSize;
     return info;
 }
 
@@ -649,6 +654,18 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                             // transfer-ownership behavior.
                             removeFromTempStrings(stored);
                         }
+                    } else if (daIt->second.elementType == getDynArrayStructTy() &&
+                               node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                        // Nested-array element (arr[i] = repl where repl: [T]):
+                        // shallow struct copy, same aliasing hazard as the
+                        // move-on-push fix — the RHS local's buffer is now
+                        // ALSO referenced by this array slot. Move it so the
+                        // RHS variable's own scope-exit cleanup doesn't free
+                        // a buffer this array slot still needs.
+                        auto *valIdent =
+                            static_cast<const IdentifierExpr *>(node->getValue());
+                        if (vars_.varDynArrayTypes.count(valIdent->getName()))
+                            vars_.movedVars.insert(valIdent->getName());
                     }
                     builder_->CreateStore(stored, elemPtr);
                 }
@@ -717,6 +734,14 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     } else {
                         removeFromTempStrings(storedMem);
                     }
+                } else if (daInfo->elementType == getDynArrayStructTy() &&
+                           node->getValue()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                    // Same move-on-assign rationale as the local-array path
+                    // above (nested-array element, shallow struct copy).
+                    auto *valIdent =
+                        static_cast<const IdentifierExpr *>(node->getValue());
+                    if (vars_.varDynArrayTypes.count(valIdent->getName()))
+                        vars_.movedVars.insert(valIdent->getName());
                 }
                 builder_->CreateStore(storedMem, elemPtr);
                 return val;

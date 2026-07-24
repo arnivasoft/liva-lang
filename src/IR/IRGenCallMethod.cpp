@@ -481,6 +481,23 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         } else {
                             removeFromTempStrings(val);
                         }
+                    } else if (daIt->second.elementType == getDynArrayStructTy() &&
+                               node->getArgs()[0]->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                        // Nested-array element ([[T]].push(row) where row: [T]):
+                        // NOT dup'd (struct elemanlar dup DEĞİL değer-kopyası —
+                        // per roadmap 2.3 design). The pushed 24B DynArray
+                        // struct is a SHALLOW copy — its data pointer now
+                        // aliases the source variable's own buffer. If the
+                        // source is a plain named local, its own scope-exit
+                        // cleanup would free that SAME buffer a second time
+                        // (double-free/heap corruption) once the array element
+                        // is later read back out. Move it: the array is now
+                        // the buffer's owner, so suppress the source's cleanup
+                        // — same convention as `return`/if-let DynArray moves.
+                        auto *pushArgIdent =
+                            static_cast<IdentifierExpr *>(node->getArgs()[0].get());
+                        if (vars_.varDynArrayTypes.count(pushArgIdent->getName()))
+                            vars_.movedVars.insert(pushArgIdent->getName());
                     }
                     (void)elemIsString;
                     auto *func = builder_->GetInsertBlock()->getParent();
@@ -814,6 +831,17 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         } else {
                             removeFromTempStrings(val);
                         }
+                    } else if (daInfo->elementType == getDynArrayStructTy() &&
+                               node->getArgs()[0]->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                        // Nested-array element on a struct member field
+                        // (self.rows.push(row)): same move-on-push rationale
+                        // as the local push path above — the source's buffer
+                        // is now aliased into the member array, so suppress
+                        // its own scope-exit free.
+                        auto *pushArgIdent =
+                            static_cast<IdentifierExpr *>(node->getArgs()[0].get());
+                        if (vars_.varDynArrayTypes.count(pushArgIdent->getName()))
+                            vars_.movedVars.insert(pushArgIdent->getName());
                     }
                     auto *func = builder_->GetInsertBlock()->getParent();
                     auto *elemAlloca = createEntryBlockAlloca(func, "mpush.tmp",
@@ -2077,6 +2105,23 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                 ? builder_->CreateZExt(val, builder_->getInt64Ty(), "mcall.zext")
                                 : builder_->CreateSExt(val, builder_->getInt64Ty(), "mcall.sext");
                         }
+                    }
+                    // Passing a nested-array-typed ([[T]] element, i.e. a
+                    // [T]-typed local) identifier BY VALUE into a method call
+                    // hands the callee a SHALLOW copy of the 24B DynArray
+                    // struct — same data pointer as the caller's local. If the
+                    // callee stores it somewhere longer-lived (e.g.
+                    // `self.rows.push(row)`, escaping the call), the caller's
+                    // own copy of that identifier now aliases a buffer that
+                    // outlives the call. Move it here (suppress the caller's
+                    // own scope-exit free) to avoid a double-free once the
+                    // escaped copy is read back out (mirrors the move-on-push
+                    // fix above for the same aliasing hazard).
+                    if (val->getType() == getDynArrayStructTy() &&
+                        arg->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                        auto *argIdent = static_cast<const IdentifierExpr *>(arg.get());
+                        if (vars_.varDynArrayTypes.count(argIdent->getName()))
+                            vars_.movedVars.insert(argIdent->getName());
                     }
                     args.push_back(val);
                     ++calleeParamIdx;

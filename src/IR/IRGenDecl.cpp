@@ -625,7 +625,10 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
                 auto *elemType = dynArrayElemLLVMType(arrType->getElement());
                 auto &DL = module_->getDataLayout();
                 uint64_t elemSize = DL.getTypeAllocSize(elemType);
-                vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
+                llvm::Type *innerElemType = nullptr;
+                uint64_t innerElemSize = 0;
+                deriveNestedDynArrayInner(arrType, innerElemType, innerElemSize);
+                vars_.varDynArrayTypes[param.name] = {elemType, elemSize, innerElemType, innerElemSize};
                 // Params are borrowed: the caller owns the backing buffer.
                 // Skip them in emitScopeCleanup to avoid double-free.
                 vars_.movedVars.insert(param.name);
@@ -1447,7 +1450,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             builder_->CreateStore(builder_->getInt64(initCap), capField);
 
             vars_.namedValues[node->getName()] = alloca;
-            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize};
+            llvm::Type *innerElemType = nullptr;
+            uint64_t innerElemSize = 0;
+            deriveNestedDynArrayInner(arrTypeRepr, innerElemType, innerElemSize);
+            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize, innerElemType, innerElemSize};
             // Track dyn Protocol element type for for-in loop dispatch
             if (isDynProtoElem) {
                 vars_.varDynArrayProtocol[node->getName()] = protoName;
@@ -1628,7 +1634,10 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal) builder_->CreateStore(initVal, alloca);
             vars_.namedValues[node->getName()] = alloca;
-            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize};
+            llvm::Type *innerElemType = nullptr;
+            uint64_t innerElemSize = 0;
+            deriveNestedDynArrayInner(arrReprType, innerElemType, innerElemSize);
+            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize, innerElemType, innerElemSize};
             return alloca;
         }
     }
@@ -2024,7 +2033,10 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     auto *elemType = dynArrayElemLLVMType(arrType->getElement());
                     auto &DL = module_->getDataLayout();
                     uint64_t elemSize = DL.getTypeAllocSize(elemType);
-                    vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
+                    llvm::Type *innerElemType = nullptr;
+                    uint64_t innerElemSize = 0;
+                    deriveNestedDynArrayInner(arrType, innerElemType, innerElemSize);
+                    vars_.varDynArrayTypes[param.name] = {elemType, elemSize, innerElemType, innerElemSize};
                     // Borrowed: skip in cleanup (caller owns the buffer).
                     vars_.movedVars.insert(param.name);
                     if (arrType->getElement() &&

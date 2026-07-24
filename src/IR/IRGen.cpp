@@ -813,6 +813,20 @@ llvm::Type *IRGen::dynArrayElemLLVMType(const TypeRepr *elemRepr) {
     return toLLVMType(elemRepr);
 }
 
+void IRGen::deriveNestedDynArrayInner(const ArrayTypeRepr *outerArrRepr,
+                                       llvm::Type *&innerElemType,
+                                       uint64_t &innerElemSize) {
+    innerElemType = nullptr;
+    innerElemSize = 0;
+    if (!outerArrRepr) return;
+    auto *elemRepr = outerArrRepr->getElement();
+    if (!elemRepr || elemRepr->getKind() != TypeRepr::Kind::Array) return;
+    auto *innerArrRepr = static_cast<const ArrayTypeRepr *>(elemRepr);
+    if (!innerArrRepr->isDynamic()) return;
+    innerElemType = dynArrayElemLLVMType(innerArrRepr->getElement());
+    innerElemSize = module_->getDataLayout().getTypeAllocSize(innerElemType);
+}
+
 llvm::AllocaInst *IRGen::createEntryBlockAlloca(llvm::Function *func,
                                                   const std::string &name,
                                                   llvm::Type *type) {
