@@ -1029,6 +1029,92 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         {entries, cap, builder_->getInt64(stride), sizeField});
                     return nullptr;
                 }
+
+                // keys() -> [K] / values() -> [V]: build a fresh DynArray by
+                // walking occupied entries (state == 1), pushing each key/value
+                // via liva_array_push. Starts as {null,0,0} — liva_array_push
+                // grows from null (realloc(NULL) == malloc), same as the
+                // filter/strSplit patterns. Returned as a struct VALUE so the
+                // annotated-var path in visitVarDecl registers it as DynArray.
+                if ((methodName == "keys" || methodName == "values") &&
+                    node->getArgs().empty()) {
+                    bool wantKeys = (methodName == "keys");
+                    auto *elemType = wantKeys ? info.keyType : info.valType;
+                    uint64_t elemSize = wantKeys ? info.keySize : info.valSize;
+                    int64_t elemOffset = wantKeys ? 9 : 9 + (int64_t)info.keySize;
+                    int64_t stride = 9 + (int64_t)info.keySize + (int64_t)info.valSize;
+
+                    auto *arrTy = getDynArrayStructTy();
+                    auto *resultAlloca = createEntryBlockAlloca(curFunc, "map.kv.arr", arrTy);
+                    auto *rDataField = builder_->CreateStructGEP(arrTy, resultAlloca, 0);
+                    builder_->CreateStore(
+                        llvm::ConstantPointerNull::get(builder_->getPtrTy()), rDataField);
+                    auto *rLenField = builder_->CreateStructGEP(arrTy, resultAlloca, 1);
+                    builder_->CreateStore(builder_->getInt64(0), rLenField);
+                    auto *rCapField = builder_->CreateStructGEP(arrTy, resultAlloca, 2);
+                    builder_->CreateStore(builder_->getInt64(0), rCapField);
+
+                    auto *entriesField = builder_->CreateStructGEP(structTy, mapAlloca, 0);
+                    auto *entriesPtr = builder_->CreateLoad(
+                        builder_->getPtrTy(), entriesField, "map.entries");
+                    auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField, "map.cap");
+
+                    auto *elemTmp = createEntryBlockAlloca(curFunc, "map.kv.elem", elemType);
+                    auto *idxVar = createEntryBlockAlloca(curFunc, "map.kv.idx",
+                        builder_->getInt64Ty());
+                    builder_->CreateStore(builder_->getInt64(0), idxVar);
+
+                    auto *condBB = llvm::BasicBlock::Create(*context_, "map.kv.cond", curFunc);
+                    auto *bodyBB = llvm::BasicBlock::Create(*context_, "map.kv.body", curFunc);
+                    auto *processBB = llvm::BasicBlock::Create(*context_, "map.kv.take", curFunc);
+                    auto *latchBB = llvm::BasicBlock::Create(*context_, "map.kv.latch", curFunc);
+                    auto *exitBB = llvm::BasicBlock::Create(*context_, "map.kv.exit", curFunc);
+                    builder_->CreateBr(condBB);
+
+                    // Cond: idx < capacity
+                    builder_->SetInsertPoint(condBB);
+                    auto *idx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar, "map.kv.idx");
+                    auto *cond = builder_->CreateICmpSLT(idx, cap, "map.kv.cmp");
+                    builder_->CreateCondBr(cond, bodyBB, exitBB);
+
+                    // Body: only occupied entries (state == 1; skips empty 0
+                    // and tombstone 2)
+                    builder_->SetInsertPoint(bodyBB);
+                    auto *offset = builder_->CreateMul(idx, builder_->getInt64(stride),
+                        "map.kv.offset");
+                    auto *entryPtr = builder_->CreateGEP(builder_->getInt8Ty(), entriesPtr,
+                        offset, "map.kv.entry");
+                    auto *state = builder_->CreateLoad(builder_->getInt8Ty(), entryPtr,
+                        "map.kv.state");
+                    auto *isOccupied = builder_->CreateICmpEQ(state, builder_->getInt8(1),
+                        "map.kv.occupied");
+                    builder_->CreateCondBr(isOccupied, processBB, latchBB);
+
+                    // Take: load element, push into result array
+                    builder_->SetInsertPoint(processBB);
+                    auto *elemRaw = builder_->CreateGEP(builder_->getInt8Ty(), entryPtr,
+                        builder_->getInt64(elemOffset), "map.kv.elem.raw");
+                    auto *elem = builder_->CreateLoad(elemType, elemRaw, "map.kv.elem.val");
+                    builder_->CreateStore(elem, elemTmp);
+                    builder_->CreateCall(getOrPanic("liva_array_push"),
+                        {rDataField, rLenField, rCapField, elemTmp,
+                         builder_->getInt64(elemSize)});
+                    builder_->CreateBr(latchBB);
+
+                    // Latch: idx++
+                    builder_->SetInsertPoint(latchBB);
+                    auto *curIdx = builder_->CreateLoad(builder_->getInt64Ty(), idxVar);
+                    auto *nextIdx = builder_->CreateAdd(curIdx, builder_->getInt64(1),
+                        "map.kv.inc");
+                    builder_->CreateStore(nextIdx, idxVar);
+                    builder_->CreateBr(condBB);
+
+                    // Exit: return the DynArray by VALUE (24-byte struct load),
+                    // matching filter/strSplit.
+                    builder_->SetInsertPoint(exitBB);
+                    return builder_->CreateLoad(arrTy, resultAlloca, "map.kv.result");
+                }
             }
         }
 

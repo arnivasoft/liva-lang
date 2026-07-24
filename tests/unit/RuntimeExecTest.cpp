@@ -3318,4 +3318,60 @@ TEST(RuntimeExecTest, SetSizeIsEmptyClear) {
     EXPECT_EQ(r.stdout_output, "true\n2\n0\ntrue\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, MapKeysValues) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var m: Map<string, i32>
+            m.insert("x", 10)
+            m.insert("y", 20)
+            let ks: [string] = m.keys()
+            println(ks.length)
+            let vs: [i32] = m.values()
+            var total = 0
+            for v in vs {
+                total = total + v
+            }
+            println(total)
+        }
+    )--", "map_keys_values");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // Hash order is unspecified: only length and SUM (order-independent).
+    EXPECT_EQ(r.stdout_output, "2\n30\n") << "stdout: " << r.stdout_output;
+}
+
+// Pins the UNANNOTATED binding path: `let ks = m.keys()` must register the
+// result as a DynArray via the call's Sema-resolved [K]/[V] type (works here
+// even though unannotated strSplit binding is a known gap).
+TEST(RuntimeExecTest, MapKeysValuesUnannotated) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var m: Map<string, i32>
+            m.insert("x", 10)
+            m.insert("y", 20)
+            let ks = m.keys()
+            println(ks.length)
+            let vs = m.values()
+            var total = 0
+            for v in vs {
+                total = total + v
+            }
+            println(total)
+        }
+    )--", "map_keys_values_unannot");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n30\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MapKeysEmptyMap) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var m: Map<i64, i64>
+            let ks: [i64] = m.keys()
+            println(ks.length)
+        }
+    )--", "map_keys_empty");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

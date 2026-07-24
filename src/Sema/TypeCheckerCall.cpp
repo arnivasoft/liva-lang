@@ -877,6 +877,19 @@ void TypeChecker::resolveMapSetMethodCall(CallExpr *node) {
                         node->setResolvedType(makeI64Type());
                     } else if (methodName == "isEmpty") {
                         node->setResolvedType(makeBoolType());
+                    } else if (methodName == "keys" &&
+                               genType->getTypeArgs().size() >= 2) {
+                        // keys() returns [K] (dynamic — ArrayTypeRepr default
+                        // size -1, same as the filter pattern below)
+                        auto keysArr = std::make_unique<ArrayTypeRepr>(
+                            cloneTypeRepr(genType->getTypeArgs()[0].get()));
+                        node->setResolvedType(std::move(keysArr));
+                    } else if (methodName == "values" &&
+                               genType->getTypeArgs().size() >= 2) {
+                        // values() returns [V]
+                        auto valsArr = std::make_unique<ArrayTypeRepr>(
+                            cloneTypeRepr(genType->getTypeArgs()[1].get()));
+                        node->setResolvedType(std::move(valsArr));
                     }
                     // insert()/clear() return void — no resolved type needed
                 } else if (genType->getBaseName() == "Set") {
