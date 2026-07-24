@@ -2,7 +2,7 @@
 //
 // A tour of Liva's csv::csv free functions: parsing a multi-line CSV string
 // row by row, reading fields by row/column, and building a new CSV string
-// with csvJoinRow/csvEscapeField.
+// with csvJoinRow (which quotes/escapes fields automatically as needed).
 //
 // NOTE: csv::csv operates ONE row at a time (no embedded-newline support),
 // so a multi-line CSV blob must be split by "\n" first, then each line

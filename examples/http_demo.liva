@@ -6,7 +6,8 @@
 // Demonstrates:
 //   - HttpRequest.get(url).header(...).timeout(...).send() -> HttpResponse
 //   - HttpResponse.statusCode(), header(name), is2xx()
-//   - HttpResponse.json() -> JsonValue, then JsonObject field reads
+//   - Json.parse(resp.text()) -> owning JSON document, then field reads
+//     (HttpResponse.json() is equivalent shorthand for the same thing)
 //
 // REQUIRES NETWORK ACCESS — not run by the test suite (compile-checked
 // only, via ExamplesTest.cpp's compileExampleOnly). httpbin.org may also be

@@ -1,8 +1,9 @@
 # Liva Examples Index
 
-77 `.liva` source files, grouped by category. Every file listed here is
-compiled (and most are also run with pinned output) by `tests/unit/ExamplesTest.cpp`
-— see that file for the exact list of checked programs.
+77 `.liva` source files, grouped by category. The 11 new stdlib examples
+(marked **NEW (2026-07)** below) are compiled — and the 9 offline ones also
+run with pinned output — by `tests/unit/ExamplesTest.cpp`; the remaining
+examples are not yet under automated checks.
 
 ## Prerequisites
 
