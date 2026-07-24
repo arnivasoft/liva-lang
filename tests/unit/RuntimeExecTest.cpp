@@ -4160,6 +4160,55 @@ TEST(RuntimeExecTest, NestedArrayMemberForInCallerIntact) {
     EXPECT_EQ(r.stdout_output, "2\n3\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, NestedArrayStructLiteralFieldInit) {
+    // A struct-literal field holding a POPULATED [[T]] is deep-copied by
+    // cloneIfDynArrayField. The clone's element stride must be the 24-byte
+    // DynArray struct, not a bare pointer — otherwise only row 0 survives
+    // and every later row reads past the end of the cloned buffer.
+    auto r = compileAndRun(R"--(
+        struct Grid {
+            var rows: [[i32]]
+        }
+        func main() {
+            let g = Grid { rows: [[1, 2], [3, 4], [5, 6, 7]] }
+            println(g.rows.length)
+            let r0: [i32] = g.rows[0]
+            println(r0.length)
+            println(r0[1])
+            let r1: [i32] = g.rows[1]
+            println(r1.length)
+            println(r1[0])
+            let r2: [i32] = g.rows[2]
+            println(r2.length)
+            println(r2[2])
+        }
+    )--", "nested_struct_literal_field_init");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n2\n2\n2\n3\n3\n7\n")
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArrayStructLiteralFieldForIn) {
+    // Same clone path, consumed by for-in: every cloned row must be walkable.
+    auto r = compileAndRun(R"--(
+        struct Grid {
+            var rows: [[i32]]
+        }
+        func main() {
+            let g = Grid { rows: [[1, 2], [3, 4], [5]] }
+            var total = 0
+            for row in g.rows {
+                for x in row {
+                    total = total + x
+                }
+            }
+            println(total)
+        }
+    )--", "nested_struct_literal_field_forin");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "15\n") << "stdout: " << r.stdout_output;
+}
+
 // ============================================================
 // Variadic function EXECUTION (roadmap 2.3)
 // ============================================================

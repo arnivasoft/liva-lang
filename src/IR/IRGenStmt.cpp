@@ -343,7 +343,11 @@ llvm::Value *IRGen::cloneIfDynArrayField(const std::string &structName, int idx,
     auto *ptrTy = llvm::PointerType::getUnqual(*context_);
     auto *srcData = builder_->CreateLoad(ptrTy, dataGEP);
     auto *srcLen = builder_->CreateLoad(builder_->getInt64Ty(), lenGEP);
-    auto *elemLLVMTy = toLLVMType(arrRepr->getElement());
+    // Nested arrays store the inner element as an INLINE 24-byte %DynArray
+    // struct, not as a bare pointer — the clone stride must match what the
+    // readers (index, for-in, push) use, or every row past the first lands
+    // outside the cloned buffer.
+    auto *elemLLVMTy = dynArrayElemLLVMType(arrRepr->getElement());
     uint64_t elemSize = module_->getDataLayout().getTypeAllocSize(elemLLVMTy);
     auto *cloned = builder_->CreateCall(getOrPanic("liva_array_clone"),
         {srcData, srcLen, builder_->getInt64(elemSize)}, nameHint + ".clone");
