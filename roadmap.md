@@ -106,6 +106,9 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 | Bağımsız generik fonksiyonun `[T]` parametresi/`T` dönüşü sessizce yanlış (önceden var, izlemede) | `func head<T>(xs: [T]) -> T` — `println(head(v))` BOŞ satır basıyor; anotasyonlu binding "expected 'i32', found 'T'" Sema hatası; impl-içi generikler (Stream) sağlam | TypeChecker dönüş-tipi propagasyonu — generic-mono-pitfalls ailesi |
 | Kullanıcı fonksiyonunun `-> [T]?` dönüşü LLVM verifier hatası (önceden var, izlemede) | `insertvalue %Optional {i1, ptr}` payload'ı %DynArray struct — Optional lowering'i DynArray-inner'ı ptr sanıyor; native builtin'ler ([u8]? dönenler) farklı yoldan çalışıyor | Optional-of-DynArray lowering; repo'da kapsam yok |
 
+| Variadic İLETİMİ sessizce yanlış (yeni erişilebilir oldu, 2026-07 izlemede) | `outer(values: i32...) { inner(values) }` derleniyor ama paketleme döngüsü DynArray değişkenini TEK skaler eleman sanıyor — kesilmiş pointer değeri basılıyor (probe: 6 beklenirken 426768356, exit 0) | `IRGenCall.cpp:304` varargs paketleme — DynArray-tipli argümanı spread/geçir olarak ele almalı |
+| Impl-metodlarda variadic parametre desteklenmiyor — IRGen internal hatası (önceden var, izlemede) | Parse+Sema geçiyor, gövdede her kullanım "internal: undefined variable" — metod yolunda variadic kaydı da (IRGenDecl.cpp:2035 dışlıyor) çağrı-tarafı paketleme de (IRGenCallMethod) yok | Metod yolu kaydı + paketleme + temiz diagnostik gerekli |
+
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 
 Generator/yield codegen'i gerçekten tam (LLVM `coro.*` lowering, for-in, break-early destroy, runtime testli), protokol default metodları (Sema + codegen), operator overloading (aritmetik + karşılaştırma seti, `!=`/`>=`/`>` sentezi), `?` error propagation, closures (capture + heap env), sınıf sistemi (vtable, override, static, computed properties, `final`, `is`/`as?`).
