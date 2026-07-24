@@ -35,6 +35,9 @@ func main() {
     let later: DateTime = dt.addDays(10 as i64)
     println(later.toDate())
 
+    // NOTE: diffDays/isAfter take `other: DateTime` BY VALUE, which moves the
+    // argument — passing the same binding twice would be a use-after-move.
+    // That's why the same timestamp is parsed into a fresh binding per call.
     let end: DateTime = DateTime.parse("2024-07-01 00:00:00", "%Y-%m-%d %H:%M:%S")
     let dtForDiff: DateTime = DateTime.parse("2024-06-15 08:30:00", "%Y-%m-%d %H:%M:%S")
     println(end.diffDays(dtForDiff))
