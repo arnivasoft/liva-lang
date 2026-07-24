@@ -3218,4 +3218,61 @@ TEST(RuntimeExecTest, CookbookGenericStackPop) {
     EXPECT_EQ(r.stdout_output, "30\n20\n10\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Built-in Map/Set: i32-literal → i64 slot coercion (roadmap #6 A1)
+// ============================================================
+// insert used to store an i32 literal into the i64-typed key/val temp
+// alloca without widening; liva_map_insert then memcpy'd 8 bytes, the
+// upper 4 undefined — get returned garbage like 140694538682369.
+
+TEST(RuntimeExecTest, MapI64ValueLiteralInsert) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var m: Map<string, i64>
+            m.insert("a", 1)
+            m.insert("b", 2)
+            if let v = m.get("a") {
+                println(v)
+            }
+            if let w = m.get("b") {
+                println(w)
+            }
+        }
+    )--", "map_i64_val_coerce");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1\n2\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, MapI64KeyLiteralInsert) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var m: Map<i64, string>
+            m.insert(10, "x")
+            m.insert(20, "y")
+            if let s = m.get(10) {
+                println(s)
+            }
+            println(m.contains(20))
+            m.remove(20)
+            println(m.contains(20))
+        }
+    )--", "map_i64_key_coerce");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "x\ntrue\nfalse\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, SetI64LiteralInsert) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var s: Set<i64>
+            s.insert(5)
+            println(s.contains(5))
+            s.remove(5)
+            println(s.contains(5))
+        }
+    )--", "set_i64_coerce");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "true\nfalse\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

@@ -868,10 +868,23 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 auto &info = mapIt->second;
                 auto *curFunc = builder_->GetInsertBlock()->getParent();
 
+                // Widen a visited key/value to the slot's expected integer type. Int
+                // literals are strictly i32 in Liva; Map<_, i64> slots would otherwise
+                // receive a 4-byte store into an 8-byte alloca (upper half undefined).
+                auto widenToSlot = [&](llvm::Value *v, llvm::Type *slotTy) -> llvm::Value * {
+                    if (v && slotTy && v->getType() != slotTy &&
+                        v->getType()->isIntegerTy() && slotTy->isIntegerTy() &&
+                        v->getType()->getIntegerBitWidth() < slotTy->getIntegerBitWidth())
+                        return builder_->CreateSExt(v, slotTy, "map.widen");
+                    return v;
+                };
+
                 if (methodName == "insert" && node->getArgs().size() >= 2) {
                     auto *keyVal = visit(node->getArgs()[0].get());
                     auto *valVal = visit(node->getArgs()[1].get());
                     if (!keyVal || !valVal) return nullptr;
+                    keyVal = widenToSlot(keyVal, info.keyType);
+                    valVal = widenToSlot(valVal, info.valType);
 
                     auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.key.tmp", info.keyType);
                     builder_->CreateStore(keyVal, keyAlloca);
@@ -896,6 +909,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 if (methodName == "get" && !node->getArgs().empty()) {
                     auto *keyVal = visit(node->getArgs()[0].get());
                     if (!keyVal) return nullptr;
+                    keyVal = widenToSlot(keyVal, info.keyType);
 
                     auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.get.key", info.keyType);
                     builder_->CreateStore(keyVal, keyAlloca);
@@ -948,6 +962,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 if (methodName == "contains" && !node->getArgs().empty()) {
                     auto *keyVal = visit(node->getArgs()[0].get());
                     if (!keyVal) return nullptr;
+                    keyVal = widenToSlot(keyVal, info.keyType);
 
                     auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.contains.key", info.keyType);
                     builder_->CreateStore(keyVal, keyAlloca);
@@ -971,6 +986,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 if (methodName == "remove" && !node->getArgs().empty()) {
                     auto *keyVal = visit(node->getArgs()[0].get());
                     if (!keyVal) return nullptr;
+                    keyVal = widenToSlot(keyVal, info.keyType);
 
                     auto *keyAlloca = createEntryBlockAlloca(curFunc, "map.remove.key", info.keyType);
                     builder_->CreateStore(keyVal, keyAlloca);
@@ -1006,9 +1022,21 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 auto &info = setIt->second;
                 auto *curFunc = builder_->GetInsertBlock()->getParent();
 
+                // Widen a visited element to the slot's expected integer type. Int
+                // literals are strictly i32 in Liva; Set<i64> slots would otherwise
+                // receive a 4-byte store into an 8-byte alloca (upper half undefined).
+                auto widenToSlot = [&](llvm::Value *v, llvm::Type *slotTy) -> llvm::Value * {
+                    if (v && slotTy && v->getType() != slotTy &&
+                        v->getType()->isIntegerTy() && slotTy->isIntegerTy() &&
+                        v->getType()->getIntegerBitWidth() < slotTy->getIntegerBitWidth())
+                        return builder_->CreateSExt(v, slotTy, "map.widen");
+                    return v;
+                };
+
                 if (methodName == "insert" && !node->getArgs().empty()) {
                     auto *elemVal = visit(node->getArgs()[0].get());
                     if (!elemVal) return nullptr;
+                    elemVal = widenToSlot(elemVal, info.elemType);
 
                     auto *elemAlloca = createEntryBlockAlloca(curFunc, "set.elem.tmp", info.elemType);
                     builder_->CreateStore(elemVal, elemAlloca);
@@ -1030,6 +1058,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 if (methodName == "contains" && !node->getArgs().empty()) {
                     auto *elemVal = visit(node->getArgs()[0].get());
                     if (!elemVal) return nullptr;
+                    elemVal = widenToSlot(elemVal, info.elemType);
 
                     auto *elemAlloca = createEntryBlockAlloca(curFunc, "set.contains.elem", info.elemType);
                     builder_->CreateStore(elemVal, elemAlloca);
@@ -1052,6 +1081,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 if (methodName == "remove" && !node->getArgs().empty()) {
                     auto *elemVal = visit(node->getArgs()[0].get());
                     if (!elemVal) return nullptr;
+                    elemVal = widenToSlot(elemVal, info.elemType);
 
                     auto *elemAlloca = createEntryBlockAlloca(curFunc, "set.remove.elem", info.elemType);
                     builder_->CreateStore(elemVal, elemAlloca);
