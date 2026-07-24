@@ -1343,6 +1343,56 @@ let evens = nums.filter(|x: i32| -> bool { return x % 2 == 0 })
 let sum = nums.reduce(0, |acc: i32, x: i32| -> i32 { return acc + x })
 ```
 
+#### Nested Arrays
+
+`[[T]]` (an array of arrays) has core support: literal, `.length`, index-read
+(via an annotated binding), `push`, `for-in`, and index-assign all work.
+
+```liva
+var rows: [[i32]] = []
+let a: [i32] = [1, 2, 3]
+rows.push(a)                  // push a whole [i32] row
+println(rows.length)          // 1
+
+let first: [i32] = rows[0]    // index-read via annotated binding (required)
+println(first.length)         // 3
+
+rows[0] = [9, 9]               // index-assign a new row
+
+for r in rows {
+    for v in r {
+        println(v)              // 9, 9
+    }
+}
+```
+
+- **The annotation on the binding is required.** `let first: [i32] = rows[0]`
+  works; an unannotated `let first = rows[0]` is not currently supported.
+- **Copy semantics are shallow.** Each element of `rows` is a 24-byte
+  `DynArray` struct (pointer + length + capacity). Pushing or index-assigning
+  a `[T]` value into a `[[T]]` copies that struct, not the inner heap
+  buffer — the array slot and the source binding share the same inner
+  buffer. If the source variable later grows (e.g. calling `a.push(...)`
+  again *after* `rows.push(a)`), its buffer may reallocate; the array slot
+  still points at the old buffer, so the two silently diverge. Treat
+  pushing/assigning a `[T]` value into a `[[T]]` as consuming the source —
+  mutating it afterward is unsafe (see `roadmap.md` §2.3 for the tracked
+  use-after-move gap).
+- **Inner buffers are not freed by the outer array's cleanup.** This is the
+  same leak profile already documented for string elements — a `[[T]]`
+  that accumulates many rows over a long-lived scope leaks their inner
+  buffers rather than double-freeing them.
+- `[[string]]` and deeper nesting (`[[[i32]]]`) exercise the same underlying
+  mechanism and have been probed working — literal, `.length`, push,
+  index-read, and nested `for-in` all produced correct output as of 2026-07
+  — but only two-level `[[T]]` has pinned regression tests, so treat
+  `[[string]]`/3+ levels as *works but not yet guaranteed/tested*.
+- See `roadmap.md` §2.3 for further tracked gaps: double-free when the same
+  `[[T]]` slot is read into two separate bindings, an oversized argument-move
+  when a single-level `[T]` is passed to a struct method, and a pre-existing
+  bug where a populated `[[T]]` struct-literal field initializer silently
+  produces corrupted data in later rows.
+
 ### Maps (Hash Maps)
 
 ```liva

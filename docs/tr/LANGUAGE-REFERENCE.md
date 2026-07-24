@@ -1338,6 +1338,59 @@ let evens = nums.filter(|x: i32| -> bool { return x % 2 == 0 })
 let sum = nums.reduce(0, |acc: i32, x: i32| -> i32 { return acc + x })
 ```
 
+#### İç İçe Diziler
+
+`[[T]]` (dizilerin dizisi) çekirdek desteğe sahiptir: literal, `.length`,
+indeksle okuma (anotasyonlu bir binding üzerinden), `push`, `for-in` ve
+indeksle atama hepsi çalışır.
+
+```liva
+var rows: [[i32]] = []
+let a: [i32] = [1, 2, 3]
+rows.push(a)                  // tüm bir [i32] satırını push'la
+println(rows.length)          // 1
+
+let first: [i32] = rows[0]    // anotasyonlu binding üzerinden indeksle okuma (zorunlu)
+println(first.length)         // 3
+
+rows[0] = [9, 9]               // indeksle yeni bir satır ata
+
+for r in rows {
+    for v in r {
+        println(v)              // 9, 9
+    }
+}
+```
+
+- **Binding üzerindeki anotasyon zorunludur.** `let first: [i32] = rows[0]`
+  çalışır; anotasyonsuz `let first = rows[0]` şu an desteklenmez.
+- **Kopya semantiği SHALLOW'dur (sığ).** `rows`'un her elemanı 24 baytlık
+  bir `DynArray` struct'ıdır (pointer + length + capacity). Bir `[T]`
+  değerini `[[T]]` içine push'lamak veya indeksle atamak yalnızca bu
+  struct'ı kopyalar, iç heap tamponunu DEĞİL — dizi slotu ile kaynak
+  binding AYNI iç tamponu paylaşır. Kaynak değişken daha sonra büyürse
+  (ör. `rows.push(a)`'dan SONRA tekrar `a.push(...)` çağrılırsa), tamponu
+  yeniden tahsis edebilir; dizi slotu hâlâ ESKİ tampona işaret eder, ikisi
+  sessizce ayrışır. Bir `[T]` değerini `[[T]]` içine push'lamayı/atamayı
+  kaynağı TÜKETEN bir işlem olarak ele alın — sonrasında mutasyona uğratmak
+  GÜVENSİZDİR (izlenen use-after-move boşluğu için `roadmap.md` §2.3'e
+  bakın).
+- **İç tamponlar dış dizinin temizliği tarafından serbest bırakılmaz.**
+  Bu, string elemanları için zaten belgelenmiş olan aynı sızıntı profilidir
+  — uzun ömürlü bir scope'ta çok sayıda satır biriktiren bir `[[T]]`,
+  çift-serbest bırakma yerine iç tamponlarını sızdırır.
+- `[[string]]` ve daha derin iç içelik (`[[[i32]]]`) aynı temel mekanizmayı
+  kullanır ve ÇALIŞTIĞI probe'landı — literal, `.length`, push, indeksle
+  okuma ve iç içe `for-in` hepsi 2026-07 itibarıyla doğru çıktı üretti —
+  ama yalnız 2-seviyeli `[[T]]` için pinning regresyon testleri var; bu
+  yüzden `[[string]]`/3+ seviyeyi *çalışıyor ama henüz garanti
+  edilmiyor/test edilmedi* olarak değerlendirin.
+- Diğer izlenen boşluklar için `roadmap.md` §2.3'e bakın: aynı `[[T]]`
+  slotunun iki ayrı binding'e okunmasında çift-serbest-bırakma, tek-seviyeli
+  bir `[T]`'nin bir struct metoduna geçirilmesinde aşırı-geniş
+  argüman-move'u ve dolu bir `[[T]]` struct-literal alan initializer'ının
+  sonraki satırlarda sessizce bozuk veri üretmesi (önceden var olan bug).
+
 ### Map'ler (Hash Map'ler)
 
 ```liva
