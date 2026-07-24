@@ -634,10 +634,23 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     auto *lenVal = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "darr.len");
                     emitBoundsCheck(indexVal, lenVal);
                     auto *elemPtr = builder_->CreateGEP(daIt->second.elementType, dataPtr, indexVal);
-                    builder_->CreateStore(val, elemPtr);
-                    // Ownership transfers to the array element — don't free as temp
-                    if (val->getType()->isPointerTy())
-                        removeFromTempStrings(val);
+                    // Arrays own COPIES of their string elements (same rule as
+                    // the local push path). A raw-pointer store dangles as
+                    // soon as the RHS local/temp is freed at scope exit — the
+                    // recycled block then reads as garbage (the intermittent
+                    // Cli ctest flake: getOption returning "true").
+                    llvm::Value *stored = val;
+                    if (stored->getType()->isPointerTy()) {
+                        if (daIt->second.elementType->isPointerTy()) {
+                            stored = builder_->CreateCall(
+                                getOrPanic("liva_str_dup"), {stored}, "elem.dup");
+                        } else {
+                            // Non-string pointer payloads keep the old
+                            // transfer-ownership behavior.
+                            removeFromTempStrings(stored);
+                        }
+                    }
+                    builder_->CreateStore(stored, elemPtr);
                 }
                 return val;
             }
@@ -655,10 +668,58 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                 auto *gep = builder_->CreateInBoundsGEP(
                     arrayType, alloca, {builder_->getInt64(0), indexVal},
                     ident->getName() + ".elem");
-                builder_->CreateStore(val, gep);
-                // Ownership transfers to the array element — don't free as temp
-                if (val->getType()->isPointerTy())
-                    removeFromTempStrings(val);
+                // Same string-copy ownership rule as the dynamic-array path
+                // above (see comment there).
+                llvm::Value *storedFixed = val;
+                if (storedFixed->getType()->isPointerTy()) {
+                    auto *elemTy = arrayType->isArrayTy()
+                                       ? arrayType->getArrayElementType()
+                                       : nullptr;
+                    if (elemTy && elemTy->isPointerTy()) {
+                        storedFixed = builder_->CreateCall(
+                            getOrPanic("liva_str_dup"), {storedFixed}, "elem.dup");
+                    } else {
+                        removeFromTempStrings(storedFixed);
+                    }
+                }
+                builder_->CreateStore(storedFixed, gep);
+            }
+        }
+
+        // Member-field dynamic array element assign: self.vals[i] = val or
+        // h.vals[i] = val. This used to be a SILENT NO-OP — only
+        // IdentifierExpr bases were handled above, so the whole statement
+        // fell through and returned without ever storing.
+        if (indexExpr->getBase()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            auto *memberBase = static_cast<MemberExpr *>(
+                const_cast<Expr *>(indexExpr->getBase()));
+            auto daInfo = resolveMemberDynArray(memberBase);
+            if (daInfo) {
+                auto *structTy = getDynArrayStructTy();
+                auto *dataField = builder_->CreateStructGEP(structTy, daInfo->arrGEP, 0);
+                auto *dataPtr = builder_->CreateLoad(
+                    llvm::PointerType::getUnqual(*context_), dataField, "melem.data");
+                auto *indexVal = visit(const_cast<Expr *>(indexExpr->getIndex()));
+                if (!indexVal) return val;
+                if (indexVal->getType()->isIntegerTy(32))
+                    indexVal = builder_->CreateSExt(indexVal, builder_->getInt64Ty());
+                auto *lenField = builder_->CreateStructGEP(structTy, daInfo->arrGEP, 1);
+                auto *lenVal = builder_->CreateLoad(builder_->getInt64Ty(), lenField, "melem.len");
+                emitBoundsCheck(indexVal, lenVal);
+                auto *elemPtr = builder_->CreateGEP(daInfo->elementType, dataPtr, indexVal);
+                // Arrays own COPIES of their string elements (see the
+                // local-array path above for the full rationale).
+                llvm::Value *storedMem = val;
+                if (storedMem->getType()->isPointerTy()) {
+                    if (daInfo->elementType->isPointerTy()) {
+                        storedMem = builder_->CreateCall(
+                            getOrPanic("liva_str_dup"), {storedMem}, "elem.dup");
+                    } else {
+                        removeFromTempStrings(storedMem);
+                    }
+                }
+                builder_->CreateStore(storedMem, elemPtr);
+                return val;
             }
         }
         return val;

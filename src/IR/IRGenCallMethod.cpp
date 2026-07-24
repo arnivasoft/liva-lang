@@ -802,6 +802,19 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 if (methodName == "push" && !node->getArgs().empty()) {
                     auto *val = visit(node->getArgs()[0].get());
                     if (!val) return nullptr;
+                    // Arrays own COPIES of their string elements — same rule
+                    // as the local-variable push path above. Storing the raw
+                    // pointer dangled as soon as the pushed local/temp string
+                    // was freed at scope exit (use-after-free; part of the
+                    // intermittent Cli ctest flake family).
+                    if (val->getType()->isPointerTy()) {
+                        if (daInfo->elementType->isPointerTy()) {
+                            val = builder_->CreateCall(getOrPanic("liva_str_dup"),
+                                                        {val}, "mpush.dup");
+                        } else {
+                            removeFromTempStrings(val);
+                        }
+                    }
                     auto *func = builder_->GetInsertBlock()->getParent();
                     auto *elemAlloca = createEntryBlockAlloca(func, "mpush.tmp",
                                                               daInfo->elementType);

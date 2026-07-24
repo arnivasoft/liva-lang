@@ -3808,4 +3808,112 @@ TEST(RuntimeExecTest, TopLevelVarCleanCompileError) {
         << "expected a clean compile failure, got: " << r.stdout_output;
 }
 
+// ============================================================
+// [string] element storage ownership family (roadmap 2.3 — the
+// intermittent Cli ctest flake's root cause)
+// ============================================================
+// Storing a string into a DynArray slot must give the ARRAY its own copy
+// (liva_str_dup), like local `arr.push(x)` already did. Three broken
+// siblings found while isolating the ~5%-per-process Cli flake:
+//   F1: local `arr[i] = localHeapStr` only did removeFromTempStrings —
+//       a NAMED local's buffer is freed at function exit → dangling
+//       element → use-after-free (recycled block showed "true").
+//   F2: member-field `self.arr.push(x)` stored the raw pointer with no
+//       dup at all (asymmetric with the local push path).
+//   F3: member-field `self.arr[i] = x` / `h.arr[i] = x` was a SILENT
+//       NO-OP — the IndexExpr-assign path only handled IdentifierExpr
+//       bases and fell through, returning without storing.
+
+TEST(RuntimeExecTest, StringElemAssignFromLocalOwnsCopy) {
+    // F1 — mirrors cli::cli parse(): build a local [string], overwrite an
+    // element with a substring-derived NAMED local, return the array; the
+    // caller churns the heap and re-reads. Pre-fix: 3-4% of iterations
+    // read recycled memory (nonzero bad count on every run).
+    auto r = compileAndRun(R"--(
+        func build(src: string) -> [string] {
+            var a: [string] = ["fast"]
+            let v: string = src[0..3]
+            a[0] = v
+            return a
+        }
+        func main() {
+            var bad = 0
+            var i = 0
+            while i < 200 {
+                let a: [string] = build("abcdef")
+                let junk: string = strToUpper("recycle-me-please")
+                let got: string = a[0]
+                if got != "abc" {
+                    bad = bad + 1
+                }
+                i = i + 1
+            }
+            println(bad)
+        }
+    )--", "str_elem_assign_local_owns");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, StringMemberPushOwnsCopy) {
+    // F2 — pushing a scope-local heap string onto a struct-field array.
+    auto r = compileAndRun(R"--(
+        struct Holder {
+            var vals: [string]
+        }
+        impl Holder {
+            func add(ref mut self, s: string) {
+                let piece: string = s[0..3]
+                self.vals.push(piece)
+            }
+        }
+        func main() {
+            var bad = 0
+            var i = 0
+            while i < 200 {
+                var h = Holder { vals: [] }
+                h.add("abcdef")
+                let junk: string = strToUpper("recycle-me-please")
+                let got: string = h.vals[0]
+                if got != "abc" {
+                    bad = bad + 1
+                }
+                i = i + 1
+            }
+            println(bad)
+        }
+    )--", "str_member_push_owns");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, StringMemberElemAssignActuallyStores) {
+    // F3 — deterministic silent no-op: the write must happen at all, both
+    // via `self.vals[i]` inside an impl and via `h.vals[i]` from outside.
+    auto r = compileAndRun(R"--(
+        struct Holder {
+            var vals: [string]
+        }
+        impl Holder {
+            func seed(ref mut self) {
+                self.vals.push("seed")
+            }
+            func overwrite(ref mut self, s: string) {
+                let piece: string = s[0..3]
+                self.vals[0] = piece
+            }
+        }
+        func main() {
+            var h = Holder { vals: [] }
+            h.seed()
+            h.overwrite("xyzdef")
+            println(h.vals[0])
+            h.vals[0] = "direct"
+            println(h.vals[0])
+        }
+    )--", "str_member_elem_assign_stores");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "xyz\ndirect\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
