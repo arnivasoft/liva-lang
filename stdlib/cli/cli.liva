@@ -118,14 +118,6 @@ impl ArgParser {
         var optNames: [string] = []
         var optValues: [string] = []
         var posValues: [string] = []
-        // NOTE: declared once here (not inside the loop/if-branches below)
-        // to avoid a codegen pitfall where a DynArray `let`/`var` declared
-        // only inside a conditionally-taken branch gets Drop-cleaned up
-        // with garbage/uninitialized storage on the branch that skips it
-        // (observed to heap-corrupt / crash with no diagnostic). Reassigning
-        // an already-declared array (`parts = strSplit(...)`) is safe;
-        // declaring a fresh `[T]` binding per-branch or per-iteration is not.
-        var parts: [string] = []
 
         for n in self.optLongs {
             optNames.push(n)
@@ -158,11 +150,25 @@ impl ArgParser {
                 var hasInlineValue = false
                 var inlineValue = ""
                 if strContains(arg, "=") {
-                    parts = strSplit(arg, "=")
-                    let rawName: string = parts[0]
-                    optName = rawName[2..rawName.length]
+                    // NOTE: split on the FIRST '=' only. `strSplit(arg, "=")`
+                    // splits on EVERY '=', so `--define=KEY=VAL` would yield
+                    // parts ["--define", "KEY", "VAL"] and lose the "=VAL"
+                    // half of the value. Instead scan codepoint-by-codepoint
+                    // for the first '=' and slice the string around it.
+                    let eqCp: i32 = strCodepointAt("=", 0)
+                    var eqIdx = -1 as i64
+                    var ci = 0 as i64
+                    let argLen: i64 = strCharCount(arg)
+                    while ci < argLen {
+                        if strCodepointAt(arg, ci) == eqCp {
+                            eqIdx = ci
+                            break
+                        }
+                        ci = ci + 1
+                    }
+                    optName = arg[2..eqIdx]
                     hasInlineValue = true
-                    inlineValue = parts[1]
+                    inlineValue = arg[(eqIdx + 1)..argLen]
                 } else {
                     optName = arg[2..arg.length]
                 }
@@ -292,5 +298,56 @@ impl ArgParser {
             setFlags: setFlags, optNames: optNames, optValues: optValues,
             posValues: posValues
         }
+    }
+
+    // usage() -> a human-readable help/usage string, e.g.:
+    //
+    //   Usage: tool [options] <input>
+    //
+    //   A test tool
+    //
+    //   Options:
+    //     -h, --help          Show this help
+    //     -v, --verbose       Verbose output
+    //     -o, --out <value>   Output file (default: out.txt)
+    //
+    //   Positionals:
+    //     <input>   Input file
+    pub func usage(ref self) -> string {
+        var s = "Usage: " + self.name + " [options]"
+        for p in self.posNames {
+            s = s + " <" + p + ">"
+        }
+        s = s + "\n\n" + self.description + "\n\nOptions:\n"
+        s = s + "  -h, --help          Show this help\n"
+
+        var i = 0 as i64
+        for fl in self.flagLongs {
+            let fs: string = self.flagShorts[i]
+            let fh: string = self.flagHelps[i]
+            s = s + "  -" + fs + ", --" + fl + "       " + fh + "\n"
+            i = i + 1
+        }
+
+        var j = 0 as i64
+        for ol in self.optLongs {
+            let os: string = self.optShorts[j]
+            let oh: string = self.optHelps[j]
+            let od: string = self.optDefaults[j]
+            s = s + "  -" + os + ", --" + ol + " <value>   " + oh + " (default: " + od + ")\n"
+            j = j + 1
+        }
+
+        if self.posNames.length > 0 {
+            s = s + "\nPositionals:\n"
+            var k = 0 as i64
+            for pn in self.posNames {
+                let ph: string = self.posHelps[k]
+                s = s + "  <" + pn + ">   " + ph + "\n"
+                k = k + 1
+            }
+        }
+
+        return s
     }
 }

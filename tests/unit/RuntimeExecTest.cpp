@@ -3471,4 +3471,44 @@ TEST(RuntimeExecTest, CliDashDashAndRepeatAndHelp) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, CliOptionEqualsSplitsOnFirstOnly) {
+    auto r = compileAndRun(R"--(
+        import cli::cli
+        func main() {
+            var p = ArgParser.new("tool", "t")
+            p.addOption("mode", "m", "fast", "Mode")
+            let args: [string] = ["--mode=a=b"]
+            let r = p.parse(args)
+            println(r.ok)
+            println(r.getOption("mode"))
+        }
+    )--", "cli_opt_equals_first_only");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // "--define=KEY=VAL" style: only the FIRST '=' separates name from value;
+    // the rest of the value (including any further '=') is preserved verbatim.
+    EXPECT_EQ(r.stdout_output, "true\na=b\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CliUsageOutput) {
+    auto r = compileAndRun(R"--(
+        import cli::cli
+        func main() {
+            var p = ArgParser.new("tool", "A test tool")
+            p.addFlag("verbose", "v", "Verbose output")
+            p.addOption("out", "o", "out.txt", "Output file")
+            p.addPositional("input", "Input file")
+            println(p.usage())
+        }
+    )--", "cli_usage");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("Usage: tool [options] <input>"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("A test tool"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("-v, --verbose"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("-o, --out"), std::string::npos);
+    EXPECT_NE(r.stdout_output.find("out.txt"), std::string::npos)
+        << "default value must appear in usage";
+    EXPECT_NE(r.stdout_output.find("<input>"), std::string::npos);
+}
+
 #endif // LIVA_HAS_LLVM

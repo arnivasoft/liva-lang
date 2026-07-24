@@ -81,6 +81,10 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 | `??` unwrap kopyası Drop'lu tipte double-drop üretiyor (önceden var olan tek-sahip-kopya sınıfı, 2026-07 izlemede) | `let r = o ?? fb` (o: `Res?`, Drop'lu) — PHI sonucu izlenmeyen bir KOPYA; hem `fb`/kaynak hem `r` aynı payload'u drop'luyor (`DROP` ×2). Roadmap #4'ün "kalan" kısmıyla (kopya/move genellemesi) aynı fix sahası | Final inceleme probe'u: `mk(-1) ?? fb` → iki `DROP 99` |
 | `a ?? nil` LLVM verifier çökmesi (önceden var, izlemede) | Literal `nil` RHS'in resolved tipi yok → yeni Optional-RHS Sema guard'ı atlanıyor; ucuz fix: `NilLiteralExpr` kind kontrolü | `TypeChecker.cpp` NilCoalesce dalı |
 | Match expression'da bare binding-pattern + guard (`n if ... =>`) codegen hatası (önceden var, `??`'den bağımsız, izlemede) | "internal: undefined variable 'n' in code generation" — expression-pozisyonlu match'te guard'lı bare binding | Final inceleme probe'u (2026-07-24) |
+| `\|\|` (ve muhtemelen `&&`) kısa-devre YAPMIYOR — sağ operand sol taraf sonucu ne olursa olsun her zaman değerlendiriliyor; `i + 1 >= len \|\| a[i + 1]...` gibi sınır-kontrolü kalıpları OOB panik'e gidiyor (yeni bulundu, 2026-07, izlemede — reviewer-CONFIRMED, probe'la doğrulandı) | IRGen ikili mantıksal operatör (`\|\|`/`&&`) codegen'i short-circuit semantiği uygulamıyor, her iki operandı koşulsuz değerlendiriyor | IRGen binary logical op codegen; keşif: `cli::cli` Task 4, probe'la doğrulandı |
+| Yalnız bir if/else dalında (veya bir döngünün yalnız bazı iterasyonlarında) bildirilen `[T]` DynArray local'i, alınmayan/atlanan koldaki scope-cleanup'ın ilklenmemiş/çöp storage'ı free etmesiyle heap corruption (`STATUS_HEAP_CORRUPTION`, sessiz çökme — stdout flush edilmeden abort) üretiyor (yeni bulundu, 2026-07, izlemede — reviewer-CONFIRMED, probe'la doğrulandı) | DynArray Drop/scope-exit codegen'i, çalışmayan koldaki (veya atlanan iterasyondaki) `let`/`var: [T]` local'i için de temizleme kodu üretip başlatılmamış pointer'ı "free" ediyor | Keşif: `cli::cli` Task 4; workaround: değişkeni fonksiyon başında bir kez bildir, dallarda/döngüde yalnız yeniden ata |
+| Struct alanlarında `pub` token'ı parse edilmiyor (`pub var x` alan düzeyinde sözdizimi hatası veriyor; alanlar zaten `pub struct` altında dışarıdan erişilebilir olduğu için pratik etki kozmetik) — ya parser'a alan-düzeyi `pub` desteği eklenmeli ya da bu davranış dokümante edilmeli (yeni bulundu, 2026-07, izlemede) | Struct alan-döngüsü yalnızca `var`/`let` token'ını tüketiyor, `pub`'ı hiç kontrol etmiyor | `ParseDecl.cpp:386-391` |
+| Map fonksiyon parametresi/dönüşü/struct alanı desteklenmiyor (izlemede) | Doğrulanmadı — henüz kök neden izole edilmedi | — |
 
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 
@@ -102,8 +106,8 @@ Generator/yield codegen'i gerçekten tam (LLVM `coro.*` lowering, for-in, break-
 
 ### 3.1 Stdlib boşlukları (etki sırasıyla)
 
-1. **Generic `Map<K,V>`** — stdlib'de yalnızca monomorfik HashSet (I64/Str) ve BTreeMap varyantları var
-2. **CLI argüman parser** — `os.getArgs()` ham liste; flag/subcommand/usage çatısı yok
+1. **Generic `Map<K,V>`** — stdlib'de yalnızca monomorfik HashSet (I64/Str) ve BTreeMap varyantları var — **built-in Map tamamlandı (2026-07: coercion fix, size/isEmpty/clear/keys/values; for (k,v) zaten vardı)**
+2. **CLI argüman parser** — `os.getArgs()` ham liste; flag/subcommand/usage çatısı yok — **tamamlandı (2026-07, cli::cli)**
 3. **Kripto eksikleri** — sadece hash/HMAC/JWT var; AES, parola hash'leme (argon2/bcrypt/pbkdf2), anahtar üretimi için secure random yok
 4. **Math/random tamamlama** — atan2/asin/acos, exp, sinh/cosh/tanh, gcd/lcm, NaN/Inf sınıflandırma; seed'lenebilir RNG, gaussian, shuffle/choice
 5. **Timezone desteği** — DateTime aritmetiği sağlam ama saat dilimi/ofset yönetimi yok

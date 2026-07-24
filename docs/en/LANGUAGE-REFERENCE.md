@@ -1355,14 +1355,32 @@ let age = m.get("alice")           // i32? — optional
 let exists = m.contains("charlie") // false
 m.remove("bob")
 
-let count = m.size                 // 1
-let empty = m.isEmpty              // false
+let count = m.size()                // 1
+let empty = m.isEmpty()             // false
 
 // Iterate
 for (key, value) in m {
     println("\(key): \(value)")
 }
 ```
+
+| Method | Signature | Description |
+|---|---|---|
+| `insert(key, value)` | `(K, V) -> void` | Insert a key, or overwrite its value if already present |
+| `get(key)` | `(K) -> V?` | Look up a value; `nil` if the key is absent |
+| `contains(key)` | `(K) -> bool` | Whether the key is present |
+| `remove(key)` | `(K) -> void` | Remove a key (no-op if absent) |
+| `size()` | `() -> i64` | Number of entries |
+| `isEmpty()` | `() -> bool` | Whether the map has no entries |
+| `clear()` | `() -> void` | Remove all entries |
+| `keys()` | `() -> [K]` | All keys as an array (unspecified order) |
+| `values()` | `() -> [V]` | All values as an array (unspecified order) |
+
+`for (key, value) in m { ... }` iterates every entry (unspecified order).
+
+> `keys()`/`values()` return a `[K]`/`[V]` DynArray. Binding the result
+> unannotated (`let ks = m.keys()`) works, but the documented style is an
+> explicit annotation: `let ks: [string] = m.keys()`.
 
 ### Sets (Hash Sets)
 
@@ -1376,14 +1394,23 @@ s.insert(30)
 let has = s.contains(20)   // true
 s.remove(10)
 
-let count = s.size          // 2
-let empty = s.isEmpty       // false
+let count = s.size()        // 2
+let empty = s.isEmpty()     // false
 
 // Iterate
 for item in s {
     println(item)
 }
 ```
+
+| Method | Signature | Description |
+|---|---|---|
+| `insert(value)` | `(T) -> void` | Add a value (no-op if already present) |
+| `contains(value)` | `(T) -> bool` | Whether the value is present |
+| `remove(value)` | `(T) -> void` | Remove a value (no-op if absent) |
+| `size()` | `() -> i64` | Number of elements |
+| `isEmpty()` | `() -> bool` | Whether the set has no elements |
+| `clear()` | `() -> void` | Remove all elements |
 
 ---
 

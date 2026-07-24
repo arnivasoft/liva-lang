@@ -1350,14 +1350,32 @@ let age = m.get("alice")           // i32? — optional
 let exists = m.contains("charlie") // false
 m.remove("bob")
 
-let count = m.size                 // 1
-let empty = m.isEmpty              // false
+let count = m.size()                // 1
+let empty = m.isEmpty()             // false
 
 // İterasyon
 for (key, value) in m {
     println("\(key): \(value)")
 }
 ```
+
+| Metod | İmza | Açıklama |
+|---|---|---|
+| `insert(key, value)` | `(K, V) -> void` | Bir anahtarı ekler; zaten varsa değerini üzerine yazar |
+| `get(key)` | `(K) -> V?` | Değeri arar; anahtar yoksa `nil` döner |
+| `contains(key)` | `(K) -> bool` | Anahtarın var olup olmadığı |
+| `remove(key)` | `(K) -> void` | Bir anahtarı siler (yoksa no-op) |
+| `size()` | `() -> i64` | Eleman sayısı |
+| `isEmpty()` | `() -> bool` | Map'in boş olup olmadığı |
+| `clear()` | `() -> void` | Tüm elemanları siler |
+| `keys()` | `() -> [K]` | Tüm anahtarları dizi olarak döner (sıra tanımsız) |
+| `values()` | `() -> [V]` | Tüm değerleri dizi olarak döner (sıra tanımsız) |
+
+`for (key, value) in m { ... }` her girdiyi dolaşır (sıra tanımsız).
+
+> `keys()`/`values()` bir `[K]`/`[V]` DynArray döner. Sonucu anotasyonsuz
+> bağlamak (`let ks = m.keys()`) da çalışır, ancak belgelenmiş üslup açık
+> anotasyon kullanmaktır: `let ks: [string] = m.keys()`.
 
 ### Set'ler (Hash Set'ler)
 
@@ -1371,14 +1389,23 @@ s.insert(30)
 let has = s.contains(20)   // true
 s.remove(10)
 
-let count = s.size          // 2
-let empty = s.isEmpty       // false
+let count = s.size()        // 2
+let empty = s.isEmpty()     // false
 
 // İterasyon
 for item in s {
     println(item)
 }
 ```
+
+| Metod | İmza | Açıklama |
+|---|---|---|
+| `insert(value)` | `(T) -> void` | Bir değer ekler (zaten varsa no-op) |
+| `contains(value)` | `(T) -> bool` | Değerin var olup olmadığı |
+| `remove(value)` | `(T) -> void` | Bir değeri siler (yoksa no-op) |
+| `size()` | `() -> i64` | Eleman sayısı |
+| `isEmpty()` | `() -> bool` | Set'in boş olup olmadığı |
+| `clear()` | `() -> void` | Tüm elemanları siler |
 
 ---
 

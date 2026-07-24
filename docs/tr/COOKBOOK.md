@@ -20,6 +20,7 @@ Liva programlama dili için yaygın kalıplar, tarifler ve deyimler. Her tarif b
 12. [For Await ve Channel'larla Async](#12-for-await-ve-channellarla-async)
 13. [Crypto: Hash ve HMAC](#13-crypto-hash-ve-hmac)
 14. [Ayrı Derleme](#14-ayrı-derleme)
+26. [CLI Argümanları](#26-cli-argümanları)
 
 ---
 
@@ -1152,6 +1153,75 @@ func main() {
 - `n @ 300..400`, durum kodunun tamamını `n`'e bağlarken eşleşmeyi `[300, 400)` aralığıyla sınırlar — range exclusive olduğundan `400` dahil değildir, bu yüzden `404` aşağıdaki kendi özel koluna düşer
 - `500..=599` inclusive'dir, bu yüzden kapsanan son durum kodu `600` değil `599`'dur
 - Kollar yukarıdan aşağıya denendiği için, daha spesifik bir kol (`404`), onu da eşleştirebilecek daha geniş bir range'den (`n @ 400..500`) önce gelmelidir
+
+---
+
+## 26. CLI Argümanları
+
+`cli::cli`, komut satırı flag/option/positional argümanlarını ayrıştırmak için `ArgParser`/`ParseResult` sağlar; hazır bir `usage()` yardım metni de dahildir.
+
+```liva
+import cli::cli
+import os::os
+
+func main() {
+    var p = ArgParser.new("greet", "Greets someone by name")
+    p.addFlag("verbose", "v", "Print extra details")
+    p.addOption("greeting", "g", "Hello", "The greeting word to use")
+    p.addPositional("name", "Name of the person to greet")
+
+    // getArgs(), C'nin argv'si gibi argv[0]'i (program yolunu) da içerir;
+    // bu yüzden parse()'a vermeden önce 0. indeksi atla.
+    let allArgs: [string] = getArgs()
+    let cliArgs: [string] = allArgs[1..allArgs.length]
+    let r = p.parse(cliArgs)
+
+    if r.helpRequested {
+        println(p.usage())
+    } else if !r.ok {
+        println("error: " + r.error)
+        println(p.usage())
+    } else {
+        let name = r.getPositional(0) ?? "world"
+        let greeting = r.getOption("greeting")
+        println(greeting + ", " + name + "!")
+        if r.getFlag("verbose") {
+            println("(verbose mode on)")
+        }
+    }
+}
+```
+
+```
+$ greet
+error: missing required positional: name
+Usage: greet [options] <name>
+...
+
+$ greet --greeting=Hi -v Kadir
+Hi, Kadir!
+(verbose mode on)
+
+$ greet --help
+Usage: greet [options] <name>
+
+Greets someone by name
+
+Options:
+  -h, --help          Show this help
+  -v, --verbose       Print extra details
+  -g, --greeting <value>   The greeting word to use (default: Hello)
+
+Positionals:
+  <name>   Name of the person to greet
+```
+
+**Önemli noktalar:**
+- `addFlag(long, short, help)` boole bir anahtar tanımlar; `addOption(long, short, defaultVal, help)` değer alan bir seçenek tanımlar; `addPositional(name, help)` zorunlu bir positional argüman tanımlar (bildirim sırasıyla).
+- `parse()` `ref self` alır ve her çağrıda taze bir `ParseResult` döner — aynı `ArgParser` birden fazla `parse()` çağrısı arasında yeniden kullanılabilir.
+- `--name=value`, `--name value` ve `-x value` biçimlerinin hepsi kabul edilir; bir seçenek tekrarlanırsa son geçen kazanır; `--` seçeneklerin sonunu işaretler (ondan sonraki her şey positional'dır).
+- `r.getFlag(long)`, `r.getOption(long)`, `r.getPositional(i) -> string?` ve `r.positionalCount()` ayrıştırılmış sonucu okur; `r.ok`/`r.error`/`r.helpRequested` ayrıştırma durumunu bildirir.
+- `p.usage()` tam yardım metnini (kullanım satırı, açıklama, seçenekler, positional'lar) oluşturur — `--help` bayrağında veya bir ayrıştırma hatasında yazdır.
 
 ---
 

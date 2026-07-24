@@ -20,6 +20,7 @@ Common patterns, recipes, and idioms for the Liva programming language. Each rec
 12. [Async with For Await and Channels](#12-async-with-for-await-and-channels)
 13. [Crypto: Hashing and HMAC](#13-crypto-hashing-and-hmac)
 14. [Separate Compilation](#14-separate-compilation)
+26. [CLI Arguments](#26-cli-arguments)
 
 ---
 
@@ -1233,6 +1234,75 @@ func main() {
 - `n @ 300..400` binds the whole status code to `n` while restricting the match to `[300, 400)` — the range is exclusive of `400`, so `404` falls through to its own dedicated arm below
 - `500..=599` is inclusive, so `599` (and not `600`) is the last status covered
 - Arms are tried top-to-bottom, so a more specific arm (`404`) must come before a broader range that would otherwise also match it (`n @ 400..500`)
+
+---
+
+## 26. CLI Arguments
+
+`cli::cli` provides `ArgParser`/`ParseResult` for parsing command-line flags, options, and positionals, plus a ready-made `usage()` help string.
+
+```liva
+import cli::cli
+import os::os
+
+func main() {
+    var p = ArgParser.new("greet", "Greets someone by name")
+    p.addFlag("verbose", "v", "Print extra details")
+    p.addOption("greeting", "g", "Hello", "The greeting word to use")
+    p.addPositional("name", "Name of the person to greet")
+
+    // getArgs() includes argv[0] (the program path) like C's argv, so
+    // skip index 0 before handing the rest to parse().
+    let allArgs: [string] = getArgs()
+    let cliArgs: [string] = allArgs[1..allArgs.length]
+    let r = p.parse(cliArgs)
+
+    if r.helpRequested {
+        println(p.usage())
+    } else if !r.ok {
+        println("error: " + r.error)
+        println(p.usage())
+    } else {
+        let name = r.getPositional(0) ?? "world"
+        let greeting = r.getOption("greeting")
+        println(greeting + ", " + name + "!")
+        if r.getFlag("verbose") {
+            println("(verbose mode on)")
+        }
+    }
+}
+```
+
+```
+$ greet
+error: missing required positional: name
+Usage: greet [options] <name>
+...
+
+$ greet --greeting=Hi -v Kadir
+Hi, Kadir!
+(verbose mode on)
+
+$ greet --help
+Usage: greet [options] <name>
+
+Greets someone by name
+
+Options:
+  -h, --help          Show this help
+  -v, --verbose       Print extra details
+  -g, --greeting <value>   The greeting word to use (default: Hello)
+
+Positionals:
+  <name>   Name of the person to greet
+```
+
+**Key points:**
+- `addFlag(long, short, help)` declares a boolean switch; `addOption(long, short, defaultVal, help)` declares a value-taking option; `addPositional(name, help)` declares a required positional argument (in declaration order).
+- `parse()` takes `ref self` and returns a fresh `ParseResult` — the same `ArgParser` can be reused across multiple `parse()` calls.
+- `--name=value`, `--name value`, and `-x value` are all accepted; repeating an option means the last occurrence wins; `--` marks the end of options (everything after is positional).
+- `r.getFlag(long)`, `r.getOption(long)`, `r.getPositional(i) -> string?`, and `r.positionalCount()` read the parsed result; `r.ok`/`r.error`/`r.helpRequested` report parse status.
+- `p.usage()` builds the full help text (usage line, description, options, positionals) — print it on `--help` or on a parse error.
 
 ---
 
