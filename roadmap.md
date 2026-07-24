@@ -93,6 +93,8 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 
 | `-Werror` kapsam boşlukları (2026-07 final incelemesi, izlemede) | (1) `liva_runtime`/`liva_ui`/fuzz hedefleri `liva_set_compiler_flags` çağırmıyor — LIVA_WERROR açıkken bile uyarı bayrağı/gate almıyorlar; (2) CI koşucularında LLVM olmadığından `liva_irgen`/`codegen`/`jit`/`livac` CI'da derlenmiyor — IRGen uyarı kapısı fiilen yalnız yerel clang-cl/MinGW; (3) GNU dalındaki `-Wno-unused-variable/parameter` bastırmaları CI'da unused sınıfını yakalamıyor (yalnız yerel clang-cl /W4 yakalar) | `CMakeLists.txt:134,174,182`, `tests/CMakeLists.txt:212`, `cmake/CompilerFlags.cmake` — takip işi: kapsamı genişlet |
 
+| Modül-içi Sema hataları "module 'X' not found" olarak maskeleniyor (önceden var, 2026-07 izlemede) | ModuleLoader mod->diag'ı yutuyor — modül dosyasındaki gerçek diagnostik (ör. top-level var hatası) kullanıcıya ulaşmıyor, yanıltıcı "bulunamadı" mesajı kalıyor | `ModuleLoader.cpp:440-443` — ucuz fix: modül diagnostiklerini ana diag'a aktar |
+
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 
 Generator/yield codegen'i gerçekten tam (LLVM `coro.*` lowering, for-in, break-early destroy, runtime testli), protokol default metodları (Sema + codegen), operator overloading (aritmetik + karşılaştırma seti, `!=`/`>=`/`>` sentezi), `?` error propagation, closures (capture + heap env), sınıf sistemi (vtable, override, static, computed properties, `final`, `is`/`as?`).
