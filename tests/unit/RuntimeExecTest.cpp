@@ -3641,4 +3641,87 @@ TEST(RuntimeExecTest, ShortCircuitInWhileCondition) {
     EXPECT_EQ(r.stdout_output, "1\n6\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Branch-declared heap containers: no cleanup of uninitialized
+// storage (roadmap 2.3, 2026-07)
+// ============================================================
+// emitScopeCleanup walks the function-flat varDynArrayTypes/varMapTypes/
+// varSetTypes maps and frees each registered alloca's data pointer on
+// EVERY exit path — but the declaration's initializing store happens at
+// the declaration point, which may be inside a branch that never ran.
+// The entry-block alloca then still holds garbage → free(garbage) →
+// STATUS_HEAP_CORRUPTION with no output at all. Fix: zero-init the
+// alloca IN THE ENTRY BLOCK so untaken paths free(NULL) (a no-op).
+
+TEST(RuntimeExecTest, BranchDeclaredDynArrayNoCorruption) {
+    auto r = compileAndRun(R"--(
+        func classify(arg: string) -> string {
+            if strContains(arg, "=") {
+                let parts: [string] = strSplit(arg, "=")
+                return parts[0]
+            } else {
+                return "no-eq"
+            }
+        }
+        func main() {
+            println(classify("plain"))
+            println(classify("k=v"))
+            println("done")
+        }
+    )--", "branch_decl_dynarray");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "no-eq\nk\ndone\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, BranchDeclaredArrayLiteralNoCorruption) {
+    // Array-literal declaration flavor (different visitVarDecl path than
+    // the call-result flavor above).
+    auto r = compileAndRun(R"--(
+        func pick(flag: bool) -> i64 {
+            if flag {
+                let xs: [i32] = [1, 2, 3]
+                return xs.length
+            }
+            return 0 as i64
+        }
+        func main() {
+            println(pick(false))
+            println(pick(true))
+            println("done")
+        }
+    )--", "branch_decl_arrlit");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n3\ndone\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, BranchDeclaredMapSetNoCorruption) {
+    auto r = compileAndRun(R"--(
+        func mapSide(flag: bool) -> i64 {
+            if flag {
+                var m: Map<string, i32>
+                m.insert("a", 1)
+                return m.size()
+            }
+            return -1 as i64
+        }
+        func setSide(flag: bool) -> i64 {
+            if flag {
+                var s: Set<i64>
+                s.insert(7)
+                return s.size()
+            }
+            return -1 as i64
+        }
+        func main() {
+            println(mapSide(false))
+            println(mapSide(true))
+            println(setSide(false))
+            println(setSide(true))
+            println("done")
+        }
+    )--", "branch_decl_mapset");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-1\n1\n-1\n1\ndone\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

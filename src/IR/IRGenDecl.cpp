@@ -4,6 +4,19 @@
 
 namespace liva {
 
+// A heap-owning container local ({data,len,cap} DynArray or {entries,size,
+// cap} Map/Set) gets its REAL initializing store at the declaration point,
+// which may sit inside a branch — but emitScopeCleanup frees the registered
+// alloca's data pointer on EVERY exit path of the function. Zero the alloca
+// in the ENTRY block right after creating it, so paths that never reach the
+// declaration free(NULL) (a defined no-op) instead of an uninitialized
+// pointer (STATUS_HEAP_CORRUPTION, silent crash).
+static void zeroInitEntryAlloca(llvm::AllocaInst *alloca) {
+    llvm::IRBuilder<> eb(alloca->getParent(), std::next(alloca->getIterator()));
+    eb.CreateStore(llvm::Constant::getNullValue(alloca->getAllocatedType()),
+                   alloca);
+}
+
 llvm::Value *IRGen::visitImportDecl(ImportDecl *node) {
     if (!moduleLoader_) {
         diag_.report(node->getStartLoc(), DiagID::err_irgen_import_no_loader);
@@ -1372,6 +1385,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             uint64_t elemSize = dl.getTypeAllocSize(elemType);
             auto *structTy = getDynArrayStructTy();
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+            zeroInitEntryAlloca(alloca);
 
             // Check if element type is dyn Protocol (for boxing)
             bool isDynProtoElem = arrTypeRepr->getElement() &&
@@ -1461,6 +1475,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
             auto *structTy = getMapStructTy();
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+            zeroInitEntryAlloca(alloca);
 
             auto *newFn = getOrPanic("liva_map_new");
             auto *dataPtr = builder_->CreateCall(newFn,
@@ -1489,6 +1504,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
             auto *structTy = getMapStructTy();
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+            zeroInitEntryAlloca(alloca);
 
             auto *newFn = getOrPanic("liva_set_new");
             auto *dataPtr = builder_->CreateCall(newFn,
@@ -1610,6 +1626,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             uint64_t elemSize = dl.getTypeAllocSize(elemType);
             auto *structTy = getDynArrayStructTy();
             auto *alloca = createEntryBlockAlloca(func, node->getName(), structTy);
+            zeroInitEntryAlloca(alloca);
             auto *initVal = visit(const_cast<Expr *>(node->getInit()));
             if (initVal) builder_->CreateStore(initVal, alloca);
             vars_.namedValues[node->getName()] = alloca;
