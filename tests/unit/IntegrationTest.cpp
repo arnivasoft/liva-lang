@@ -3141,6 +3141,13 @@ bool hasIRGenDiag(CompilerInstance &compiler, DiagID id) {
             return true;
     return false;
 }
+
+std::string irGenDiagMessage(CompilerInstance &compiler, DiagID id) {
+    for (const auto &d : compiler.getDiag().getDiagnostics())
+        if (d.id == id)
+            return d.message;
+    return {};
+}
 } // namespace
 
 TEST(IRGenDiagTest, GenericStructTypeArgsUninferrable) {
@@ -3157,6 +3164,26 @@ TEST(IRGenDiagTest, GenericStructTypeArgsUninferrable) {
     EXPECT_FALSE(ir.has_value());
     EXPECT_TRUE(hasIRGenDiag(compiler,
                              DiagID::err_generic_struct_type_args_uninferred));
+}
+
+TEST(IRGenDiagTest, GenericStructTypeArgsSuggestionMatchesArity) {
+    // A two-parameter struct must not be told to write a one-argument list.
+    CompilerInstance compiler;
+    compiler.setSource("generic_arity.liva",
+        "struct Pair<A, B> {\n"
+        "    var xs: [A]\n"
+        "    var ys: [B]\n"
+        "}\n"
+        "func main() {\n"
+        "    var p = Pair { xs: [], ys: [] }\n"
+        "    println(p.xs.length)\n"
+        "}\n");
+    auto ir = compiler.compileToIR();
+    EXPECT_FALSE(ir.has_value());
+    const std::string msg = irGenDiagMessage(
+        compiler, DiagID::err_generic_struct_type_args_uninferred);
+    EXPECT_NE(msg.find("Pair<i32, i32>"), std::string::npos)
+        << "message: " << msg;
 }
 
 TEST(IRGenDiagTest, GenericStructTypeArgsExplicitAccepted) {

@@ -279,6 +279,6 @@ DIAG(err_irgen_optional_chain_failed,  error, "internal: optional chain resoluti
 DIAG(err_irgen_subscript_failed,       error, "internal: subscript target '%0' not found")
 DIAG(err_irgen_tuple_type_failed,      error, "internal: cannot resolve tuple type for destructuring")
 DIAG(err_irgen_import_no_loader,       error, "internal: module loader not available for import")
-DIAG(err_generic_struct_type_args_uninferred, error, "cannot infer type arguments for generic struct '%0' from this literal; write them explicitly, e.g. %1<i32> { ... }")
+DIAG(err_generic_struct_type_args_uninferred, error, "cannot infer type arguments for generic struct '%0' from this literal; write them explicitly, e.g. %1 { ... }")
 
 #undef DIAG

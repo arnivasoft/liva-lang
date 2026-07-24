@@ -456,8 +456,17 @@ void IRGen::diagnoseGenericStructTypeArgs(
     // and the user sees this error alone instead of a cascade of internal
     // ones. The reported error already fails the compilation.
     const std::string &name = literal->getTypeName();
+    // Spell the suggestion with the struct's real arity, so a two-parameter
+    // struct is not told to write a one-argument list.
+    std::string suggestion = name + "<";
+    for (size_t i = 0; i < structDecl->getTypeParams().size(); ++i) {
+        if (i) suggestion += ", ";
+        suggestion += "i32";
+    }
+    suggestion += ">";
     diag_.report(literal->getStartLoc(),
-                 DiagID::err_generic_struct_type_args_uninferred, name, name);
+                 DiagID::err_generic_struct_type_args_uninferred, name,
+                 suggestion);
 }
 
 llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,
