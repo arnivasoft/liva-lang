@@ -95,6 +95,9 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 
 | Modül-içi Sema hataları "module 'X' not found" olarak maskeleniyordu (çözüldü 2026-07) | Fix: parse + Sema maskeleme siteleri err_module_error ile modülün gerçek hatalarını (dosya:satır gömülü) import noktasına iletiyor; not-found yalnız gerçek dosya-yokluğunda | `ModuleLoader.cpp` loadModule; 2 SemaTest + e2e livac build doğrulaması |
 
+| İç içe dizi (`[[i32]]`) push'u heap corruption ile çöküyor (önceden var, 2026-07 final inceleme probe'unda yeniden doğrulandı) | İç dizi elemanı `ptr` olarak lower ediliyor ama 24-baytlık `%DynArray` struct'ı 8-baytlık slota (elemSize 8) store ediliyor — hem üye (`self.rows.push(r)`, 0xC0000374) hem yerel (`rows.push(r)`, 0xC0000005) yol | DynArray eleman-tipi lowering'i; `[[T]]` desteği baştan ele alınmalı |
+| Çok-seviyeli üye dizi element-ataması (`o.inner.vals[0] = x`) hâlâ sessiz no-op (2026-07'de tek-seviye düzeltildi, izlemede) | Yeni MemberExpr dalı yalnız `ident.field[i]` çözüyor (resolveMemberDynArray Identifier obje istiyor); okuma tarafı temiz derleme hatası verdiğinden sessiz-yanlış-okuma riski yok | `IRGenCall.cpp` visitAssignExpr MemberExpr dalı — genişletme adayı |
+
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 
 Generator/yield codegen'i gerçekten tam (LLVM `coro.*` lowering, for-in, break-early destroy, runtime testli), protokol default metodları (Sema + codegen), operator overloading (aritmetik + karşılaştırma seti, `!=`/`>=`/`>` sentezi), `?` error propagation, closures (capture + heap env), sınıf sistemi (vtable, override, static, computed properties, `final`, `is`/`as?`).
