@@ -132,6 +132,16 @@ DIAG(err_pattern_tuple_single_element, error,
 DIAG(err_pattern_tuple_element_unsupported, error,
      "pattern '%0' is not supported as a tuple element")
 
+// === Sema - Top-level declarations ===
+// Top-level `var`/`let` have no runtime storage model yet (IRGen assumes a
+// function context); without this check they used to reach IRGen and
+// segfault the compiler. `const` with a compile-time-constant initializer
+// IS supported at top level.
+// NOTE: the diagnostic engine substitutes each %N once (forward-only), so
+// the variable name appears exactly once in this message.
+DIAG(err_global_var_unsupported, error,
+     "top-level 'var'/'let' declarations are not supported; declare '%0' inside a function, or make it a 'const' compile-time constant")
+
 // === Sema - Operator Overloading ===
 DIAG(err_binary_op_on_struct, error, "binary operator '%0' cannot be applied to type '%1'; implement protocol '%2'")
 
@@ -244,6 +254,7 @@ DIAG(err_let_mut_not_supported,      error,   "'let mut' is not supported; use '
 
 // === IRGen - Internal Errors ===
 DIAG(err_irgen_unknown_variable,       error, "internal: undefined variable '%0' in code generation")
+DIAG(err_irgen_var_no_function,        error, "internal: variable declaration '%0' reached IR generation outside a function body")
 DIAG(err_irgen_unknown_struct,         error, "internal: unknown struct type '%0' in code generation")
 DIAG(err_irgen_unknown_field,          error, "internal: struct '%0' has no field '%1'")
 DIAG(err_irgen_unknown_enum_case,      error, "internal: enum '%0' has no case '%1'")

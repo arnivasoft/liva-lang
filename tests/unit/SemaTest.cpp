@@ -1522,6 +1522,50 @@ TEST_F(SemaTest, NilCoalesceWithValue) {
 // into that PHI is a type mismatch. v1 scope for the `??` general-LHS fix
 // is LHS-shape generalization only; RHS-is-itself-Optional is diagnosed at
 // Sema instead of silently reaching the IRGen crash.
+// ============================================================
+// Top-level var/let: clean diagnostic instead of IRGen segfault
+// ============================================================
+// Top-level `var x = 0` used to pass Sema untouched and segfault IRGen
+// (visitVarDecl derefs a null insert block — no function context).
+// Top-level `const` with a constant initializer is supported and stays so.
+
+TEST_F(SemaTest, TopLevelVarDiagnosed) {
+    auto result = check(R"--(
+        var counter = 0
+
+        func main() {
+            println(counter)
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors());
+    EXPECT_TRUE(hasDiag(result, DiagID::err_global_var_unsupported))
+        << "top-level var must produce the dedicated diagnostic, not crash IRGen";
+}
+
+TEST_F(SemaTest, TopLevelLetDiagnosed) {
+    auto result = check(R"--(
+        let limit = 10
+
+        func main() {
+            println(limit)
+        }
+    )--");
+    EXPECT_TRUE(result.diag.hasErrors());
+    EXPECT_TRUE(hasDiag(result, DiagID::err_global_var_unsupported));
+}
+
+TEST_F(SemaTest, TopLevelConstStillAllowed) {
+    auto result = check(R"--(
+        const LIMIT = 100
+
+        func main() {
+            println(LIMIT)
+        }
+    )--");
+    EXPECT_TRUE(result.passed) << "top-level const with constant init must stay legal";
+    EXPECT_FALSE(hasDiag(result, DiagID::err_global_var_unsupported));
+}
+
 TEST_F(SemaTest, NilCoalesceOptionalRHSDiagnosed) {
     auto result = check(R"--(
         func main() {

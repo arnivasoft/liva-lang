@@ -3787,4 +3787,25 @@ TEST(RuntimeExecTest, RegexWrapperGroups) {
     EXPECT_EQ(r.stdout_output, "3\nuser@host\nuser\nhost\n") << r.stdout_output;
 }
 
+// ============================================================
+// Top-level var: clean compile error, not a compiler segfault
+// ============================================================
+// End-to-end pin: before the Sema diagnostic existed, this source
+// SEGFAULTED the in-process compiler (null insert-block deref in
+// IRGen::visitVarDecl) — which would crash this whole test binary.
+// After the fix it must fail compilation CLEANLY.
+
+TEST(RuntimeExecTest, TopLevelVarCleanCompileError) {
+    auto r = compileAndRun(R"--(
+        var counter = 0
+
+        func main() {
+            println(counter)
+        }
+    )--", "toplevel_var_clean_error");
+    EXPECT_NE(r.exit_code, 0) << "top-level var must be a compile error";
+    EXPECT_NE(r.stdout_output.find("compile failed"), std::string::npos)
+        << "expected a clean compile failure, got: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

@@ -562,6 +562,19 @@ void TypeChecker::check(TranslationUnit &tu) {
 
     // Second pass: check declarations
     for (auto &decl : tu.getDeclarations()) {
+        // Top-level `var`/`let` have no runtime storage model (IRGen's
+        // visitVarDecl assumes a function's insert block and would segfault
+        // on a null deref). Reject here with a clean diagnostic and skip the
+        // decl entirely; top-level `const` (compile-time constant) is fine.
+        if (decl->getKind() == ASTNode::NodeKind::VarDecl) {
+            auto *varDecl = static_cast<VarDecl *>(decl.get());
+            if (!varDecl->isConst()) {
+                diag_.report(varDecl->getStartLoc(),
+                             DiagID::err_global_var_unsupported,
+                             varDecl->getName());
+                continue;
+            }
+        }
         visit(decl.get());
     }
 }

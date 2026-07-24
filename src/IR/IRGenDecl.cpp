@@ -849,6 +849,14 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         return nullptr;
     }
 
+    // Defense in depth: Sema rejects top-level var/let, but if a VarDecl
+    // ever reaches IRGen without a function context again, report instead
+    // of dereferencing a null insert block (used to be a compiler segfault).
+    if (!builder_->GetInsertBlock()) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_var_no_function,
+                     node->getName());
+        return nullptr;
+    }
     auto *func = builder_->GetInsertBlock()->getParent();
 
     // Tuple destructuring: let (x, y) = expr
