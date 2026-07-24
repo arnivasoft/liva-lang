@@ -93,7 +93,7 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 
 | `-Werror` kapsam boşlukları (2026-07 final incelemesi, izlemede) | (1) `liva_runtime`/`liva_ui`/fuzz hedefleri `liva_set_compiler_flags` çağırmıyor — LIVA_WERROR açıkken bile uyarı bayrağı/gate almıyorlar; (2) CI koşucularında LLVM olmadığından `liva_irgen`/`codegen`/`jit`/`livac` CI'da derlenmiyor — IRGen uyarı kapısı fiilen yalnız yerel clang-cl/MinGW; (3) GNU dalındaki `-Wno-unused-variable/parameter` bastırmaları CI'da unused sınıfını yakalamıyor (yalnız yerel clang-cl /W4 yakalar) | `CMakeLists.txt:134,174,182`, `tests/CMakeLists.txt:212`, `cmake/CompilerFlags.cmake` — takip işi: kapsamı genişlet |
 
-| Modül-içi Sema hataları "module 'X' not found" olarak maskeleniyor (önceden var, 2026-07 izlemede) | ModuleLoader mod->diag'ı yutuyor — modül dosyasındaki gerçek diagnostik (ör. top-level var hatası) kullanıcıya ulaşmıyor, yanıltıcı "bulunamadı" mesajı kalıyor | `ModuleLoader.cpp:440-443` — ucuz fix: modül diagnostiklerini ana diag'a aktar |
+| Modül-içi Sema hataları "module 'X' not found" olarak maskeleniyordu (çözüldü 2026-07) | Fix: parse + Sema maskeleme siteleri err_module_error ile modülün gerçek hatalarını (dosya:satır gömülü) import noktasına iletiyor; not-found yalnız gerçek dosya-yokluğunda | `ModuleLoader.cpp` loadModule; 2 SemaTest + e2e livac build doğrulaması |
 
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 
