@@ -806,6 +806,13 @@ llvm::Type *IRGen::toLLVMType(const TypeRepr *type) {
     }
 }
 
+llvm::Type *IRGen::dynArrayElemLLVMType(const TypeRepr *elemRepr) {
+    if (elemRepr && elemRepr->getKind() == TypeRepr::Kind::Array &&
+        static_cast<const ArrayTypeRepr *>(elemRepr)->isDynamic())
+        return getDynArrayStructTy();
+    return toLLVMType(elemRepr);
+}
+
 llvm::AllocaInst *IRGen::createEntryBlockAlloca(llvm::Function *func,
                                                   const std::string &name,
                                                   llvm::Type *type) {

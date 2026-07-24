@@ -622,7 +622,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             param.type->getKind() == TypeRepr::Kind::Array) {
             auto *arrType = static_cast<const ArrayTypeRepr *>(param.type.get());
             if (arrType->isDynamic()) {
-                auto *elemType = toLLVMType(arrType->getElement());
+                auto *elemType = dynArrayElemLLVMType(arrType->getElement());
                 auto &DL = module_->getDataLayout();
                 uint64_t elemSize = DL.getTypeAllocSize(elemType);
                 vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
@@ -1378,7 +1378,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         (!node->hasInit() || initIsArrayLit)) {
         auto *arrTypeRepr = static_cast<const ArrayTypeRepr *>(node->getType());
         if (arrTypeRepr->isDynamic()) {
-            auto *elemType = toLLVMType(arrTypeRepr->getElement());
+            auto *elemType = dynArrayElemLLVMType(arrTypeRepr->getElement());
             const llvm::DataLayout &dl = module_->getDataLayout();
             uint64_t elemSize = dl.getTypeAllocSize(elemType);
             auto *structTy = getDynArrayStructTy();
@@ -1619,7 +1619,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             arrReprType = static_cast<const ArrayTypeRepr *>(node->getInit()->getResolvedType());
         }
         if (arrReprType && arrReprType->isDynamic() && node->hasInit()) {
-            auto *elemType = toLLVMType(arrReprType->getElement());
+            auto *elemType = dynArrayElemLLVMType(arrReprType->getElement());
             const llvm::DataLayout &dl = module_->getDataLayout();
             uint64_t elemSize = dl.getTypeAllocSize(elemType);
             auto *structTy = getDynArrayStructTy();
@@ -2021,7 +2021,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 param.type->getKind() == TypeRepr::Kind::Array) {
                 auto *arrType = static_cast<const ArrayTypeRepr *>(param.type.get());
                 if (arrType->isDynamic()) {
-                    auto *elemType = toLLVMType(arrType->getElement());
+                    auto *elemType = dynArrayElemLLVMType(arrType->getElement());
                     auto &DL = module_->getDataLayout();
                     uint64_t elemSize = DL.getTypeAllocSize(elemType);
                     vars_.varDynArrayTypes[param.name] = {elemType, elemSize};

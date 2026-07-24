@@ -3916,4 +3916,46 @@ TEST(RuntimeExecTest, StringMemberElemAssignActuallyStores) {
     EXPECT_EQ(r.stdout_output, "xyz\ndirect\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Nested dynamic arrays [[T]] — core (roadmap 2.3)
+// ============================================================
+// Elements of a nested dynamic array are INLINE %DynArray structs (24B).
+// Outer cleanup frees only the outer buffer; inner buffers intentionally
+// leak (same profile as string elements). Copies are SHALLOW.
+
+TEST(RuntimeExecTest, NestedArrayLiteralAndIndexRead) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var rows: [[i32]] = [[1, 2], [30, 40, 50]]
+            println(rows.length)
+            let first: [i32] = rows[0]
+            println(first.length)
+            println(first[1])
+            let second: [i32] = rows[1]
+            println(second.length)
+            println(second[2])
+        }
+    )--", "nested_literal_index");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n2\n2\n3\n50\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArrayInnerReadViaBinding) {
+    // Inner array read through a binding is fully functional (push works
+    // on the SHALLOW-shared copy; documented semantics).
+    auto r = compileAndRun(R"--(
+        func main() {
+            var rows: [[i32]] = [[7]]
+            let inner: [i32] = rows[0]
+            var total = 0
+            for x in inner {
+                total = total + x
+            }
+            println(total)
+        }
+    )--", "nested_inner_via_binding");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "7\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

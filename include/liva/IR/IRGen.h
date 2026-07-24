@@ -186,6 +186,13 @@ private:
     /// Convert Liva type to LLVM type
     llvm::Type *toLLVMType(const TypeRepr *type);
 
+    /// Element type for a DYNAMIC array's storage slots. A nested dynamic array
+    /// ([[T]]) stores its inner arrays as INLINE {ptr,i64,i64} DynArray structs
+    /// (24 bytes) — toLLVMType would flatten them to a bare ptr (8 bytes), which
+    /// desynchronizes every element-size computation from the actual stored
+    /// values (heap/stack corruption; roadmap 2.3 [[T]]).
+    llvm::Type *dynArrayElemLLVMType(const TypeRepr *elemRepr);
+
     /// Create runtime function declarations (print, println)
     void createRuntimeDecls();
 

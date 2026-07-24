@@ -651,7 +651,7 @@ llvm::Value *IRGen::visitIfLetStmt(IfLetStmt *node) {
         uint64_t elemSize = 0;
         auto deriveFromArrayRepr = [&](const ArrayTypeRepr *arrRepr) {
             if (!arrRepr || !arrRepr->isDynamic()) return;
-            elemLLVM = toLLVMType(arrRepr->getElement());
+            elemLLVM = dynArrayElemLLVMType(arrRepr->getElement());
             elemSize = module_->getDataLayout().getTypeAllocSize(elemLLVM);
         };
         if (auto *resolved = node->getOptionalExpr()->getResolvedType()) {

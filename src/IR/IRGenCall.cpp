@@ -53,7 +53,7 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
         basePtr = builder_->CreateLoad(objAlloca->getAllocatedType(), objAlloca, objName + ".ptr");
     }
 
-    auto *elemType = toLLVMType(arrRepr->getElement());
+    auto *elemType = dynArrayElemLLVMType(arrRepr->getElement());
     const llvm::DataLayout &dl = module_->getDataLayout();
     uint64_t elemSize = dl.getTypeAllocSize(elemType);
 
