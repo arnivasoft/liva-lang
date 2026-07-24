@@ -1822,6 +1822,45 @@ TEST_F(SemaTest, ModuleImportNonPubFunc) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_undeclared_identifier));
 }
 
+// ============================================================
+// Module-internal errors must NOT be masked as "module not found"
+// ============================================================
+// ModuleLoader used to swallow mod->diag entirely: a module that RESOLVED
+// but had a parse or Sema error was reported to the user as
+// err_module_not_found — utterly misleading. The real diagnostics are now
+// forwarded to the caller via err_module_error (module-file location baked
+// into the message text).
+
+TEST_F(SemaTest, ModuleSemaErrorNotMaskedAsNotFound) {
+    auto result = checkWithModules(R"--(
+        import mathx
+        func main() {}
+    )--", {{"mathx", R"--(
+        pub func broken() -> i32 { return undefinedIdentifier }
+    )--"}});
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_module_error))
+        << "module's real Sema error must be forwarded";
+    EXPECT_FALSE(hasDiag(result, DiagID::err_module_not_found))
+        << "a module that RESOLVED must not be reported as not-found";
+    bool carriesRealMessage = false;
+    for (auto &d : result.diag.getDiagnostics())
+        if (d.message.find("undefinedIdentifier") != std::string::npos)
+            carriesRealMessage = true;
+    EXPECT_TRUE(carriesRealMessage)
+        << "forwarded diagnostic must contain the module's original message";
+}
+
+TEST_F(SemaTest, ModuleParseErrorNotMaskedAsNotFound) {
+    auto result = checkWithModules(R"--(
+        import badmod
+        func main() {}
+    )--", {{"badmod", "pub func broken( {"}});
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_module_error));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_module_not_found));
+}
+
 TEST_F(SemaTest, ModuleNotFound) {
     auto result = checkWithModules(R"--(
         import nonexistent
@@ -1838,8 +1877,11 @@ TEST_F(SemaTest, ModuleCircularImport) {
         func main() {}
     )--", {{"b", "import test"}});
     EXPECT_FALSE(result.passed);
+    // Module b's own failure (its `import test` cannot resolve) is now
+    // FORWARDED as err_module_error instead of being masked as a top-level
+    // err_module_not_found for b itself.
     EXPECT_TRUE(hasDiag(result, DiagID::err_circular_import) ||
-                hasDiag(result, DiagID::err_module_not_found));
+                hasDiag(result, DiagID::err_module_error));
 }
 
 TEST_F(SemaTest, ModuleImportPubStruct) {

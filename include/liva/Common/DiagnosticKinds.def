@@ -142,6 +142,12 @@ DIAG(err_pattern_tuple_element_unsupported, error,
 DIAG(err_global_var_unsupported, error,
      "top-level 'var'/'let' declarations are not supported; declare '%0' inside a function, or make it a 'const' compile-time constant")
 
+// A module that RESOLVED but failed to parse/type-check must surface its
+// real diagnostics, not masquerade as "module not found". %1 carries the
+// module-file location + original message pre-formatted by ModuleLoader
+// (the caller's SourceManager cannot render module-file locations).
+DIAG(err_module_error, error, "module '%0': %1")
+
 // === Sema - Operator Overloading ===
 DIAG(err_binary_op_on_struct, error, "binary operator '%0' cannot be applied to type '%1'; implement protocol '%2'")
 

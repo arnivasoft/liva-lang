@@ -423,13 +423,29 @@ ModuleLoader::Module *ModuleLoader::loadModule(
     mod->sm = std::make_unique<SourceManager>(filename, source);
     mod->diag.setSourceManager(mod->sm.get());
 
+    // A module that RESOLVED but fails to parse/type-check must surface its
+    // REAL diagnostics — reporting err_module_not_found here (the old
+    // behavior) was utterly misleading. The module file's location is baked
+    // into the forwarded message text because the caller's SourceManager
+    // cannot render module-file locations.
+    auto forwardModuleErrors = [&]() {
+        for (const auto &d : mod->diag.getDiagnostics()) {
+            if (d.level != DiagLevel::Error)
+                continue;
+            std::string text = mod->sm
+                ? mod->sm->formatLocation(d.location) + ": " + d.message
+                : d.message;
+            callerDiag.report(loc, DiagID::err_module_error, moduleName, text);
+        }
+    };
+
     Lexer lexer(*mod->sm, mod->diag);
     Parser parser(lexer, mod->diag);
     mod->tu = parser.parseTranslationUnit();
 
     if (mod->diag.hasErrors()) {
         loading_.erase(moduleName);
-        callerDiag.report(loc, DiagID::err_module_not_found, moduleName);
+        forwardModuleErrors();
         return nullptr;
     }
 
@@ -439,7 +455,7 @@ ModuleLoader::Module *ModuleLoader::loadModule(
 
     if (mod->diag.hasErrors()) {
         loading_.erase(moduleName);
-        callerDiag.report(loc, DiagID::err_module_not_found, moduleName);
+        forwardModuleErrors();
         return nullptr;
     }
 
