@@ -1,0 +1,41 @@
+// cli_demo.liva
+//
+// A compact tour of Liva's cli::cli module: ArgParser with a flag, an
+// option, and a positional argument, parsed against FIXED [string] arrays
+// for two scenarios (a successful parse and a parse error), then the
+// generated usage() help text. See docs/en/COOKBOOK.md section 26 for the
+// full walkthrough with real process argv.
+//
+// NOTE: real applications read args via `getArgs()` from os::os, which
+// includes argv[0] (the program path) like C's argv — skip it with
+// `allArgs[1..allArgs.length]` before handing the rest to parse(). This
+// example uses hardcoded arrays instead so stdout stays deterministic.
+//
+// How to run:
+//   livac cli_demo.liva -o cli_demo && ./cli_demo
+
+import cli::cli
+
+func main() {
+    var p = ArgParser.new("greet", "Greets someone by name")
+    p.addFlag("verbose", "v", "Print extra details")
+    p.addOption("greeting", "g", "Hello", "The greeting word to use")
+    p.addPositional("name", "Name of the person to greet")
+
+    // Scenario 1: a successful parse.
+    let okArgs: [string] = ["--greeting=Hi", "-v", "Kadir"]
+    let r1 = p.parse(okArgs)
+    println(r1.ok)
+    println(r1.getFlag("verbose"))
+    println(r1.getOption("greeting"))
+    println(r1.positionalCount())
+    println(r1.getPositional(0) ?? "?")
+
+    // Scenario 2: an unknown option causes a parse error.
+    let badArgs: [string] = ["--bogus", "Kadir"]
+    let r2 = p.parse(badArgs)
+    println(r2.ok)
+    println(r2.error)
+
+    println(p.usage())
+}

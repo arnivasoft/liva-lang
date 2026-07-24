@@ -230,4 +230,28 @@ TEST(ExamplesTest, CryptoJwtDemo) {
               "verify failed\n");
 }
 
+TEST(ExamplesTest, TimeDemo) {
+    auto r = compileAndRunExample("time_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "2024\n6\n15\n2024-06-15\n13\n45\n30\n13:45:30\n"
+              "2024-06-15 08:30:00\n2024-06-15\n08:30:00\n2024/06/15\n"
+              "2024-06-25\n15\ntrue\ntrue\n");
+}
+
+TEST(ExamplesTest, CliDemo) {
+    auto r = compileAndRunExample("cli_demo");
+    EXPECT_EQ(r.exit_code, 0) << r.stdout_output;
+    EXPECT_EQ(r.stdout_output,
+              "true\ntrue\nHi\n1\nKadir\nfalse\nunknown option: --bogus\n"
+              "Usage: greet [options] <name>\n\n"
+              "Greets someone by name\n\n"
+              "Options:\n"
+              "  -h, --help          Show this help\n"
+              "  -v, --verbose       Print extra details\n"
+              "  -g, --greeting <value>   The greeting word to use (default: Hello)\n\n"
+              "Positionals:\n"
+              "  <name>   Name of the person to greet\n\n");
+}
+
 #endif // LIVA_HAS_LLVM

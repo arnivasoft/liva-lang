@@ -1,0 +1,45 @@
+// time_demo.liva
+//
+// A tour of Liva's time::time module: Date, Time, and DateTime construction
+// from FIXED strings, date arithmetic (add days, diff between two dates),
+// and formatting to string.
+//
+// NOTE: this example never prints DateTime.now()/today() (wall-clock time
+// is nondeterministic) — every printed value is derived purely from fixed,
+// hardcoded date/time strings so stdout is stable across runs.
+//
+// How to run:
+//   livac time_demo.liva -o time_demo && ./time_demo
+
+import time::time
+
+func main() {
+    let d: Date = Date.parse("2024-06-15")
+    println(d.year())
+    println(d.month())
+    println(d.day())
+    println(d.toString())
+
+    let t: Time = Time.parse("13:45:30")
+    println(t.hour())
+    println(t.minute())
+    println(t.second())
+    println(t.toString())
+
+    let dt: DateTime = DateTime.parse("2024-06-15 08:30:00", "%Y-%m-%d %H:%M:%S")
+    println(dt.toString())
+    println(dt.toDate())
+    println(dt.toTime())
+    println(dt.format("%Y/%m/%d"))
+
+    let later: DateTime = dt.addDays(10 as i64)
+    println(later.toDate())
+
+    let end: DateTime = DateTime.parse("2024-07-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+    let dtForDiff: DateTime = DateTime.parse("2024-06-15 08:30:00", "%Y-%m-%d %H:%M:%S")
+    println(end.diffDays(dtForDiff))
+
+    let dtForAfter: DateTime = DateTime.parse("2024-06-15 08:30:00", "%Y-%m-%d %H:%M:%S")
+    println(end.isAfter(dtForAfter))
+    println(dt.isBefore(end))
+}
