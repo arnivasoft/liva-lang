@@ -2,6 +2,7 @@
 build/
 build-clang/
 build-msvc/
+build-*-werror/
 out/
 cmake-build-*/
 .liva-cache/

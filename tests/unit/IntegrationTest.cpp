@@ -119,7 +119,8 @@ TEST_F(IntegrationTest, HelloWorld) {
     std::string source;
     std::string path = projectRoot() + "/tests/integration/hello.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Integration test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     auto result = runPipeline("hello.liva", source);
     EXPECT_TRUE(result.parseSuccess) << "Parse failed for hello.liva";
@@ -131,7 +132,8 @@ TEST_F(IntegrationTest, Arithmetic) {
     std::string source;
     std::string path = projectRoot() + "/tests/integration/arithmetic.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Integration test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     auto result = runPipeline("arithmetic.liva", source);
     EXPECT_TRUE(result.parseSuccess) << "Parse failed for arithmetic.liva";
@@ -143,7 +145,8 @@ TEST_F(IntegrationTest, Variables) {
     std::string source;
     std::string path = projectRoot() + "/tests/integration/variables.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Integration test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     auto result = runPipeline("variables.liva", source);
     EXPECT_TRUE(result.parseSuccess) << "Parse failed for variables.liva";
@@ -176,7 +179,8 @@ TEST_F(IntegrationTest, WhileLoop) {
     std::string source;
     std::string path = projectRoot() + "/tests/integration/while_loop.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Integration test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     auto result = runPipeline("while_loop.liva", source);
     EXPECT_TRUE(result.parseSuccess) << "Parse failed for while_loop.liva";
@@ -188,7 +192,8 @@ TEST_F(IntegrationTest, Functions) {
     std::string source;
     std::string path = projectRoot() + "/tests/integration/functions.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Integration test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     auto result = runPipeline("functions.liva", source);
     EXPECT_TRUE(result.parseSuccess) << "Parse failed for functions.liva";
@@ -204,7 +209,8 @@ TEST_F(IntegrationTest, ErrorBreakOutsideLoop) {
     std::string source;
     std::string path = projectRoot() + "/tests/error/break_outside_loop.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Error test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     std::string expectedError = extractExpectedError(source);
     auto result = runPipeline("break_outside_loop.liva", source);
@@ -230,7 +236,8 @@ TEST_F(IntegrationTest, ErrorImmutableAssign) {
     std::string source;
     std::string path = projectRoot() + "/tests/error/immutable_assign.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Error test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     std::string expectedError = extractExpectedError(source);
     auto result = runPipeline("immutable_assign.liva", source);
@@ -254,7 +261,8 @@ TEST_F(IntegrationTest, ErrorUndefinedVar) {
     std::string source;
     std::string path = projectRoot() + "/tests/error/undefined_var.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Error test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     std::string expectedError = extractExpectedError(source);
     auto result = runPipeline("undefined_var.liva", source);
@@ -280,7 +288,8 @@ TEST_F(IntegrationTest, ErrorUseAfterMove) {
     std::string source;
     std::string path = projectRoot() + "/tests/error/use_after_move.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Error test file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     auto result = runPipeline("use_after_move.liva", source);
     // The file should at least parse correctly
@@ -2334,7 +2343,8 @@ TEST_F(IntegrationTest, ClassDecl_ExampleFile_FullPipeline) {
     std::string source;
     std::string path = projectRoot() + "/examples/classes.liva";
     if (!readFile(path, source))
-        GTEST_SKIP() << "Example file not found: " << path;
+        FAIL() << "Required test fixture missing: " << path
+               << " — fixture files are part of the suite; a missing file is a broken run, not a skip.";
 
     auto result = runPipeline("classes.liva", source);
     EXPECT_TRUE(result.parseSuccess) << "Parse failed for classes.liva";

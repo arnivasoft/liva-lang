@@ -146,4 +146,4 @@ Geniş widget seti mevcut (23+ widget, menü/toolbar, data binding Faz 6.x). Eks
 | 5 | `??` operatörünü genel LHS'lerde doğru üret — **tamamlandı (2026-07, + sağ-assoc + lazy RHS)** | Bug | Sessiz yanlış davranış |
 | 6 | Generic `Map<K,V>` + CLI arg parser | Stdlib | En görünür kullanıcı boşlukları |
 | 7 | Networking/db/json örnekleri + artifact temizliği | Docs | Düşük maliyet, yüksek getiri — **tamamlandı (2026-07)** |
-| 8 | CI'da `-Werror` + fixture-skip'leri hard-fail yap | Altyapı | Regresyon sızıntısını kapatır |
+| 8 | CI'da `-Werror` + fixture-skip'leri hard-fail yap — **tamamlandı (2026-07, LIVA_WERROR + fixture hard-fail)** | Altyapı | Regresyon sızıntısını kapatır |
