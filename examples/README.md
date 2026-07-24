@@ -81,7 +81,7 @@ compiled (and most are also run with pinned output) by `tests/unit/ExamplesTest.
 | csv_demo.liva | **NEW (2026-07)** — `csv::csv` row parse (quoted fields) + join/escape round trip |
 | toml_demo.liva | **NEW (2026-07)** — `toml::toml` parse + typed getters (string/int/bool) |
 | sqlite_demo.liva | **NEW (2026-07)** — `sqlite::sqlite` in-memory DB: create/insert/prepare/bind/step/columns |
-| regex_demo.liva | **NEW (2026-07)** — regex match/find/replace/groups via raw builtins (works around a known `regex::regex` wrapper argument-order bug — see roadmap.md) |
+| regex_demo.liva | **NEW (2026-07)** — `regex::regex` wrapper tour: match/find/findAll/replace/groups, plus the full-match vs contains distinction (`regexMatch` vs `regexFind`) |
 | crypto_jwt_demo.liva | **NEW (2026-07)** — `crypto::crypto` hashing + `jwt::jwt` sign/verify round trip |
 | time_demo.liva | **NEW (2026-07)** — `time::time` Date/Time/DateTime parsing, formatting, arithmetic |
 | cli_demo.liva | **NEW (2026-07)** — `cli::cli` ArgParser: flags/options/positionals/usage |
