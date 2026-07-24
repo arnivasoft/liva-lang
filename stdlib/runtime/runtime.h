@@ -256,6 +256,10 @@ int8_t liva_map_contains(void *entries, int64_t cap,
                          const void *key, int64_t key_size, int64_t val_size,
                          int8_t key_kind);
 
+/// Clear all entries in-place (zero the entry buffer, reset size to 0).
+/// Capacity is untouched, so the map/set remains reusable after clear().
+void liva_map_clear(void *entries, int64_t cap, int64_t stride, int64_t *size);
+
 // === Hash Set ===
 
 /// Allocate hash set entry buffer (zero-initialized)

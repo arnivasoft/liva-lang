@@ -3275,4 +3275,47 @@ TEST(RuntimeExecTest, SetI64LiteralInsert) {
     EXPECT_EQ(r.stdout_output, "true\nfalse\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, MapSizeIsEmptyClear) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var m: Map<string, i32>
+            println(m.isEmpty())
+            m.insert("a", 1)
+            m.insert("b", 2)
+            m.insert("a", 3)
+            println(m.size())
+            println(m.isEmpty())
+            m.clear()
+            println(m.size())
+            println(m.contains("a"))
+            m.insert("c", 9)
+            if let v = m.get("c") {
+                println(v)
+            }
+        }
+    )--", "map_size_clear");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // insert("a",3) overwrite: size stays 2. clear() then reuse must work.
+    EXPECT_EQ(r.stdout_output, "true\n2\nfalse\n0\nfalse\n9\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, SetSizeIsEmptyClear) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var s: Set<i64>
+            println(s.isEmpty())
+            s.insert(1)
+            s.insert(2)
+            s.insert(1)
+            println(s.size())
+            s.clear()
+            println(s.size())
+            s.insert(7)
+            println(s.contains(7))
+        }
+    )--", "set_size_clear");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "true\n2\n0\ntrue\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

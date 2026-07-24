@@ -873,13 +873,21 @@ void TypeChecker::resolveMapSetMethodCall(CallExpr *node) {
                         node->setResolvedType(std::move(optType));
                     } else if (methodName == "contains" || methodName == "remove") {
                         node->setResolvedType(makeBoolType());
+                    } else if (methodName == "size") {
+                        node->setResolvedType(makeI64Type());
+                    } else if (methodName == "isEmpty") {
+                        node->setResolvedType(makeBoolType());
                     }
-                    // insert() returns void — no resolved type needed
+                    // insert()/clear() return void — no resolved type needed
                 } else if (genType->getBaseName() == "Set") {
                     if (methodName == "contains" || methodName == "remove") {
                         node->setResolvedType(makeBoolType());
+                    } else if (methodName == "size") {
+                        node->setResolvedType(makeI64Type());
+                    } else if (methodName == "isEmpty") {
+                        node->setResolvedType(makeBoolType());
                     }
-                    // insert() returns void
+                    // insert()/clear() return void
                 }
             }
 

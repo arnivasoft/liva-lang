@@ -1007,6 +1007,28 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     }, "map.remove");
                     return builder_->CreateTrunc(result, builder_->getInt1Ty(), "map.remove.bool");
                 }
+
+                if (methodName == "size" && node->getArgs().empty()) {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
+                    return builder_->CreateLoad(builder_->getInt64Ty(), sizeField, "map.size");
+                }
+                if (methodName == "isEmpty" && node->getArgs().empty()) {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
+                    auto *sz = builder_->CreateLoad(builder_->getInt64Ty(), sizeField, "map.size");
+                    return builder_->CreateICmpEQ(sz, builder_->getInt64(0), "map.isempty");
+                }
+                if (methodName == "clear" && node->getArgs().empty()) {
+                    int64_t stride = 9 + (int64_t)info.keySize + (int64_t)info.valSize;
+                    auto *entriesField = builder_->CreateStructGEP(structTy, mapAlloca, 0);
+                    auto *entries = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), entriesField, "map.entries");
+                    auto *capField = builder_->CreateStructGEP(structTy, mapAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField, "map.cap");
+                    auto *sizeField = builder_->CreateStructGEP(structTy, mapAlloca, 1);
+                    builder_->CreateCall(getOrPanic("liva_map_clear"),
+                        {entries, cap, builder_->getInt64(stride), sizeField});
+                    return nullptr;
+                }
             }
         }
 
@@ -1100,6 +1122,28 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         builder_->getInt8(info.keyKind)
                     }, "set.remove");
                     return builder_->CreateTrunc(result, builder_->getInt1Ty(), "set.remove.bool");
+                }
+
+                if (methodName == "size" && node->getArgs().empty()) {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
+                    return builder_->CreateLoad(builder_->getInt64Ty(), sizeField, "set.size");
+                }
+                if (methodName == "isEmpty" && node->getArgs().empty()) {
+                    auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
+                    auto *sz = builder_->CreateLoad(builder_->getInt64Ty(), sizeField, "set.size");
+                    return builder_->CreateICmpEQ(sz, builder_->getInt64(0), "set.isempty");
+                }
+                if (methodName == "clear" && node->getArgs().empty()) {
+                    int64_t stride = 9 + (int64_t)info.elemSize;
+                    auto *entriesField = builder_->CreateStructGEP(structTy, setAlloca, 0);
+                    auto *entries = builder_->CreateLoad(
+                        llvm::PointerType::getUnqual(*context_), entriesField, "set.entries");
+                    auto *capField = builder_->CreateStructGEP(structTy, setAlloca, 2);
+                    auto *cap = builder_->CreateLoad(builder_->getInt64Ty(), capField, "set.cap");
+                    auto *sizeField = builder_->CreateStructGEP(structTy, setAlloca, 1);
+                    builder_->CreateCall(getOrPanic("liva_map_clear"),
+                        {entries, cap, builder_->getInt64(stride), sizeField});
+                    return nullptr;
                 }
             }
         }

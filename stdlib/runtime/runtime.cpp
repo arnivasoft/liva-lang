@@ -1410,6 +1410,11 @@ int8_t liva_map_contains(void *entries, int64_t cap,
     return 0;
 }
 
+void liva_map_clear(void *entries, int64_t cap, int64_t stride, int64_t *size) {
+    memset(entries, 0, (size_t)(cap * stride));
+    *size = 0;
+}
+
 // === Hash Set ===
 
 void *liva_set_new(int64_t capacity, int64_t stride) {

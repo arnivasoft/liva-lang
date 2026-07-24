@@ -71,6 +71,8 @@ LIVA_RT_JIT(liva_map_get, PTR, RT_ARGS(PTR, I64, PTR, I64, I64, I8))
 LIVA_RT_JIT(liva_map_remove, I8, RT_ARGS(PTR, PTR, I64, PTR, I64, I64, I8))
 // liva_map_contains(ptr, i64, ptr, i64, i64, i8) -> i8
 LIVA_RT_JIT(liva_map_contains, I8, RT_ARGS(PTR, I64, PTR, I64, I64, I8))
+// liva_map_clear(ptr, i64, i64, i64*) -> void
+LIVA_RT_JIT(liva_map_clear, VOID, RT_ARGS(PTR, I64, I64, PTR))
 // Hash set runtime
 LIVA_RT_JIT(liva_set_new, PTR, RT_ARGS(I64, I64))
 LIVA_RT_JIT(liva_set_free, VOID, RT_ARGS(PTR))
