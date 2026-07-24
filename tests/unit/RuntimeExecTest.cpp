@@ -4160,4 +4160,52 @@ TEST(RuntimeExecTest, NestedArrayMemberForInCallerIntact) {
     EXPECT_EQ(r.stdout_output, "2\n3\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Variadic function EXECUTION (roadmap 2.3)
+// ============================================================
+// The variadic parameter is packed by the CALLER into a stack-allocated
+// element array and passed as a DynArray struct by value. The callee's
+// registration lacked the movedVars borrow mark, so emitScopeCleanup
+// called free() on the caller's STACK pointer at every variadic-function
+// return -> STATUS_HEAP_CORRUPTION. The existing VariadicFunction test
+// only ran parse+sema, so execution was never covered.
+
+TEST(RuntimeExecTest, VariadicExecutionSumAndEmpty) {
+    auto r = compileAndRun(R"--(
+        func sumAll(values: i32...) -> i32 {
+            var total = 0
+            for v in values {
+                total = total + v
+            }
+            return total
+        }
+        func main() {
+            println(sumAll(1, 2, 3, 4, 5))
+            println(sumAll(10))
+            println(sumAll())
+            println(sumAll(7, 7))
+        }
+    )--", "variadic_exec_sum");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "15\n10\n0\n14\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, VariadicExecutionWithLeadingFixedParam) {
+    auto r = compileAndRun(R"--(
+        func scaleSum(factor: i32, values: i32...) -> i32 {
+            var total = 0
+            for v in values {
+                total = total + v * factor
+            }
+            return total
+        }
+        func main() {
+            println(scaleSum(2, 1, 2, 3))
+            println(scaleSum(10, 5))
+        }
+    )--", "variadic_exec_fixed");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "12\n50\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

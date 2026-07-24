@@ -613,6 +613,12 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
             auto &DL = module_->getDataLayout();
             uint64_t elemSize = DL.getTypeAllocSize(elemType);
             vars_.varDynArrayTypes[param.name] = {elemType, elemSize};
+            // BORROW: the caller packs variadic args into a STACK-allocated
+            // element array (IRGenCall.cpp varargs packing) — without this
+            // mark, emitScopeCleanup called free() on the caller's stack
+            // pointer at every variadic-function return (heap corruption).
+            // Same borrow rule as [T] params right below.
+            vars_.movedVars.insert(param.name);
         }
     }
 
