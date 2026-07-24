@@ -1,0 +1,41 @@
+// http_demo.liva
+//
+// A tour of Liva's http::http client: fluent request builder, response
+// inspection, and parsing a JSON body via json::json.
+//
+// Demonstrates:
+//   - HttpRequest.get(url).header(...).timeout(...).send() -> HttpResponse
+//   - HttpResponse.statusCode(), header(name), is2xx()
+//   - HttpResponse.json() -> JsonValue, then JsonObject field reads
+//
+// REQUIRES NETWORK ACCESS — not run by the test suite (compile-checked
+// only, via ExamplesTest.cpp's compileExampleOnly). httpbin.org may also be
+// rate-limited or unreachable in CI/offline environments, which is exactly
+// why this example is compile-only rather than executed with pinned output.
+//
+// How to run for real:
+//   livac http_demo.liva -o http_demo && ./http_demo
+
+import http::http
+import json::json
+
+func main() {
+    let resp = HttpRequest.get("https://httpbin.org/json")
+        .header("Accept", "application/json")
+        .timeout(5000)
+        .send()
+
+    println(resp.statusCode())
+    println(resp.is2xx())
+
+    if let contentType = resp.header("Content-Type") {
+        println(contentType)
+    }
+
+    let doc = Json.parse(resp.text())
+    let o = doc.object()
+    if o.has("slideshow") {
+        let slideshow = o.getObject("slideshow")
+        println(slideshow.getString("title"))
+    }
+}

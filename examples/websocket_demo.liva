@@ -1,0 +1,48 @@
+// websocket_demo.liva
+//
+// A tour of Liva's websocket::websocket client: fluent connect builder,
+// text send/recv, and Drop-based auto-close.
+//
+// Demonstrates:
+//   - WsClient.to(url).keepAlive(ms).connect() -> WebSocket
+//   - WebSocket.isOpen() (connect() is NOT optional — always check isOpen())
+//   - WebSocket.send(text) / recv() -> WsMessage?
+//   - WsMessage.isText() / text()
+//   - WebSocket.close() (also auto-closes via Drop if not called explicitly)
+//
+// REQUIRES NETWORK ACCESS — not run by the test suite (compile-checked
+// only, via ExamplesTest.cpp's compileExampleOnly). Public echo servers may
+// be unreachable, rate-limited, or change availability over time, which is
+// exactly why this example is compile-only rather than executed with
+// pinned output.
+//
+// NOTE (websocket-redesign project memory): no manual ping is needed —
+// keepAlive() takes a fixed interval (min ~15000ms) and the runtime handles
+// it internally. WebSocket implements Drop, so it must stay in scope as a
+// local (never passed by value into another function, which would
+// double-drop) — this example keeps everything in main() for that reason.
+//
+// How to run for real:
+//   livac websocket_demo.liva -o websocket_demo && ./websocket_demo
+
+import websocket::websocket
+
+func main() {
+    var ws = WsClient.to("wss://echo.websocket.events")
+        .keepAlive(30000)
+        .connect()
+
+    if ws.isOpen() {
+        println("connected")
+        if ws.send("hello from liva") {
+            if let msg = ws.recv() {
+                if msg.isText() {
+                    println(msg.text())
+                }
+            }
+        }
+        ws.close()
+    } else {
+        println("not connected")
+    }
+}

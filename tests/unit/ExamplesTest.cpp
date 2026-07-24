@@ -165,9 +165,7 @@ static RunResult compileAndRunExample(const std::string &baseName) {
 
 // Compile-only check for examples that shouldn't be executed by this suite
 // (e.g. network/UI examples) — used by later example-coverage tasks.
-// Defined now to keep the helper surface stable across tasks; marked
-// [[maybe_unused]] until a test calls it.
-[[maybe_unused]] static bool compileExampleOnly(const std::string &baseName) {
+static bool compileExampleOnly(const std::string &baseName) {
     return compileAndRunExampleImpl(baseName, /*runIt=*/false).exit_code == 0;
 }
 
@@ -252,6 +250,16 @@ TEST(ExamplesTest, CliDemo) {
               "  -g, --greeting <value>   The greeting word to use (default: Hello)\n\n"
               "Positionals:\n"
               "  <name>   Name of the person to greet\n\n");
+}
+
+// Network examples: compile-only (never executed — they need a live
+// internet connection, which this test suite must not depend on).
+TEST(ExamplesTest, HttpDemoCompiles) {
+    EXPECT_TRUE(compileExampleOnly("http_demo"));
+}
+
+TEST(ExamplesTest, WebsocketDemoCompiles) {
+    EXPECT_TRUE(compileExampleOnly("websocket_demo"));
 }
 
 #endif // LIVA_HAS_LLVM

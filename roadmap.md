@@ -89,6 +89,7 @@ Yapısal bir Pattern AST'sine geçiş, dil sağlamlığı açısından en değer
 | Untyped `func main()` içinde bir if dalındaki çıplak `return`, LLVM verifier hatası veriyor (`ret void` vs `i32` — "Function return type does not match operand type") (yeni bulundu, 2026-07, izlemede — final inceleme probe'uyla doğrulandı) | main'in örtük `i32` dönüş tipi ile gövdedeki değersiz `return`'ün `ret void` üretmesi çelişiyor; ya çıplak `return` main'de `ret i32 0`'a çevrilmeli ya da Sema diagnostiği eklenmeli | Keşif: cli::cli Task 5 cookbook doğrulaması; minimal repro: `func main() { if x == 1 { return } }` |
 | Struct alanlarında `pub` token'ı parse edilmiyor (`pub var x` alan düzeyinde sözdizimi hatası veriyor; alanlar zaten `pub struct` altında dışarıdan erişilebilir olduğu için pratik etki kozmetik) — ya parser'a alan-düzeyi `pub` desteği eklenmeli ya da bu davranış dokümante edilmeli (yeni bulundu, 2026-07, izlemede) | Struct alan-döngüsü yalnızca `var`/`let` token'ını tüketiyor, `pub`'ı hiç kontrol etmiyor | `ParseDecl.cpp:386-391` |
 | Map fonksiyon parametresi/dönüşü/struct alanı desteklenmiyor (izlemede) | Doğrulanmadı — henüz kök neden izole edilmedi | — |
+| Aynı süreç içinde birden çok `CompilerInstance::compile()` çağrısı state kirliliği yaratıyor — ExamplesTest'in 9 örneği tek süreçte derlendiğinde `CliDemo` ~%10 oranda yanlış çıktı üretiyor (`getOption` yanlış değer); ctest etkilenmiyor (`gtest_discover_tests` test-başına taze süreç); `SelfHostTest.StrSplit*` ve önceki Cli aynı-süreç flake'leriyle muhtemelen aynı sınıf (izlemede) | Kök neden izole edilmedi — compiler global/static state şüphesi | Keşif: ExamplesTest Task 4, reviewer 4/40 tekrar oranıyla doğruladı |
 
 ### 2.4 Sağlam olduğu doğrulanan alanlar
 
@@ -130,7 +131,7 @@ Geniş widget seti mevcut (23+ widget, menü/toolbar, data binding Faz 6.x). Eks
 
 ### 3.4 Örnek/dokümantasyon açığı (düşük maliyet, yüksek getiri)
 
-`examples/` içinde ~55 örnek var ama **http, websocket, json, db/sqlite/postgres, regex, crypto, jwt, csv, toml, time, stream, sync için tek örnek yok** — son aylarda en çok emek verilen stdlib yüzeyi örneksiz. Ayrıca `examples/` içine commit edilmiş `.exe`/`.dll` artifact'ları gitignore'a alınmalı. Docs en/tr çift bakım — drift riski; COOKBOOK/TUTORIAL yeni fluent API'lerin (json/http/ws yeniden yazımları) gerisinde kalmış olabilir.
+`examples/` içinde ~55 örnek var ama **http, websocket, json, db/sqlite/postgres, regex, crypto, jwt, csv, toml, time, stream, sync için tek örnek yok** — son aylarda en çok emek verilen stdlib yüzeyi örneksiz — **tamamlandı (2026-07: 11 yeni örnek + ExamplesTest kapısı; examples/README.md)**. Artifact temizliği maddesi başından beri gereksizmiş: `.exe`/`.dll` zaten kök `.gitignore`'da (`*.exe`, `*.dll`, ayrıca fazladan `examples/*.exe`) ve `examples/` altında hiçbir artifact git'e tracked değil (doğrulandı: `git ls-files examples/ | grep -E '\.(exe|dll)$'` boş döner) — yerel wx DLL'leri (`wxbase331u_vc_x64_custom.dll` vb.) UI demo'larının çalışması için gerekli ve olduğu gibi kalmalı. Docs en/tr çift bakım — drift riski; COOKBOOK/TUTORIAL yeni fluent API'lerin (json/http/ws yeniden yazımları) gerisinde kalmış olabilir.
 
 ---
 
@@ -144,5 +145,5 @@ Geniş widget seti mevcut (23+ widget, menü/toolbar, data binding Faz 6.x). Eks
 | 4 | Atama/if-let move takibi — **tamamlandı (2026-07, muhafazakâr kapsam: Drop'lu tipler)** — kalan: clone(), atamada eski-değer drop'u, koleksiyon/alan drop'ları | Bug/Dil | Bilinen 3 memory hatasını kökten çözer |
 | 5 | `??` operatörünü genel LHS'lerde doğru üret — **tamamlandı (2026-07, + sağ-assoc + lazy RHS)** | Bug | Sessiz yanlış davranış |
 | 6 | Generic `Map<K,V>` + CLI arg parser | Stdlib | En görünür kullanıcı boşlukları |
-| 7 | Networking/db/json örnekleri + artifact temizliği | Docs | Düşük maliyet, yüksek getiri |
+| 7 | Networking/db/json örnekleri + artifact temizliği | Docs | Düşük maliyet, yüksek getiri — **tamamlandı (2026-07)** |
 | 8 | CI'da `-Werror` + fixture-skip'leri hard-fail yap | Altyapı | Regresyon sızıntısını kapatır |
