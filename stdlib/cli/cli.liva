@@ -1,0 +1,296 @@
+// cli::cli — Command-line argument parsing
+//
+//   import cli::cli
+//   var p = ArgParser.new("myapp", "Does things")
+//   p.addFlag("verbose", "v", "Verbose output")
+//   p.addOption("out", "o", "out.txt", "Output file")
+//   p.addPositional("input", "Input file")
+//   let r = p.parse(getArgs())   // getArgs() from os::os (import os::os)
+//   if !r.ok {
+//       println(r.error)
+//       return
+//   }
+//
+// Parsing rules:
+//   - "--" marks the end of options: everything after it is positional,
+//     even tokens that themselves start with "-".
+//   - "--help" / "-h" set helpRequested=true and parsing continues.
+//   - "--name=value" and "--name value" (next-token) forms are both
+//     accepted for declared options; short names use "-x value".
+//   - An unknown long/short option stops parsing immediately with
+//     ok=false and error="unknown option: --name" (or "-x").
+//   - An option missing its value (end of args, or the next token looks
+//     like another option) stops parsing with an error.
+//   - Repeating an option: the LAST occurrence wins.
+//   - Declared positionals not supplied by the time parsing ends produce
+//     error="missing required positional: <name>"; extra positionals
+//     beyond what was declared are allowed.
+//
+// `parse` takes `ref self` (immutable borrow of the parser spec) and
+// builds a brand-new ParseResult on every call — calling parse() more
+// than once on the same ArgParser is safe and each call starts fresh.
+
+pub struct ParseResult {
+    var ok: bool
+    var error: string
+    var helpRequested: bool
+    var setFlags: [string]
+    var optNames: [string]
+    var optValues: [string]
+    var posValues: [string]
+}
+
+impl ParseResult {
+    pub func getFlag(ref self, long: string) -> bool {
+        for f in self.setFlags {
+            if f == long { return true }
+        }
+        return false
+    }
+
+    pub func getOption(ref self, long: string) -> string {
+        var i = 0 as i64
+        for n in self.optNames {
+            if n == long { return self.optValues[i] }
+            i = i + 1
+        }
+        return ""
+    }
+
+    pub func positionalCount(ref self) -> i64 {
+        return self.posValues.length
+    }
+
+    pub func getPositional(ref self, i: i64) -> string? {
+        if i < 0 { return nil }
+        if i >= self.posValues.length { return nil }
+        return self.posValues[i]
+    }
+}
+
+pub struct ArgParser {
+    var name: string
+    var description: string
+    var flagLongs: [string]
+    var flagShorts: [string]
+    var flagHelps: [string]
+    var optLongs: [string]
+    var optShorts: [string]
+    var optDefaults: [string]
+    var optHelps: [string]
+    var posNames: [string]
+    var posHelps: [string]
+}
+
+impl ArgParser {
+    pub func new(name: string, description: string) -> ArgParser {
+        return ArgParser {
+            name: name, description: description,
+            flagLongs: [], flagShorts: [], flagHelps: [],
+            optLongs: [], optShorts: [], optDefaults: [], optHelps: [],
+            posNames: [], posHelps: []
+        }
+    }
+
+    pub func addFlag(ref mut self, long: string, short: string, help: string) {
+        self.flagLongs.push(long)
+        self.flagShorts.push(short)
+        self.flagHelps.push(help)
+    }
+
+    pub func addOption(ref mut self, long: string, short: string, defaultVal: string, help: string) {
+        self.optLongs.push(long)
+        self.optShorts.push(short)
+        self.optDefaults.push(defaultVal)
+        self.optHelps.push(help)
+    }
+
+    pub func addPositional(ref mut self, name: string, help: string) {
+        self.posNames.push(name)
+        self.posHelps.push(help)
+    }
+
+    pub func parse(ref self, args: [string]) -> ParseResult {
+        var ok = true
+        var error = ""
+        var helpRequested = false
+        var setFlags: [string] = []
+        var optNames: [string] = []
+        var optValues: [string] = []
+        var posValues: [string] = []
+        // NOTE: declared once here (not inside the loop/if-branches below)
+        // to avoid a codegen pitfall where a DynArray `let`/`var` declared
+        // only inside a conditionally-taken branch gets Drop-cleaned up
+        // with garbage/uninitialized storage on the branch that skips it
+        // (observed to heap-corrupt / crash with no diagnostic). Reassigning
+        // an already-declared array (`parts = strSplit(...)`) is safe;
+        // declaring a fresh `[T]` binding per-branch or per-iteration is not.
+        var parts: [string] = []
+
+        for n in self.optLongs {
+            optNames.push(n)
+        }
+        for d in self.optDefaults {
+            optValues.push(d)
+        }
+
+        var i = 0 as i64
+        while i < args.length {
+            let arg: string = args[i]
+
+            if arg == "--" {
+                var j = i + 1
+                while j < args.length {
+                    posValues.push(args[j])
+                    j = j + 1
+                }
+                break
+            }
+
+            if arg == "--help" || arg == "-h" {
+                helpRequested = true
+                i = i + 1
+                continue
+            }
+
+            if strStartsWith(arg, "--") {
+                var optName = ""
+                var hasInlineValue = false
+                var inlineValue = ""
+                if strContains(arg, "=") {
+                    parts = strSplit(arg, "=")
+                    let rawName: string = parts[0]
+                    optName = rawName[2..rawName.length]
+                    hasInlineValue = true
+                    inlineValue = parts[1]
+                } else {
+                    optName = arg[2..arg.length]
+                }
+
+                var isFlag = false
+                for fl in self.flagLongs {
+                    if fl == optName {
+                        isFlag = true
+                    }
+                }
+
+                if isFlag {
+                    setFlags.push(optName)
+                    i = i + 1
+                    continue
+                }
+
+                var optIdx = -1 as i64
+                var k = 0 as i64
+                for on in optNames {
+                    if on == optName {
+                        optIdx = k
+                    }
+                    k = k + 1
+                }
+
+                if optIdx >= 0 {
+                    if hasInlineValue {
+                        optValues[optIdx] = inlineValue
+                        i = i + 1
+                    } else {
+                        // NOTE: `||` does not short-circuit in Liva codegen —
+                        // `i + 1 >= args.length || strStartsWith(args[i + 1], ...)`
+                        // evaluates args[i + 1] even when the bounds check on
+                        // the left already fails, panicking on the last arg.
+                        // Use nested if/else-if to guarantee left-to-right,
+                        // short-circuiting evaluation instead.
+                        var nextOk = false
+                        if i + 1 >= args.length {
+                            nextOk = false
+                        } else if strStartsWith(args[i + 1], "-") {
+                            nextOk = false
+                        } else {
+                            nextOk = true
+                        }
+                        if !nextOk {
+                            ok = false
+                            error = "missing value for --" + optName
+                            break
+                        }
+                        optValues[optIdx] = args[i + 1]
+                        i = i + 2
+                    }
+                    continue
+                }
+
+                ok = false
+                error = "unknown option: --" + optName
+                break
+            }
+
+            if strStartsWith(arg, "-") && arg != "-" {
+                let shortName = arg[1..arg.length]
+
+                var flagIdx = -1 as i64
+                var m = 0 as i64
+                for fs in self.flagShorts {
+                    if fs == shortName {
+                        flagIdx = m
+                    }
+                    m = m + 1
+                }
+
+                if flagIdx >= 0 {
+                    setFlags.push(self.flagLongs[flagIdx])
+                    i = i + 1
+                    continue
+                }
+
+                var optIdx2 = -1 as i64
+                var n2 = 0 as i64
+                for os in self.optShorts {
+                    if os == shortName {
+                        optIdx2 = n2
+                    }
+                    n2 = n2 + 1
+                }
+
+                if optIdx2 >= 0 {
+                    var nextOk2 = false
+                    if i + 1 >= args.length {
+                        nextOk2 = false
+                    } else if strStartsWith(args[i + 1], "-") {
+                        nextOk2 = false
+                    } else {
+                        nextOk2 = true
+                    }
+                    if !nextOk2 {
+                        ok = false
+                        error = "missing value for -" + shortName
+                        break
+                    }
+                    optValues[optIdx2] = args[i + 1]
+                    i = i + 2
+                    continue
+                }
+
+                ok = false
+                error = "unknown option: -" + shortName
+                break
+            }
+
+            posValues.push(arg)
+            i = i + 1
+        }
+
+        if ok && !helpRequested {
+            if posValues.length < self.posNames.length {
+                let missingIdx = posValues.length
+                ok = false
+                error = "missing required positional: " + self.posNames[missingIdx]
+            }
+        }
+
+        return ParseResult {
+            ok: ok, error: error, helpRequested: helpRequested,
+            setFlags: setFlags, optNames: optNames, optValues: optValues,
+            posValues: posValues
+        }
+    }
+}

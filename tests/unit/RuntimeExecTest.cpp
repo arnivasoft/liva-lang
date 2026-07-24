@@ -3374,4 +3374,101 @@ TEST(RuntimeExecTest, MapKeysEmptyMap) {
     EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// cli::cli — ArgParser (roadmap #6 Faz B)
+// ============================================================
+
+TEST(RuntimeExecTest, CliFlagsOptionsPositionals) {
+    auto r = compileAndRun(R"--(
+        import cli::cli
+        func main() {
+            var p = ArgParser.new("tool", "A test tool")
+            p.addFlag("verbose", "v", "Verbose output")
+            p.addOption("out", "o", "default.txt", "Output file")
+            p.addPositional("input", "Input file")
+            let args: [string] = ["-v", "--out=result.txt", "data.csv", "extra"]
+            let r = p.parse(args)
+            println(r.ok)
+            println(r.getFlag("verbose"))
+            println(r.getOption("out"))
+            println(r.positionalCount())
+            println(r.getPositional(0) ?? "?")
+            println(r.getPositional(1) ?? "?")
+            println(r.getPositional(9) ?? "none")
+        }
+    )--", "cli_core");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "true\ntrue\nresult.txt\n2\ndata.csv\nextra\nnone\n")
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CliOptionSeparateValueAndDefault) {
+    auto r = compileAndRun(R"--(
+        import cli::cli
+        func main() {
+            var p = ArgParser.new("tool", "t")
+            p.addOption("out", "o", "def.txt", "Output")
+            p.addOption("mode", "m", "fast", "Mode")
+            let args: [string] = ["--out", "x.txt"]
+            let r = p.parse(args)
+            println(r.ok)
+            println(r.getOption("out"))
+            println(r.getOption("mode"))
+        }
+    )--", "cli_opt_sep_default");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "true\nx.txt\nfast\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CliErrors) {
+    auto r = compileAndRun(R"--(
+        import cli::cli
+        func main() {
+            var p = ArgParser.new("tool", "t")
+            p.addOption("out", "o", "d", "Output")
+            p.addPositional("input", "Input")
+            let bad1: [string] = ["--unknown"]
+            let r1 = p.parse(bad1)
+            println(r1.ok)
+            println(r1.error)
+            let bad2: [string] = ["--out"]
+            let r2 = p.parse(bad2)
+            println(r2.ok)
+            let bad3: [string] = ["--out=x"]
+            let r3 = p.parse(bad3)
+            println(r3.ok)
+        }
+    )--", "cli_errors");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // bad1: unknown option; bad2: missing value; bad3: missing positional
+    EXPECT_EQ(r.stdout_output,
+        "false\nunknown option: --unknown\nfalse\nfalse\n")
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CliDashDashAndRepeatAndHelp) {
+    auto r = compileAndRun(R"--(
+        import cli::cli
+        func main() {
+            var p = ArgParser.new("tool", "t")
+            p.addFlag("verbose", "v", "V")
+            p.addOption("out", "o", "d", "O")
+            let args: [string] = ["--out=a", "--out=b", "--", "--verbose"]
+            let r = p.parse(args)
+            println(r.ok)
+            println(r.getOption("out"))
+            println(r.getFlag("verbose"))
+            println(r.positionalCount())
+            let h: [string] = ["--help"]
+            let rh = p.parse(h)
+            println(rh.ok)
+            println(rh.helpRequested)
+        }
+    )--", "cli_dashdash_repeat_help");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    // repeat: last wins (b); "--" sonrası --verbose positional'dır (flag DEĞİL)
+    EXPECT_EQ(r.stdout_output, "true\nb\nfalse\n1\ntrue\ntrue\n")
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
