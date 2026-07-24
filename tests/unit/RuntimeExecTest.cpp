@@ -4257,4 +4257,88 @@ TEST(RuntimeExecTest, VariadicExecutionWithLeadingFixedParam) {
     EXPECT_EQ(r.stdout_output, "12\n50\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Generic struct with an array-typed field (roadmap 2.3)
+// ============================================================
+// A DynArray value's LLVM type is element-erased, so inference for a
+// `var v: [T]` field cannot read T off the field value the way a plain
+// `var x: T` field can — it has to come from the initializer's AST. When
+// T stayed unbound, the field lowered as an opaque pointer array: reads
+// treated i32 payloads as pointers (segfault) and the clone strode 8
+// bytes per element regardless of the real element size.
+
+TEST(RuntimeExecTest, GenericStructArrayFieldFromLiteral) {
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var v: [T]
+        }
+        func main() {
+            let b = Box { v: [10, 20, 30] }
+            println(b.v.length)
+            let first: i32 = b.v[0]
+            println(first)
+            let last: i32 = b.v[2]
+            println(last)
+        }
+    )--", "generic_struct_array_field_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n10\n30\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, GenericStructArrayFieldFromBinding) {
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var v: [T]
+        }
+        func main() {
+            let src: [i32] = [4, 5, 6]
+            let b = Box { v: src }
+            println(b.v.length)
+            let got: i32 = b.v[1]
+            println(got)
+        }
+    )--", "generic_struct_array_field_binding");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n5\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, GenericStructArrayFieldStringElems) {
+    // String elements already lowered to pointers, so this form worked by
+    // accident before inference existed — pin that it still works once the
+    // element type is inferred for real.
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var v: [T]
+        }
+        func main() {
+            let b = Box { v: ["ab", "cd"] }
+            println(b.v.length)
+            let s: string = b.v[1]
+            println(s)
+        }
+    )--", "generic_struct_array_field_string");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\ncd\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, GenericStructArrayFieldExplicitTypeArg) {
+    // The escape hatch for uninferrable cases: an empty array literal
+    // carries no element type, so the type argument is written out.
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var v: [T]
+        }
+        func main() {
+            var b = Box<i32> { v: [] }
+            b.v.push(5)
+            b.v.push(9)
+            println(b.v.length)
+            let got: i32 = b.v[1]
+            println(got)
+        }
+    )--", "generic_struct_array_field_explicit");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n9\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

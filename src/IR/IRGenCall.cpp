@@ -1414,6 +1414,7 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
         if (typeArgs.size() != typeParams.size()) {
             typeArgs = inferStructTypeArgs(gsIt->second, node->getFields(), fieldValues);
         }
+        diagnoseGenericStructTypeArgs(gsIt->second, typeArgs, node);
         monomorphizeStruct(gsIt->second, typeArgs);
         std::string mangledName = mangleGenericStruct(typeName, typeArgs);
 

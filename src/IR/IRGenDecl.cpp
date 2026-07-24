@@ -1175,6 +1175,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             if (typeArgs.size() != typeParams.size()) {
                 typeArgs = inferStructTypeArgs(gsIt->second, structLit->getFields(), fieldValues);
             }
+            diagnoseGenericStructTypeArgs(gsIt->second, typeArgs, structLit);
 
             // Monomorphize the struct
             monomorphizeStruct(gsIt->second, typeArgs);

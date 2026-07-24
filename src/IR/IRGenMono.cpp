@@ -369,7 +369,25 @@ std::vector<const TypeRepr *> IRGen::inferStructTypeArgs(
         if (nameIt == fieldNameToIdx.end())
             continue;
         const TypeRepr *ft = fields[nameIt->second]->getType();
-        if (!ft || ft->getKind() != TypeRepr::Kind::Named)
+        if (!ft)
+            continue;
+        // `var v: [T]` — fieldValues[fi] is a %DynArray whose LLVM type says
+        // nothing about the element, so T has to come from the initializer.
+        if (ft->getKind() == TypeRepr::Kind::Array) {
+            auto *arrRepr = static_cast<const ArrayTypeRepr *>(ft);
+            const TypeRepr *elemRepr = arrRepr->getElement();
+            if (!elemRepr || elemRepr->getKind() != TypeRepr::Kind::Named)
+                continue;
+            const std::string &elemName =
+                static_cast<const NamedTypeRepr *>(elemRepr)->getName();
+            if (!typeParamSet.count(elemName) || inferred.count(elemName))
+                continue;
+            if (const TypeRepr *elemTy =
+                    inferArrayFieldElemType(fieldInits[fi].value.get()))
+                inferred[elemName] = elemTy;
+            continue;
+        }
+        if (ft->getKind() != TypeRepr::Kind::Named)
             continue;
         auto *named = static_cast<const NamedTypeRepr *>(ft);
         const std::string &tpName = named->getName();
@@ -406,6 +424,40 @@ std::vector<const TypeRepr *> IRGen::inferStructTypeArgs(
             result.push_back(it->second);
     }
     return result;
+}
+
+const TypeRepr *IRGen::inferArrayFieldElemType(const Expr *init) {
+    if (!init) return nullptr;
+    if (init->getKind() == ASTNode::NodeKind::ArrayLiteralExpr) {
+        // `Box { v: [10, 20, 30] }` — Sema resolved each element.
+        auto *lit = static_cast<const ArrayLiteralExpr *>(init);
+        const auto &elems = lit->getElements();
+        // An empty literal carries no element type; the caller diagnoses it.
+        return elems.empty() ? nullptr : elems[0]->getResolvedType();
+    }
+    // `let src: [i32] = ...; Box { v: src }` — Sema resolved the whole
+    // expression, so the element type is one level down.
+    if (const TypeRepr *rt = init->getResolvedType())
+        if (rt->getKind() == TypeRepr::Kind::Array)
+            return static_cast<const ArrayTypeRepr *>(rt)->getElement();
+    return nullptr;
+}
+
+void IRGen::diagnoseGenericStructTypeArgs(
+    const StructDecl *structDecl,
+    const std::vector<const TypeRepr *> &typeArgs,
+    const StructLiteralExpr *literal) {
+    if (typeArgs.size() == structDecl->getTypeParams().size())
+        return;
+    // Without every type parameter bound, the fields lower against the
+    // unsubstituted `T` — an opaque pointer — which silently miscompiles
+    // element reads and clone strides. Report it; codegen then carries on
+    // with the old lowering purely so the rest of the function still emits
+    // and the user sees this error alone instead of a cascade of internal
+    // ones. The reported error already fails the compilation.
+    const std::string &name = literal->getTypeName();
+    diag_.report(literal->getStartLoc(),
+                 DiagID::err_generic_struct_type_args_uninferred, name, name);
 }
 
 llvm::Function *IRGen::monomorphizeMethod(const ImplDecl *implDecl,

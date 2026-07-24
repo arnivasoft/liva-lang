@@ -499,6 +499,21 @@ private:
         const std::vector<StructLiteralExpr::FieldInit> &fieldInits,
         const std::vector<llvm::Value *> &fieldValues);
 
+    /// Element type of the array a `var v: [T]` field is initialized with.
+    /// A DynArray value's LLVM type is element-erased, so this reads the
+    /// initializer's AST instead: an array literal contributes its first
+    /// element's resolved type, any other expression its resolved `[U]`.
+    /// Returns nullptr when the element type is not recoverable (an empty
+    /// literal, say) — the caller then reports the uninferred diagnostic.
+    const TypeRepr *inferArrayFieldElemType(const Expr *init);
+
+    /// Report err_generic_struct_type_args_uninferred when inference left a
+    /// generic struct literal's type arguments incomplete.
+    void diagnoseGenericStructTypeArgs(
+        const StructDecl *structDecl,
+        const std::vector<const TypeRepr *> &typeArgs,
+        const StructLiteralExpr *literal);
+
     /// Walk a TypeRepr and replace NamedType refs that appear in `subst`
     /// with their substitutes. Cloned-with-subst nodes are stored in
     /// inferredTypes_ so the returned pointer outlives the call.

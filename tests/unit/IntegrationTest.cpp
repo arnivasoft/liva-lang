@@ -3131,5 +3131,67 @@ TEST(JITTest, JITEngineEvalWithRuntime) {
     EXPECT_EQ(code, 0) << "JIT error: " << err;
 }
 
+// A generic struct literal whose type parameter cannot be inferred used to
+// lower the field as an opaque pointer array and silently miscompile. It is
+// now rejected with a diagnostic that names the escape hatch.
+namespace {
+bool hasIRGenDiag(CompilerInstance &compiler, DiagID id) {
+    for (const auto &d : compiler.getDiag().getDiagnostics())
+        if (d.id == id)
+            return true;
+    return false;
+}
+} // namespace
+
+TEST(IRGenDiagTest, GenericStructTypeArgsUninferrable) {
+    CompilerInstance compiler;
+    compiler.setSource("generic_uninferrable.liva",
+        "struct Box<T> {\n"
+        "    var v: [T]\n"
+        "}\n"
+        "func main() {\n"
+        "    var b = Box { v: [] }\n"
+        "    println(b.v.length)\n"
+        "}\n");
+    auto ir = compiler.compileToIR();
+    EXPECT_FALSE(ir.has_value());
+    EXPECT_TRUE(hasIRGenDiag(compiler,
+                             DiagID::err_generic_struct_type_args_uninferred));
+}
+
+TEST(IRGenDiagTest, GenericStructTypeArgsExplicitAccepted) {
+    // Same literal with the type argument written out compiles cleanly.
+    CompilerInstance compiler;
+    compiler.setSource("generic_explicit.liva",
+        "struct Box<T> {\n"
+        "    var v: [T]\n"
+        "}\n"
+        "func main() {\n"
+        "    var b = Box<i32> { v: [] }\n"
+        "    println(b.v.length)\n"
+        "}\n");
+    auto ir = compiler.compileToIR();
+    EXPECT_TRUE(ir.has_value());
+    EXPECT_FALSE(hasIRGenDiag(compiler,
+                              DiagID::err_generic_struct_type_args_uninferred));
+}
+
+TEST(IRGenDiagTest, GenericStructTypeArgsInferredFromArrayLiteral) {
+    // Inference from the array literal's first element — no diagnostic.
+    CompilerInstance compiler;
+    compiler.setSource("generic_inferred.liva",
+        "struct Box<T> {\n"
+        "    var v: [T]\n"
+        "}\n"
+        "func main() {\n"
+        "    let b = Box { v: [1, 2, 3] }\n"
+        "    println(b.v.length)\n"
+        "}\n");
+    auto ir = compiler.compileToIR();
+    EXPECT_TRUE(ir.has_value());
+    EXPECT_FALSE(hasIRGenDiag(compiler,
+                              DiagID::err_generic_struct_type_args_uninferred));
+}
+
 #endif // LIVA_HAS_LLVM
 
