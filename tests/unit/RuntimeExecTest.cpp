@@ -4041,4 +4041,123 @@ TEST(RuntimeExecTest, NestedArrayChurnNoCorruption) {
     EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Nested dynamic arrays [[T]] — for-in loop-var borrow fix
+// ============================================================
+// The for-in loop variable (`for row in rows`) is a BORROWED view into the
+// outer array's own storage, not a copy — it must be marked in movedVars
+// so emitScopeCleanup doesn't treat it as an owner and free the shared
+// buffer out from under the array that still needs it (same idiom as the
+// if-let DynArray binding: "Borrowed... skip cleanup").
+
+TEST(RuntimeExecTest, NestedArrayForInEmptyOuter) {
+    // Empty outer array: the loop body never runs, but the loop-var alloca
+    // is still created (uninitialized) and, pre-fix, still registered as an
+    // "owner" — emitScopeCleanup then frees garbage from the never-stored
+    // alloca.
+    auto r = compileAndRun(R"--(
+        func main() {
+            var rows: [[i32]] = []
+            for row in rows {
+                println(row.length)
+            }
+            println(rows.length)
+        }
+    )--", "nested_forin_empty_outer");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArrayReadAfterForIn) {
+    // After a full for-in pass, the loop var's last value aliases rows[1]'s
+    // buffer. Pre-fix, that alias is (wrongly) freed at scope exit,
+    // dangling the buffer that the subsequent `rows[1]` read still needs.
+    auto r = compileAndRun(R"--(
+        func main() {
+            var rows: [[i32]] = [[1, 2], [3, 4]]
+            for row in rows {
+                println(row.length)
+            }
+            let z: [i32] = rows[1]
+            println(z[0])
+        }
+    )--", "nested_read_after_forin");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n2\n3\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArrayForInThenReturn) {
+    // fill() iterates its own local `rows` with a for-in BEFORE returning
+    // it. Pre-fix, the loop var's last alias (rows[1]'s buffer) is freed at
+    // fill()'s own scope exit — the returned struct's last row is left
+    // dangling. 200-iteration churn (recycled heap blocks) makes any
+    // dangling-pointer corruption reliably visible as a nonzero bad count.
+    auto r = compileAndRun(R"--(
+        func fill() -> [[i32]] {
+            var rows: [[i32]] = []
+            let a: [i32] = [1, 2]
+            rows.push(a)
+            let b: [i32] = [3]
+            rows.push(b)
+            var count = 0
+            for row in rows {
+                count = count + 1
+            }
+            return rows
+        }
+        func main() {
+            var bad = 0
+            var i = 0
+            while i < 200 {
+                let rows: [[i32]] = fill()
+                let junk: string = strToUpper("recycle-me-please")
+                let x: [i32] = rows[0]
+                let y: [i32] = rows[1]
+                if x.length != 2 { bad = bad + 1 }
+                if y[0] != 3 { bad = bad + 1 }
+                i = i + 1
+            }
+            println(bad)
+        }
+    )--", "nested_forin_then_return");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArrayMemberForInCallerIntact) {
+    // A method iterates self.rows with a for-in. Pre-fix, the loop var's
+    // last alias (self.rows[last]'s buffer) is freed at the method's own
+    // scope exit — the caller's subsequent read of that same row crashes.
+    auto r = compileAndRun(R"--(
+        struct Grid {
+            var rows: [[i32]]
+        }
+        impl Grid {
+            func addRow(ref mut self, row: [i32]) {
+                self.rows.push(row)
+            }
+            func sumAll(ref self) -> i32 {
+                var total = 0
+                for row in self.rows {
+                    total = total + 1
+                }
+                return total
+            }
+        }
+        func main() {
+            var g = Grid { rows: [] }
+            let a: [i32] = [1, 2]
+            g.addRow(a)
+            let b: [i32] = [3, 4, 5]
+            g.addRow(b)
+            let t = g.sumAll()
+            println(t)
+            let last: [i32] = g.rows[1]
+            println(last.length)
+        }
+    )--", "nested_member_forin_caller_intact");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n3\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

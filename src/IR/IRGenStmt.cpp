@@ -1124,6 +1124,12 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             if (elemType == getDynArrayStructTy() && daIt->second.innerElemType) {
                 vars_.varDynArrayTypes[node->getVarName()] =
                     {daIt->second.innerElemType, daIt->second.innerElemSize};
+                // The loop var is a BORROWED view into the outer array's own
+                // storage (same slot, not a copy) — mark moved so
+                // emitScopeCleanup doesn't treat it as an owner and free the
+                // shared buffer out from under `rows` (same idiom as the
+                // if-let DynArray binding above: "Borrowed... skip cleanup").
+                vars_.movedVars.insert(node->getVarName());
             }
 
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
@@ -1486,6 +1492,9 @@ llvm::Value *IRGen::visitForStmt(ForStmt *node) {
             if (elemType == getDynArrayStructTy() && daInfo->innerElemType) {
                 vars_.varDynArrayTypes[node->getVarName()] =
                     {daInfo->innerElemType, daInfo->innerElemSize};
+                // Borrowed view into the member field's own storage — same
+                // rationale as the identifier for-in path above.
+                vars_.movedVars.insert(node->getVarName());
             }
 
             auto *condBB = llvm::BasicBlock::Create(*context_, "for.cond", func);
