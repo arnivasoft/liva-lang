@@ -10998,6 +10998,34 @@ TEST_F(SemaTest, MatchingOptionalInnerTypeAccepted) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
 }
 
+TEST_F(SemaTest, CyclicTypeAliasTerminates) {
+    // `type A = [A]` resolves to a type that contains itself, so the deep
+    // array comparison would recurse forever. The depth cap must make this
+    // TERMINATE — if it regresses, this test hangs rather than failing.
+    auto result = check(R"(
+        type A = [A]
+        func mk() -> A { return mk() }
+        func main() {
+            let a: A = mk()
+            println(1)
+        }
+    )");
+    SUCCEED() << "cyclic alias did not hang the type checker";
+}
+
+TEST_F(SemaTest, MutuallyCyclicTypeAliasTerminates) {
+    auto result = check(R"(
+        type A = [B]
+        type B = [A]
+        func mk() -> A { return mk() }
+        func main() {
+            let a: A = mk()
+            println(1)
+        }
+    )");
+    SUCCEED() << "mutually cyclic aliases did not hang the type checker";
+}
+
 TEST_F(SemaTest, WidenedIntLiteralArrayStillAccepted) {
     // The annotation is written onto the literal, so the deep comparison sees
     // [i64] against [i64] — this must not start failing.

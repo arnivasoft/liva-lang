@@ -146,7 +146,11 @@ private:
                         const std::vector<std::string> &candidates);
 
     /// Check if two types are compatible
-    bool typesCompatible(const TypeRepr *expected, const TypeRepr *actual) const;
+    /// `depth` bounds the recursion into composite types. A cyclic type
+    /// alias (`type A = [A]`) resolves to a type containing itself, which
+    /// would otherwise loop forever.
+    bool typesCompatible(const TypeRepr *expected, const TypeRepr *actual,
+                         unsigned depth = 0) const;
 
     /// Whether an array literal element may be stored into an array whose
     /// element type is `target`.

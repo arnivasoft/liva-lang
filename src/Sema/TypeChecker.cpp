@@ -2849,7 +2849,17 @@ void TypeChecker::visitGroupExpr(GroupExpr *node) {
     }
 }
 
-bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actual) const {
+bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actual,
+                                   unsigned depth) const {
+    // A cyclic type alias (`type A = [A]`, or `type A = [B]; type B = [A]`)
+    // makes resolveAlias hand back a type that contains itself, so the
+    // recursion below never terminates. Cap it and accept at the limit: a
+    // self-referential alias is a separate defect, and hanging the compiler
+    // — and through it the LSP, which runs Sema per keystroke — is worse
+    // than letting one pathological comparison through.
+    constexpr unsigned kMaxTypeCompareDepth = 32;
+    if (depth >= kMaxTypeCompareDepth)
+        return true;
     if (!expected || !actual)
         return true;
     if (expected->isInferred() || actual->isInferred())
@@ -2902,7 +2912,8 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
     if (exp->getKind() == TypeRepr::Kind::Array) {
         auto *expArr = static_cast<const ArrayTypeRepr *>(exp);
         auto *actArr = static_cast<const ArrayTypeRepr *>(act);
-        return typesCompatible(expArr->getElement(), actArr->getElement());
+        return typesCompatible(expArr->getElement(), actArr->getElement(),
+                               depth + 1);
     }
     // Deep compare for optionals: `T?` and `U?` differ exactly as `T` and
     // `U` do. Without this, `let a: string? = someI32Optional` compiled and
@@ -2910,7 +2921,8 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
     if (exp->getKind() == TypeRepr::Kind::Optional) {
         auto *expOpt = static_cast<const OptionalTypeRepr *>(exp);
         auto *actOpt = static_cast<const OptionalTypeRepr *>(act);
-        return typesCompatible(expOpt->getInner(), actOpt->getInner());
+        return typesCompatible(expOpt->getInner(), actOpt->getInner(),
+                               depth + 1);
     }
     // Deep compare for tuples
     if (exp->getKind() == TypeRepr::Kind::Tuple) {
@@ -2919,7 +2931,8 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
         if (expTuple->getArity() != actTuple->getArity()) return false;
         for (size_t i = 0; i < expTuple->getArity(); ++i) {
             if (!typesCompatible(expTuple->getElements()[i].get(),
-                                 actTuple->getElements()[i].get()))
+                                 actTuple->getElements()[i].get(),
+                                 depth + 1))
                 return false;
         }
     }
