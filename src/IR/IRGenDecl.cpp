@@ -1635,7 +1635,21 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             arrReprType = static_cast<const ArrayTypeRepr *>(node->getType());
         } else if (node->hasInit() && node->getInit()->getResolvedType() &&
                    node->getInit()->getResolvedType()->getKind() == TypeRepr::Kind::Array) {
-            arrReprType = static_cast<const ArrayTypeRepr *>(node->getInit()->getResolvedType());
+            // An unannotated array literal now carries a resolvedType (roadmap
+            // 2.3), so `let b = a` where `a` is a fixed-size local (tracked in
+            // vars_.varArrayTypes, e.g. from `let a = [1, 2, 3]`) reaches this
+            // branch too. `a` is a static `[N x T]` alloca, not a DynArray —
+            // lowering `b` as a DynArray here would store the raw array bytes
+            // into `b`'s {ptr,len,cap} fields and later free a fabricated
+            // pointer. Skip this branch for identifiers IRGen already tracks
+            // as static-array locals; they fall through to the copy path below.
+            bool initIsStaticArrayVar = false;
+            if (node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                auto *initIdent = static_cast<const IdentifierExpr *>(node->getInit());
+                initIsStaticArrayVar = vars_.varArrayTypes.count(initIdent->getName()) > 0;
+            }
+            if (!initIsStaticArrayVar)
+                arrReprType = static_cast<const ArrayTypeRepr *>(node->getInit()->getResolvedType());
         }
         if (arrReprType && arrReprType->isDynamic() && node->hasInit()) {
             auto *elemType = dynArrayElemLLVMType(arrReprType->getElement());

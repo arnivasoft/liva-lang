@@ -4442,4 +4442,20 @@ TEST(RuntimeExecTest, ArrayElemCoerceNoRegressionSameType) {
     EXPECT_EQ(r.stdout_output, "3\ncd\n2\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, ArrayLiteralUnannotatedCopyStaysStatic) {
+    // An unannotated array literal now carries a resolvedType. A later
+    // `let b = a` must still lower `a` as the static array it is — reading
+    // its resolvedType and lowering the copy as a DynArray writes the array
+    // bytes into the {ptr,len,cap} fields and frees a fabricated pointer.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a = [1, 2, 3]
+            let b = a
+            println(a[1])
+        }
+    )--", "arr_unannotated_copy_static");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
