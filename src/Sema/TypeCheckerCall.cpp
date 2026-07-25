@@ -154,8 +154,29 @@ void TypeChecker::checkCallArgTypes(CallExpr *node) {
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
         auto *sym = scopes_.lookup(ident->getName());
-        if (sym && sym->kind == Symbol::Kind::Function && sym->funcDecl)
+        if (sym && sym->kind == Symbol::Kind::Function && sym->funcDecl) {
             decl = sym->funcDecl;
+        } else if (sym && sym->kind == Symbol::Kind::ClassType && sym->classDecl) {
+            // `ClassName(args)` is a constructor call. Inits are overloaded
+            // on argument count (checkCallArgCount resolves them the same
+            // way), so pick the one whose arity accepts this call; if none
+            // does, the count check already reported it and we stay silent
+            // rather than judge against an unrelated signature.
+            size_t actual = node->getArgs().size();
+            for (const auto *init : sym->classDecl->getInits()) {
+                if (!init) continue;
+                size_t minReq = 0, maxP = 0;
+                for (const auto &p : init->getParams()) {
+                    if (p.isSelf) continue;
+                    ++maxP;
+                    if (!p.hasDefault()) ++minReq;
+                }
+                if (actual >= minReq && actual <= maxP) {
+                    decl = init;
+                    break;
+                }
+            }
+        }
     } else if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
         auto *member = static_cast<MemberExpr *>(node->getCallee());
         // The receiver must resolve to a Named type — arrays, strings, Map

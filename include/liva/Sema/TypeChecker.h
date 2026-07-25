@@ -314,6 +314,11 @@ private:
     /// receivers (arrays, strings, Map) and dynamic dispatch untouched.
     std::unordered_map<std::string, const FuncDecl *> typeMethodDecls_;
 
+    /// Populate typeMethodDecls_ from a class's own methods. Shared by the
+    /// local-declaration path and the imported-module path so both register
+    /// identically.
+    void registerTypeMethodDecls(const ClassDecl *classDecl);
+
     /// Class declaration tracking
     std::unordered_map<std::string, const ClassDecl *> classDecls_;
     std::unordered_map<std::string, std::string> classParent_;

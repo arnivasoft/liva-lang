@@ -11515,3 +11515,95 @@ TEST_F(SemaTest, MethodArgGenericImplNotChecked) {
     )");
     EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
 }
+
+// ============================================================
+// Class method / init argument type checking (roadmap 2.3)
+// ============================================================
+// typeMethodDecls_ was populated only from impl and protocol declarations,
+// so class methods were never registered and the classParent_ walk had
+// nothing to find. Class inits were not judged at all, because a
+// `ClassName(args)` callee resolves to a ClassType symbol, not a Function.
+
+TEST_F(SemaTest, ClassMethodArgMismatchRejected) {
+    auto result = check(R"(
+        class A {
+            func take(xs: [i32]) -> i64 { return xs.length }
+        }
+        func mkStr() -> [string] { return ["a", "b"] }
+        func main() {
+            let a = A()
+            println(a.take(mkStr()))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ClassInheritedMethodArgMismatchRejected) {
+    // The receiver is the grandchild; the declaration lives on the
+    // grandparent. The classParent_ walk has to find it.
+    auto result = check(R"(
+        class A {
+            func take(xs: [i32]) -> i64 { return xs.length }
+        }
+        class B : A {}
+        class C : B {}
+        func mkStr() -> [string] { return ["a", "b"] }
+        func main() {
+            let c = C()
+            println(c.take(mkStr()))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ClassOverrideUsesChildSignature) {
+    // The child's override is found before the parent's declaration, so a
+    // value valid for the child must be accepted.
+    auto result = check(R"(
+        class A {
+            func take(s: string) -> i64 { return 1 }
+        }
+        class B : A {
+            override func take(s: string) -> i64 { return 2 }
+        }
+        func main() {
+            let b = B()
+            println(b.take("hi"))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ClassInitArgMismatchRejected) {
+    auto result = check(R"(
+        class Holder {
+            var xs: [i32]
+            init(v: [i32]) { self.xs = v }
+        }
+        func mkStr() -> [string] { return ["a", "b"] }
+        func main() {
+            let h = Holder(mkStr())
+            println(h.xs.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ClassMethodAndInitMatchingAccepted) {
+    auto result = check(R"(
+        class Holder {
+            var n: i32
+            init(v: i32) { self.n = v }
+            func takeI64(m: i64) -> i64 { return m }
+            func takeArr(xs: [i32]) -> i64 { return xs.length }
+        }
+        func main() {
+            let h = Holder(5)
+            println(h.takeI64(7))
+            let v: [i32] = [1, 2, 3]
+            println(h.takeArr(v))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}

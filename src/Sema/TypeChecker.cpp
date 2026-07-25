@@ -406,6 +406,7 @@ void TypeChecker::check(TranslationUnit &tu) {
                                 // needs to be a link in the chain).
                                 auto *classD = static_cast<ClassDecl *>(topDecl.get());
                                 classDecls_[classD->getName()] = classD;
+                                registerTypeMethodDecls(classD);
                                 if (classD->hasParentClass()) {
                                     classParent_[classD->getName()] =
                                         classD->getParentClass();
@@ -1137,10 +1138,28 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
     scopes_.popScope();
 }
 
+void TypeChecker::registerTypeMethodDecls(const ClassDecl *classDecl) {
+    if (!classDecl) return;
+    // Only the class's OWN methods are registered under its name. An
+    // inherited method stays registered under the ancestor that declares
+    // it, and the call site walks the parent chain to find it — so an
+    // override in a child is found first and wins, as it should.
+    for (const auto *method : classDecl->getMethods()) {
+        if (!method) continue;
+        typeMethodDecls_[classDecl->getName() + "::" + method->getName()] = method;
+    }
+}
+
 void TypeChecker::visitClassDecl(ClassDecl *node) {
     scopes_.pushScope();
     std::string prevClass = currentClassName_;
     currentClassName_ = node->getName();
+
+    // Register the class's methods under the same "Type::method" key the
+    // impl and protocol paths use, so `obj.method(args)` calls can be
+    // argument-checked. Registered before the body is visited so a method
+    // calling a sibling method is judged too.
+    registerTypeMethodDecls(node);
 
     // Register type parameters
     for (const auto &tp : node->getTypeParams()) {
