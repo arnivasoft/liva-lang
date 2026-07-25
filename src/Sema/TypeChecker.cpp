@@ -2536,9 +2536,140 @@ void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
     }
 }
 
+namespace {
+
+bool isIntegerKind(TypeRepr::Kind k) {
+    switch (k) {
+    case TypeRepr::Kind::I8:  case TypeRepr::Kind::I16:
+    case TypeRepr::Kind::I32: case TypeRepr::Kind::I64:
+    case TypeRepr::Kind::U8:  case TypeRepr::Kind::U16:
+    case TypeRepr::Kind::U32: case TypeRepr::Kind::U64:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isFloatKind(TypeRepr::Kind k) {
+    return k == TypeRepr::Kind::F32 || k == TypeRepr::Kind::F64;
+}
+
+// `bool` is deliberately NOT numeric: [i32] = [1, true] is an error.
+bool isNumericKind(TypeRepr::Kind k) {
+    return isIntegerKind(k) || isFloatKind(k);
+}
+
+// Conversions that cannot lose information. I32 -> F32 and U32 -> F32 are
+// absent on purpose: a 24-bit mantissa cannot hold every 32-bit integer.
+bool isValuePreserving(TypeRepr::Kind from, TypeRepr::Kind to) {
+    using K = TypeRepr::Kind;
+    if (from == to) return true;
+    switch (from) {
+    case K::I8:  return to == K::I16 || to == K::I32 || to == K::I64 ||
+                        to == K::F32 || to == K::F64;
+    case K::I16: return to == K::I32 || to == K::I64 ||
+                        to == K::F32 || to == K::F64;
+    case K::I32: return to == K::I64 || to == K::F64;
+    case K::U8:  return to == K::U16 || to == K::U32 || to == K::U64 ||
+                        to == K::I16 || to == K::I32 || to == K::I64 ||
+                        to == K::F32 || to == K::F64;
+    case K::U16: return to == K::U32 || to == K::U64 ||
+                        to == K::I32 || to == K::I64 ||
+                        to == K::F32 || to == K::F64;
+    case K::U32: return to == K::U64 || to == K::I64 || to == K::F64;
+    case K::F32: return to == K::F64;
+    default:     return false;
+    }
+}
+
+bool integerLiteralFits(int64_t v, TypeRepr::Kind k) {
+    using K = TypeRepr::Kind;
+    switch (k) {
+    case K::I8:  return v >= -128 && v <= 127;
+    case K::I16: return v >= -32768 && v <= 32767;
+    case K::I32: return v >= -2147483648LL && v <= 2147483647LL;
+    case K::I64: return true;
+    case K::U8:  return v >= 0 && v <= 255;
+    case K::U16: return v >= 0 && v <= 65535;
+    case K::U32: return v >= 0 && v <= 4294967295LL;
+    case K::U64: return v >= 0;
+    default:     return false;
+    }
+}
+
+// Targets the check cannot judge: a type parameter, an inferred type, a
+// trait object. Staying silent here avoids false positives inside generic
+// code, where the element type is not known until monomorphization.
+bool isUnjudgeableTarget(TypeRepr::Kind k) {
+    using K = TypeRepr::Kind;
+    return k == K::Named || k == K::Generic || k == K::Inferred ||
+           k == K::AssociatedType || k == K::DynProtocol;
+}
+
+} // namespace
+
+TypeChecker::ElemAssign
+TypeChecker::checkArrayElement(const TypeRepr *target, const Expr *elem) const {
+    if (!target || !elem) return ElemAssign::Ok;
+    if (isUnjudgeableTarget(target->getKind())) return ElemAssign::Ok;
+    const TypeRepr *elemType = elem->getResolvedType();
+    if (!elemType) return ElemAssign::Ok;
+    if (isUnjudgeableTarget(elemType->getKind())) return ElemAssign::Ok;
+
+    if (!isNumericKind(target->getKind()) || !isNumericKind(elemType->getKind()))
+        return typesCompatible(target, elemType) ? ElemAssign::Ok
+                                                 : ElemAssign::Mismatch;
+
+    if (isValuePreserving(elemType->getKind(), target->getKind()))
+        return ElemAssign::Ok;
+
+    // Lossy: only literals, and only when the value fits.
+    if (elem->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
+        isIntegerKind(target->getKind())) {
+        auto *lit = static_cast<const IntegerLiteralExpr *>(elem);
+        return integerLiteralFits(lit->getValue(), target->getKind())
+                   ? ElemAssign::Ok
+                   : ElemAssign::LiteralOutOfRange;
+    }
+    if (elem->getKind() == ASTNode::NodeKind::FloatLiteralExpr &&
+        isFloatKind(target->getKind()))
+        return ElemAssign::Ok;
+
+    return ElemAssign::Mismatch;
+}
+
 void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     for (auto &elem : node->getElements()) {
         visit(elem.get());
+    }
+    // An empty literal carries no element type; leave it unresolved so the
+    // existing empty-literal codegen path is untouched.
+    if (node->getElements().empty()) return;
+
+    // Unify the elements against a running candidate. The candidate is
+    // promoted (never demoted) when a later element cannot be stored into
+    // it but it can be stored into the later element's type — [1, 2.5]
+    // starts at i32 and settles on f64.
+    const TypeRepr *candidate = nullptr;
+    const Expr *candidateElem = nullptr;
+    for (auto &elemPtr : node->getElements()) {
+        const Expr *elem = elemPtr.get();
+        const TypeRepr *elemType = elem->getResolvedType();
+        if (!elemType) continue;
+        if (!candidate) {
+            candidate = elemType;
+            candidateElem = elem;
+            continue;
+        }
+        if (checkArrayElement(candidate, elem) == ElemAssign::Ok) continue;
+        if (checkArrayElement(elemType, candidateElem) == ElemAssign::Ok) {
+            candidate = elemType;
+            candidateElem = elem;
+            continue;
+        }
+        diag_.report(elem->getStartLoc(),
+                     DiagID::err_array_element_type_mismatch,
+                     typeToString(elemType), typeToString(candidate));
     }
 }
 

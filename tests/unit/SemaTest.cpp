@@ -10710,3 +10710,70 @@ TEST_F(SemaTest, StructDecl_SubscriptReturnTypeResolves) {
     )--");
     EXPECT_FALSE(result.diag.hasErrors()) << "struct subscript should type-check and resolve return type";
 }
+
+// ============================================================
+// Array literal element typing (roadmap 2.3)
+// ============================================================
+
+TEST_F(SemaTest, ArrayLiteralMixedIntAndString) {
+    auto result = check(R"(
+        func main() {
+            let a: [i32] = [1, "a"]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralMixedIntAndBool) {
+    auto result = check(R"(
+        func main() {
+            let a: [i32] = [1, true]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralHomogeneousIntAccepted) {
+    auto result = check(R"(
+        func main() {
+            let a: [i32] = [1, 2, 3]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, ArrayLiteralIntThenFloatPromotes) {
+    // The candidate element type is promoted from i32 to f64; the earlier
+    // integer literal is value-preserving into f64, so no error.
+    auto result = check(R"(
+        func main() {
+            let a = [1, 2.5]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralEmptyAccepted) {
+    auto result = check(R"(
+        func main() {
+            var a: [i32] = []
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralStringHomogeneousAccepted) {
+    auto result = check(R"(
+        func main() {
+            let a: [string] = ["ab", "cd"]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
