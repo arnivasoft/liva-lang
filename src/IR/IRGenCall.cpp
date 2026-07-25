@@ -464,7 +464,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                         if (objAlloca->getAllocatedType()->isPointerTy()) {
                             selfVal = builder_->CreateLoad(ptrTy, objAlloca, objName + ".ptr");
                         }
-                        builder_->CreateCall(setter, {selfVal, val});
+                        std::vector<llvm::Value *> setterArgs = {selfVal, val};
+                        coerceCallArgs(setter->getFunctionType(), setterArgs);
+                        builder_->CreateCall(setter, setterArgs);
                         return val;
                     }
                 }
@@ -537,7 +539,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                                 auto *willSetFn = module_->getFunction(
                                     clsTypeName + "_willSet_" + memberExpr->getMember());
                                 if (willSetFn) {
-                                    builder_->CreateCall(willSetFn, {selfForObs, val});
+                                    std::vector<llvm::Value *> willSetArgs = {selfForObs, val};
+                                    coerceCallArgs(willSetFn->getFunctionType(), willSetArgs);
+                                    builder_->CreateCall(willSetFn, willSetArgs);
                                 }
                             }
                             builder_->CreateStore(val, gep);
@@ -545,7 +549,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                                 auto *didSetFn = module_->getFunction(
                                     clsTypeName + "_didSet_" + memberExpr->getMember());
                                 if (didSetFn && oldValue) {
-                                    builder_->CreateCall(didSetFn, {selfForObs, oldValue});
+                                    std::vector<llvm::Value *> didSetArgs = {selfForObs, oldValue};
+                                    coerceCallArgs(didSetFn->getFunctionType(), didSetArgs);
+                                    builder_->CreateCall(didSetFn, didSetArgs);
                                 }
                             }
                             // Transfer ownership: string temp is now owned by the class field
@@ -619,7 +625,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                         }
                         auto *idxVal = visit(const_cast<Expr *>(indexExpr->getIndex()));
                         if (idxVal) {
-                            builder_->CreateCall(setFn, {selfLoaded, idxVal, val});
+                            std::vector<llvm::Value *> subArgs = {selfLoaded, idxVal, val};
+                            coerceCallArgs(setFn->getFunctionType(), subArgs);
+                            builder_->CreateCall(setFn, subArgs);
                             return val;
                         }
                     }
@@ -941,6 +949,10 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                 }
             }
 
+            if (auto *coerced = coerceToElemType(
+                    val, it->second->getAllocatedType(),
+                    isUnsignedTypeRepr(node->getValue()->getResolvedType())))
+                val = coerced;
             builder_->CreateStore(val, it->second);
         }
     }

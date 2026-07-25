@@ -4683,4 +4683,73 @@ TEST(RuntimeExecTest, CallArgMatchingTypesNoRegression) {
     EXPECT_EQ(r.stdout_output, "5\nhi\n3\n9\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, AssignIntLiteralIntoI64Variable) {
+    // Same gap as call arguments, on the assignment path: an i32 literal
+    // stored into an i64 slot.
+    //
+    // NOTE: the seed helper uses `1 as i64` rather than a bare `return 1`.
+    // A bare literal return hits a SEPARATE, pre-existing IRGen gap (return
+    // statements don't widen an i32 literal to the declared i64 return type
+    // — Sema accepts it per TypeChecker::visitReturnStmt's integer-literal
+    // compat rule, but visitReturnStmt in IRGenStmt.cpp never coerces the
+    // value before CreateRet, so the LLVM verifier rejects the module:
+    // "ret i32 1 / i64"). That gap is orthogonal to this task's assignment
+    // coercion path and out of scope here; the existing `return 0 as i64`
+    // idiom elsewhere in this file (BranchDeclaredArrayLiteralNoCorruption)
+    // is the established workaround, used here for the same reason.
+    //
+    // NOTE: the assigned literal is NEGATIVE (-7), not the brief's original
+    // `7`. With opaque pointers, `store i32 %v, ptr %p` into an i64-sized
+    // alloca is NOT a verifier error — it just writes the low 4 bytes.
+    // Discovered while confirming this test's RED state: with `n = 7` (and
+    // `mkI64` seeding the slot with a real i64 store of 1 first), the
+    // unfixed code silently "passes" — the high 4 bytes are already zero
+    // from the earlier i64 store of 1, and a positive i32 literal's implied
+    // upper bits are zero too, so the coincidence masks the missing
+    // coercion. `-7` requires sign-extension into the high bytes to read
+    // back correctly; without the fix the high bytes stay 0 (leftover from
+    // the earlier store of 1) and the i64 read-back comes out as
+    // 4294967289, exposing the gap unconditionally.
+    auto r = compileAndRun(R"--(
+        func mkI64() -> i64 { return 1 as i64 }
+        func main() {
+            var n: i64 = mkI64()
+            n = -7
+            println(n)
+        }
+    )--", "assign_i64_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, AssignIntLiteralIntoComputedPropertySetter) {
+    // Same gap on the computed-property setter call path: obj.field = val
+    // routes through a synthesized ClassName_set_field(self, newValue) call
+    // — the i32 literal must be widened to the setter's real i64 parameter
+    // type or the LLVM verifier rejects the module.
+    auto r = compileAndRun(R"--(
+        class Counter {
+            var backing: i64
+            var v: i64 {
+                get {
+                    return self.backing
+                }
+                set {
+                    self.backing = newValue
+                }
+            }
+            init() {
+                self.backing = 0
+            }
+        }
+        func main() {
+            let c = Counter()
+            c.v = 5
+            println(c.v)
+        }
+    )--", "assign_computed_prop_i64_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
