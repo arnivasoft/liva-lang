@@ -11667,6 +11667,56 @@ TEST_F(SemaTest, UnannotatedHeterogeneousArrayStillRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
 
+TEST_F(SemaTest, DynProtocolArrayNonConformerNotJudged) {
+    // The PROTOCOL shape of `dyn X` is deliberately not judged: the
+    // conformance map is populated from `impl X : P` in the current
+    // translation unit only, so an imported conformer would look like a
+    // non-conformer and valid code would be rejected. Tracked on the
+    // roadmap; this test pins that we stay silent rather than guess.
+    auto result = check(R"(
+        protocol Shape {
+            func area(ref self) -> f64
+        }
+        struct Circle { var r: f64 }
+        impl Circle : Shape {
+            func area(ref self) -> f64 { return self.r }
+        }
+        struct Blob { var b: f64 }
+        func main() {
+            let shapes: [dyn Shape] = [
+                Circle { r: 1.0 },
+                Blob { b: 2.0 }
+            ]
+            println(shapes.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, NestedLiteralInAnnotatedArrayStillReported) {
+    // The annotation flag covers only the outermost literal; an inner one
+    // must still be judged by Sema rather than sliding through to an
+    // "internal:" IRGen error.
+    auto result = check(R"(
+        func main() {
+            let m: [[i32]] = [[1, "x"]]
+            println(m.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, NestedLiteralInStructFieldStillReported) {
+    auto result = check(R"(
+        struct Box { var v: [i32] }
+        func main() {
+            let bs: [Box] = [Box { v: [1, "x"] }]
+            println(bs.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
 TEST_F(SemaTest, DynClassArrayDescendantsAccepted) {
     // `dyn X` erases to a protocol OR to a common base CLASS — the UI
     // modules' `[dyn Control]` holding Buttons and Labels is the standard

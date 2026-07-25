@@ -980,10 +980,17 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
             // (`[dyn Control]` holding Buttons and Labels is the UI
             // modules' standard shape). Judge only when we can actually
             // name X's members; an unknown X stays silent.
-            auto confIt = protocolConformances_.find(dynName);
-            bool isProto = confIt != protocolConformances_.end();
+            // Only the CLASS shape is judged. The protocol shape cannot be:
+            // protocolConformances_ is populated from `impl X : P` in the
+            // CURRENT translation unit only — the module-import path
+            // deliberately propagates just "Drop" — so an imported
+            // conformer looks like a non-conformer and valid code gets
+            // rejected. classDecls_/classParent_, by contrast, ARE
+            // populated from imports, so the ancestry walk is sound.
+            // The protocol shape stays silent until conformance
+            // propagation is fixed; see the roadmap's tracking row.
             bool isClass = classDecls_.find(dynName) != classDecls_.end();
-            if (isProto || isClass) {
+            if (isClass) {
                 auto *lit = static_cast<ArrayLiteralExpr *>(
                     const_cast<Expr *>(node->getInit()));
                 for (auto &elemPtr : lit->getElements()) {
@@ -995,22 +1002,21 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                     if (!et || et->getKind() != TypeRepr::Kind::Named) continue;
                     const auto &tn =
                         static_cast<const NamedTypeRepr *>(et)->getName();
-                    bool ok = false;
-                    if (isProto) {
-                        for (const auto &c : confIt->second) {
-                            if (c == tn) { ok = true; break; }
-                        }
+                    // Walk the element's ancestry looking for the base. A
+                    // chain longer than the bound is treated as a match
+                    // rather than a mismatch: circular inheritance already
+                    // has its own diagnostic, so the bound exists only to
+                    // guarantee termination and must not reject deep but
+                    // legitimate hierarchies.
+                    bool ok = false, exhausted = true;
+                    std::string cur = tn;
+                    for (int hop = 0; hop < 64 && !cur.empty(); ++hop) {
+                        if (cur == dynName) { ok = true; exhausted = false; break; }
+                        auto pit = classParent_.find(cur);
+                        if (pit == classParent_.end()) { exhausted = false; break; }
+                        cur = pit->second;
                     }
-                    if (!ok && isClass) {
-                        // Walk the element's ancestry looking for the base.
-                        std::string cur = tn;
-                        for (int hop = 0; hop < 32 && !cur.empty(); ++hop) {
-                            if (cur == dynName) { ok = true; break; }
-                            auto pit = classParent_.find(cur);
-                            if (pit == classParent_.end()) break;
-                            cur = pit->second;
-                        }
-                    }
+                    if (exhausted) ok = true;
                     if (!ok)
                         diag_.report(elem->getStartLoc(),
                                      DiagID::err_no_conformance, tn, dynName);
