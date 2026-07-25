@@ -4528,6 +4528,49 @@ TEST(RuntimeExecTest, ArrayElemCoercePromotedLiteralArgAndReturn) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, ArrayElemCoerceGenericStructFieldPromotedLiteral) {
+    // `var v: [T]` monomorphized from `Box { v: [1, 2.5] }`. Sema unifies
+    // the literal to [f64] (promoting past the first element's own i32
+    // type), so T must be inferred as f64 — not i32 from the first
+    // element's resolvedType, which would monomorphize the field with a
+    // 4-byte stride over an 8-byte-per-element buffer and read back 0 for
+    // every element.
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var v: [T]
+        }
+        func main() {
+            let b = Box { v: [1, 2.5] }
+            let x: f64 = b.v[0]
+            let y: f64 = b.v[1]
+            println(x)
+            println(y)
+        }
+    )--", "arr_elem_coerce_generic_field_promoted");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1.000000\n2.500000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceGenericStructFieldHomogeneousFloat) {
+    // Homogeneous case: no promotion needed, T inferred as f64 directly
+    // from the first element. Must keep working alongside the promoted case
+    // above.
+    auto r = compileAndRun(R"--(
+        struct Box<T> {
+            var v: [T]
+        }
+        func main() {
+            let b = Box { v: [1.5, 2.5] }
+            let x: f64 = b.v[0]
+            let y: f64 = b.v[1]
+            println(x)
+            println(y)
+        }
+    )--", "arr_elem_coerce_generic_field_homogeneous");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1.500000\n2.500000\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, ArrayElemCoerceUnsignedWidensZeroExtended) {
     // A u8 whose high bit is set must zero-extend into a wider slot.
     // Sign-extending it turns 200 into -56.

@@ -429,10 +429,18 @@ std::vector<const TypeRepr *> IRGen::inferStructTypeArgs(
 const TypeRepr *IRGen::inferArrayFieldElemType(const Expr *init) {
     if (!init) return nullptr;
     if (init->getKind() == ASTNode::NodeKind::ArrayLiteralExpr) {
-        // `Box { v: [10, 20, 30] }` — Sema resolved each element.
+        // `Box { v: [10, 20, 30] }` — Sema resolved each element AND unified
+        // the literal itself, which can PROMOTE the candidate element type
+        // past the first element's own type (`[1, 2.5]` unifies to `[f64]`,
+        // not `[i32]`). Prefer the literal's own resolvedType — it carries
+        // that unified/promoted element — and only fall back to the first
+        // element's resolvedType when the literal has none (an empty
+        // literal carries no resolvedType; the caller diagnoses it).
         auto *lit = static_cast<const ArrayLiteralExpr *>(init);
+        if (const TypeRepr *rt = lit->getResolvedType())
+            if (rt->getKind() == TypeRepr::Kind::Array)
+                return static_cast<const ArrayTypeRepr *>(rt)->getElement();
         const auto &elems = lit->getElements();
-        // An empty literal carries no element type; the caller diagnoses it.
         return elems.empty() ? nullptr : elems[0]->getResolvedType();
     }
     // `let src: [i32] = ...; Box { v: src }` — Sema resolved the whole

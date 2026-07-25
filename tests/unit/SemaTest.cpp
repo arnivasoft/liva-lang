@@ -10875,3 +10875,55 @@ TEST_F(SemaTest, ArrayLiteralUnannotatedLiteralOutOfRangeUsesRangeDiag) {
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range));
 }
+
+TEST_F(SemaTest, ArrayLiteralPromotionBypassRejected) {
+    // Regression for the promotion-bypass bug: the unification loop used to
+    // route its "can the OLD candidate be promoted into the NEW element's
+    // type" test through checkArrayElement, which allows a lossy literal ->
+    // target conversion whenever the SECOND argument is a literal. Here the
+    // candidate starts at i32 (from the literal `7`), `n` (an ordinary i32
+    // variable) is accepted directly against that i32 candidate and is
+    // never re-checked, then `m` (u32) forces a promotion attempt: the
+    // literal `7` fits u32 as a value, so the old (buggy) code silently
+    // promoted the candidate to u32 — even though plain i32 -> u32 is NOT
+    // value-preserving, and `n` (an ordinary variable, not a literal) was
+    // never validated against u32 at all. The fix makes promotion a
+    // type-level-only judgement (isValuePreserving), so this must now be
+    // rejected with the same diagnostic `let a: [u32] = [n]` gets directly.
+    auto result = check(R"(
+        func main() {
+            let m: u32 = 5
+            let n = 2000000000
+            let a = [7, n, m]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralIntLiteralIntoF32Accepted) {
+    // I32 -> F32 is deliberately excluded from the value-preserving table
+    // (24-bit mantissa), so it must be reachable through the literal path
+    // instead: an integer literal into an [f32] target is accepted with no
+    // range check.
+    auto result = check(R"(
+        func main() {
+            let a: [f32] = [1, 2]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, ArrayLiteralFloatLiteralIntoI32StillRejected) {
+    // The reverse direction stays rejected: a float literal into an integer
+    // target is not in the lossy-literal table at all.
+    auto result = check(R"(
+        func main() {
+            let a: [i32] = [1.5]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}

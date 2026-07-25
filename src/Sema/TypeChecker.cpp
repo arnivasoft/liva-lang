@@ -2670,6 +2670,12 @@ TypeChecker::checkArrayElement(const TypeRepr *target, const Expr *elem) const {
                    ? ElemAssign::Ok
                    : ElemAssign::LiteralOutOfRange;
     }
+    // An integer literal into a float target (I32 -> F32 is excluded from
+    // the value-preserving table on purpose, 24-bit mantissa) is exactly
+    // the lossy case rule 3 covers: no range check for float targets.
+    if (elem->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
+        isFloatKind(target->getKind()))
+        return ElemAssign::Ok;
     if (elem->getKind() == ASTNode::NodeKind::FloatLiteralExpr &&
         isFloatKind(target->getKind()))
         return ElemAssign::Ok;
@@ -2690,20 +2696,29 @@ void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     // it but it can be stored into the later element's type — [1, 2.5]
     // starts at i32 and settles on f64.
     const TypeRepr *candidate = nullptr;
-    const Expr *candidateElem = nullptr;
     for (auto &elemPtr : node->getElements()) {
         const Expr *elem = elemPtr.get();
         const TypeRepr *elemType = elem->getResolvedType();
         if (!elemType) continue;
         if (!candidate) {
             candidate = elemType;
-            candidateElem = elem;
             continue;
         }
         if (checkArrayElement(candidate, elem) == ElemAssign::Ok) continue;
-        if (checkArrayElement(elemType, candidateElem) == ElemAssign::Ok) {
+        // Promotion must be a TYPE-level judgement, not routed through
+        // checkArrayElement (which allows lossy literal->target when the
+        // second argument is a literal). Going through checkArrayElement
+        // here let a literal candidate "promote" into a target it is not
+        // actually value-preserving into (only value-fits-as-a-literal),
+        // which breaks the numeric lattice's transitivity: elements already
+        // accepted against the OLD candidate are never re-checked against
+        // the NEW one, so a variable element that would be rejected outright
+        // against the final candidate could slip through unification. Using
+        // isValuePreserving directly keeps promotion transitive: everything
+        // storable in the old candidate stays storable in the new one.
+        if (isNumericKind(candidate->getKind()) && isNumericKind(elemType->getKind()) &&
+            isValuePreserving(candidate->getKind(), elemType->getKind())) {
             candidate = elemType;
-            candidateElem = elem;
             continue;
         }
         if (checkArrayElement(candidate, elem) == ElemAssign::LiteralOutOfRange) {
