@@ -4683,6 +4683,81 @@ TEST(RuntimeExecTest, CallArgMatchingTypesNoRegression) {
     EXPECT_EQ(r.stdout_output, "5\nhi\n3\n9\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Call argument signedness regression (final-review fix wave, 2026-07-25)
+// ============================================================
+// coerceCallArgs took an argTypes vector for signedness but no call site
+// populated it, so srcUnsigned was always false and every argument was
+// sign-extended regardless of its actual signedness — a REGRESSION this
+// branch introduced (before this branch the same calls were a NOISY LLVM
+// verifier error; Sema now accepts u8 -> i64 / u8 -> f64 as value-preserving,
+// so the wrong-value path compiles silently). Fixed by having every call
+// site that has the AST args in hand collect each argument's
+// getResolvedType() into a parallel vector, in lockstep with the value
+// vector.
+
+TEST(RuntimeExecTest, CallArgUnsignedU8VariableIntoI64ParamZeroExtends) {
+    auto r = compileAndRun(R"--(
+        func mkU8() -> u8 { return 200 as u8 }
+        func take(n: i64) -> i64 { return n }
+        func main() {
+            var b: u8 = mkU8()
+            println(take(b))
+        }
+    )--", "callarg_u8_var_into_i64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CallArgUnsignedU8VariableIntoF64ParamZeroExtends) {
+    auto r = compileAndRun(R"--(
+        func mkU8() -> u8 { return 200 as u8 }
+        func take(n: f64) -> f64 { return n }
+        func main() {
+            var b: u8 = mkU8()
+            println(take(b))
+        }
+    )--", "callarg_u8_var_into_f64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CallArgUnsignedU8VariableIntoI64ParamThroughMethod) {
+    // Same gap on the impl-method dispatch path (IRGenCallMethod.cpp's
+    // "mcalltmp" site) — a separate coerceCallArgs call site from the
+    // free-function path above.
+    auto r = compileAndRun(R"--(
+        struct Box { var v: i32 }
+        impl Box {
+            func take(ref self, n: i64) -> i64 { return n }
+        }
+        func mkU8() -> u8 { return 200 as u8 }
+        func main() {
+            let box = Box { v: 1 }
+            var b: u8 = mkU8()
+            println(box.take(b))
+        }
+    )--", "callarg_u8_var_into_i64_method");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CallArgSignedI32VariableIntoI64ParamStillSignExtends) {
+    // The counterpart: a signed negative source must KEEP sign-extending.
+    // A blanket switch to zext (or a signedness regression in the other
+    // direction) would print 4294967291 here instead of -5.
+    auto r = compileAndRun(R"--(
+        func mkI32() -> i32 { return -5 }
+        func take(n: i64) -> i64 { return n }
+        func main() {
+            var b: i32 = mkI32()
+            println(take(b))
+        }
+    )--", "callarg_i32_var_negative_into_i64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-5\n") << "stdout: " << r.stdout_output;
+}
+
 TEST(RuntimeExecTest, AssignIntLiteralIntoI64Variable) {
     // Same gap as call arguments, on the assignment path: an i32 literal
     // stored into an i64 slot.

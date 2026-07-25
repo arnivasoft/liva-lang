@@ -11212,6 +11212,38 @@ TEST_F(SemaTest, ArgGenericParamNotChecked) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
 }
 
+TEST_F(SemaTest, ArgGenericTupleParamNotChecked) {
+    // Final-review CRITICAL/IMPORTANT fix wave (2026-07-25): a (T, T) tuple
+    // parameter leaked a type-parameter mismatch into a user-facing message
+    // — containsUnjudgeableType descended into Array/Optional but not
+    // Tuple, so a concrete (i32, i32) argument against an unresolved (T, T)
+    // parameter was judged the same way a NON-generic tuple mismatch would
+    // be. This compiled fine before checkCallArgTypes existed; must compile
+    // (Sema-clean) again.
+    auto result = check(R"(
+        func pairFirst<T>(p: (T, T)) -> i64 { return 1 }
+        func main() {
+            println(pairFirst((1, 2)))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ArgConcreteTupleMismatchStillRejected) {
+    // Keeping ArgGenericTupleParamNotChecked's fix honest: a NON-generic
+    // tuple element mismatch ((i32, string) into (i32, i32)) must still be
+    // caught by checkAssignable's typesCompatible fallback — the Tuple
+    // case added to containsUnjudgeableType must only silence chains that
+    // actually contain an unresolved type parameter, not concrete tuples.
+    auto result = check(R"(
+        func take(p: (i32, i32)) -> i64 { return 1 }
+        func main() {
+            println(take((1, "x")))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
 TEST_F(SemaTest, ArgAliasNumericLiteralAccepted) {
     // Sema-level only (this uses the check() Sema-only harness, not IRGen):
     // `type Byte = u8` + `take(7)` must not be flagged by checkAssignable.
@@ -11222,6 +11254,41 @@ TEST_F(SemaTest, ArgAliasNumericLiteralAccepted) {
     auto result = check(R"(
         type Byte = u8
         func take(b: Byte) -> Byte { return b }
+        func main() {
+            println(take(7))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, ArgTwoLevelAliasChainAccepted) {
+    // Final-review IMPORTANT fix wave (2026-07-25): resolveAlias resolved
+    // only ONE level (`type Byte = u8` worked, see
+    // ArgAliasNumericLiteralAccepted above), but a chain one level deeper
+    // (`type B = u8; type A = B`) fell straight through checkAssignable's
+    // numeric-kind reasoning still holding a bare Named("A") — rejected
+    // with a message naming the alias itself, not what it resolves to.
+    auto result = check(R"(
+        type B = u8
+        type A = B
+        func take(b: A) -> A { return b }
+        func main() {
+            println(take(7))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, ArgThreeLevelAliasChainAccepted) {
+    // One level deeper still, to pin resolveAlias's fixed-point loop rather
+    // than a single extra lookup that would only cover the two-level case.
+    auto result = check(R"(
+        type C = u8
+        type B = C
+        type A = B
+        func take(b: A) -> A { return b }
         func main() {
             println(take(7))
         }

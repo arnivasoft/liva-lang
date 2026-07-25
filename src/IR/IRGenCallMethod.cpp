@@ -1309,13 +1309,16 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             auto *dataGEP = builder_->CreateStructGEP(traitTy, nvIt->second, 0);
                             auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "devirt.data");
                             std::vector<llvm::Value *> args;
+                            std::vector<const TypeRepr *> argTypes;
                             args.push_back(dataPtr);
+                            argTypes.push_back(nullptr); // self, not from AST
                             for (auto &arg : node->getArgs()) {
                                 auto *val = visit(arg.get());
                                 if (!val) return nullptr;
                                 args.push_back(val);
+                                argTypes.push_back(arg->getResolvedType());
                             }
-                            coerceCallArgs(directFn->getFunctionType(), args);
+                            coerceCallArgs(directFn->getFunctionType(), args, argTypes);
                             if (directFn->getReturnType()->isVoidTy())
                                 return builder_->CreateCall(directFn, args);
                             return builder_->CreateCall(directFn, args, "devirt.call");
@@ -1371,14 +1374,17 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
 
                             // Build args: data_ptr as self + user args
                             std::vector<llvm::Value *> args;
+                            std::vector<const TypeRepr *> argTypes;
                             args.push_back(dataPtr);
+                            argTypes.push_back(nullptr); // self, not from AST
                             for (auto &arg : node->getArgs()) {
                                 auto *val = visit(arg.get());
                                 if (!val) return nullptr;
                                 args.push_back(val);
+                                argTypes.push_back(arg->getResolvedType());
                             }
 
-                            coerceCallArgs(fnTy, args);
+                            coerceCallArgs(fnTy, args, argTypes);
                             if (fnTy->getReturnType()->isVoidTy())
                                 return builder_->CreateCall(fnTy, fnPtr, args);
                             return builder_->CreateCall(fnTy, fnPtr, args, "dyncalltmp");
@@ -1415,12 +1421,14 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 auto *callee = module_->getFunction(mangledName);
                 if (callee && callee->arg_size() == node->getArgs().size()) {
                     std::vector<llvm::Value *> args;
+                    std::vector<const TypeRepr *> argTypes;
                     for (auto &arg : node->getArgs()) {
                         auto *val = visit(arg.get());
                         if (!val) return nullptr;
                         args.push_back(val);
+                        argTypes.push_back(arg->getResolvedType());
                     }
-                    coerceCallArgs(callee->getFunctionType(), args);
+                    coerceCallArgs(callee->getFunctionType(), args, argTypes);
                     if (callee->getReturnType()->isVoidTy()) {
                         builder_->CreateCall(callee, args);
                         return nullptr;
@@ -1464,11 +1472,14 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
 
                         // Build args: self + user args
                         std::vector<llvm::Value *> args;
+                        std::vector<const TypeRepr *> argTypes;
                         args.push_back(selfVal);
+                        argTypes.push_back(nullptr); // self, not from AST
                         for (auto &arg : node->getArgs()) {
                             auto *val = visit(arg.get());
                             if (!val) return nullptr;
                             args.push_back(val);
+                            argTypes.push_back(arg->getResolvedType());
                         }
 
                         // Build function type for indirect call
@@ -1487,7 +1498,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         }
 
                         auto *funcTy = llvm::FunctionType::get(retTy, paramTypes, false);
-                        coerceCallArgs(funcTy, args);
+                        coerceCallArgs(funcTy, args, argTypes);
                         if (retTy->isVoidTy()) {
                             builder_->CreateCall(funcTy, methodPtr, args);
                             return nullptr;
@@ -1505,13 +1516,16 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             llvm::PointerType::getUnqual(*context_), objAlloca, "self.ptr");
                     }
                     std::vector<llvm::Value *> args;
+                    std::vector<const TypeRepr *> argTypes;
                     args.push_back(selfVal);
+                    argTypes.push_back(nullptr); // self, not from AST
                     for (auto &arg : node->getArgs()) {
                         auto *val = visit(arg.get());
                         if (!val) return nullptr;
                         args.push_back(val);
+                        argTypes.push_back(arg->getResolvedType());
                     }
-                    coerceCallArgs(callee->getFunctionType(), args);
+                    coerceCallArgs(callee->getFunctionType(), args, argTypes);
                     if (callee->getReturnType()->isVoidTy()) {
                         builder_->CreateCall(callee, args);
                         return nullptr;
@@ -1530,13 +1544,16 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         auto *ptrTy = llvm::PointerType::getUnqual(*context_);
                         auto *selfVal = builder_->CreateLoad(ptrTy, selfIt->second, "self.ptr");
                         std::vector<llvm::Value *> args;
+                        std::vector<const TypeRepr *> argTypes;
                         args.push_back(selfVal);
+                        argTypes.push_back(nullptr); // self, not from AST
                         for (auto &arg : node->getArgs()) {
                             auto *val = visit(arg.get());
                             if (!val) return nullptr;
                             args.push_back(val);
+                            argTypes.push_back(arg->getResolvedType());
                         }
-                        coerceCallArgs(fn->getFunctionType(), args);
+                        coerceCallArgs(fn->getFunctionType(), args, argTypes);
                         builder_->CreateCall(fn, args);
                         return nullptr;
                     }
@@ -1558,13 +1575,16 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                 auto *selfVal = builder_->CreateLoad(
                                     ptrTy, selfIt->second, "self.ptr");
                                 std::vector<llvm::Value *> args;
+                                std::vector<const TypeRepr *> argTypes;
                                 args.push_back(selfVal);
+                                argTypes.push_back(nullptr); // self, not from AST
                                 for (auto &arg : node->getArgs()) {
                                     auto *val = visit(arg.get());
                                     if (!val) return nullptr;
                                     args.push_back(val);
+                                    argTypes.push_back(arg->getResolvedType());
                                 }
-                                coerceCallArgs(parentFn->getFunctionType(), args);
+                                coerceCallArgs(parentFn->getFunctionType(), args, argTypes);
                                 builder_->CreateCall(parentFn, args);
                                 return nullptr;
                             }
@@ -1580,13 +1600,16 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                 auto *selfVal = builder_->CreateLoad(
                                     ptrTy, selfIt->second, "self.ptr");
                                 std::vector<llvm::Value *> args;
+                                std::vector<const TypeRepr *> argTypes;
                                 args.push_back(selfVal);
+                                argTypes.push_back(nullptr); // self, not from AST
                                 for (auto &arg : node->getArgs()) {
                                     auto *val = visit(arg.get());
                                     if (!val) return nullptr;
                                     args.push_back(val);
+                                    argTypes.push_back(arg->getResolvedType());
                                 }
-                                coerceCallArgs(parentFn->getFunctionType(), args);
+                                coerceCallArgs(parentFn->getFunctionType(), args, argTypes);
                                 if (parentFn->getReturnType()->isVoidTy()) {
                                     builder_->CreateCall(parentFn, args);
                                     return nullptr;
@@ -1643,13 +1666,16 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         llvm::Value *selfPtr = visit(memberExpr->getObject());
                         if (!selfPtr) return nullptr;
                         std::vector<llvm::Value *> callArgs;
+                        std::vector<const TypeRepr *> callArgTypes;
                         callArgs.push_back(selfPtr);
+                        callArgTypes.push_back(nullptr); // self, not from AST
                         for (auto &arg : node->getArgs()) {
                             auto *v = visit(arg.get());
                             if (!v) return nullptr;
                             callArgs.push_back(v);
+                            callArgTypes.push_back(arg->getResolvedType());
                         }
-                        coerceCallArgs(callee->getFunctionType(), callArgs);
+                        coerceCallArgs(callee->getFunctionType(), callArgs, callArgTypes);
                         if (callee->getReturnType()->isVoidTy()) {
                             builder_->CreateCall(callee, callArgs);
                             return nullptr;
@@ -1841,14 +1867,16 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                 auto *callee = module_->getFunction(mangledName);
                 if (callee) {
                     std::vector<llvm::Value *> args;
+                    std::vector<const TypeRepr *> argTypes;
                     // No self argument for static methods
                     for (auto &arg : node->getArgs()) {
                         auto *val = visit(arg.get());
                         if (!val)
                             return nullptr;
                         args.push_back(val);
+                        argTypes.push_back(arg->getResolvedType());
                     }
-                    coerceCallArgs(callee->getFunctionType(), args);
+                    coerceCallArgs(callee->getFunctionType(), args, argTypes);
                     if (callee->getReturnType()->isVoidTy())
                         return builder_->CreateCall(callee, args);
                     return builder_->CreateCall(callee, args, "scall");
@@ -1873,11 +1901,14 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     if (methodDecl) {
                         // Visit args first so resolved-type info is available.
                         std::vector<llvm::Value *> args;
+                        std::vector<const TypeRepr *> argTypes;
                         args.reserve(node->getArgs().size());
+                        argTypes.reserve(node->getArgs().size());
                         for (auto &arg : node->getArgs()) {
                             auto *val = visit(arg.get());
                             if (!val) return nullptr;
                             args.push_back(val);
+                            argTypes.push_back(arg->getResolvedType());
                         }
 
                         // Type-arg inference: walk param type AST and arg
@@ -1931,7 +1962,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             auto *callee = monomorphizeMethod(implDecl, methodDecl,
                                                                mangledStructName, typeArgs);
                             if (callee) {
-                                coerceCallArgs(callee->getFunctionType(), args);
+                                coerceCallArgs(callee->getFunctionType(), args, argTypes);
                                 if (callee->getReturnType()->isVoidTy())
                                     return builder_->CreateCall(callee, args);
                                 return builder_->CreateCall(callee, args, "scall");
@@ -1976,14 +2007,17 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         auto *envPtr = builder_->CreateLoad(ptrTy, envGEP, "cb.env");
 
                         std::vector<llvm::Value *> args;
+                        std::vector<const TypeRepr *> argTypes;
                         args.push_back(envPtr);
+                        argTypes.push_back(nullptr); // synthesized env pointer, not from AST
                         for (auto &arg : node->getArgs()) {
                             auto *val = visit(arg.get());
                             if (!val) return nullptr;
                             args.push_back(val);
+                            argTypes.push_back(arg->getResolvedType());
                         }
 
-                        coerceCallArgs(llvmFuncTy, args);
+                        coerceCallArgs(llvmFuncTy, args, argTypes);
                         if (llvmFuncTy->getReturnType()->isVoidTy()) {
                             builder_->CreateCall(llvmFuncTy, funcPtr, args);
                             return llvm::Constant::getNullValue(builder_->getInt32Ty());
@@ -2101,6 +2135,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
 
             if (callee) {
                 std::vector<llvm::Value *> args;
+                std::vector<const TypeRepr *> argTypes;
                 // Pass object pointer as first arg (self)
                 llvm::Value *selfPtr = objAlloca;
                 if (objAlloca->getAllocatedType()->isPointerTy()) {
@@ -2108,6 +2143,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                                     objAlloca, objName);
                 }
                 args.push_back(selfPtr);
+                argTypes.push_back(nullptr); // self, not from AST
 
                 auto *calleeFTy = callee->getFunctionType();
                 size_t calleeParamIdx = 1; // 0 is self
@@ -2150,10 +2186,11 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             vars_.movedVars.insert(argIdent->getName());
                     }
                     args.push_back(val);
+                    argTypes.push_back(arg->getResolvedType());
                     ++calleeParamIdx;
                 }
 
-                coerceCallArgs(calleeFTy, args);
+                coerceCallArgs(calleeFTy, args, argTypes);
                 if (callee->getReturnType()->isVoidTy())
                     return builder_->CreateCall(callee, args);
                 return builder_->CreateCall(callee, args, "mcalltmp");

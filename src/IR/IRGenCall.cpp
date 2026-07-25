@@ -102,12 +102,14 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         }
         if (initFn) {
             std::vector<llvm::Value *> args;
+            std::vector<const TypeRepr *> argTypes;
             for (auto &arg : node->getArgs()) {
                 auto *val = visit(arg.get());
                 if (!val) return nullptr;
                 args.push_back(val);
+                argTypes.push_back(arg->getResolvedType());
             }
-            coerceCallArgs(initFn->getFunctionType(), args);
+            coerceCallArgs(initFn->getFunctionType(), args, argTypes);
             auto *obj = builder_->CreateCall(initFn, args, "class_obj");
             return obj;
         }
@@ -142,13 +144,16 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             auto *envPtr = builder_->CreateLoad(ptrTy, envGEP, "env.ptr");
             // Build args: env first, then user args
             std::vector<llvm::Value *> args;
+            std::vector<const TypeRepr *> argTypes;
             args.push_back(envPtr);
+            argTypes.push_back(nullptr); // synthesized env pointer, not from AST
             for (auto &arg : node->getArgs()) {
                 auto *val = visit(arg.get());
                 if (!val) return nullptr;
                 args.push_back(val);
+                argTypes.push_back(arg->getResolvedType());
             }
-            coerceCallArgs(funcIt->second, args);
+            coerceCallArgs(funcIt->second, args, argTypes);
             if (funcIt->second->getReturnType()->isVoidTy())
                 return builder_->CreateCall(funcIt->second, funcPtr, args);
             return builder_->CreateCall(funcIt->second, funcPtr, args, "indcalltmp");
@@ -166,10 +171,12 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
             // Evaluate arguments
             std::vector<llvm::Value *> argValues;
+            std::vector<const TypeRepr *> argValueTypes;
             for (auto &arg : node->getArgs()) {
                 auto *val = visit(arg.get());
                 if (!val) return nullptr;
                 argValues.push_back(val);
+                argValueTypes.push_back(arg->getResolvedType());
             }
 
             // Infer type arguments from LLVM types
@@ -256,7 +263,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 diag_.report(node->getStartLoc(), DiagID::err_irgen_call_callee_failed);
                 return nullptr;
             }
-            coerceCallArgs(callee->getFunctionType(), argValues);
+            coerceCallArgs(callee->getFunctionType(), argValues, argValueTypes);
             if (callee->getReturnType()->isVoidTy())
                 return builder_->CreateCall(callee, argValues);
             return builder_->CreateCall(callee, argValues, "calltmp");
@@ -285,10 +292,12 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (hasVariadic) {
         // Normal args (before variadic)
         std::vector<llvm::Value *> args;
+        std::vector<const TypeRepr *> argTypes;
         for (size_t ai = 0; ai < variadicIdx && ai < node->getArgs().size(); ++ai) {
             auto *val = visit(node->getArgs()[ai].get());
             if (!val) return nullptr;
             args.push_back(val);
+            argTypes.push_back(node->getArgs()[ai]->getResolvedType());
         }
 
         // Pack variadic args into DynArray
@@ -332,19 +341,22 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
         auto *daVal = builder_->CreateLoad(structTy, daAlloca, "varargs.val");
         args.push_back(daVal);
+        argTypes.push_back(nullptr); // synthesized packed DynArray, not from AST
 
-        coerceCallArgs(callee->getFunctionType(), args);
+        coerceCallArgs(callee->getFunctionType(), args, argTypes);
         if (callee->getReturnType()->isVoidTy())
             return builder_->CreateCall(callee, args);
         return builder_->CreateCall(callee, args, "calltmp");
     }
 
     std::vector<llvm::Value *> args;
+    std::vector<const TypeRepr *> argTypes;
     for (auto &arg : node->getArgs()) {
         auto *val = visit(arg.get());
         if (!val)
             return nullptr;
         args.push_back(val);
+        argTypes.push_back(arg->getResolvedType());
     }
 
     // Caller-side boxing: concrete struct → dyn Protocol fat pointer
@@ -404,13 +416,16 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
             for (size_t i = args.size(); i < params.size(); ++i) {
                 if (params[i].hasDefault()) {
                     auto *defVal = visit(const_cast<Expr *>(params[i].defaultValue.get()));
-                    if (defVal) args.push_back(defVal);
+                    if (defVal) {
+                        args.push_back(defVal);
+                        argTypes.push_back(params[i].defaultValue->getResolvedType());
+                    }
                 }
             }
         }
     }
 
-    coerceCallArgs(callee->getFunctionType(), args);
+    coerceCallArgs(callee->getFunctionType(), args, argTypes);
     if (callee->getReturnType()->isVoidTy())
         return builder_->CreateCall(callee, args);
     return builder_->CreateCall(callee, args, "calltmp");
@@ -465,7 +480,9 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                             selfVal = builder_->CreateLoad(ptrTy, objAlloca, objName + ".ptr");
                         }
                         std::vector<llvm::Value *> setterArgs = {selfVal, val};
-                        coerceCallArgs(setter->getFunctionType(), setterArgs);
+                        std::vector<const TypeRepr *> setterArgTypes = {
+                            nullptr, node->getValue()->getResolvedType()};
+                        coerceCallArgs(setter->getFunctionType(), setterArgs, setterArgTypes);
                         builder_->CreateCall(setter, setterArgs);
                         return val;
                     }
@@ -543,7 +560,10 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                                     clsTypeName + "_willSet_" + memberExpr->getMember());
                                 if (willSetFn) {
                                     std::vector<llvm::Value *> willSetArgs = {selfForObs, val};
-                                    coerceCallArgs(willSetFn->getFunctionType(), willSetArgs);
+                                    std::vector<const TypeRepr *> willSetArgTypes = {
+                                        nullptr, node->getValue()->getResolvedType()};
+                                    coerceCallArgs(willSetFn->getFunctionType(), willSetArgs,
+                                                    willSetArgTypes);
                                     builder_->CreateCall(willSetFn, willSetArgs);
                                 }
                                 // Coerce the value actually written to the field below.
@@ -567,8 +587,20 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                                 auto *didSetFn = module_->getFunction(
                                     clsTypeName + "_didSet_" + memberExpr->getMember());
                                 if (didSetFn && oldValue) {
+                                    // oldValue is a load from the field's own
+                                    // slot, not an AST expression — recover its
+                                    // static type (for signedness) from the
+                                    // class's recorded field TypeReprs.
+                                    const TypeRepr *oldValueType = nullptr;
+                                    auto cftrIt = classFieldTypeReprs_.find(clsTypeName);
+                                    if (cftrIt != classFieldTypeReprs_.end() &&
+                                        static_cast<size_t>(structIdx - 1) < cftrIt->second.size())
+                                        oldValueType = cftrIt->second[structIdx - 1];
                                     std::vector<llvm::Value *> didSetArgs = {selfForObs, oldValue};
-                                    coerceCallArgs(didSetFn->getFunctionType(), didSetArgs);
+                                    std::vector<const TypeRepr *> didSetArgTypes = {
+                                        nullptr, oldValueType};
+                                    coerceCallArgs(didSetFn->getFunctionType(), didSetArgs,
+                                                    didSetArgTypes);
                                     builder_->CreateCall(didSetFn, didSetArgs);
                                 }
                             }
@@ -644,7 +676,10 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                         auto *idxVal = visit(const_cast<Expr *>(indexExpr->getIndex()));
                         if (idxVal) {
                             std::vector<llvm::Value *> subArgs = {selfLoaded, idxVal, val};
-                            coerceCallArgs(setFn->getFunctionType(), subArgs);
+                            std::vector<const TypeRepr *> subArgTypes = {
+                                nullptr, indexExpr->getIndex()->getResolvedType(),
+                                node->getValue()->getResolvedType()};
+                            coerceCallArgs(setFn->getFunctionType(), subArgs, subArgTypes);
                             builder_->CreateCall(setFn, subArgs);
                             return val;
                         }

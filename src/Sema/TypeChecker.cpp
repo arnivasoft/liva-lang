@@ -2733,6 +2733,13 @@ bool TypeChecker::containsUnjudgeableType(const TypeRepr *t) const {
         auto *opt = static_cast<const OptionalTypeRepr *>(t);
         return containsUnjudgeableType(opt->getInner());
     }
+    if (t->getKind() == TypeRepr::Kind::Tuple) {
+        auto *tup = static_cast<const TupleTypeRepr *>(t);
+        for (auto &elem : tup->getElements()) {
+            if (containsUnjudgeableType(elem.get())) return true;
+        }
+        return false;
+    }
     return false;
 }
 
@@ -3095,13 +3102,30 @@ std::string TypeChecker::typeToString(const TypeRepr *type) const {
 }
 
 const TypeRepr *TypeChecker::resolveAlias(const TypeRepr *type) const {
-    if (!type || type->getKind() != TypeRepr::Kind::Named)
-        return type;
-    auto *named = static_cast<const NamedTypeRepr *>(type);
-    auto it = typeAliases_.find(named->getName());
-    if (it != typeAliases_.end())
-        return it->second;
-    return type;
+    // Resolve to a fixed point: `type B = u8; type A = B` needs TWO lookups
+    // (A -> B -> u8) before checkAssignable's kind-based reasoning sees
+    // anything other than another unresolved Named alias. A single lookup
+    // (the original behaviour) fixed the one-level case but left any chain
+    // one level deeper falling straight through to typesCompatible's strict
+    // kind-equality check, which knows nothing of aliases.
+    // Bounded the same way typesCompatible caps its own recursion
+    // (kMaxTypeCompareDepth): a cyclic alias (`type A = A`, or
+    // `type A = B; type B = A`) must not hang the loop — hanging the
+    // compiler (and through it the LSP, which runs Sema per keystroke) is
+    // worse than silently stopping at the limit and letting a later check
+    // reject or accept whatever partial resolution it got to.
+    constexpr unsigned kMaxAliasChainDepth = 32;
+    const TypeRepr *cur = type;
+    for (unsigned i = 0; i < kMaxAliasChainDepth; ++i) {
+        if (!cur || cur->getKind() != TypeRepr::Kind::Named)
+            return cur;
+        auto *named = static_cast<const NamedTypeRepr *>(cur);
+        auto it = typeAliases_.find(named->getName());
+        if (it == typeAliases_.end())
+            return cur;
+        cur = it->second;
+    }
+    return cur;
 }
 
 bool TypeChecker::alwaysReturns(const ASTNode *node) const {
