@@ -1127,7 +1127,14 @@ llvm::Value *IRGen::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     }
     auto *firstVal = visit(elements[0].get());
     if (!firstVal) return nullptr;
-    auto *elemType = firstVal->getType();
+    // Sema unified the elements and recorded the result; that type is
+    // authoritative. Falling back to the first element's type would make
+    // [1, 2.5] allocate 4-byte slots for f64 values.
+    llvm::Type *elemType = firstVal->getType();
+    if (auto *rt = node->getResolvedType())
+        if (rt->getKind() == TypeRepr::Kind::Array)
+            elemType = dynArrayElemLLVMType(
+                static_cast<const ArrayTypeRepr *>(rt)->getElement());
     uint64_t numElements = elements.size();
 
     // Build a DynArray (the Liva runtime array representation) so that

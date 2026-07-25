@@ -4473,4 +4473,21 @@ TEST(RuntimeExecTest, ArrayLiteralUnannotatedChainedCopyStaysStatic) {
     EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, ArrayElemCoercePromotedLiteralSlot) {
+    // The literal's unified element type is f64, so the slot must be 8
+    // bytes wide and the integer literal converted into it — not the other
+    // way round.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a = [1, 2.5]
+            let x: f64 = a[0]
+            let y: f64 = a[1]
+            println(x)
+            println(y)
+        }
+    )--", "arr_elem_coerce_promoted");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1.000000\n2.500000\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

@@ -1549,18 +1549,37 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
         if (!elements.empty()) {
             auto *firstVal = visit(elements[0].get());
             if (!firstVal) return nullptr;
-            auto *elemType = firstVal->getType();
+            // Sema unified the elements and recorded the result on the
+            // literal; that type is authoritative for the slot. Falling
+            // back to the first element's type would make `let a = [1,
+            // 2.5]` allocate an i32-element array and then store an f64
+            // value through a mismatched-type GEP.
+            llvm::Type *elemType = firstVal->getType();
+            if (auto *rt = arrayLit->getResolvedType())
+                if (rt->getKind() == TypeRepr::Kind::Array)
+                    elemType = dynArrayElemLLVMType(
+                        static_cast<const ArrayTypeRepr *>(rt)->getElement());
             uint64_t numElements = elements.size();
             auto *arrayType = llvm::ArrayType::get(elemType, numElements);
             auto *alloca = createEntryBlockAlloca(func, node->getName(), arrayType);
             auto *gep0 = builder_->CreateConstInBoundsGEP2_64(arrayType, alloca, 0, 0, "arr.elem.0");
-            builder_->CreateStore(firstVal, gep0);
+            auto *storedFirst = coerceToElemType(firstVal, elemType);
+            if (!storedFirst) {
+                diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
+                return nullptr;
+            }
+            builder_->CreateStore(storedFirst, gep0);
             for (uint64_t i = 1; i < numElements; ++i) {
                 auto *val = visit(elements[i].get());
                 if (!val) continue;
                 auto *gep = builder_->CreateConstInBoundsGEP2_64(
                     arrayType, alloca, 0, i, "arr.elem." + std::to_string(i));
-                builder_->CreateStore(val, gep);
+                auto *stored = coerceToElemType(val, elemType);
+                if (!stored) {
+                    diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
+                    return nullptr;
+                }
+                builder_->CreateStore(stored, gep);
             }
             vars_.namedValues[node->getName()] = alloca;
             vars_.varArrayTypes[node->getName()] = {elemType, numElements};
