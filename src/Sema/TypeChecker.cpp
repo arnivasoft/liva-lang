@@ -2510,6 +2510,30 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
                              "declare with 'var' instead of 'let' to make it mutable",
                              "", DiagID::note_use_var_for_mutable);
         }
+        // Type-check the assigned value against the variable's declared
+        // type. Only identifier targets are judged — member fields and
+        // element targets go through their own paths.
+        if (sym && sym->type) {
+            const Expr *value = node->getValue();
+            switch (checkAssignable(sym->type, value)) {
+            case Assignability::Ok:
+                break;
+            case Assignability::Mismatch:
+                diag_.report(value->getStartLoc(),
+                             DiagID::err_assign_type_mismatch,
+                             typeToString(value->getResolvedType()),
+                             typeToString(sym->type));
+                break;
+            case Assignability::LiteralOutOfRange: {
+                auto *lit = static_cast<const IntegerLiteralExpr *>(value);
+                diag_.report(value->getStartLoc(),
+                             DiagID::err_assign_literal_range,
+                             std::to_string(lit->getValue()),
+                             typeToString(sym->type));
+                break;
+            }
+            }
+        }
     }
 }
 
@@ -2741,6 +2765,21 @@ TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
     if (!valueType) return Assignability::Ok;
     valueType = resolveAlias(valueType);
     if (containsUnjudgeableType(valueType)) return Assignability::Ok;
+
+    // Allow T -> T? (optional wrapping). visitVarDecl's annotation-vs-init
+    // check and ReturnStmt's return-type check both already special-case
+    // this exact shape ("target is Optional, source is not" -> compare
+    // against the inner type) — checkAssignable simply never learned the
+    // same rule, so `var x: T? = nil; x = someT()`, a legitimate and common
+    // pattern, was judged a kind mismatch against bare typesCompatible.
+    // Optional-to-Optional is deliberately left alone: typesCompatible
+    // already descends into the inner type for that case on its own, and
+    // must keep doing so unchanged.
+    if (target->getKind() == TypeRepr::Kind::Optional &&
+        valueType->getKind() != TypeRepr::Kind::Optional) {
+        auto *optTarget = static_cast<const OptionalTypeRepr *>(target);
+        return checkAssignable(optTarget->getInner(), value);
+    }
 
     if (!isNumericKind(target->getKind()) || !isNumericKind(valueType->getKind()))
         return typesCompatible(target, valueType) ? Assignability::Ok

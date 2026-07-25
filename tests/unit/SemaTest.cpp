@@ -11245,3 +11245,118 @@ TEST_F(SemaTest, ArgMatchingTypesAccepted) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
     EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
 }
+
+// ============================================================
+// Assignment type checking (roadmap 2.3)
+// ============================================================
+// visitAssignExpr only checked mutability. `a = mkStr()` on an [i32]
+// variable compiled and then read a pointer as an i32.
+
+TEST_F(SemaTest, AssignArrayElementMismatchRejected) {
+    auto result = check(R"(
+        func mkStr() -> [string] { return ["a", "b"] }
+        func main() {
+            var a: [i32] = [1, 2, 3]
+            a = mkStr()
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_type_mismatch));
+}
+
+TEST_F(SemaTest, AssignMatchingTypeAccepted) {
+    auto result = check(R"(
+        func main() {
+            var n = 5
+            var s = "hi"
+            n = 7
+            s = "yo"
+            println(n)
+            println(s)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_literal_range));
+}
+
+TEST_F(SemaTest, AssignNarrowingLiteralOutOfRangeRejected) {
+    auto result = check(R"(
+        func mkU8() -> u8 { return 1 }
+        func main() {
+            var b: u8 = mkU8()
+            b = 300
+            println(b)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_literal_range));
+}
+
+TEST_F(SemaTest, AssignStringToIntRejected) {
+    auto result = check(R"(
+        func main() {
+            var n = 5
+            n = "hi"
+            println(n)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_type_mismatch));
+}
+
+// ============================================================
+// T -> T? optional wrapping in checkAssignable (roadmap 2.3, fix round 2)
+// ============================================================
+// checkAssignable had no "target is Optional, source is not" rule, unlike
+// visitVarDecl's ann-vs-init check and ReturnStmt's return-type check,
+// which both already special-case this shape. That gap rejected the
+// legitimate `var x: T? = nil; x = someT()` pattern on the assignment path
+// (this task) and, latently, on the argument path (the earlier task) —
+// neither had a regression test exercising a bare value assigned/passed
+// where an Optional-typed target/parameter was expected.
+
+TEST_F(SemaTest, AssignOptionalWrapIntAccepted) {
+    auto result = check(R"(
+        func main() {
+            var x: i32? = nil
+            x = 42
+            println("ok")
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_literal_range));
+}
+
+TEST_F(SemaTest, AssignOptionalWrapStructAccepted) {
+    auto result = check(R"(
+        struct Res { var id: i32 }
+        func main() {
+            let a = Res { id: 5 }
+            var y: Res? = nil
+            y = a
+            println("ok")
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_type_mismatch));
+}
+
+TEST_F(SemaTest, ArgOptionalWrapStructAccepted) {
+    auto result = check(R"(
+        struct Res { var id: i32 }
+        func take(r: Res?) -> i32 { return 1 }
+        func main() {
+            let a = Res { id: 5 }
+            println(take(a))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, AssignOptionalWrongTypeStillRejected) {
+    auto result = check(R"(
+        func main() {
+            var x: i32? = nil
+            x = "hi"
+            println("ok")
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_type_mismatch));
+}
