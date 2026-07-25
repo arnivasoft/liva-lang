@@ -1157,8 +1157,13 @@ void TypeChecker::visitClassDecl(ClassDecl *node) {
 
     // Register the class's methods under the same "Type::method" key the
     // impl and protocol paths use, so `obj.method(args)` calls can be
-    // argument-checked. Registered before the body is visited so a method
-    // calling a sibling method is judged too.
+    // argument-checked.
+    //
+    // Note this does NOT reach `self.sibling(x)` calls inside the class's
+    // own body: `self` is declared as an untyped Parameter symbol below, so
+    // the receiver's resolved type is null and the member path never looks
+    // the method up. Same for a call through the type name (`Cls.method`).
+    // Both stay silent; see the roadmap's remaining-gaps row.
     registerTypeMethodDecls(node);
 
     // Register type parameters
