@@ -4490,4 +4490,42 @@ TEST(RuntimeExecTest, ArrayElemCoercePromotedLiteralSlot) {
     EXPECT_EQ(r.stdout_output, "1.000000\n2.500000\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, ArrayElemCoercePromotedLiteralArgAndReturn) {
+    // ArrayElemCoercePromotedLiteralSlot above pins a DIFFERENT code path:
+    // its `let a = [1, 2.5]` is a top-level VarDecl-with-array-literal-init,
+    // lowered by IRGenDecl.cpp's unannotated "static array" branch, which
+    // never calls IRGen::visitArrayLiteralExpr. This test pins
+    // visitArrayLiteralExpr (IRGenExpr.cpp) itself: a promoted mixed-type
+    // literal used directly as a call ARGUMENT and directly in a `return`
+    // both dispatch through visit() -> visitArrayLiteralExpr, bypassing the
+    // VarDecl branch entirely. Verified this is load-bearing: with the
+    // resolvedType override in visitArrayLiteralExpr reverted, both forms
+    // silently printed 0.000000 for every element (exit 0, no crash) instead
+    // of erroring — a corruption that the VarDecl-focused test above cannot
+    // detect.
+    auto r = compileAndRun(R"--(
+        func sumF64(a: [f64]) -> f64 {
+            var total: f64 = 0.0
+            for x in a {
+                total = total + x
+            }
+            return total
+        }
+        func makeArr() -> [f64] {
+            return [1, 2.5, 3]
+        }
+        func main() {
+            let s = sumF64([1, 2.5, 3])
+            println(s)
+            let a = makeArr()
+            println(a[0])
+            println(a[1])
+            println(a[2])
+        }
+    )--", "arr_elem_coerce_promoted_arg_ret");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "6.500000\n1.000000\n2.500000\n3.000000\n")
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
