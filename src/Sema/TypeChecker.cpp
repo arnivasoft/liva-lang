@@ -915,6 +915,45 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
         visit(const_cast<Expr *>(node->getInit()));
     }
 
+    // An annotated array literal is checked against the ANNOTATION rather
+    // than against its own elements, and then takes the annotation's type.
+    // Leaving the unified element type on the literal would make the
+    // generic annotation-vs-init check below compare [i64] with [i32] and
+    // reject `let a: [i64] = [1, 2, 3]`, which compiles today.
+    if (node->hasInit() && node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::Array &&
+        node->getInit()->getKind() == ASTNode::NodeKind::ArrayLiteralExpr) {
+        auto *annArr = static_cast<const ArrayTypeRepr *>(node->getType());
+        const TypeRepr *annElem = annArr->getElement();
+        // [dyn Protocol] elements are boxed on a separate path.
+        if (annElem && annElem->getKind() != TypeRepr::Kind::DynProtocol) {
+            auto *lit = static_cast<ArrayLiteralExpr *>(
+                const_cast<Expr *>(node->getInit()));
+            for (auto &elemPtr : lit->getElements()) {
+                const Expr *elem = elemPtr.get();
+                switch (checkArrayElement(annElem, elem)) {
+                case ElemAssign::Ok:
+                    break;
+                case ElemAssign::Mismatch:
+                    diag_.report(elem->getStartLoc(),
+                                 DiagID::err_array_element_type_mismatch,
+                                 typeToString(elem->getResolvedType()),
+                                 typeToString(annElem));
+                    break;
+                case ElemAssign::LiteralOutOfRange: {
+                    auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
+                    diag_.report(elem->getStartLoc(),
+                                 DiagID::err_array_element_literal_range,
+                                 std::to_string(intLit->getValue()),
+                                 typeToString(annElem));
+                    break;
+                }
+                }
+            }
+            lit->setResolvedType(cloneTypeRepr(node->getType()));
+        }
+    }
+
     if (node->hasInit() &&
         node->getInit()->getKind() == ASTNode::NodeKind::NilLiteralExpr) {
         if (!node->hasTypeAnnotation() ||
@@ -2667,10 +2706,21 @@ void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
             candidateElem = elem;
             continue;
         }
-        diag_.report(elem->getStartLoc(),
-                     DiagID::err_array_element_type_mismatch,
-                     typeToString(elemType), typeToString(candidate));
+        if (checkArrayElement(candidate, elem) == ElemAssign::LiteralOutOfRange) {
+            auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
+            diag_.report(elem->getStartLoc(),
+                         DiagID::err_array_element_literal_range,
+                         std::to_string(intLit->getValue()),
+                         typeToString(candidate));
+        } else {
+            diag_.report(elem->getStartLoc(),
+                         DiagID::err_array_element_type_mismatch,
+                         typeToString(elemType), typeToString(candidate));
+        }
     }
+    if (candidate)
+        node->setResolvedType(std::make_unique<ArrayTypeRepr>(
+            cloneTypeRepr(candidate), -1));
 }
 
 void TypeChecker::visitTupleLiteralExpr(TupleLiteralExpr *node) {

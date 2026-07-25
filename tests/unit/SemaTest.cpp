@@ -10777,3 +10777,101 @@ TEST_F(SemaTest, ArrayLiteralStringHomogeneousAccepted) {
     )");
     EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
+
+TEST_F(SemaTest, ArrayLiteralWidenIntLiteralsToI64Accepted) {
+    // Value-preserving: i32 literals into an [i64]. This compiles today and
+    // must keep compiling.
+    auto result = check(R"(
+        func main() {
+            let a: [i64] = [1, 2, 3]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralIntLiteralsToF64Accepted) {
+    auto result = check(R"(
+        func main() {
+            let a: [f64] = [1, 2]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralNarrowingLiteralInRangeAccepted) {
+    auto result = check(R"(
+        func main() {
+            let a: [u8] = [1, 2, 255]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, ArrayLiteralNarrowingLiteralOutOfRangeRejected) {
+    auto result = check(R"(
+        func main() {
+            let a: [u8] = [1, 2, 300]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, ArrayLiteralNarrowingVariableRejected) {
+    // Lossy conversions are literal-only: an i32 VARIABLE into [u8] is an
+    // error, because the value is not known at compile time.
+    auto result = check(R"(
+        func main() {
+            let n = 5
+            let a: [u8] = [n]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralWidenVariableToI64Accepted) {
+    // Value-preserving conversions are allowed for variables too, so [i64]
+    // arrays stay usable (the language has no i64 literal).
+    auto result = check(R"(
+        func main() {
+            let n = 5
+            let a: [i64] = [n, 7]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralAnnotationStringVsIntRejected) {
+    auto result = check(R"(
+        func main() {
+            let a: [string] = [1, 2]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayLiteralUnannotatedLiteralOutOfRangeUsesRangeDiag) {
+    // Unannotated literal: the candidate element type comes from the first
+    // element (u32), and 5000000000 does not fit it (u32 max is
+    // 4294967295) nor does u32 widen back into the literal's own i32 type,
+    // so no promotion is possible and the range diagnostic must win over
+    // the generic mismatch one.
+    auto result = check(R"(
+        func main() {
+            let u: u32 = 5
+            let a = [u, 5000000000]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
