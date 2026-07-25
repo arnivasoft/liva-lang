@@ -1445,7 +1445,13 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             for (uint64_t i = 0; i < initLen; ++i) {
                 auto *elemPtr = builder_->CreateGEP(elemType, dataPtr,
                     builder_->getInt64(i), "arr.init." + std::to_string(i));
-                builder_->CreateStore(initVals[i], elemPtr);
+                auto *storedInit = coerceToElemType(initVals[i], elemType);
+                if (!storedInit) {
+                    diag_.report(node->getStartLoc(),
+                                 DiagID::err_irgen_array_elem_coerce);
+                    return nullptr;
+                }
+                builder_->CreateStore(storedInit, elemPtr);
             }
 
             // Fill struct fields: {data, length, capacity}

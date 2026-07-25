@@ -503,7 +503,13 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     auto *func = builder_->GetInsertBlock()->getParent();
                     auto *elemAlloca = createEntryBlockAlloca(func, "push.tmp",
                                                               daIt->second.elementType);
-                    builder_->CreateStore(val, elemAlloca);
+                    auto *pushVal = coerceToElemType(val, daIt->second.elementType);
+                    if (!pushVal) {
+                        diag_.report(node->getStartLoc(),
+                                     DiagID::err_irgen_array_elem_coerce);
+                        return nullptr;
+                    }
+                    builder_->CreateStore(pushVal, elemAlloca);
 
                     auto *dataField = builder_->CreateStructGEP(structTy, arrAlloca, 0);
                     auto *lenField = builder_->CreateStructGEP(structTy, arrAlloca, 1);
@@ -846,7 +852,13 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     auto *func = builder_->GetInsertBlock()->getParent();
                     auto *elemAlloca = createEntryBlockAlloca(func, "mpush.tmp",
                                                               daInfo->elementType);
-                    builder_->CreateStore(val, elemAlloca);
+                    auto *mpushVal = coerceToElemType(val, daInfo->elementType);
+                    if (!mpushVal) {
+                        diag_.report(node->getStartLoc(),
+                                     DiagID::err_irgen_array_elem_coerce);
+                        return nullptr;
+                    }
+                    builder_->CreateStore(mpushVal, elemAlloca);
                     auto *dataField = builder_->CreateStructGEP(structTy, arrGEP, 0);
                     auto *lenField = builder_->CreateStructGEP(structTy, arrGEP, 1);
                     auto *capField = builder_->CreateStructGEP(structTy, arrGEP, 2);

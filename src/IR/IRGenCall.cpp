@@ -667,7 +667,14 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                         if (vars_.varDynArrayTypes.count(valIdent->getName()))
                             vars_.movedVars.insert(valIdent->getName());
                     }
-                    builder_->CreateStore(stored, elemPtr);
+                    auto *coerced = coerceToElemType(stored,
+                                                     daIt->second.elementType);
+                    if (!coerced) {
+                        diag_.report(node->getStartLoc(),
+                                     DiagID::err_irgen_array_elem_coerce);
+                        return nullptr;
+                    }
+                    builder_->CreateStore(coerced, elemPtr);
                 }
                 return val;
             }
@@ -699,7 +706,16 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                         removeFromTempStrings(storedFixed);
                     }
                 }
-                builder_->CreateStore(storedFixed, gep);
+                auto *fixedElemTy = arrayType->isArrayTy()
+                                        ? arrayType->getArrayElementType()
+                                        : storedFixed->getType();
+                auto *coercedFixed = coerceToElemType(storedFixed, fixedElemTy);
+                if (!coercedFixed) {
+                    diag_.report(node->getStartLoc(),
+                                 DiagID::err_irgen_array_elem_coerce);
+                    return nullptr;
+                }
+                builder_->CreateStore(coercedFixed, gep);
             }
         }
 
@@ -743,7 +759,14 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                     if (vars_.varDynArrayTypes.count(valIdent->getName()))
                         vars_.movedVars.insert(valIdent->getName());
                 }
-                builder_->CreateStore(storedMem, elemPtr);
+                auto *coercedMem = coerceToElemType(storedMem,
+                                                    daInfo->elementType);
+                if (!coercedMem) {
+                    diag_.report(node->getStartLoc(),
+                                 DiagID::err_irgen_array_elem_coerce);
+                    return nullptr;
+                }
+                builder_->CreateStore(coercedMem, elemPtr);
                 return val;
             }
         }

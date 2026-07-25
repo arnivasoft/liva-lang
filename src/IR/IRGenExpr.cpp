@@ -1146,13 +1146,23 @@ llvm::Value *IRGen::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     // Store elements into the backing storage
     auto *ep0 = builder_->CreateGEP(elemType, dataPtr,
         builder_->getInt64(0), "arrlit.e0");
-    builder_->CreateStore(firstVal, ep0);
+    auto *storedFirst = coerceToElemType(firstVal, elemType);
+    if (!storedFirst) {
+        diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
+        return nullptr;
+    }
+    builder_->CreateStore(storedFirst, ep0);
     for (uint64_t i = 1; i < numElements; ++i) {
         auto *val = visit(elements[i].get());
         if (!val) continue;
         auto *ep = builder_->CreateGEP(elemType, dataPtr,
             builder_->getInt64(i), "arrlit.e" + std::to_string(i));
-        builder_->CreateStore(val, ep);
+        auto *stored = coerceToElemType(val, elemType);
+        if (!stored) {
+            diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
+            return nullptr;
+        }
+        builder_->CreateStore(stored, ep);
     }
 
     // Build DynArray struct { ptr, i64, i64 } = { data, length, capacity }

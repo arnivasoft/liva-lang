@@ -2132,7 +2132,7 @@ func main() {
 TEST_F(SelfHostTest, SliceNegativeStartPanics) {
     std::string output = compileAndRun(R"--(
         func main() {
-            var arr: [I32] = [1, 2, 3]
+            var arr: [i32] = [1, 2, 3]
             var s = arr[-1..2]
         }
     )--");
@@ -2143,7 +2143,7 @@ TEST_F(SelfHostTest, SliceNegativeStartPanics) {
 TEST_F(SelfHostTest, SliceEndBeforeStartPanics) {
     std::string output = compileAndRun(R"--(
         func main() {
-            var arr: [I32] = [1, 2, 3]
+            var arr: [i32] = [1, 2, 3]
             var s = arr[2..1]
         }
     )--");
@@ -2154,7 +2154,7 @@ TEST_F(SelfHostTest, SliceEndBeforeStartPanics) {
 TEST_F(SelfHostTest, SliceEndBeyondLenPanics) {
     std::string output = compileAndRun(R"--(
         func main() {
-            var arr: [I32] = [1, 2, 3]
+            var arr: [i32] = [1, 2, 3]
             var s = arr[0..10]
         }
     )--");

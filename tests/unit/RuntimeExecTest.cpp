@@ -4341,4 +4341,105 @@ TEST(RuntimeExecTest, GenericStructArrayFieldExplicitTypeArg) {
     EXPECT_EQ(r.stdout_output, "2\n9\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Array element store coercion (roadmap 2.3)
+// ============================================================
+// Element values used to be stored into the slot with no conversion at
+// all: an i32 written into an [f64] slot read back as 0.0, into an [i64]
+// slot left the upper half uninitialized, and into a [u8] slot wrote
+// three bytes past the element.
+
+TEST(RuntimeExecTest, ArrayElemCoerceF64Literal) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [f64] = [1, 2]
+            let x: f64 = a[0]
+            let y: f64 = a[1]
+            println(x)
+            println(y)
+        }
+    )--", "arr_elem_coerce_f64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "1.000000\n2.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceF64Push) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var a: [f64] = [1.5]
+            a.push(3)
+            let x: f64 = a[1]
+            println(x)
+        }
+    )--", "arr_elem_coerce_f64_push");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceI64Literal) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [i64] = [7, 8, 9]
+            let x: i64 = a[0]
+            let y: i64 = a[2]
+            println(x)
+            println(y)
+        }
+    )--", "arr_elem_coerce_i64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "7\n9\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceU8NoNeighborDamage) {
+    // A 4-byte store into a 1-byte slot wrote past the end of the buffer.
+    // Two adjacent arrays make the overflow observable.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [u8] = [10, 20, 30]
+            let b: [u8] = [40, 50, 60]
+            let x: u8 = a[2]
+            let y: u8 = b[0]
+            let z: u8 = b[2]
+            println(x)
+            println(y)
+            println(z)
+        }
+    )--", "arr_elem_coerce_u8");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "30\n40\n60\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceElementAssign) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var a: [f64] = [1.5, 2.5]
+            a[1] = 7
+            let x: f64 = a[1]
+            println(x)
+        }
+    )--", "arr_elem_coerce_assign");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "7.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceNoRegressionSameType) {
+    // Same-type stores must be untouched: no conversion instruction, no
+    // change in behavior for [i32], [string] and nested [[i32]].
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [i32] = [1, 2, 3]
+            let s: [string] = ["ab", "cd"]
+            let n: [[i32]] = [[1, 2], [3]]
+            let x: i32 = a[2]
+            let t: string = s[1]
+            let row: [i32] = n[0]
+            println(x)
+            println(t)
+            println(row.length)
+        }
+    )--", "arr_elem_coerce_same_type");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\ncd\n2\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

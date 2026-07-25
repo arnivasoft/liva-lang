@@ -813,6 +813,38 @@ llvm::Type *IRGen::dynArrayElemLLVMType(const TypeRepr *elemRepr) {
     return toLLVMType(elemRepr);
 }
 
+llvm::Value *IRGen::coerceToElemType(llvm::Value *val, llvm::Type *slotTy,
+                                      bool srcUnsigned) {
+    if (!val || !slotTy) return val;
+    auto *valTy = val->getType();
+    if (valTy == slotTy) return val;
+
+    if (valTy->isIntegerTy() && slotTy->isIntegerTy()) {
+        unsigned from = valTy->getIntegerBitWidth();
+        unsigned to = slotTy->getIntegerBitWidth();
+        if (from == to) return val;
+        if (from > to)
+            return builder_->CreateTrunc(val, slotTy, "elem.trunc");
+        // i1 (bool) is always zero-extended; it has no sign bit to carry.
+        if (from == 1 || srcUnsigned)
+            return builder_->CreateZExt(val, slotTy, "elem.zext");
+        return builder_->CreateSExt(val, slotTy, "elem.sext");
+    }
+    if (valTy->isIntegerTy() && slotTy->isFloatingPointTy()) {
+        if (srcUnsigned)
+            return builder_->CreateUIToFP(val, slotTy, "elem.uitofp");
+        return builder_->CreateSIToFP(val, slotTy, "elem.sitofp");
+    }
+    if (valTy->isFloatingPointTy() && slotTy->isIntegerTy())
+        return builder_->CreateFPToSI(val, slotTy, "elem.fptosi");
+    if (valTy->isFloatingPointTy() && slotTy->isFloatingPointTy()) {
+        if (valTy->getPrimitiveSizeInBits() < slotTy->getPrimitiveSizeInBits())
+            return builder_->CreateFPExt(val, slotTy, "elem.fpext");
+        return builder_->CreateFPTrunc(val, slotTy, "elem.fptrunc");
+    }
+    return nullptr;
+}
+
 void IRGen::deriveNestedDynArrayInner(const ArrayTypeRepr *outerArrRepr,
                                        llvm::Type *&innerElemType,
                                        uint64_t &innerElemSize) {

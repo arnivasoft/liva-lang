@@ -193,6 +193,16 @@ private:
     /// values (heap/stack corruption; roadmap 2.3 [[T]]).
     llvm::Type *dynArrayElemLLVMType(const TypeRepr *elemRepr);
 
+    /// Convert a value to the LLVM type of the array element slot it is
+    /// about to be stored into. Returns the value unchanged when the types
+    /// already match. Emits integer widening/narrowing, integer<->float and
+    /// float widening/narrowing. Returns nullptr when no conversion exists
+    /// (e.g. ptr <-> i32) — Sema should already have rejected that.
+    /// LLVM types carry no signedness, so `srcUnsigned` tells the helper
+    /// whether the SOURCE value is an unsigned quantity.
+    llvm::Value *coerceToElemType(llvm::Value *val, llvm::Type *slotTy,
+                                   bool srcUnsigned = false);
+
     /// When `outerArrRepr`'s element is ITSELF a dynamic array (i.e.
     /// outerArrRepr is `[[T]]` and its element is `[T]`), derive the LLVM
     /// type/size of `[T]`'s OWN elements (`T`). This is what a for-in loop
