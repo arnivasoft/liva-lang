@@ -445,19 +445,24 @@ void TypeChecker::check(TranslationUnit &tu) {
                                     typeMethodDecls_[implD->getTypeName() + "::" +
                                                      method->getName()] = method.get();
                                 }
-                                // Propagate Drop conformance so imported-module
-                                // types (e.g. json::json's JsonValue, websocket's
-                                // WebSocket) are visible to getDropTypeNames() —
-                                // OwnershipChecker needs the SAME Drop-type set
-                                // that IRGen's dropImplementors_ already sees
-                                // (IRGenDecl.cpp re-processes imported ImplDecls
-                                // directly). Only "Drop" is propagated here —
-                                // copying all protocol conformances has a wider
-                                // blast radius than this fix needs.
-                                if (implD->hasProtocol() &&
-                                    implD->getProtocolName() == "Drop") {
-                                    protocolConformances_["Drop"].push_back(
-                                        implD->getTypeName());
+                                // Propagate protocol conformance so imported
+                                // types are visible to every check keyed on
+                                // it. This started as "Drop" only —
+                                // OwnershipChecker needs the same Drop-type
+                                // set IRGen's dropImplementors_ already sees
+                                // (IRGenDecl.cpp re-processes imported
+                                // ImplDecls directly) — but a map that knows
+                                // only local conformers cannot be used to
+                                // JUDGE anything: an imported conformer looks
+                                // like a non-conformer, so any check built on
+                                // it rejects working code. `dyn P` element
+                                // checking needs the full picture, and the
+                                // other readers (Iterator / AsyncIterator
+                                // for-in resolution) only gain by seeing
+                                // imported conformers too.
+                                if (implD->hasProtocol()) {
+                                    protocolConformances_[implD->getProtocolName()]
+                                        .push_back(implD->getTypeName());
                                 }
                             } else if (topDecl->getKind() == ASTNode::NodeKind::ProtocolDecl) {
                                 // Also import protocol method return types so that
@@ -980,17 +985,14 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
             // (`[dyn Control]` holding Buttons and Labels is the UI
             // modules' standard shape). Judge only when we can actually
             // name X's members; an unknown X stays silent.
-            // Only the CLASS shape is judged. The protocol shape cannot be:
-            // protocolConformances_ is populated from `impl X : P` in the
-            // CURRENT translation unit only — the module-import path
-            // deliberately propagates just "Drop" — so an imported
-            // conformer looks like a non-conformer and valid code gets
-            // rejected. classDecls_/classParent_, by contrast, ARE
-            // populated from imports, so the ancestry walk is sound.
-            // The protocol shape stays silent until conformance
-            // propagation is fixed; see the roadmap's tracking row.
+            // Both shapes are judged now that the import path propagates
+            // every conformance, not just Drop. A `dyn X` naming neither a
+            // known protocol nor a known class stays silent — we cannot
+            // name X's members, so we cannot judge.
+            auto confIt = protocolConformances_.find(dynName);
+            bool isProto = confIt != protocolConformances_.end();
             bool isClass = classDecls_.find(dynName) != classDecls_.end();
-            if (isClass) {
+            if (isProto || isClass) {
                 auto *lit = static_cast<ArrayLiteralExpr *>(
                     const_cast<Expr *>(node->getInit()));
                 for (auto &elemPtr : lit->getElements()) {
@@ -1002,21 +1004,29 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                     if (!et || et->getKind() != TypeRepr::Kind::Named) continue;
                     const auto &tn =
                         static_cast<const NamedTypeRepr *>(et)->getName();
-                    // Walk the element's ancestry looking for the base. A
-                    // chain longer than the bound is treated as a match
-                    // rather than a mismatch: circular inheritance already
-                    // has its own diagnostic, so the bound exists only to
-                    // guarantee termination and must not reject deep but
-                    // legitimate hierarchies.
-                    bool ok = false, exhausted = true;
-                    std::string cur = tn;
-                    for (int hop = 0; hop < 64 && !cur.empty(); ++hop) {
-                        if (cur == dynName) { ok = true; exhausted = false; break; }
-                        auto pit = classParent_.find(cur);
-                        if (pit == classParent_.end()) { exhausted = false; break; }
-                        cur = pit->second;
+                    bool ok = false;
+                    if (isProto) {
+                        for (const auto &c : confIt->second) {
+                            if (c == tn) { ok = true; break; }
+                        }
                     }
-                    if (exhausted) ok = true;
+                    if (!ok && isClass) {
+                        // Walk the element's ancestry looking for the base.
+                        // A chain longer than the bound counts as a match,
+                        // not a mismatch: circular inheritance has its own
+                        // diagnostic, so the bound exists only to guarantee
+                        // termination and must not reject a deep but
+                        // legitimate hierarchy.
+                        bool exhausted = true;
+                        std::string cur = tn;
+                        for (int hop = 0; hop < 64 && !cur.empty(); ++hop) {
+                            if (cur == dynName) { ok = true; exhausted = false; break; }
+                            auto pit = classParent_.find(cur);
+                            if (pit == classParent_.end()) { exhausted = false; break; }
+                            cur = pit->second;
+                        }
+                        if (exhausted) ok = true;
+                    }
                     if (!ok)
                         diag_.report(elem->getStartLoc(),
                                      DiagID::err_no_conformance, tn, dynName);

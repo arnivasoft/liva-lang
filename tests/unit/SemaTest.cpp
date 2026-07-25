@@ -11667,32 +11667,6 @@ TEST_F(SemaTest, UnannotatedHeterogeneousArrayStillRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
 
-TEST_F(SemaTest, DynProtocolArrayNonConformerNotJudged) {
-    // The PROTOCOL shape of `dyn X` is deliberately not judged: the
-    // conformance map is populated from `impl X : P` in the current
-    // translation unit only, so an imported conformer would look like a
-    // non-conformer and valid code would be rejected. Tracked on the
-    // roadmap; this test pins that we stay silent rather than guess.
-    auto result = check(R"(
-        protocol Shape {
-            func area(ref self) -> f64
-        }
-        struct Circle { var r: f64 }
-        impl Circle : Shape {
-            func area(ref self) -> f64 { return self.r }
-        }
-        struct Blob { var b: f64 }
-        func main() {
-            let shapes: [dyn Shape] = [
-                Circle { r: 1.0 },
-                Blob { b: 2.0 }
-            ]
-            println(shapes.length)
-        }
-    )");
-    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
-}
-
 TEST_F(SemaTest, NestedLiteralInAnnotatedArrayStillReported) {
     // The annotation flag covers only the outermost literal; an inner one
     // must still be judged by Sema rather than sliding through to an
@@ -11755,6 +11729,71 @@ TEST_F(SemaTest, DynClassArrayUnrelatedClassRejected) {
         }
         func main() {
             let xs: [dyn Base] = [Left(), Stranger()]
+            println(xs.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+// ============================================================
+// Protocol conformance across module imports (roadmap 2.3)
+// ============================================================
+// The module-import path propagated only "Drop" conformance, so an
+// imported `impl X : P` was invisible. That blocked any check keyed on
+// conformance: adding one rejected working code, because an imported
+// conformer looked like a non-conformer.
+
+TEST_F(SemaTest, ImportedConformanceVisibleToDynCheck) {
+    auto result = checkWithModules(R"--(
+        import shapes
+        func main() {
+            let xs: [dyn Shape] = [Circle { r: 1.0 }]
+            println(xs.length)
+        }
+    )--", {{"shapes", R"--(
+        pub protocol Shape {
+            func area(ref self) -> f64
+        }
+        pub struct Circle { var r: f64 }
+        impl Circle : Shape {
+            func area(ref self) -> f64 { return self.r }
+        }
+    )--"}});
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, ImportedNonConformerRejectedByDynCheck) {
+    auto result = checkWithModules(R"--(
+        import shapes
+        func main() {
+            let xs: [dyn Shape] = [Circle { r: 1.0 }, Blob { b: 2.0 }]
+            println(xs.length)
+        }
+    )--", {{"shapes", R"--(
+        pub protocol Shape {
+            func area(ref self) -> f64
+        }
+        pub struct Circle { var r: f64 }
+        impl Circle : Shape {
+            func area(ref self) -> f64 { return self.r }
+        }
+        pub struct Blob { var b: f64 }
+    )--"}});
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, LocalNonConformerRejectedByDynCheck) {
+    auto result = check(R"(
+        protocol Shape {
+            func area(ref self) -> f64
+        }
+        struct Circle { var r: f64 }
+        impl Circle : Shape {
+            func area(ref self) -> f64 { return self.r }
+        }
+        struct Blob { var b: f64 }
+        func main() {
+            let xs: [dyn Shape] = [Circle { r: 1.0 }, Blob { b: 2.0 }]
             println(xs.length)
         }
     )");
