@@ -2244,6 +2244,11 @@ void TypeChecker::visitCallExpr(CallExpr *node) {
         visit(arg.get());
     }
 
+    // Must run after the arg-visit loop above: checkAssignable reads each
+    // argument's getResolvedType(), which visit() is what fills in. Calling
+    // this any earlier makes it a silent no-op (every arg looks type-less).
+    checkCallArgTypes(node);
+
     resolveCallReturnType(node);
     resolveMapSetMethodCall(node);
 }
@@ -2645,15 +2650,34 @@ bool isUnjudgeableTarget(TypeRepr::Kind k) {
            k == K::AssociatedType || k == K::DynProtocol;
 }
 
+// Same judgement as isUnjudgeableTarget, but looking through Array and
+// Optional wrappers: a `[T]` or `T?` parameter is exactly as undecidable
+// before monomorphization as `T` itself would be. Only widens silence
+// (never turns an existing Ok into a diagnostic), so it is safe to use
+// everywhere isUnjudgeableTarget's flat kind check was used before.
+bool containsUnjudgeableType(const TypeRepr *t) {
+    if (!t) return false;
+    if (isUnjudgeableTarget(t->getKind())) return true;
+    if (t->getKind() == TypeRepr::Kind::Array) {
+        auto *arr = static_cast<const ArrayTypeRepr *>(t);
+        return containsUnjudgeableType(arr->getElement());
+    }
+    if (t->getKind() == TypeRepr::Kind::Optional) {
+        auto *opt = static_cast<const OptionalTypeRepr *>(t);
+        return containsUnjudgeableType(opt->getInner());
+    }
+    return false;
+}
+
 } // namespace
 
 TypeChecker::Assignability
 TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
     if (!target || !value) return Assignability::Ok;
-    if (isUnjudgeableTarget(target->getKind())) return Assignability::Ok;
+    if (containsUnjudgeableType(target)) return Assignability::Ok;
     const TypeRepr *valueType = value->getResolvedType();
     if (!valueType) return Assignability::Ok;
-    if (isUnjudgeableTarget(valueType->getKind())) return Assignability::Ok;
+    if (containsUnjudgeableType(valueType)) return Assignability::Ok;
 
     if (!isNumericKind(target->getKind()) || !isNumericKind(valueType->getKind()))
         return typesCompatible(target, valueType) ? Assignability::Ok

@@ -60,6 +60,11 @@ public:
     void propagateClosureParamTypes(CallExpr *node);
     void propagateDynArrayClosureTypes(CallExpr *node);
     void checkCallArgCount(CallExpr *node);
+    /// Type-check a call's arguments against the callee's declared
+    /// parameters. Stays silent when the callee's declaration cannot be
+    /// resolved (builtins, calls through a closure variable, dynamic
+    /// dispatch) — a false positive there would reject working code.
+    void checkCallArgTypes(CallExpr *node);
     void resolveCallReturnType(CallExpr *node);
     void resolveMapSetMethodCall(CallExpr *node);
 

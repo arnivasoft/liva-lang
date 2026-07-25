@@ -144,6 +144,77 @@ void TypeChecker::checkCallArgCount(CallExpr *node) {
     }
 }
 
+void TypeChecker::checkCallArgTypes(CallExpr *node) {
+    // Only a direct call to a named user function is judged. Method calls,
+    // builtins and calls through a value all reach here with a callee this
+    // lookup cannot resolve, and are deliberately left alone.
+    if (node->getCallee()->getKind() != ASTNode::NodeKind::IdentifierExpr)
+        return;
+    auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
+    auto *sym = scopes_.lookup(ident->getName());
+    if (!sym || sym->kind != Symbol::Kind::Function || !sym->funcDecl)
+        return;
+    const auto &params = sym->funcDecl->getParams();
+    const auto &args = node->getArgs();
+
+    size_t paramIdx = 0;
+    for (size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
+        // Skip an implicit self parameter if the declaration carries one.
+        while (paramIdx < params.size() && params[paramIdx].isSelf)
+            ++paramIdx;
+        if (paramIdx >= params.size())
+            break;
+        // A variadic parameter swallows this argument and every one after
+        // it; packing is a separate code path with its own rules.
+        if (params[paramIdx].isVariadic)
+            break;
+        // `ref`/`ref mut` parameters store the referent's type in
+        // ParamDecl.type and carry the reference-ness out-of-band in
+        // isRef/isMutRef (see include/liva/AST/Decl.h) — there is no
+        // wrapping ReferenceTypeRepr on the parameter side. The `ref expr`
+        // argument, however, resolves to a ReferenceTypeRepr (visitRefExpr).
+        // checkAssignable knows neither convention, so comparing the two
+        // here always disagrees on kind (Reference vs i32) and would reject
+        // every by-ref call. Ownership/borrow correctness for these is
+        // OwnershipChecker's job, not this check's; stay silent.
+        if (params[paramIdx].isRef || params[paramIdx].isMutRef) {
+            ++paramIdx;
+            continue;
+        }
+        // A function-typed parameter compared against a bare function-name
+        // argument (`apply(5, double_it)`) has the same kind of
+        // representational gap: a Symbol::Kind::Function's `type` field is
+        // set to the function's RETURN type (see the FuncDecl branch of the
+        // top-level symbol pass), so the identifier's resolved type is that
+        // return type, not a Function type. Comparing it against the
+        // Function-kind parameter always disagrees; stay silent rather than
+        // reject a legitimate higher-order call.
+        if (params[paramIdx].type &&
+            params[paramIdx].type->getKind() == TypeRepr::Kind::Function) {
+            ++paramIdx;
+            continue;
+        }
+        const Expr *arg = args[argIdx].get();
+        switch (checkAssignable(params[paramIdx].type.get(), arg)) {
+        case Assignability::Ok:
+            break;
+        case Assignability::Mismatch:
+            diag_.report(arg->getStartLoc(), DiagID::err_arg_type_mismatch,
+                         typeToString(arg->getResolvedType()),
+                         typeToString(params[paramIdx].type.get()));
+            break;
+        case Assignability::LiteralOutOfRange: {
+            auto *lit = static_cast<const IntegerLiteralExpr *>(arg);
+            diag_.report(arg->getStartLoc(), DiagID::err_arg_literal_range,
+                         std::to_string(lit->getValue()),
+                         typeToString(params[paramIdx].type.get()));
+            break;
+        }
+        }
+        ++paramIdx;
+    }
+}
+
 void TypeChecker::resolveCallReturnType(CallExpr *node) {
     // Try to resolve return type from callee
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {

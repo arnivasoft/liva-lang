@@ -283,5 +283,7 @@ DIAG(err_generic_struct_type_args_uninferred, error, "cannot infer type argument
 DIAG(err_irgen_array_elem_coerce, error, "internal: cannot convert array element value to element type")
 DIAG(err_array_element_type_mismatch, error, "array element of type '%0' cannot be stored in an array of '%1'")
 DIAG(err_array_element_literal_range, error, "literal %0 does not fit in array element type '%1'")
+DIAG(err_arg_type_mismatch, error, "argument of type '%0' cannot be passed to parameter of type '%1'")
+DIAG(err_arg_literal_range, error, "literal %0 does not fit in parameter type '%1'")
 
 #undef DIAG

@@ -11038,3 +11038,115 @@ TEST_F(SemaTest, WidenedIntLiteralArrayStillAccepted) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
     EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
+
+// ============================================================
+// Function argument type checking (roadmap 2.3)
+// ============================================================
+// Arguments were never type-checked. A [string] passed to a [i32]
+// parameter compiled and ran silently, because both lower to the same
+// %DynArray and the LLVM verifier has nothing to complain about.
+
+TEST_F(SemaTest, ArgArrayElementMismatchRejected) {
+    auto result = check(R"(
+        func mkStr() -> [string] { return ["a", "b"] }
+        func take(xs: [i32]) -> i64 { return xs.length }
+        func main() {
+            println(take(mkStr()))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ArgIntLiteralIntoI64ParamAccepted) {
+    // Value-preserving: the language has no i64 literal, so this must work.
+    auto result = check(R"(
+        func take(n: i64) -> i64 { return n }
+        func main() {
+            println(take(5))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, ArgIntLiteralIntoF64ParamAccepted) {
+    auto result = check(R"(
+        func take(x: f64) -> f64 { return x }
+        func main() {
+            println(take(3))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ArgNarrowingLiteralInRangeAccepted) {
+    auto result = check(R"(
+        func take(b: u8) -> u8 { return b }
+        func main() {
+            println(take(200))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, ArgNarrowingLiteralOutOfRangeRejected) {
+    auto result = check(R"(
+        func take(b: u8) -> u8 { return b }
+        func main() {
+            println(take(300))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, ArgNarrowingVariableRejected) {
+    auto result = check(R"(
+        func take(b: u8) -> u8 { return b }
+        func main() {
+            let n = 5
+            println(take(n))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ArgBuiltinCallNotChecked) {
+    // Builtins have no resolvable FuncDecl; the check must stay silent.
+    auto result = check(R"(
+        func main() {
+            println("hi")
+            println(strLen("hi"))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, ArgGenericParamNotChecked) {
+    // A [T] parameter is unjudgeable before monomorphization.
+    auto result = check(R"(
+        func first<T>(xs: [T]) -> i64 { return xs.length }
+        func main() {
+            let v: [i32] = [1, 2, 3]
+            println(first(v))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ArgMatchingTypesAccepted) {
+    auto result = check(R"(
+        func takeI32(n: i32) -> i32 { return n }
+        func takeS(s: string) -> string { return s }
+        func takeArr(xs: [i32]) -> i64 { return xs.length }
+        func main() {
+            println(takeI32(5))
+            println(takeS("hi"))
+            let v: [i32] = [1, 2, 3]
+            println(takeArr(v))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
