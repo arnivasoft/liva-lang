@@ -208,6 +208,20 @@ private:
     /// expression's static Liva type.
     bool isUnsignedTypeRepr(const TypeRepr *t) const;
 
+    /// Coerce each argument to the callee's declared parameter type. The
+    /// callee's own signature is the authority — it is exactly what the
+    /// LLVM verifier checks — so this works no matter which of the many
+    /// argument-collection loops produced the vector. Arguments beyond the
+    /// declared parameter count (variadic packing) are left untouched, and
+    /// so is any argument for which no conversion exists: Sema should have
+    /// rejected that, and the verifier stays the backstop.
+    /// `argTypes` supplies each argument's static Liva type where the
+    /// caller has it, for signedness; a shorter or empty vector simply
+    /// means "assume signed", which is the pre-existing behaviour.
+    void coerceCallArgs(llvm::FunctionType *fnTy,
+                        std::vector<llvm::Value *> &args,
+                        const std::vector<const TypeRepr *> &argTypes = {});
+
     /// When `outerArrRepr`'s element is ITSELF a dynamic array (i.e.
     /// outerArrRepr is `[[T]]` and its element is `[T]`), derive the LLVM
     /// type/size of `[T]`'s OWN elements (`T`). This is what a for-in loop

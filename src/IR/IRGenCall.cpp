@@ -107,6 +107,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 if (!val) return nullptr;
                 args.push_back(val);
             }
+            coerceCallArgs(initFn->getFunctionType(), args);
             auto *obj = builder_->CreateCall(initFn, args, "class_obj");
             return obj;
         }
@@ -147,6 +148,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 if (!val) return nullptr;
                 args.push_back(val);
             }
+            coerceCallArgs(funcIt->second, args);
             if (funcIt->second->getReturnType()->isVoidTy())
                 return builder_->CreateCall(funcIt->second, funcPtr, args);
             return builder_->CreateCall(funcIt->second, funcPtr, args, "indcalltmp");
@@ -254,6 +256,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
                 diag_.report(node->getStartLoc(), DiagID::err_irgen_call_callee_failed);
                 return nullptr;
             }
+            coerceCallArgs(callee->getFunctionType(), argValues);
             if (callee->getReturnType()->isVoidTy())
                 return builder_->CreateCall(callee, argValues);
             return builder_->CreateCall(callee, argValues, "calltmp");
@@ -330,6 +333,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         auto *daVal = builder_->CreateLoad(structTy, daAlloca, "varargs.val");
         args.push_back(daVal);
 
+        coerceCallArgs(callee->getFunctionType(), args);
         if (callee->getReturnType()->isVoidTy())
             return builder_->CreateCall(callee, args);
         return builder_->CreateCall(callee, args, "calltmp");
@@ -406,6 +410,7 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
         }
     }
 
+    coerceCallArgs(callee->getFunctionType(), args);
     if (callee->getReturnType()->isVoidTy())
         return builder_->CreateCall(callee, args);
     return builder_->CreateCall(callee, args, "calltmp");

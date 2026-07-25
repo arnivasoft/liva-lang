@@ -1315,6 +1315,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                 if (!val) return nullptr;
                                 args.push_back(val);
                             }
+                            coerceCallArgs(directFn->getFunctionType(), args);
                             if (directFn->getReturnType()->isVoidTy())
                                 return builder_->CreateCall(directFn, args);
                             return builder_->CreateCall(directFn, args, "devirt.call");
@@ -1377,6 +1378,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                 args.push_back(val);
                             }
 
+                            coerceCallArgs(fnTy, args);
                             if (fnTy->getReturnType()->isVoidTy())
                                 return builder_->CreateCall(fnTy, fnPtr, args);
                             return builder_->CreateCall(fnTy, fnPtr, args, "dyncalltmp");
@@ -1418,6 +1420,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         if (!val) return nullptr;
                         args.push_back(val);
                     }
+                    coerceCallArgs(callee->getFunctionType(), args);
                     if (callee->getReturnType()->isVoidTy()) {
                         builder_->CreateCall(callee, args);
                         return nullptr;
@@ -1484,6 +1487,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         }
 
                         auto *funcTy = llvm::FunctionType::get(retTy, paramTypes, false);
+                        coerceCallArgs(funcTy, args);
                         if (retTy->isVoidTy()) {
                             builder_->CreateCall(funcTy, methodPtr, args);
                             return nullptr;
@@ -1507,6 +1511,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                         if (!val) return nullptr;
                         args.push_back(val);
                     }
+                    coerceCallArgs(callee->getFunctionType(), args);
                     if (callee->getReturnType()->isVoidTy()) {
                         builder_->CreateCall(callee, args);
                         return nullptr;
@@ -1531,6 +1536,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             if (!val) return nullptr;
                             args.push_back(val);
                         }
+                        coerceCallArgs(fn->getFunctionType(), args);
                         builder_->CreateCall(fn, args);
                         return nullptr;
                     }
@@ -1558,6 +1564,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                     if (!val) return nullptr;
                                     args.push_back(val);
                                 }
+                                coerceCallArgs(parentFn->getFunctionType(), args);
                                 builder_->CreateCall(parentFn, args);
                                 return nullptr;
                             }
@@ -1579,6 +1586,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                                     if (!val) return nullptr;
                                     args.push_back(val);
                                 }
+                                coerceCallArgs(parentFn->getFunctionType(), args);
                                 if (parentFn->getReturnType()->isVoidTy()) {
                                     builder_->CreateCall(parentFn, args);
                                     return nullptr;
@@ -1641,6 +1649,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             if (!v) return nullptr;
                             callArgs.push_back(v);
                         }
+                        coerceCallArgs(callee->getFunctionType(), callArgs);
                         if (callee->getReturnType()->isVoidTy()) {
                             builder_->CreateCall(callee, callArgs);
                             return nullptr;
@@ -1839,6 +1848,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             return nullptr;
                         args.push_back(val);
                     }
+                    coerceCallArgs(callee->getFunctionType(), args);
                     if (callee->getReturnType()->isVoidTy())
                         return builder_->CreateCall(callee, args);
                     return builder_->CreateCall(callee, args, "scall");
@@ -1921,6 +1931,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             auto *callee = monomorphizeMethod(implDecl, methodDecl,
                                                                mangledStructName, typeArgs);
                             if (callee) {
+                                coerceCallArgs(callee->getFunctionType(), args);
                                 if (callee->getReturnType()->isVoidTy())
                                     return builder_->CreateCall(callee, args);
                                 return builder_->CreateCall(callee, args, "scall");
@@ -1972,6 +1983,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                             args.push_back(val);
                         }
 
+                        coerceCallArgs(llvmFuncTy, args);
                         if (llvmFuncTy->getReturnType()->isVoidTy()) {
                             builder_->CreateCall(llvmFuncTy, funcPtr, args);
                             return llvm::Constant::getNullValue(builder_->getInt32Ty());
@@ -2141,6 +2153,7 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     ++calleeParamIdx;
                 }
 
+                coerceCallArgs(calleeFTy, args);
                 if (callee->getReturnType()->isVoidTy())
                     return builder_->CreateCall(callee, args);
                 return builder_->CreateCall(callee, args, "mcalltmp");

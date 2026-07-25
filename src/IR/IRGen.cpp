@@ -856,6 +856,21 @@ bool IRGen::isUnsignedTypeRepr(const TypeRepr *t) const {
     }
 }
 
+void IRGen::coerceCallArgs(llvm::FunctionType *fnTy,
+                           std::vector<llvm::Value *> &args,
+                           const std::vector<const TypeRepr *> &argTypes) {
+    if (!fnTy) return;
+    const size_t declared = fnTy->getNumParams();
+    for (size_t i = 0; i < args.size() && i < declared; ++i) {
+        if (!args[i]) continue;
+        bool srcUnsigned =
+            i < argTypes.size() && isUnsignedTypeRepr(argTypes[i]);
+        if (auto *converted =
+                coerceToElemType(args[i], fnTy->getParamType(i), srcUnsigned))
+            args[i] = converted;
+    }
+}
+
 void IRGen::deriveNestedDynArrayInner(const ArrayTypeRepr *outerArrRepr,
                                        llvm::Type *&innerElemType,
                                        uint64_t &innerElemSize) {

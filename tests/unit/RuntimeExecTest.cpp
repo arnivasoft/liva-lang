@@ -4619,4 +4619,68 @@ TEST(RuntimeExecTest, ArrayElemCoerceSignedStillSignExtends) {
     EXPECT_EQ(r.stdout_output, "-10\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Call argument coercion (roadmap 2.3)
+// ============================================================
+// Arguments were passed at their own LLVM type. Since integer literals
+// are strictly i32, no function taking i64/f64/u8 could be called with a
+// literal at all — the module failed LLVM verification.
+
+TEST(RuntimeExecTest, CallArgIntLiteralIntoI64Param) {
+    auto r = compileAndRun(R"--(
+        func take(n: i64) -> i64 { return n }
+        func main() {
+            println(take(5))
+        }
+    )--", "callarg_i64_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CallArgIntLiteralIntoF64Param) {
+    auto r = compileAndRun(R"--(
+        func take(x: f64) -> f64 { return x }
+        func main() {
+            println(take(3))
+        }
+    )--", "callarg_f64_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CallArgIntLiteralIntoU8Param) {
+    auto r = compileAndRun(R"--(
+        func take(b: u8) -> u8 { return b }
+        func main() {
+            println(take(200))
+        }
+    )--", "callarg_u8_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, CallArgMatchingTypesNoRegression) {
+    auto r = compileAndRun(R"--(
+        struct Box {
+            var n: i32
+        }
+        impl Box {
+            func get(ref self) -> i32 { return self.n }
+        }
+        func takeI32(n: i32) -> i32 { return n }
+        func takeS(s: string) -> string { return s }
+        func takeArr(xs: [i32]) -> i64 { return xs.length }
+        func main() {
+            println(takeI32(5))
+            println(takeS("hi"))
+            let v: [i32] = [1, 2, 3]
+            println(takeArr(v))
+            let b = Box { n: 9 }
+            println(b.get())
+        }
+    )--", "callarg_no_regression");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\nhi\n3\n9\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
