@@ -124,15 +124,15 @@ boxing'i ayrı bir yol; mevcut davranış korunur).
 `include/liva/Common/DiagnosticKinds.def`:
 
 ```
-DIAG(err_array_element_type_mismatch, error, "array element %0 has type '%1', which cannot be stored in an array of '%2'")
+DIAG(err_array_element_type_mismatch, error, "array element of type '%0' cannot be stored in an array of '%1'")
 DIAG(err_array_element_literal_range, error, "literal %0 does not fit in array element type '%1'")
 DIAG(err_irgen_array_elem_coerce, error, "internal: cannot convert array element value to element type")
 ```
 
 Üçüncüsü Katman 2'nin savunma diagnostiğidir (bkz. §2.1).
 
-`%0` eleman indeksi (0 tabanlı) / literal değeri; konum **elemanın kendi**
-`getStartLoc()`'u olmalı, dizinin değil.
+Konum **elemanın kendi** `getStartLoc()`'u olmalı, dizinin değil — bu
+sayede eleman indeksini mesaja koymaya gerek kalmaz.
 
 ### Katman 2 — IRGen (`coerceToElemType`)
 
