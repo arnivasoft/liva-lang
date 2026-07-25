@@ -152,15 +152,15 @@ private:
     bool typesCompatible(const TypeRepr *expected, const TypeRepr *actual,
                          unsigned depth = 0) const;
 
-    /// Whether an array literal element may be stored into an array whose
-    /// element type is `target`.
-    enum class ElemAssign { Ok, Mismatch, LiteralOutOfRange };
+    /// Whether a value may be stored into a location of a given type —
+    /// an array element, a function parameter, or an assignment target.
+    enum class Assignability { Ok, Mismatch, LiteralOutOfRange };
 
     /// Value-preserving numeric conversions are silent for any expression;
-    /// lossy ones are allowed only for integer/float LITERAL elements whose
-    /// value fits. Returns Ok when the check cannot be made (unknown element
+    /// lossy ones are allowed only for integer/float LITERAL values whose
+    /// value fits. Returns Ok when the check cannot be made (unknown value
     /// type, or a target that is generic/inferred/protocol-typed).
-    ElemAssign checkArrayElement(const TypeRepr *target, const Expr *elem) const;
+    Assignability checkAssignable(const TypeRepr *target, const Expr *value) const;
 
     /// Get a string representation of a type for diagnostics
     std::string typeToString(const TypeRepr *type) const;

@@ -931,16 +931,16 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                 const_cast<Expr *>(node->getInit()));
             for (auto &elemPtr : lit->getElements()) {
                 const Expr *elem = elemPtr.get();
-                switch (checkArrayElement(annElem, elem)) {
-                case ElemAssign::Ok:
+                switch (checkAssignable(annElem, elem)) {
+                case Assignability::Ok:
                     break;
-                case ElemAssign::Mismatch:
+                case Assignability::Mismatch:
                     diag_.report(elem->getStartLoc(),
                                  DiagID::err_array_element_type_mismatch,
                                  typeToString(elem->getResolvedType()),
                                  typeToString(annElem));
                     break;
-                case ElemAssign::LiteralOutOfRange: {
+                case Assignability::LiteralOutOfRange: {
                     auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
                     diag_.report(elem->getStartLoc(),
                                  DiagID::err_array_element_literal_range,
@@ -2647,40 +2647,40 @@ bool isUnjudgeableTarget(TypeRepr::Kind k) {
 
 } // namespace
 
-TypeChecker::ElemAssign
-TypeChecker::checkArrayElement(const TypeRepr *target, const Expr *elem) const {
-    if (!target || !elem) return ElemAssign::Ok;
-    if (isUnjudgeableTarget(target->getKind())) return ElemAssign::Ok;
-    const TypeRepr *elemType = elem->getResolvedType();
-    if (!elemType) return ElemAssign::Ok;
-    if (isUnjudgeableTarget(elemType->getKind())) return ElemAssign::Ok;
+TypeChecker::Assignability
+TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
+    if (!target || !value) return Assignability::Ok;
+    if (isUnjudgeableTarget(target->getKind())) return Assignability::Ok;
+    const TypeRepr *valueType = value->getResolvedType();
+    if (!valueType) return Assignability::Ok;
+    if (isUnjudgeableTarget(valueType->getKind())) return Assignability::Ok;
 
-    if (!isNumericKind(target->getKind()) || !isNumericKind(elemType->getKind()))
-        return typesCompatible(target, elemType) ? ElemAssign::Ok
-                                                 : ElemAssign::Mismatch;
+    if (!isNumericKind(target->getKind()) || !isNumericKind(valueType->getKind()))
+        return typesCompatible(target, valueType) ? Assignability::Ok
+                                                  : Assignability::Mismatch;
 
-    if (isValuePreserving(elemType->getKind(), target->getKind()))
-        return ElemAssign::Ok;
+    if (isValuePreserving(valueType->getKind(), target->getKind()))
+        return Assignability::Ok;
 
     // Lossy: only literals, and only when the value fits.
-    if (elem->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
+    if (value->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
         isIntegerKind(target->getKind())) {
-        auto *lit = static_cast<const IntegerLiteralExpr *>(elem);
+        auto *lit = static_cast<const IntegerLiteralExpr *>(value);
         return integerLiteralFits(lit->getValue(), target->getKind())
-                   ? ElemAssign::Ok
-                   : ElemAssign::LiteralOutOfRange;
+                   ? Assignability::Ok
+                   : Assignability::LiteralOutOfRange;
     }
     // An integer literal into a float target (I32 -> F32 is excluded from
     // the value-preserving table on purpose, 24-bit mantissa) is exactly
     // the lossy case rule 3 covers: no range check for float targets.
-    if (elem->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
+    if (value->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
         isFloatKind(target->getKind()))
-        return ElemAssign::Ok;
-    if (elem->getKind() == ASTNode::NodeKind::FloatLiteralExpr &&
+        return Assignability::Ok;
+    if (value->getKind() == ASTNode::NodeKind::FloatLiteralExpr &&
         isFloatKind(target->getKind()))
-        return ElemAssign::Ok;
+        return Assignability::Ok;
 
-    return ElemAssign::Mismatch;
+    return Assignability::Mismatch;
 }
 
 void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
@@ -2704,7 +2704,7 @@ void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
             candidate = elemType;
             continue;
         }
-        if (checkArrayElement(candidate, elem) == ElemAssign::Ok) continue;
+        if (checkAssignable(candidate, elem) == Assignability::Ok) continue;
         // Promotion must be a TYPE-level judgement, not routed through
         // checkArrayElement (which allows lossy literal->target when the
         // second argument is a literal). Going through checkArrayElement
@@ -2721,7 +2721,7 @@ void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
             candidate = elemType;
             continue;
         }
-        if (checkArrayElement(candidate, elem) == ElemAssign::LiteralOutOfRange) {
+        if (checkAssignable(candidate, elem) == Assignability::LiteralOutOfRange) {
             auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
             diag_.report(elem->getStartLoc(),
                          DiagID::err_array_element_literal_range,
