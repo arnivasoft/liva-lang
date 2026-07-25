@@ -436,6 +436,13 @@ void TypeChecker::check(TranslationUnit &tu) {
                                         std::string key = implD->getTypeName() + "::" + method->getName();
                                         typeMethodReturnTypes_[key] = rt;
                                     }
+                                    // The declaration is registered
+                                    // unconditionally — the shouldRegister
+                                    // gate above is about RETURN-type
+                                    // inference on builder chains, which has
+                                    // nothing to do with argument checking.
+                                    typeMethodDecls_[implD->getTypeName() + "::" +
+                                                     method->getName()] = method.get();
                                 }
                                 // Propagate Drop conformance so imported-module
                                 // types (e.g. json::json's JsonValue, websocket's
@@ -456,11 +463,12 @@ void TypeChecker::check(TranslationUnit &tu) {
                                 // `dyn Protocol` call sites resolve the return type.
                                 auto *protoD = static_cast<ProtocolDecl *>(topDecl.get());
                                 for (auto &method : protoD->getMethods()) {
+                                    std::string key = protoD->getName() + "::" + method->getName();
                                     auto *rt = method->getReturnType();
                                     if (rt) {
-                                        std::string key = protoD->getName() + "::" + method->getName();
                                         typeMethodReturnTypes_[key] = rt;
                                     }
+                                    typeMethodDecls_[key] = method.get();
                                 }
                             }
                         }
@@ -1606,11 +1614,13 @@ void TypeChecker::visitImplDecl(ImplDecl *node) {
     }
     for (auto &method : node->getMethods()) {
         visitFuncDecl(method.get());
+        std::string key = node->getTypeName() + "::" + method->getName();
         // Record return type so Type.method(args) calls can be resolved later.
         if (method->getReturnType()) {
-            std::string key = node->getTypeName() + "::" + method->getName();
             typeMethodReturnTypes_[key] = method->getReturnType();
         }
+        // Record the declaration itself so call sites can argument-check.
+        typeMethodDecls_[key] = method.get();
     }
     currentImplTypeName_ = prevImplType;
     scopes_.popScope();
@@ -1627,10 +1637,11 @@ void TypeChecker::visitProtocolDecl(ProtocolDecl *node) {
         }
         // Record protocol method return types so dyn Protocol call sites can
         // resolve the return type (e.g. `db.query(...)` where db: dyn Database).
+        std::string key = node->getName() + "::" + method->getName();
         if (method->getReturnType()) {
-            std::string key = node->getName() + "::" + method->getName();
             typeMethodReturnTypes_[key] = method->getReturnType();
         }
+        typeMethodDecls_[key] = method.get();
     }
     protocolMethods_[node->getName()] = std::move(methodNames);
 

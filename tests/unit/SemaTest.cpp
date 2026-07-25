@@ -11427,3 +11427,91 @@ TEST_F(SemaTest, AssignOptionalWrongTypeStillRejected) {
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_assign_type_mismatch));
 }
+
+// ============================================================
+// Method / init argument type checking (roadmap 2.3)
+// ============================================================
+// checkCallArgTypes only judged an IdentifierExpr callee, so the exact
+// silent miscompile the argument checking exists to close stayed open on
+// methods: `b.take(mkStr())` with a [i32] parameter compiled and ran.
+
+TEST_F(SemaTest, MethodArgArrayElementMismatchRejected) {
+    auto result = check(R"(
+        struct Box { var n: i32 }
+        impl Box {
+            func take(ref self, xs: [i32]) -> i64 { return xs.length }
+        }
+        func mkStr() -> [string] { return ["a", "b"] }
+        func main() {
+            let b = Box { n: 1 }
+            println(b.take(mkStr()))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, MethodArgNarrowingLiteralOutOfRangeRejected) {
+    auto result = check(R"(
+        struct Box { var n: i32 }
+        impl Box {
+            func take(ref self, b: u8) -> u8 { return b }
+        }
+        func main() {
+            let b = Box { n: 1 }
+            println(b.take(300))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, MethodArgMatchingTypesAccepted) {
+    auto result = check(R"(
+        struct Box { var n: i32 }
+        impl Box {
+            func takeI32(ref self, n: i32) -> i32 { return n }
+            func takeI64(ref self, n: i64) -> i64 { return n }
+            func takeArr(ref self, xs: [i32]) -> i64 { return xs.length }
+        }
+        func main() {
+            let b = Box { n: 1 }
+            println(b.takeI32(5))
+            println(b.takeI64(5))
+            let v: [i32] = [1, 2, 3]
+            println(b.takeArr(v))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, MethodArgBuiltinReceiverNotChecked) {
+    // Array/string/Map builtin methods have no user FuncDecl; the lookup
+    // must miss and the check must stay silent.
+    auto result = check(R"(
+        func main() {
+            var v: [i32] = [1, 2, 3]
+            v.push(4)
+            let s = "hi"
+            println(s.length)
+            println(v.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, MethodArgGenericImplNotChecked) {
+    // A generic impl's parameter types are unjudgeable before mono.
+    auto result = check(R"(
+        struct Holder<T> { var v: [T] }
+        impl Holder<T> {
+            func add(ref mut self, item: T) { self.v.push(item) }
+        }
+        func main() {
+            var h = Holder { v: [1, 2] }
+            h.add(3)
+            println(h.v.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}

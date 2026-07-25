@@ -307,6 +307,13 @@ private:
     /// → return type (raw pointer, owned by the FuncDecl in the AST)
     std::unordered_map<std::string, const TypeRepr *> typeMethodReturnTypes_;
 
+    /// "TypeName::methodName" -> the method's declaration, so a method call
+    /// can be argument-checked the same way a free function call is. Keyed
+    /// exactly like typeMethodReturnTypes_ above. A miss means "cannot
+    /// judge" and the caller stays silent — which is what keeps builtin
+    /// receivers (arrays, strings, Map) and dynamic dispatch untouched.
+    std::unordered_map<std::string, const FuncDecl *> typeMethodDecls_;
+
     /// Class declaration tracking
     std::unordered_map<std::string, const ClassDecl *> classDecls_;
     std::unordered_map<std::string, std::string> classParent_;

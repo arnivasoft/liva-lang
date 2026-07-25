@@ -145,16 +145,47 @@ void TypeChecker::checkCallArgCount(CallExpr *node) {
 }
 
 void TypeChecker::checkCallArgTypes(CallExpr *node) {
-    // Only a direct call to a named user function is judged. Method calls,
-    // builtins and calls through a value all reach here with a callee this
-    // lookup cannot resolve, and are deliberately left alone.
-    if (node->getCallee()->getKind() != ASTNode::NodeKind::IdentifierExpr)
+    // Resolve the callee's declaration. Two shapes are judged: a direct
+    // call to a named user function, and a method call whose receiver has a
+    // Named type we have a registered declaration for. Everything else —
+    // builtins, calls through a value, dynamic dispatch on a receiver whose
+    // type we cannot name — leaves `decl` null and is deliberately skipped.
+    const FuncDecl *decl = nullptr;
+    if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
+        auto *sym = scopes_.lookup(ident->getName());
+        if (sym && sym->kind == Symbol::Kind::Function && sym->funcDecl)
+            decl = sym->funcDecl;
+    } else if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *member = static_cast<MemberExpr *>(node->getCallee());
+        // The receiver must resolve to a Named type — arrays, strings, Map
+        // and the like carry builtin methods with no user declaration, and
+        // their receiver type is not Named, so they never reach the lookup.
+        const TypeRepr *recvType = member->getObject()->getResolvedType();
+        if (recvType) {
+            recvType = resolveAlias(recvType);
+            if (recvType->getKind() == TypeRepr::Kind::Named) {
+                auto *named = static_cast<const NamedTypeRepr *>(recvType);
+                // Walk the class parent chain so an inherited method is
+                // found under the class that actually declares it. A miss at
+                // every level simply leaves `decl` null.
+                std::string cur = named->getName();
+                for (int hop = 0; hop < 32 && !cur.empty(); ++hop) {
+                    auto it = typeMethodDecls_.find(cur + "::" + member->getMember());
+                    if (it != typeMethodDecls_.end()) {
+                        decl = it->second;
+                        break;
+                    }
+                    auto pit = classParent_.find(cur);
+                    if (pit == classParent_.end()) break;
+                    cur = pit->second;
+                }
+            }
+        }
+    }
+    if (!decl)
         return;
-    auto *ident = static_cast<IdentifierExpr *>(node->getCallee());
-    auto *sym = scopes_.lookup(ident->getName());
-    if (!sym || sym->kind != Symbol::Kind::Function || !sym->funcDecl)
-        return;
-    const auto &params = sym->funcDecl->getParams();
+    const auto &params = decl->getParams();
     const auto &args = node->getArgs();
 
     size_t paramIdx = 0;
