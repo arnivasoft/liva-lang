@@ -1153,7 +1153,8 @@ llvm::Value *IRGen::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     // Store elements into the backing storage
     auto *ep0 = builder_->CreateGEP(elemType, dataPtr,
         builder_->getInt64(0), "arrlit.e0");
-    auto *storedFirst = coerceToElemType(firstVal, elemType);
+    auto *storedFirst = coerceToElemType(firstVal, elemType,
+        isUnsignedTypeRepr(elements[0]->getResolvedType()));
     if (!storedFirst) {
         diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
         return nullptr;
@@ -1164,7 +1165,8 @@ llvm::Value *IRGen::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
         if (!val) continue;
         auto *ep = builder_->CreateGEP(elemType, dataPtr,
             builder_->getInt64(i), "arrlit.e" + std::to_string(i));
-        auto *stored = coerceToElemType(val, elemType);
+        auto *stored = coerceToElemType(val, elemType,
+            isUnsignedTypeRepr(elements[i]->getResolvedType()));
         if (!stored) {
             diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
             return nullptr;

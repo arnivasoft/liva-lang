@@ -503,7 +503,8 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     auto *func = builder_->GetInsertBlock()->getParent();
                     auto *elemAlloca = createEntryBlockAlloca(func, "push.tmp",
                                                               daIt->second.elementType);
-                    auto *pushVal = coerceToElemType(val, daIt->second.elementType);
+                    auto *pushVal = coerceToElemType(val, daIt->second.elementType,
+                        isUnsignedTypeRepr(node->getArgs()[0]->getResolvedType()));
                     if (!pushVal) {
                         diag_.report(node->getStartLoc(),
                                      DiagID::err_irgen_array_elem_coerce);
@@ -852,7 +853,8 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
                     auto *func = builder_->GetInsertBlock()->getParent();
                     auto *elemAlloca = createEntryBlockAlloca(func, "mpush.tmp",
                                                               daInfo->elementType);
-                    auto *mpushVal = coerceToElemType(val, daInfo->elementType);
+                    auto *mpushVal = coerceToElemType(val, daInfo->elementType,
+                        isUnsignedTypeRepr(node->getArgs()[0]->getResolvedType()));
                     if (!mpushVal) {
                         diag_.report(node->getStartLoc(),
                                      DiagID::err_irgen_array_elem_coerce);

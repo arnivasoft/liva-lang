@@ -845,6 +845,17 @@ llvm::Value *IRGen::coerceToElemType(llvm::Value *val, llvm::Type *slotTy,
     return nullptr;
 }
 
+bool IRGen::isUnsignedTypeRepr(const TypeRepr *t) const {
+    if (!t) return false;
+    switch (t->getKind()) {
+    case TypeRepr::Kind::U8:  case TypeRepr::Kind::U16:
+    case TypeRepr::Kind::U32: case TypeRepr::Kind::U64:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void IRGen::deriveNestedDynArrayInner(const ArrayTypeRepr *outerArrRepr,
                                        llvm::Type *&innerElemType,
                                        uint64_t &innerElemSize) {

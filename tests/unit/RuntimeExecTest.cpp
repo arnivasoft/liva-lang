@@ -4528,4 +4528,52 @@ TEST(RuntimeExecTest, ArrayElemCoercePromotedLiteralArgAndReturn) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, ArrayElemCoerceUnsignedWidensZeroExtended) {
+    // A u8 whose high bit is set must zero-extend into a wider slot.
+    // Sign-extending it turns 200 into -56.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [u8] = [10, 20, 200]
+            let x: u8 = a[2]
+            var b: [u32] = [0]
+            b.push(x)
+            let y: u32 = b[1]
+            println(y)
+        }
+    )--", "arr_elem_coerce_unsigned_push");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceUnsignedWidensOnAssign) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [u8] = [10, 20, 200]
+            let x: u8 = a[2]
+            var b: [u32] = [0, 0]
+            b[1] = x
+            let y: u32 = b[1]
+            println(y)
+        }
+    )--", "arr_elem_coerce_unsigned_assign");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceSignedStillSignExtends) {
+    // The counterpart: a signed negative source must KEEP sign-extending.
+    // A blanket switch to zext would print 4294967286 here.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let n = 0 - 10
+            var b: [i64] = [0]
+            b.push(n)
+            let y: i64 = b[1]
+            println(y)
+        }
+    )--", "arr_elem_coerce_signed_still_sext");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-10\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

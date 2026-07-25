@@ -1406,6 +1406,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
 
             // Collect init elements
             std::vector<llvm::Value *> initVals;
+            std::vector<const Expr *> initExprs;
             if (node->hasInit() &&
                 node->getInit()->getKind() == ASTNode::NodeKind::ArrayLiteralExpr) {
                 auto *arrayLit = static_cast<ArrayLiteralExpr *>(
@@ -1425,11 +1426,15 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                             builder_->CreateStore(vtable, vtGEP);
                             auto *boxed = builder_->CreateLoad(traitTy, traitAlloca, "dyn.boxed");
                             initVals.push_back(boxed);
+                            initExprs.push_back(elem.get());
                             continue;
                         }
                     }
                     auto *val = visit(elem.get());
-                    if (val) initVals.push_back(val);
+                    if (val) {
+                        initVals.push_back(val);
+                        initExprs.push_back(elem.get());
+                    }
                 }
             }
 
@@ -1445,7 +1450,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             for (uint64_t i = 0; i < initLen; ++i) {
                 auto *elemPtr = builder_->CreateGEP(elemType, dataPtr,
                     builder_->getInt64(i), "arr.init." + std::to_string(i));
-                auto *storedInit = coerceToElemType(initVals[i], elemType);
+                auto *storedInit = coerceToElemType(initVals[i], elemType,
+                    isUnsignedTypeRepr(initExprs[i]->getResolvedType()));
                 if (!storedInit) {
                     diag_.report(node->getStartLoc(),
                                  DiagID::err_irgen_array_elem_coerce);
@@ -1563,7 +1569,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             auto *arrayType = llvm::ArrayType::get(elemType, numElements);
             auto *alloca = createEntryBlockAlloca(func, node->getName(), arrayType);
             auto *gep0 = builder_->CreateConstInBoundsGEP2_64(arrayType, alloca, 0, 0, "arr.elem.0");
-            auto *storedFirst = coerceToElemType(firstVal, elemType);
+            auto *storedFirst = coerceToElemType(firstVal, elemType,
+                isUnsignedTypeRepr(elements[0]->getResolvedType()));
             if (!storedFirst) {
                 diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
                 return nullptr;
@@ -1574,7 +1581,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 if (!val) continue;
                 auto *gep = builder_->CreateConstInBoundsGEP2_64(
                     arrayType, alloca, 0, i, "arr.elem." + std::to_string(i));
-                auto *stored = coerceToElemType(val, elemType);
+                auto *stored = coerceToElemType(val, elemType,
+                    isUnsignedTypeRepr(elements[i]->getResolvedType()));
                 if (!stored) {
                     diag_.report(node->getStartLoc(), DiagID::err_irgen_array_elem_coerce);
                     return nullptr;

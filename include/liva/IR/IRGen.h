@@ -203,6 +203,11 @@ private:
     llvm::Value *coerceToElemType(llvm::Value *val, llvm::Type *slotTy,
                                    bool srcUnsigned = false);
 
+    /// Whether a Liva type is an unsigned integer. LLVM types carry no
+    /// signedness, so element stores recover it from the source
+    /// expression's static Liva type.
+    bool isUnsignedTypeRepr(const TypeRepr *t) const;
+
     /// When `outerArrRepr`'s element is ITSELF a dynamic array (i.e.
     /// outerArrRepr is `[[T]]` and its element is `[T]`), derive the LLVM
     /// type/size of `[T]`'s OWN elements (`T`). This is what a for-in loop

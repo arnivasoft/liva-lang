@@ -668,7 +668,8 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                             vars_.movedVars.insert(valIdent->getName());
                     }
                     auto *coerced = coerceToElemType(stored,
-                                                     daIt->second.elementType);
+                                                     daIt->second.elementType,
+                                                     isUnsignedTypeRepr(node->getValue()->getResolvedType()));
                     if (!coerced) {
                         diag_.report(node->getStartLoc(),
                                      DiagID::err_irgen_array_elem_coerce);
@@ -709,7 +710,8 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                 auto *fixedElemTy = arrayType->isArrayTy()
                                         ? arrayType->getArrayElementType()
                                         : storedFixed->getType();
-                auto *coercedFixed = coerceToElemType(storedFixed, fixedElemTy);
+                auto *coercedFixed = coerceToElemType(storedFixed, fixedElemTy,
+                    isUnsignedTypeRepr(node->getValue()->getResolvedType()));
                 if (!coercedFixed) {
                     diag_.report(node->getStartLoc(),
                                  DiagID::err_irgen_array_elem_coerce);
@@ -760,7 +762,8 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                         vars_.movedVars.insert(valIdent->getName());
                 }
                 auto *coercedMem = coerceToElemType(storedMem,
-                                                    daInfo->elementType);
+                                                    daInfo->elementType,
+                                                    isUnsignedTypeRepr(node->getValue()->getResolvedType()));
                 if (!coercedMem) {
                     diag_.report(node->getStartLoc(),
                                  DiagID::err_irgen_array_elem_coerce);
