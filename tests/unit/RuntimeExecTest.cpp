@@ -4458,4 +4458,19 @@ TEST(RuntimeExecTest, ArrayLiteralUnannotatedCopyStaysStatic) {
     EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, ArrayLiteralUnannotatedChainedCopyStaysStatic) {
+    // The copy must itself stay tracked as a static array, or the NEXT copy
+    // falls into the DynArray branch and corrupts the heap.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a = [1, 2, 3]
+            let b = a
+            let c = b
+            println(a[1])
+        }
+    )--", "arr_unannotated_chained_copy");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

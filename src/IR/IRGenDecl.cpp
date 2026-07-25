@@ -1816,6 +1816,21 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             }
         }
 
+        // Static array copy: `let b = a` where `a` is a fixed-size local
+        // (tracked in vars_.varArrayTypes) reaches this fallback path
+        // because the DynArray branch above steers such copies here on
+        // purpose. Register `b` under the same entry so it keeps being
+        // treated as a static array too — otherwise a further copy
+        // (`let c = b`) would find `b` untracked, fall into the DynArray
+        // branch, and corrupt the heap one copy deeper.
+        if (node->getInit() &&
+            node->getInit()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            auto *initIdent = static_cast<const IdentifierExpr *>(node->getInit());
+            auto srcArrIt = vars_.varArrayTypes.find(initIdent->getName());
+            if (srcArrIt != vars_.varArrayTypes.end())
+                vars_.varArrayTypes[node->getName()] = srcArrIt->second;
+        }
+
         return alloca;
     }
 
