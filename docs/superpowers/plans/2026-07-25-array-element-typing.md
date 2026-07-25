@@ -954,6 +954,78 @@ sonra:
 `include/liva/AST/Type.h`'ye bak ve orada ne varsa onu kullan; yukarıdaki
 çağrı imza uyuşmazsa derlenmez.
 
+- [ ] **Step 3b: Birleştirme döngüsünde iki hata varyantını ayır**
+
+Görev 2 incelemesinin bulgusu: `visitArrayLiteralExpr`'in döngüsü
+`checkArrayElement(...) != Ok` olan HER durumda
+`err_array_element_type_mismatch` basıyor, dolayısıyla
+`err_array_element_literal_range` bu yoldan hiç tetiklenmiyor.
+`let u: u32 = 5` + `let a = [u, -1]` şu an "cannot be stored in an array
+of 'u32'" diyor; doğrusu aralık mesajıdır.
+
+`src/Sema/TypeChecker.cpp`, `visitArrayLiteralExpr` döngüsünün sonundaki
+tek `diag_.report(...)` çağrısını bul. ŞU AN:
+
+```cpp
+        diag_.report(elem->getStartLoc(),
+                     DiagID::err_array_element_type_mismatch,
+                     typeToString(elemType), typeToString(candidate));
+```
+
+BUNUNLA DEĞİŞTİR:
+
+```cpp
+        if (checkArrayElement(candidate, elem) == ElemAssign::LiteralOutOfRange) {
+            auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
+            diag_.report(elem->getStartLoc(),
+                         DiagID::err_array_element_literal_range,
+                         std::to_string(intLit->getValue()),
+                         typeToString(candidate));
+        } else {
+            diag_.report(elem->getStartLoc(),
+                         DiagID::err_array_element_type_mismatch,
+                         typeToString(elemType), typeToString(candidate));
+        }
+```
+
+`LiteralOutOfRange` yalnız `IntegerLiteralExpr` için döndürüldüğünden
+`static_cast` güvenlidir (bkz. Görev 2'nin `checkArrayElement` gövdesi).
+
+Buna karşılık gelen test — `tests/unit/SemaTest.cpp`, Adım 1'de eklediğin
+bloğun sonuna:
+
+```cpp
+TEST_F(SemaTest, ArrayLiteralUnannotatedLiteralOutOfRangeUsesRangeDiag) {
+    // Unannotated literal: the candidate element type comes from the first
+    // element (u32), and -1 does not fit it. The range diagnostic must win
+    // over the generic mismatch one.
+    auto result = check(R"(
+        func main() {
+            let u: u32 = 5
+            let a = [u, 0 - 1]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range) ||
+                hasDiag(result, DiagID::err_array_element_type_mismatch))
+        << "bir hata bekleniyordu";
+}
+```
+
+**DİKKAT — bu test kasıtlı olarak gevşek yazılmıştır ve öyle kalmamalıdır.**
+`0 - 1` bir `BinaryExpr`'dir, `IntegerLiteralExpr` DEĞİLDİR, dolayısıyla
+`LiteralOutOfRange` yoluna girmez. Testi çalıştırmadan önce Liva'da
+NEGATİF bir tamsayı literalinin nasıl yazıldığını belirle (`-1` tek bir
+`IntegerLiteralExpr` mi üretiyor, yoksa unary/binary ifade mi?) —
+`build-clang/livac.exe probe.liva --dump-ast` ile bak. Negatif literal
+tek bir `IntegerLiteralExpr` ise testi `[u, -1]` yaz ve assert'i
+`EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range));`
+biçimine SIKILAŞTIR. Değilse, aralık yoluna gerçekten giren bir vaka bul
+(ör. hedefi `u8` yapıp `[u, 300]` yaz — 300 pozitif bir tamsayı
+literalidir ve `u8`'e sığmaz) ve testi ona göre sıkılaştır. Hangi yolu
+seçtiğini ve `--dump-ast` çıktısını raporuna yaz. Gevşek `||` assert'ini
+teslim etme.
+
 - [ ] **Step 4: `visitVarDecl`'e anotasyon yönlendirmeli kontrolü ekle**
 
 `src/Sema/TypeChecker.cpp`, `visitVarDecl` içinde. ŞU AN:
