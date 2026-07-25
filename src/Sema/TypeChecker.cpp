@@ -968,8 +968,55 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
         node->getInit()->getKind() == ASTNode::NodeKind::ArrayLiteralExpr) {
         auto *annArr = static_cast<const ArrayTypeRepr *>(node->getType());
         const TypeRepr *annElem = annArr->getElement();
-        // [dyn Protocol] elements are boxed on a separate path.
-        if (annElem && annElem->getKind() != TypeRepr::Kind::DynProtocol) {
+        // A `[dyn P]` literal holds boxed conformers, so the ordinary
+        // assignability rule does not apply — but the elements still have to
+        // CONFORM to P. Nothing else checks that: the boxing path fills a
+        // missing method's vtable slot with null, so a non-conformer reaches
+        // runtime and segfaults on the first call.
+        if (annElem && annElem->getKind() == TypeRepr::Kind::DynProtocol) {
+            const auto &dynName =
+                static_cast<const DynProtocolTypeRepr *>(annElem)->getProtocolName();
+            // `dyn X` erases to a protocol OR to a common base CLASS
+            // (`[dyn Control]` holding Buttons and Labels is the UI
+            // modules' standard shape). Judge only when we can actually
+            // name X's members; an unknown X stays silent.
+            auto confIt = protocolConformances_.find(dynName);
+            bool isProto = confIt != protocolConformances_.end();
+            bool isClass = classDecls_.find(dynName) != classDecls_.end();
+            if (isProto || isClass) {
+                auto *lit = static_cast<ArrayLiteralExpr *>(
+                    const_cast<Expr *>(node->getInit()));
+                for (auto &elemPtr : lit->getElements()) {
+                    const Expr *elem = elemPtr.get();
+                    const TypeRepr *et = elem->getResolvedType();
+                    // Judge only elements whose concrete type we can name; a
+                    // generic or unresolved element stays silent, as
+                    // everywhere else in this check.
+                    if (!et || et->getKind() != TypeRepr::Kind::Named) continue;
+                    const auto &tn =
+                        static_cast<const NamedTypeRepr *>(et)->getName();
+                    bool ok = false;
+                    if (isProto) {
+                        for (const auto &c : confIt->second) {
+                            if (c == tn) { ok = true; break; }
+                        }
+                    }
+                    if (!ok && isClass) {
+                        // Walk the element's ancestry looking for the base.
+                        std::string cur = tn;
+                        for (int hop = 0; hop < 32 && !cur.empty(); ++hop) {
+                            if (cur == dynName) { ok = true; break; }
+                            auto pit = classParent_.find(cur);
+                            if (pit == classParent_.end()) break;
+                            cur = pit->second;
+                        }
+                    }
+                    if (!ok)
+                        diag_.report(elem->getStartLoc(),
+                                     DiagID::err_no_conformance, tn, dynName);
+                }
+            }
+        } else if (annElem) {
             auto *lit = static_cast<ArrayLiteralExpr *>(
                 const_cast<Expr *>(node->getInit()));
             for (auto &elemPtr : lit->getElements()) {
@@ -2861,9 +2908,17 @@ TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
 }
 
 void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
+    // The "an annotation owns the diagnosis" flag applies to THIS literal
+    // only. Elements are visited with it cleared, so a nested literal — in
+    // an element, a struct-literal field, or a call argument inside the
+    // initialiser — still reports its own mismatches instead of sliding
+    // past Sema and surfacing as an "internal:" IRGen error.
+    bool annotated = arrayLiteralHasAnnotation_;
+    arrayLiteralHasAnnotation_ = false;
     for (auto &elem : node->getElements()) {
         visit(elem.get());
     }
+    arrayLiteralHasAnnotation_ = annotated;
     // An empty literal carries no element type; leave it unresolved so the
     // existing empty-literal codegen path is untouched.
     if (node->getElements().empty()) return;

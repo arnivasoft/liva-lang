@@ -11666,3 +11666,47 @@ TEST_F(SemaTest, UnannotatedHeterogeneousArrayStillRejected) {
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
+
+TEST_F(SemaTest, DynClassArrayDescendantsAccepted) {
+    // `dyn X` erases to a protocol OR to a common base CLASS — the UI
+    // modules' `[dyn Control]` holding Buttons and Labels is the standard
+    // shape, and must not be mistaken for a failed protocol conformance.
+    auto result = check(R"(
+        class Base {
+            var n: i32
+            init() { self.n = 0 }
+        }
+        class Left : Base {
+            init() { super.init() }
+        }
+        class Right : Base {
+            init() { super.init() }
+        }
+        func main() {
+            let xs: [dyn Base] = [Left(), Right()]
+            println(xs.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynClassArrayUnrelatedClassRejected) {
+    auto result = check(R"(
+        class Base {
+            var n: i32
+            init() { self.n = 0 }
+        }
+        class Left : Base {
+            init() { super.init() }
+        }
+        class Stranger {
+            var s: i32
+            init() { self.s = 0 }
+        }
+        func main() {
+            let xs: [dyn Base] = [Left(), Stranger()]
+            println(xs.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
