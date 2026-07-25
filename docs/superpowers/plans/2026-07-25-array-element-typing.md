@@ -1181,6 +1181,216 @@ EOF
 
 ---
 
+### Task 5: İşaretsiz kaynakların doğru genişletilmesi
+
+**Files:**
+- Modify: `include/liva/IR/IRGen.h` (`coerceToElemType` bildiriminin yanı)
+- Modify: `src/IR/IRGen.cpp` (`coerceToElemType` gövdesinin yanı)
+- Modify: `src/IR/IRGenDecl.cpp`, `src/IR/IRGenExpr.cpp`,
+  `src/IR/IRGenCallMethod.cpp`, `src/IR/IRGenCall.cpp` (Görev 1'in 8 sitesi)
+- Test: `tests/unit/RuntimeExecTest.cpp`
+
+**Interfaces:**
+- Consumes: `IRGen::coerceToElemType(llvm::Value *, llvm::Type *, bool srcUnsigned = false)` (Görev 1).
+- Produces: `bool IRGen::isUnsignedTypeRepr(const TypeRepr *t) const;`
+
+Görev 1 incelemesinin Critical bulgusu: `coerceToElemType`'ın `srcUnsigned`
+parametresi HİÇBİR çağrı sitesinde `true` geçilmiyor, dolayısıyla dar bir
+işaretsiz tipten geniş bir yuvaya yapılan her genişletme `sext` üretiyor.
+Doğrulanmış tekrar: `let a: [u8] = [10, 20, 200]; let x: u8 = a[2];`
+`b: [u32]`'ye `b.push(x)` → `x` doğru olarak 200 basılıyor ama `b[1]`
+**-56** okunuyor. Bu bir gerileme değildir (Görev 1 öncesi de yanlıştı,
+üstelik belirsizdi), ama Görev 1'in vaadini yarım bırakır.
+
+Kapsam yalnız **kaynak** işaretliliğidir. Hedefin işaretliliği
+(`f64 → [u32]` için `FPToUI`) bu görevin DIŞINDADIR: `varDynArrayTypes`
+yalnız LLVM tipi taşıyor, eleman `TypeRepr`'ı yok. Adım 6 bu yolun
+erişilebilir olup olmadığını ölçer ve raporlar.
+
+- [ ] **Step 1: Koşum testlerini yaz (RED)**
+
+`tests/unit/RuntimeExecTest.cpp` — Görev 1'in eklediği
+`ArrayElemCoerce*` bloğunun sonuna:
+
+```cpp
+TEST(RuntimeExecTest, ArrayElemCoerceUnsignedWidensZeroExtended) {
+    // A u8 whose high bit is set must zero-extend into a wider slot.
+    // Sign-extending it turns 200 into -56.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [u8] = [10, 20, 200]
+            let x: u8 = a[2]
+            var b: [u32] = [0]
+            b.push(x)
+            let y: u32 = b[1]
+            println(y)
+        }
+    )--", "arr_elem_coerce_unsigned_push");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceUnsignedWidensOnAssign) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: [u8] = [10, 20, 200]
+            let x: u8 = a[2]
+            var b: [u32] = [0, 0]
+            b[1] = x
+            let y: u32 = b[1]
+            println(y)
+        }
+    )--", "arr_elem_coerce_unsigned_assign");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ArrayElemCoerceSignedStillSignExtends) {
+    // The counterpart: a signed negative source must KEEP sign-extending.
+    // A blanket switch to zext would print 4294967286 here.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let n = 0 - 10
+            var b: [i64] = [0]
+            b.push(n)
+            let y: i64 = b[1]
+            println(y)
+        }
+    )--", "arr_elem_coerce_signed_still_sext");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-10\n") << "stdout: " << r.stdout_output;
+}
+```
+
+- [ ] **Step 2: Testleri koş, kırmızı olduklarını doğrula**
+
+```
+cmake --build build-clang --target runtime_exec_test
+build-clang/tests/runtime_exec_test.exe --gtest_filter='*ArrayElemCoerceUnsigned*:*ArrayElemCoerceSigned*'
+```
+
+Beklenen: iki `Unsigned` testi BAŞARISIZ (`-56` basılır),
+`ArrayElemCoerceSignedStillSignExtends` GEÇER (gerilemeyi pinler).
+
+- [ ] **Step 3: `isUnsignedTypeRepr` bildirimini ekle**
+
+`include/liva/IR/IRGen.h` — `coerceToElemType` bildiriminin hemen ardına:
+
+```cpp
+    /// Whether a Liva type is an unsigned integer. LLVM types carry no
+    /// signedness, so element stores recover it from the source
+    /// expression's static Liva type.
+    bool isUnsignedTypeRepr(const TypeRepr *t) const;
+```
+
+- [ ] **Step 4: `isUnsignedTypeRepr` gövdesini yaz**
+
+`src/IR/IRGen.cpp` — `coerceToElemType` gövdesinin hemen ardına:
+
+```cpp
+bool IRGen::isUnsignedTypeRepr(const TypeRepr *t) const {
+    if (!t) return false;
+    switch (t->getKind()) {
+    case TypeRepr::Kind::U8:  case TypeRepr::Kind::U16:
+    case TypeRepr::Kind::U32: case TypeRepr::Kind::U64:
+        return true;
+    default:
+        return false;
+    }
+}
+```
+
+- [ ] **Step 5: 8 sitede `srcUnsigned`'ı besle**
+
+Her sitede, `coerceToElemType(val, slotTy)` çağrısını
+`coerceToElemType(val, slotTy, isUnsignedTypeRepr(<kaynak ifade>->getResolvedType()))`
+biçimine çevir. Kaynak ifade siteye göre:
+
+| Site | Dosya | Kaynak ifade |
+|---|---|---|
+| 1 | `IRGenDecl.cpp` VarDecl dizi literali | ilgili `arrayLit->getElements()[i]` |
+| 2 | `IRGenExpr.cpp` `arrlit.e0` | `elements[0].get()` |
+| 3 | `IRGenExpr.cpp` `arrlit.e<i>` | `elements[i].get()` |
+| 4 | `IRGenCallMethod.cpp` `push.tmp` | `node->getArgs()[0].get()` |
+| 5 | `IRGenCallMethod.cpp` `mpush.tmp` | `node->getArgs()[0].get()` |
+| 6 | `IRGenCall.cpp` dinamik eleman ataması | `node->getValue()` |
+| 7 | `IRGenCall.cpp` sabit dizi ataması | `node->getValue()` |
+| 8 | `IRGenCall.cpp` üye eleman ataması | `node->getValue()` |
+
+**Site 1 için DİKKAT — indeks hizası:** `initVals` şu an
+`if (val) initVals.push_back(val);` ile dolduruluyor, yani bir eleman
+`nullptr` üretirse `initVals[i]` artık `elements[i]`'ye karşılık gelmez ve
+yanlış ifadeden işaretlilik okursun. Bunu önlemek için `initVals`'ı
+`std::vector<llvm::Value *>` olarak bırak ve YANINDA aynı sırayla dolan
+`std::vector<const Expr *> initExprs;` tut — `initVals.push_back(val)`
+yapılan her yerde (dyn-protocol boxing dalı dahil) `initExprs.push_back`
+de yap. Store döngüsünde `initExprs[i]` kullan.
+
+- [ ] **Step 6: Hedef-işaretliliği yolunun erişilebilirliğini ölç**
+
+Aşağıdaki programı
+`C:/Users/Kadir/AppData/Local/Temp/claude/F--Cpp-Projects-liva-lang/6cd7e925-e4dd-4fea-ad87-b79eaee75c70/scratchpad/t5_fpu.liva`
+olarak yaz ve derle:
+
+```liva
+func main() {
+    var b: [u32] = [0]
+    b.push(3.7)
+    let y: u32 = b[0]
+    println(y)
+}
+```
+
+```
+build-clang/livac.exe t5_fpu.liva -o t5_fpu.exe
+```
+
+Sonucu (derleme hatası mı, çalışıyor mu, ne basıyor) raporuna yaz.
+**Hiçbir kod değiştirme** — bu adım yalnız ölçümdür. `FPToUI` bu görevin
+kapsamı dışındadır.
+
+- [ ] **Step 7: Derle ve testleri koş (GREEN)**
+
+```
+cmake --build build-clang
+build-clang/tests/runtime_exec_test.exe --gtest_filter='*ArrayElemCoerce*'
+```
+
+Beklenen: Görev 1'in 6 testi + Görev 4'ün 1 testi (varsa) + bu görevin 3
+testi, hepsi PASSED.
+
+- [ ] **Step 8: Tam süit**
+
+```
+ctest --test-dir build-clang --output-on-failure
+```
+
+Beklenen: **0 başarısız**. Kırılan olursa DURDUR ve rapora yaz —
+özellikle `[u8]` kullanan gzip/crypto testleri.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add include/liva/IR/IRGen.h src/IR tests/unit/RuntimeExecTest.cpp
+git commit -F- <<'EOF'
+fix(irgen): dizi eleman store'unda işaretsiz kaynaklar sıfır-genişletiliyor
+
+coerceToElemType'ın srcUnsigned parametresi hiçbir çağrı sitesinde
+geçilmiyordu; dar bir işaretsiz tipten geniş bir yuvaya yapılan her
+genişletme sext üretiyordu. `let x: u8 = a[2]` (200) bir [u32] dizisine
+push edildiğinde -56 okunuyordu.
+
+İşaretlilik LLVM tipinde taşınmadığından kaynak ifadenin statik Liva
+tipinden türetiliyor (isUnsignedTypeRepr) ve 8 eleman-store sitesinin
+tamamında besleniyor. İşaretli kaynaklar sext davranışını korur.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AZdcE7dS5uf54j3t6Cw216
+EOF
+```
+
+---
+
 ## Self-Review Notları
 
 - **Spec kapsamı:** §1.1 uyum kuralı → Görev 2 Adım 5; §1.2 birleştirme →
