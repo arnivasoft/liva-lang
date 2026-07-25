@@ -1430,6 +1430,42 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                             continue;
                         }
                     }
+                    // A struct LITERAL element (`[dyn Shape] = [Circle {..}]`)
+                    // has no variable to point at, so materialise it into an
+                    // alloca first and box that. Without this the raw struct
+                    // value was stored into the trait-object slot — silently
+                    // wrong before element coercion existed, and a hard
+                    // "cannot convert array element value" error after it.
+                    if (isDynProtoElem &&
+                        elem->getKind() == ASTNode::NodeKind::StructLiteralExpr) {
+                        auto *structLit =
+                            static_cast<StructLiteralExpr *>(elem.get());
+                        auto stIt = structTypes_.find(structLit->getTypeName());
+                        if (stIt != structTypes_.end()) {
+                            auto *litVal = visit(elem.get());
+                            if (litVal) {
+                                auto *tmp = createEntryBlockAlloca(
+                                    func, "dyn.arr.lit", stIt->second);
+                                builder_->CreateStore(litVal, tmp);
+                                auto *traitTy = getTraitObjectTy();
+                                auto *traitAlloca = createEntryBlockAlloca(
+                                    func, "dyn.arr.box", traitTy);
+                                builder_->CreateStore(
+                                    tmp, builder_->CreateStructGEP(
+                                             traitTy, traitAlloca, 0, "dyn.data"));
+                                auto *vtable = getOrCreateVtable(
+                                    protoName, structLit->getTypeName());
+                                builder_->CreateStore(
+                                    vtable, builder_->CreateStructGEP(
+                                                traitTy, traitAlloca, 1, "dyn.vtable"));
+                                initVals.push_back(
+                                    builder_->CreateLoad(traitTy, traitAlloca,
+                                                         "dyn.boxed"));
+                                initExprs.push_back(elem.get());
+                                continue;
+                            }
+                        }
+                    }
                     auto *val = visit(elem.get());
                     if (val) {
                         initVals.push_back(val);

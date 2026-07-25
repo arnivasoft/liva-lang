@@ -314,6 +314,14 @@ private:
     /// receivers (arrays, strings, Map) and dynamic dispatch untouched.
     std::unordered_map<std::string, const FuncDecl *> typeMethodDecls_;
 
+    /// Set while visiting an array literal that initialises an ANNOTATED
+    /// `var`/`let`. The annotation-directed check in visitVarDecl owns the
+    /// diagnosis for that literal, so the element-unification loop stays
+    /// quiet: judging elements against each other there would reject a
+    /// `[dyn P]` literal for holding two different conformers, and would
+    /// report an ordinary mismatch twice.
+    bool arrayLiteralHasAnnotation_ = false;
+
     /// Populate typeMethodDecls_ from a class's own methods. Shared by the
     /// local-declaration path and the imported-module path so both register
     /// identically.

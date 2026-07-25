@@ -262,4 +262,82 @@ TEST(ExamplesTest, WebsocketDemoCompiles) {
     EXPECT_TRUE(compileExampleOnly("websocket_demo"));
 }
 
+
+// Broad compile gate: every example that compiles today is listed here by
+// name, so a language or stdlib change that breaks one fails the suite
+// instead of rotting unnoticed. Before this list existed only 11 of the 77
+// examples were covered, and examples/dyn_protocol_demo.liva had silently
+// stopped compiling. The list is explicit rather than a directory scan:
+// adding an example to the gate should be a deliberate act, and the
+// examples that do NOT compile yet are tracked on the roadmap instead of
+// being silently skipped here.
+TEST(ExamplesTest, AllKnownGoodExamplesCompile) {
+    static const char *kExamples[] = {
+        "array_methods",
+        "array_test",
+        "associated_values",
+        "break_continue",
+        "capture_ref",
+        "classes",
+        "cli_demo",
+        "collections",
+        "crypto_jwt_demo",
+        "csv_demo",
+        "db_unified_demo",
+        "default_args",
+        "dyn_protocol_demo",
+        "enum_match",
+        "error_handling",
+        "fibonacci",
+        "for_collections",
+        "generics",
+        "hello",
+        "higher_order",
+        "http_demo",
+        "io_demo",
+        "json_demo",
+        "map_demo",
+        "map_set_demo",
+        "math_demo",
+        "optional_chaining",
+        "ownership_cleanup",
+        "parse_demo",
+        "protocols",
+        "ref_demo",
+        "regex_demo",
+        "slicing",
+        "sqlite_demo",
+        "string_index",
+        "string_methods",
+        "struct_test",
+        "ternary",
+        "test_demo",
+        "time_demo",
+        "toml_demo",
+        "tuple_demo",
+        "ui_callback_demo",
+        "ui_collection_binding",
+        "ui_composite_demo",
+        "ui_counter",
+        "ui_counter_helper",
+        "ui_data_binding",
+        "ui_form",
+        "ui_form_themed",
+        "ui_hello",
+        "ui_hello_wx",
+        "ui_layout_align",
+        "ui_menu_demo",
+        "ui_paint",
+        "ui_showcase",
+        "ui_showcase_demo",
+        "ui_validation_demo",
+        "ui_widgets_advanced",
+        "ui_widgets_demo",
+        "websocket_demo",
+    };
+    for (const char *name : kExamples) {
+        EXPECT_TRUE(compileExampleOnly(name)) << "example failed to compile: " << name;
+    }
+}
+
 #endif // LIVA_HAS_LLVM

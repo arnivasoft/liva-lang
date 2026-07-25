@@ -946,7 +946,16 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
     }
 
     if (node->hasInit()) {
+        // Tell the array-literal visitor that an annotation exists, so its
+        // element-unification loop leaves the diagnosis to the
+        // annotation-directed check below. Saved/restored because a nested
+        // literal inside the initialiser must not inherit the flag.
+        bool savedAnnFlag = arrayLiteralHasAnnotation_;
+        arrayLiteralHasAnnotation_ =
+            node->hasTypeAnnotation() && node->getType() &&
+            node->getType()->getKind() == TypeRepr::Kind::Array;
         visit(const_cast<Expr *>(node->getInit()));
+        arrayLiteralHasAnnotation_ = savedAnnFlag;
     }
 
     // An annotated array literal is checked against the ANNOTATION rather
@@ -2901,6 +2910,15 @@ void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
         // ancestor annotation. Stay silent rather than reject code that
         // renders fine once the real target type is known.
         if (isClassNamedType(candidate) && isClassNamedType(elemType))
+            continue;
+        // When the literal initialises an annotated variable, that
+        // annotation is the real target and visitVarDecl checks every
+        // element against it. Judging elements against EACH OTHER here as
+        // well rejects a valid `[dyn P]` literal holding two different
+        // conformers, and reports an ordinary mismatch twice. The
+        // class-vs-class skip above is the narrower, older form of this
+        // same reasoning.
+        if (arrayLiteralHasAnnotation_)
             continue;
         if (checkAssignable(candidate, elem) == Assignability::LiteralOutOfRange) {
             auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);

@@ -11607,3 +11607,62 @@ TEST_F(SemaTest, ClassMethodAndInitMatchingAccepted) {
     EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
     EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
 }
+
+// ============================================================
+// Annotated array literals own their diagnosis (roadmap 2.3)
+// ============================================================
+// The unification loop in visitArrayLiteralExpr knew nothing about the
+// variable's annotation, so it judged elements against each other even
+// when an annotation existed. Two consequences: `[dyn P]` literals were
+// rejected for holding different conformers, and an annotated mismatch
+// was reported TWICE (once by each check).
+
+TEST_F(SemaTest, AnnotatedDynProtocolArrayLiteralAccepted) {
+    auto result = check(R"(
+        protocol Shape {
+            func area(ref self) -> f64
+        }
+        struct Circle { var r: f64 }
+        impl Circle : Shape {
+            func area(ref self) -> f64 { return self.r }
+        }
+        struct Square { var s: f64 }
+        impl Square : Shape {
+            func area(ref self) -> f64 { return self.s }
+        }
+        func main() {
+            let shapes: [dyn Shape] = [
+                Circle { r: 5.0 },
+                Square { s: 3.0 }
+            ]
+            println(shapes.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, AnnotatedArrayMismatchReportedOnce) {
+    auto result = check(R"(
+        func main() {
+            let a: [i32] = [1, "x"]
+            println(a.length)
+        }
+    )");
+    int count = 0;
+    for (auto &d : result.diag.getDiagnostics())
+        if (d.id == DiagID::err_array_element_type_mismatch)
+            ++count;
+    EXPECT_EQ(count, 1) << "beklenen tek diagnostik, bulunan: " << count;
+}
+
+TEST_F(SemaTest, UnannotatedHeterogeneousArrayStillRejected) {
+    // With no annotation there is nothing else to judge against, so the
+    // unification loop must keep reporting.
+    auto result = check(R"(
+        func main() {
+            let a = [1, "x"]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
