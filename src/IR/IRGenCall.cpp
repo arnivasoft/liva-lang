@@ -528,12 +528,15 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                                     selfForObs = builder_->CreateLoad(
                                         ptrTy2, objAlloca, objName + ".obs.self");
                                 }
-                                // Load old value for didSet
+                                // Load old value for didSet — must use the FIELD's real
+                                // type, not the incoming value's (possibly narrower)
+                                // type: an i32-literal `val` on an i64 field would
+                                // otherwise under-read the slot.
                                 auto *didSetFn = module_->getFunction(
                                     clsTypeName + "_didSet_" + memberExpr->getMember());
                                 if (didSetFn) {
                                     oldValue = builder_->CreateLoad(
-                                        val->getType(), gep, "obs.oldValue");
+                                        classTy->getElementType(structIdx), gep, "obs.oldValue");
                                 }
                                 // Call willSet(self, newValue)
                                 auto *willSetFn = module_->getFunction(
@@ -543,6 +546,21 @@ llvm::Value *IRGen::visitAssignExpr(AssignExpr *node) {
                                     coerceCallArgs(willSetFn->getFunctionType(), willSetArgs);
                                     builder_->CreateCall(willSetFn, willSetArgs);
                                 }
+                                // Coerce the value actually written to the field below.
+                                // The observer calls above already coerce their own
+                                // argument copies via coerceCallArgs, but the field
+                                // STORE right after this block used the raw, uncoerced
+                                // `val` — the willSet/didSet call site was fixed but the
+                                // store it wraps was not, silently corrupting the field
+                                // (LLVM stores of a narrower type into a wider slot are
+                                // not a verifier error under opaque pointers). Scoped to
+                                // the observed-field path only: plain (non-observed)
+                                // member-field assignment has this same gap but stays
+                                // out of scope for this task (documented in roadmap.md).
+                                if (auto *coercedField = coerceToElemType(
+                                        val, classTy->getElementType(structIdx),
+                                        isUnsignedTypeRepr(node->getValue()->getResolvedType())))
+                                    val = coercedField;
                             }
                             builder_->CreateStore(val, gep);
                             if (hasObs) {

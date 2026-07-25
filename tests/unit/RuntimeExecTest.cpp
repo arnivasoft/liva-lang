@@ -4752,4 +4752,76 @@ TEST(RuntimeExecTest, AssignIntLiteralIntoComputedPropertySetter) {
     EXPECT_EQ(r.stdout_output, "5\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, AssignIntLiteralIntoWillSetObservedField) {
+    // Fix-round-2 gap: the willSet observer CALL argument was coerced (round
+    // 1), but the field STORE that follows it — `builder_->CreateStore(val,
+    // gep)` in the same visitAssignExpr branch — used the raw, uncoerced
+    // `val`. The verifier crash was gone but the field was silently
+    // corrupted. Negative literal for the same reason the identifier-assign
+    // test needed one: a positive literal's high bytes are already zero,
+    // masking the missing sign-extension.
+    //
+    // init()'s `self.value = 0` also runs through the observed-field path,
+    // so willSet fires there too (prints "0"); that store is a full i64 0
+    // either way (0 sign-extends to 0), so it doesn't affect the pin.
+    auto r = compileAndRun(R"--(
+        class Tracked {
+            var value: i64 {
+                willSet {
+                    println(newValue)
+                }
+            }
+            init() {
+                self.value = 0
+            }
+        }
+        func main() {
+            let t = Tracked()
+            t.value = -7
+            println(t.value)
+        }
+    )--", "willset_i64_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n-7\n-7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, AssignIntLiteralIntoDidSetObservedField) {
+    // Same fix-round-2 gap as the willSet test above, but for didSet — and
+    // didSet's `oldValue` load had a SECOND bug: it loaded with
+    // `val->getType()` (the incoming value's, possibly-narrower type)
+    // instead of the field's real type, under-reading the slot.
+    //
+    // A `started` guard field keeps the didSet body from printing during
+    // init's `self.value = 0` (which would otherwise read a not-yet-written,
+    // implementation-defined byte pattern from the freshly malloc'd — not
+    // zero-initialized — object, making the pinned stdout non-reproducible).
+    // The fix makes every observed-field store a full-width write, so by
+    // the time main's assignment reads the old value, it deterministically
+    // sees the 0 written during init.
+    auto r = compileAndRun(R"--(
+        class Tracked {
+            var started: bool
+            var value: i64 {
+                didSet {
+                    if self.started {
+                        println(oldValue)
+                    }
+                }
+            }
+            init() {
+                self.started = false
+                self.value = 0
+                self.started = true
+            }
+        }
+        func main() {
+            let t = Tracked()
+            t.value = -7
+            println(t.value)
+        }
+    )--", "didset_i64_literal");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "0\n-7\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
