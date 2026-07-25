@@ -10927,3 +10927,86 @@ TEST_F(SemaTest, ArrayLiteralFloatLiteralIntoI32StillRejected) {
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
+
+// ============================================================
+// typesCompatible deep comparison for Array and Optional (roadmap 2.3)
+// ============================================================
+// typesCompatible only descended into Named and Tuple types. Every other
+// composite kind returned true as soon as the outer kinds matched, so an
+// array of the wrong element type — or an optional of the wrong inner type —
+// was accepted and miscompiled: reading `[string]` storage that actually
+// holds i32 values segfaults.
+
+TEST_F(SemaTest, ArrayElementTypeMismatchFromCallRejected) {
+    auto result = check(R"(
+        func mk() -> [i32] { return [1, 2, 3] }
+        func main() {
+            let a: [string] = mk()
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, NestedArrayElementTypeMismatchRejected) {
+    // The annotation-directed literal check compares [string] against the
+    // inner literal's [i32] through typesCompatible, so it only bites once
+    // that comparison descends.
+    auto result = check(R"(
+        func main() {
+            let m: [[string]] = [[1, 2]]
+            println(m.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, OptionalInnerTypeMismatchRejected) {
+    auto result = check(R"(
+        func mk() -> i32? { return 5 }
+        func main() {
+            let a: string? = mk()
+            if let s = a {
+                println(s)
+            }
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, MatchingArrayElementTypeAccepted) {
+    auto result = check(R"(
+        func mk() -> [i32] { return [1, 2, 3] }
+        func main() {
+            let a: [i32] = mk()
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, MatchingOptionalInnerTypeAccepted) {
+    auto result = check(R"(
+        func mk() -> i32? { return 5 }
+        func main() {
+            let a: i32? = mk()
+            if let s = a {
+                println(s)
+            }
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, WidenedIntLiteralArrayStillAccepted) {
+    // The annotation is written onto the literal, so the deep comparison sees
+    // [i64] against [i64] — this must not start failing.
+    auto result = check(R"(
+        func main() {
+            let a: [i64] = [1, 2, 3]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}

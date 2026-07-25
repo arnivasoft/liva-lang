@@ -2893,6 +2893,25 @@ bool TypeChecker::typesCompatible(const TypeRepr *expected, const TypeRepr *actu
             return false;
         }
     }
+    // Deep compare for arrays. The element type is what the storage layout
+    // and every read are lowered against, so a mismatch there is a
+    // miscompile rather than a widening — `let a: [string] = someIntArray`
+    // used to compile and then segfault reading an i32 as a pointer.
+    // Sizes are deliberately NOT compared: a fixed-size array and a dynamic
+    // one with the same element stay interchangeable, as they were before.
+    if (exp->getKind() == TypeRepr::Kind::Array) {
+        auto *expArr = static_cast<const ArrayTypeRepr *>(exp);
+        auto *actArr = static_cast<const ArrayTypeRepr *>(act);
+        return typesCompatible(expArr->getElement(), actArr->getElement());
+    }
+    // Deep compare for optionals: `T?` and `U?` differ exactly as `T` and
+    // `U` do. Without this, `let a: string? = someI32Optional` compiled and
+    // the if-let binding silently read the payload at the wrong type.
+    if (exp->getKind() == TypeRepr::Kind::Optional) {
+        auto *expOpt = static_cast<const OptionalTypeRepr *>(exp);
+        auto *actOpt = static_cast<const OptionalTypeRepr *>(act);
+        return typesCompatible(expOpt->getInner(), actOpt->getInner());
+    }
     // Deep compare for tuples
     if (exp->getKind() == TypeRepr::Kind::Tuple) {
         auto *expTuple = static_cast<const TupleTypeRepr *>(exp);
