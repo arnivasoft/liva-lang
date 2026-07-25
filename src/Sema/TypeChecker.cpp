@@ -385,7 +385,32 @@ void TypeChecker::check(TranslationUnit &tu) {
                     // flag spurious use-after-move errors on pass-by-value usage.
                     if (mod->tu) {
                         for (auto &topDecl : mod->tu->getDeclarations()) {
-                            if (topDecl->getKind() == ASTNode::NodeKind::ImplDecl) {
+                            if (topDecl->getKind() == ASTNode::NodeKind::ClassDecl) {
+                                // Populate the class-hierarchy maps for
+                                // imported classes too. classDecls_/
+                                // classParent_ were previously filled only
+                                // by the main pass above (locally-declared
+                                // classes), because a class-typed Named
+                                // parameter was unconditionally unjudgeable
+                                // until containsUnjudgeableType started
+                                // resolving Named against scope — at which
+                                // point `Panel` (imported, extends the
+                                // imported `Control`) passed to a `Control`
+                                // parameter started failing the subtype walk
+                                // in typesCompatible, because neither name
+                                // was in these maps. mod->exportedSymbols
+                                // already gates scope VISIBILITY by
+                                // isPublic(); this only feeds the ancestor
+                                // walk, so it is populated unconditionally
+                                // (an internal, non-public base class still
+                                // needs to be a link in the chain).
+                                auto *classD = static_cast<ClassDecl *>(topDecl.get());
+                                classDecls_[classD->getName()] = classD;
+                                if (classD->hasParentClass()) {
+                                    classParent_[classD->getName()] =
+                                        classD->getParentClass();
+                                }
+                            } else if (topDecl->getKind() == ASTNode::NodeKind::ImplDecl) {
                                 auto *implD = static_cast<ImplDecl *>(topDecl.get());
                                 for (auto &method : implD->getMethods()) {
                                     auto *rt = method->getReturnType();
@@ -2641,23 +2666,41 @@ bool integerLiteralFits(int64_t v, TypeRepr::Kind k) {
     }
 }
 
-// Targets the check cannot judge: a type parameter, an inferred type, a
-// trait object. Staying silent here avoids false positives inside generic
-// code, where the element type is not known until monomorphization.
+// Targets the check cannot judge on kind alone: an inferred type, a trait
+// object. Named is deliberately NOT included here — a struct/class/enum
+// name and an unresolved type parameter both parse to Kind::Named (see
+// ParseType.cpp), so telling them apart needs a scope lookup, not a kind
+// check; that is TypeChecker::containsUnjudgeableType's job below.
 bool isUnjudgeableTarget(TypeRepr::Kind k) {
     using K = TypeRepr::Kind;
-    return k == K::Named || k == K::Generic || k == K::Inferred ||
+    return k == K::Generic || k == K::Inferred ||
            k == K::AssociatedType || k == K::DynProtocol;
 }
 
-// Same judgement as isUnjudgeableTarget, but looking through Array and
-// Optional wrappers: a `[T]` or `T?` parameter is exactly as undecidable
-// before monomorphization as `T` itself would be. Only widens silence
-// (never turns an existing Ok into a diagnostic), so it is safe to use
-// everywhere isUnjudgeableTarget's flat kind check was used before.
-bool containsUnjudgeableType(const TypeRepr *t) {
+} // namespace
+
+// NOTE: this used to be a free function that treated every Named type as
+// unjudgeable — simple, but wrong: it silenced `[[i32]] = [[P{...}]]`-style
+// mismatches for any struct/class/enum name, not just for genuine type
+// parameters (a real regression a reviewer caught by reverting this exact
+// change and observing `error: array element of type '[P]' cannot be
+// stored in an array of '[i32]'` disappear). Fixed by resolving the name
+// against scope: concrete declarations stay judgeable, only names that do
+// NOT resolve to one (including a callee's own type parameter, which is
+// out of scope at the call site once its function body has been visited)
+// are treated as unjudgeable.
+bool TypeChecker::containsUnjudgeableType(const TypeRepr *t) const {
     if (!t) return false;
     if (isUnjudgeableTarget(t->getKind())) return true;
+    if (t->getKind() == TypeRepr::Kind::Named) {
+        auto *named = static_cast<const NamedTypeRepr *>(t);
+        const Symbol *sym = scopes_.lookup(named->getName());
+        bool isConcrete = sym && (sym->kind == Symbol::Kind::StructType ||
+                                   sym->kind == Symbol::Kind::ClassType ||
+                                   sym->kind == Symbol::Kind::EnumType ||
+                                   sym->kind == Symbol::Kind::TypeAlias);
+        return !isConcrete;
+    }
     if (t->getKind() == TypeRepr::Kind::Array) {
         auto *arr = static_cast<const ArrayTypeRepr *>(t);
         return containsUnjudgeableType(arr->getElement());
@@ -2669,7 +2712,12 @@ bool containsUnjudgeableType(const TypeRepr *t) {
     return false;
 }
 
-} // namespace
+bool TypeChecker::isClassNamedType(const TypeRepr *t) const {
+    if (!t || t->getKind() != TypeRepr::Kind::Named) return false;
+    auto *named = static_cast<const NamedTypeRepr *>(t);
+    const Symbol *sym = scopes_.lookup(named->getName());
+    return sym && sym->kind == Symbol::Kind::ClassType;
+}
 
 TypeChecker::Assignability
 TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
@@ -2745,6 +2793,19 @@ void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
             candidate = elemType;
             continue;
         }
+        // Two class-typed elements that are not a subtype of one another
+        // (e.g. sibling classes Button/Label, both extending Control) have
+        // no single correct "widened" type in this annotation-less unify
+        // pass — unlike scalars there is no promotion lattice for classes.
+        // This bottom-up pass runs before visitVarDecl's annotation-directed
+        // check even looks at the pending annotation, so it cannot tell
+        // whether the literal's actual home is `[dyn Control]` (a valid,
+        // very common case — checked on its own separate path, which
+        // deliberately skips DynProtocol elements) or a `[Control]` common-
+        // ancestor annotation. Stay silent rather than reject code that
+        // renders fine once the real target type is known.
+        if (isClassNamedType(candidate) && isClassNamedType(elemType))
+            continue;
         if (checkAssignable(candidate, elem) == Assignability::LiteralOutOfRange) {
             auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
             diag_.report(elem->getStartLoc(),

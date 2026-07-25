@@ -632,11 +632,19 @@ TEST_F(UIModuleTest, ImportRouter) {
 }
 
 TEST_F(UIModuleTest, ImportTooltip) {
+    // applyTooltip(c: Control, text: string) takes a real Control
+    // instance — `0` was only ever accepted here because argument types
+    // weren't checked yet (roadmap 2.3). Now that they are, this needs an
+    // actual Control-derived value; Panel (ui::widgets) is one.
     auto r = check(
         "import std::ui\n"
+        "import ui::widgets\n"
         "import ui::tooltip\n"
         "func main() {\n"
-        "    applyTooltip(0, \"Test\")\n"
+        "    appInit()\n"
+        "    let win = Window(400, 300, \"T\")\n"
+        "    let panel = Panel(win)\n"
+        "    applyTooltip(panel, \"Test\")\n"
         "}\n"
     );
     EXPECT_TRUE(r.passed) << "ui::tooltip should be importable";

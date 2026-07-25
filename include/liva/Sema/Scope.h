@@ -59,6 +59,8 @@ public:
 
     /// Look up a symbol, searching parent scopes
     Symbol *lookup(const std::string &name);
+    /// Const-context lookup (same traversal, read-only callers)
+    const Symbol *lookup(const std::string &name) const;
 
     /// Look up only in current scope (no parent search)
     Symbol *lookupLocal(const std::string &name);
@@ -90,6 +92,8 @@ public:
 
     bool declare(const std::string &name, Symbol symbol);
     Symbol *lookup(const std::string &name);
+    /// Const-context lookup (same traversal, read-only callers)
+    const Symbol *lookup(const std::string &name) const;
     Symbol *lookupLocal(const std::string &name);
 
     Scope *currentScope() { return scopes_.back().get(); }

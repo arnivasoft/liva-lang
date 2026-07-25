@@ -167,6 +167,20 @@ private:
     /// type, or a target that is generic/inferred/protocol-typed).
     Assignability checkAssignable(const TypeRepr *target, const Expr *value) const;
 
+    /// Whether `t` is, or contains (through Array/Optional), a type this
+    /// check cannot judge: an unresolved type parameter, an inferred type,
+    /// a trait object, or — for the Named case specifically — a name that
+    /// does not resolve to a concrete struct/class/enum/type-alias
+    /// declaration currently in scope. A type PARAMETER (`T` in
+    /// `func first<T>`) parses to the same Named kind as a real struct
+    /// name (see ParseType.cpp), so a kind-only check cannot tell them
+    /// apart; resolving the name against the scope is what distinguishes
+    /// "concrete type" from "unresolved type parameter".
+    bool containsUnjudgeableType(const TypeRepr *t) const;
+
+    /// Whether `t` is a Named type that resolves to a declared class.
+    bool isClassNamedType(const TypeRepr *t) const;
+
     /// Get a string representation of a type for diagnostics
     std::string typeToString(const TypeRepr *type) const;
 

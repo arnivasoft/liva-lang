@@ -16,6 +16,10 @@ Symbol *Scope::lookup(const std::string &name) {
     return nullptr;
 }
 
+const Symbol *Scope::lookup(const std::string &name) const {
+    return const_cast<Scope *>(this)->lookup(name);
+}
+
 Symbol *Scope::lookupLocal(const std::string &name) {
     auto it = symbols_.find(name);
     if (it != symbols_.end())
@@ -65,6 +69,10 @@ bool ScopeStack::declare(const std::string &name, Symbol symbol) {
 }
 
 Symbol *ScopeStack::lookup(const std::string &name) {
+    return scopes_.back()->lookup(name);
+}
+
+const Symbol *ScopeStack::lookup(const std::string &name) const {
     return scopes_.back()->lookup(name);
 }
 

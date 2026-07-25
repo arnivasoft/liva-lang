@@ -10948,6 +10948,24 @@ TEST_F(SemaTest, ArrayElementTypeMismatchFromCallRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_type_mismatch));
 }
 
+// Pins a real regression a reviewer found in the first cut of D3
+// (containsUnjudgeableType): treating every Named type as unjudgeable
+// silenced this exact struct-array/type-confusion case, since a struct
+// name (P) and an unresolved type parameter (T) both parse to Kind::Named
+// (ParseType.cpp). `[P]` must be judged as a concrete, wrong element type
+// for `[[i32]]` — not silently accepted like `[T]` would be.
+TEST_F(SemaTest, ArrayNestedStructElementTypeMismatchRejected) {
+    auto result = check(R"(
+        struct P { x: i32 }
+        func main() {
+            let s: [P] = [P { x: 1 }]
+            let m: [[i32]] = [s]
+            println(m.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
 TEST_F(SemaTest, NestedArrayElementTypeMismatchRejected) {
     // The annotation-directed literal check compares [string] against the
     // inner literal's [i32] through typesCompatible, so it only bites once
