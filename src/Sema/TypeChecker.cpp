@@ -2722,9 +2722,24 @@ bool TypeChecker::isClassNamedType(const TypeRepr *t) const {
 TypeChecker::Assignability
 TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
     if (!target || !value) return Assignability::Ok;
+    // Resolve a Named alias (`type Byte = u8`) to its underlying type
+    // BEFORE any kind-based reasoning below. Kind drives both the
+    // "can we judge this" gate and the numeric/lossy-literal rules that
+    // follow; left as Kind::Named, an alias dodges every rule written for
+    // the type it stands for and falls through to typesCompatible's
+    // strict kind-equality check with none of this function's
+    // value-preserving/literal-fits allowances — `type Byte = u8` then
+    // rejected `take(7)` and `[Byte] = [1, 2]` outright (a real
+    // regression: this compiled before Named became judgeable for
+    // classes/aliases). Resolving first also lets containsUnjudgeableType
+    // recurse into whatever the alias actually names (e.g. a hypothetical
+    // array-of-generic alias) instead of trusting Symbol::Kind::TypeAlias
+    // alone.
+    target = resolveAlias(target);
     if (containsUnjudgeableType(target)) return Assignability::Ok;
     const TypeRepr *valueType = value->getResolvedType();
     if (!valueType) return Assignability::Ok;
+    valueType = resolveAlias(valueType);
     if (containsUnjudgeableType(valueType)) return Assignability::Ok;
 
     if (!isNumericKind(target->getKind()) || !isNumericKind(valueType->getKind()))

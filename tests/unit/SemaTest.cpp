@@ -10966,6 +10966,65 @@ TEST_F(SemaTest, ArrayNestedStructElementTypeMismatchRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
 
+// ============================================================
+// Numeric type aliases through checkAssignable (fix round 2)
+// ============================================================
+// Making class-typed Named judgeable (fix round 1) also made ALIAS-typed
+// Named judgeable, but checkAssignable never resolved the alias before
+// applying its numeric/lossy-literal rules — the target's kind stayed
+// Named, so it fell straight to typesCompatible's strict kind-equality
+// check, losing every value-preserving/literal-fits allowance. `type
+// Byte = u8` then rejected value-preserving u8 values and in-range
+// literals it should have accepted. Fixed by resolving the alias at the
+// top of checkAssignable before any kind-based reasoning.
+
+TEST_F(SemaTest, ArrayAliasNumericLiteralsAccepted) {
+    auto result = check(R"(
+        type Byte = u8
+        func main() {
+            let a: [Byte] = [1, 2]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, ArrayAliasFloatLiteralsAccepted) {
+    auto result = check(R"(
+        type Score = f64
+        func main() {
+            let a: [Score] = [1, 2]
+            println(a.length)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayAliasMismatchStillRejected) {
+    // The alias fix must not over-apply into blanket silence: a real
+    // mismatch THROUGH an alias still has to be caught.
+    auto result = check(R"(
+        type Byte = u8
+        func main() {
+            let a: [Byte] = [1, "x"]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, ArrayAliasLiteralRangeStillRejected) {
+    auto result = check(R"(
+        type Byte = u8
+        func main() {
+            let a: [Byte] = [300]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
 TEST_F(SemaTest, NestedArrayElementTypeMismatchRejected) {
     // The annotation-directed literal check compares [string] against the
     // inner literal's [i32] through typesCompatible, so it only bites once
@@ -11151,6 +11210,24 @@ TEST_F(SemaTest, ArgGenericParamNotChecked) {
         }
     )");
     EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+}
+
+TEST_F(SemaTest, ArgAliasNumericLiteralAccepted) {
+    // Sema-level only (this uses the check() Sema-only harness, not IRGen):
+    // `type Byte = u8` + `take(7)` must not be flagged by checkAssignable.
+    // (Whether the codegen for a Named-alias-typed parameter narrows the
+    // literal correctly is IRGen's concern, not Sema's, and was not
+    // touched by this fix — see the fix-round-2 report for evidence that
+    // an IRGen gap on this exact shape predates this whole task.)
+    auto result = check(R"(
+        type Byte = u8
+        func take(b: Byte) -> Byte { return b }
+        func main() {
+            println(take(7))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
 }
 
 TEST_F(SemaTest, ArgMatchingTypesAccepted) {
