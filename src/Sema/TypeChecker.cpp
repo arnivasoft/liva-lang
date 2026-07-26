@@ -366,6 +366,15 @@ void TypeChecker::check(TranslationUnit &tu) {
                     for (auto &sym : mod->exportedSymbols) {
                         scopes_.declare(sym.name, sym);
                     }
+                    // Conformances from this module AND everything it
+                    // imports transitively. A partially-filled map makes the
+                    // dyn check reject working code (it switches on when the
+                    // protocol's key appears, not when the map is complete).
+                    if (mod->tu) {
+                        std::set<std::string> seenMods;
+                        propagateConformances(*mod->tu, seenMods, diag_,
+                                              importDecl->getStartLoc());
+                    }
                     // Propagate impl method return types from the module's TU
                     // into this TypeChecker, for methods returning array, optional,
                     // or named struct types ([T] / T? / StructName). This enables
@@ -460,10 +469,9 @@ void TypeChecker::check(TranslationUnit &tu) {
                                 // other readers (Iterator / AsyncIterator
                                 // for-in resolution) only gain by seeing
                                 // imported conformers too.
-                                if (implD->hasProtocol()) {
-                                    protocolConformances_[implD->getProtocolName()]
-                                        .push_back(implD->getTypeName());
-                                }
+                                // (conformance itself is recorded by
+                                // propagateConformances below, which also
+                                // walks this module's own imports)
                             } else if (topDecl->getKind() == ASTNode::NodeKind::ProtocolDecl) {
                                 // Also import protocol method return types so that
                                 // `dyn Protocol` call sites resolve the return type.
@@ -480,6 +488,20 @@ void TypeChecker::check(TranslationUnit &tu) {
                         }
                     }
                 }
+            }
+        } else if (decl->getKind() == ASTNode::NodeKind::ImplDecl) {
+            // Record protocol conformance in the FIRST pass. visitImplDecl
+            // records it too, but that runs in declaration order, so an
+            // `impl X : P` written below `main` was invisible while an
+            // earlier one had already created P's key — and a check keyed
+            // on "the key exists" then judged against a half-filled map and
+            // rejected working code. Conformance must not depend on where
+            // the impl sits in the file. (visitImplDecl's own push_back
+            // stays; a duplicate entry is harmless for membership tests.)
+            auto *implDecl = static_cast<ImplDecl *>(decl.get());
+            if (implDecl->hasProtocol()) {
+                protocolConformances_[implDecl->getProtocolName()]
+                    .push_back(implDecl->getTypeName());
             }
         } else if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
             auto *funcDecl = static_cast<FuncDecl *>(decl.get());
@@ -1166,6 +1188,33 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
         visitFieldDecl(field.get());
     }
     scopes_.popScope();
+}
+
+void TypeChecker::propagateConformances(const TranslationUnit &tu,
+                                        std::set<std::string> &seen,
+                                        DiagnosticsEngine &callerDiag,
+                                        SourceLocation loc) {
+    for (auto &decl : tu.getDeclarations()) {
+        if (decl->getKind() == ASTNode::NodeKind::ImplDecl) {
+            auto *implD = static_cast<const ImplDecl *>(decl.get());
+            if (implD->hasProtocol()) {
+                protocolConformances_[implD->getProtocolName()]
+                    .push_back(implD->getTypeName());
+            }
+        } else if (decl->getKind() == ASTNode::NodeKind::ImportDecl && moduleLoader_) {
+            auto *impD = static_cast<const ImportDecl *>(decl.get());
+            std::string key;
+            for (const auto &seg : impD->getPath()) {
+                key += seg;
+                key += "::";
+            }
+            if (!seen.insert(key).second) continue;
+            if (auto *sub = moduleLoader_->loadModule(impD->getPath(), callerDiag, loc)) {
+                if (sub->tu)
+                    propagateConformances(*sub->tu, seen, callerDiag, loc);
+            }
+        }
+    }
 }
 
 void TypeChecker::checkDynConformance(const TypeRepr *target, const Expr *value) {

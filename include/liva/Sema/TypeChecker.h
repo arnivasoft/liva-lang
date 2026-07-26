@@ -331,6 +331,17 @@ private:
     /// `target` may be any type; non-DynProtocol targets are ignored.
     void checkDynConformance(const TypeRepr *target, const Expr *value);
 
+    /// Record every `impl X : P` in `tu` into protocolConformances_, then
+    /// recurse into the modules `tu` itself imports. A conformance map that
+    /// sees only DIRECTLY imported modules is worse than none: the direct
+    /// module's impl creates P's key, which switches the dyn check on, while
+    /// a conformer one level deeper stays invisible and its (working) use
+    /// gets rejected. `seen` guards against import cycles.
+    void propagateConformances(const TranslationUnit &tu,
+                               std::set<std::string> &seen,
+                               DiagnosticsEngine &callerDiag,
+                               SourceLocation loc);
+
     /// Populate typeMethodDecls_ from a class's own methods. Shared by the
     /// local-declaration path and the imported-module path so both register
     /// identically.

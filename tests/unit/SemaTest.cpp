@@ -11910,3 +11910,46 @@ TEST_F(SemaTest, DynReturnOfBoundedTypeParamAccepted) {
     )");
     EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
 }
+
+TEST_F(SemaTest, DynConformanceIndependentOfImplOrder) {
+    // Conformance must not depend on where the impl sits in the file. When
+    // one impl appeared above `main` and another below it, the first
+    // created the protocol's key — switching the dyn check on — while the
+    // second was still invisible, and its valid use got rejected.
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        func main() {
+            let sq: dyn Shape = Square { s: 2.0 }
+            println(1)
+        }
+        struct Square { var s: f64 }
+        impl Square : Shape { func area(ref self) -> f64 { return self.s } }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynConformanceSeesTransitiveImport) {
+    // main imports `mid`, which imports `base`. The conformer lives in
+    // `base`; `mid`'s own impl creates the protocol key. A propagation that
+    // walked only DIRECT imports would switch the check on and then reject
+    // the transitively-imported conformer.
+    auto result = checkWithModules(R"--(
+        import mid
+        func main() {
+            let s: dyn Shape = Circle { r: 1.0 }
+            println(1)
+        }
+    )--", {{"base", R"--(
+        pub protocol Shape { func area(ref self) -> f64 }
+        pub struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+    )--"},
+           {"mid", R"--(
+        import base
+        pub struct Square { var s: f64 }
+        impl Square : Shape { func area(ref self) -> f64 { return self.s } }
+    )--"}});
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
