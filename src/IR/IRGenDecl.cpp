@@ -1193,6 +1193,8 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 auto *val = dupIfStringField(mangledName, idx, fieldValues[i]);
                 val = cloneIfDynArrayField(mangledName, idx, val,
                                            structLit->getFields()[i].name);
+                val = boxIfDynProtocolField(mangledName, idx, val,
+                                            structLit->getFields()[i].value.get());
                 auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
                                                        structLit->getFields()[i].name);
                 builder_->CreateStore(val, gep);
@@ -1221,6 +1223,7 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 // Dup string fields to ensure ownership for safe cleanup
                 val = dupIfStringField(typeName, idx, val);
                 val = cloneIfDynArrayField(typeName, idx, val, fieldInit.name);
+                val = boxIfDynProtocolField(typeName, idx, val, fieldInit.value.get());
                 auto *gep = builder_->CreateStructGEP(structTy, alloca, idx,
                                                        fieldInit.name);
                 builder_->CreateStore(val, gep);

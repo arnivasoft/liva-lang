@@ -1526,6 +1526,8 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
             auto *val = dupIfStringField(mangledName, idx, fieldValues[i]);
             val = cloneIfDynArrayField(mangledName, idx, val,
                                        node->getFields()[i].name);
+            val = boxIfDynProtocolField(mangledName, idx, val,
+                                        node->getFields()[i].value.get());
             auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, node->getFields()[i].name);
             builder_->CreateStore(val, gep);
         }
@@ -1553,6 +1555,7 @@ llvm::Value *IRGen::visitStructLiteralExpr(StructLiteralExpr *node) {
             continue;
         val = dupIfStringField(typeName, idx, val);
         val = cloneIfDynArrayField(typeName, idx, val, fieldInit.name);
+        val = boxIfDynProtocolField(typeName, idx, val, fieldInit.value.get());
         auto *gep = builder_->CreateStructGEP(structTy, alloca, idx, fieldInit.name);
         builder_->CreateStore(val, gep);
     }

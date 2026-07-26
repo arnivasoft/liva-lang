@@ -321,6 +321,42 @@ llvm::Value *IRGen::dupIfStringField(const std::string &structName,
     return val;
 }
 
+llvm::Value *IRGen::boxIfDynProtocolField(const std::string &structName, int idx,
+                                           llvm::Value *val,
+                                           const Expr *valueExpr) {
+    if (!val || idx < 0 || !valueExpr) return val;
+    auto ftrIt = structFieldTypeReprs_.find(structName);
+    if (ftrIt == structFieldTypeReprs_.end()) return val;
+    if (idx >= static_cast<int>(ftrIt->second.size())) return val;
+    const TypeRepr *ft = ftrIt->second[idx];
+    if (!ft || ft->getKind() != TypeRepr::Kind::DynProtocol) return val;
+    auto *traitTy = getTraitObjectTy();
+    // Already boxed (e.g. forwarding another `dyn P` value) — leave it.
+    if (val->getType() == traitTy) return val;
+
+    // The vtable is per (protocol, concrete type), so the concrete type has
+    // to be nameable. Sema rejects a non-conformer here, but an unnameable
+    // one (generic, unresolved) simply stays unboxed rather than guessing.
+    const TypeRepr *vt = valueExpr->getResolvedType();
+    if (!vt || vt->getKind() != TypeRepr::Kind::Named) return val;
+    const auto &concrete = static_cast<const NamedTypeRepr *>(vt)->getName();
+    auto stIt = structTypes_.find(concrete);
+    if (stIt == structTypes_.end()) return val;
+
+    const auto &protoName =
+        static_cast<const DynProtocolTypeRepr *>(ft)->getProtocolName();
+    auto *func = builder_->GetInsertBlock()->getParent();
+    // The payload needs an address, so materialise the value first.
+    auto *tmp = createEntryBlockAlloca(func, "dyn.fld.val", stIt->second);
+    builder_->CreateStore(val, tmp);
+    auto *box = createEntryBlockAlloca(func, "dyn.fld.box", traitTy);
+    builder_->CreateStore(tmp,
+        builder_->CreateStructGEP(traitTy, box, 0, "dyn.data"));
+    builder_->CreateStore(getOrCreateVtable(protoName, concrete),
+        builder_->CreateStructGEP(traitTy, box, 1, "dyn.vtable"));
+    return builder_->CreateLoad(traitTy, box, "dyn.fld.boxed");
+}
+
 llvm::Value *IRGen::cloneIfDynArrayField(const std::string &structName, int idx,
                                           llvm::Value *val,
                                           const std::string &nameHint) {

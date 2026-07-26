@@ -766,6 +766,17 @@ private:
     /// If the field at `idx` in `structName` is a string, wrap `val` with liva_str_dup
     llvm::Value *dupIfStringField(const std::string &structName, int idx, llvm::Value *val);
 
+    /// Box a struct-literal field's value into a trait object when the field
+    /// is declared `dyn P`. Without this the raw struct value is stored into
+    /// the {data, vtable} slot, so even a CONFORMING type reads back as
+    /// garbage (`Holder { s: Circle { r: 4.5 } }` then `h.s.area()` gave
+    /// 0.0). Mirrors the array-element boxing in visitVarDecl's
+    /// `[dyn P]` path. Returns `val` untouched when the field is not a
+    /// `dyn P`, when the value's concrete type cannot be named, or when it
+    /// is already a trait object.
+    llvm::Value *boxIfDynProtocolField(const std::string &structName, int idx,
+                                        llvm::Value *val, const Expr *valueExpr);
+
 
     /// Optional return type support — non-null when the current function returns T?
     llvm::Type *currentFuncOptionalInner_ = nullptr;
