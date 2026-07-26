@@ -72,6 +72,57 @@ IRGen::resolveMemberDynArray(MemberExpr *memberExpr) {
     return info;
 }
 
+std::optional<IRGen::MemberDynProtocolInfo>
+IRGen::resolveMemberDynProtocol(MemberExpr *memberExpr) {
+    // Pattern: identifier.field where field is declared `dyn P`. Mirrors
+    // resolveMemberDynArray — same shape of lookup, different field kind.
+    if (memberExpr->getObject()->getKind() != ASTNode::NodeKind::IdentifierExpr)
+        return std::nullopt;
+
+    auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
+    const std::string &objName = ident->getName();
+    const std::string &fieldName = memberExpr->getMember();
+
+    auto stIt = vars_.varStructTypes.find(objName);
+    if (stIt == vars_.varStructTypes.end())
+        return std::nullopt;
+    const std::string &structTypeName = stIt->second;
+
+    auto ftrIt = structFieldTypeReprs_.find(structTypeName);
+    if (ftrIt == structFieldTypeReprs_.end())
+        return std::nullopt;
+
+    int idx = getStructFieldIndex(structTypeName, fieldName);
+    if (idx < 0 || static_cast<size_t>(idx) >= ftrIt->second.size())
+        return std::nullopt;
+
+    const TypeRepr *fieldTypeRepr = ftrIt->second[idx];
+    if (!fieldTypeRepr || fieldTypeRepr->getKind() != TypeRepr::Kind::DynProtocol)
+        return std::nullopt;
+
+    auto allocaIt = vars_.namedValues.find(objName);
+    if (allocaIt == vars_.namedValues.end())
+        return std::nullopt;
+
+    auto stTyIt = structTypes_.find(structTypeName);
+    if (stTyIt == structTypes_.end())
+        return std::nullopt;
+
+    // If the variable stores a pointer to the struct (e.g. the self parameter)
+    auto *objAlloca = allocaIt->second;
+    llvm::Value *basePtr = objAlloca;
+    if (objAlloca->getAllocatedType()->isPointerTy())
+        basePtr = builder_->CreateLoad(objAlloca->getAllocatedType(), objAlloca,
+                                       objName + ".ptr");
+
+    MemberDynProtocolInfo info;
+    info.traitPtr = builder_->CreateStructGEP(stTyIt->second, basePtr, idx,
+                                              fieldName + ".dyn");
+    info.protocolName =
+        static_cast<const DynProtocolTypeRepr *>(fieldTypeRepr)->getProtocolName();
+    return info;
+}
+
 llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
     if (diBuilder_) emitDebugLocation(node->getStartLoc());
     // Check for method call or enum case constructor: obj.method(args) / Shape.Circle(3.14)
@@ -402,6 +453,13 @@ llvm::Value *IRGen::visitCallExpr(CallExpr *node) {
 
                         auto *traitVal = builder_->CreateLoad(traitTy, traitAlloca, "dyn.val");
                         args[i] = traitVal;
+                    } else if (i < node->getArgs().size()) {
+                        // Not a bound variable — e.g. `relay(Circle { r: 4.0 })`.
+                        // There is no alloca to borrow, so materialise the
+                        // value into one. The callee cannot outlive this
+                        // frame, so a stack payload is safe here.
+                        args[i] = boxIntoDynProtocol(protocolName, args[i],
+                                                     node->getArgs()[i].get());
                     }
                 }
             }

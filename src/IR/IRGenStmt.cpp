@@ -321,15 +321,11 @@ llvm::Value *IRGen::dupIfStringField(const std::string &structName,
     return val;
 }
 
-llvm::Value *IRGen::boxIfDynProtocolField(const std::string &structName, int idx,
-                                           llvm::Value *val,
-                                           const Expr *valueExpr) {
-    if (!val || idx < 0 || !valueExpr) return val;
-    auto ftrIt = structFieldTypeReprs_.find(structName);
-    if (ftrIt == structFieldTypeReprs_.end()) return val;
-    if (idx >= static_cast<int>(ftrIt->second.size())) return val;
-    const TypeRepr *ft = ftrIt->second[idx];
-    if (!ft || ft->getKind() != TypeRepr::Kind::DynProtocol) return val;
+llvm::Value *IRGen::boxIntoDynProtocol(const std::string &protocolName,
+                                        llvm::Value *val,
+                                        const Expr *valueExpr,
+                                        bool heapPayload) {
+    if (!val || protocolName.empty() || !valueExpr) return val;
     auto *traitTy = getTraitObjectTy();
     // Already boxed (e.g. forwarding another `dyn P` value) — leave it.
     if (val->getType() == traitTy) return val;
@@ -342,19 +338,57 @@ llvm::Value *IRGen::boxIfDynProtocolField(const std::string &structName, int idx
     const auto &concrete = static_cast<const NamedTypeRepr *>(vt)->getName();
     auto stIt = structTypes_.find(concrete);
     if (stIt == structTypes_.end()) return val;
+    // A pointer here means the value is a class instance, not a struct value;
+    // the payload slot expects an address either way, but the load below would
+    // be wrong, so only the by-value struct shape is handled.
+    if (val->getType() != stIt->second) return val;
 
-    const auto &protoName =
-        static_cast<const DynProtocolTypeRepr *>(ft)->getProtocolName();
     auto *func = builder_->GetInsertBlock()->getParent();
     // The payload needs an address, so materialise the value first.
-    auto *tmp = createEntryBlockAlloca(func, "dyn.fld.val", stIt->second);
+    llvm::Value *tmp = nullptr;
+    if (heapPayload) {
+        // A trait object only borrows its payload — fine while the payload's
+        // frame is alive, which is how every other `dyn P` site works. A
+        // `return` is the one place the frame dies first, so the payload has
+        // to outlive it. Heap, and deliberately never freed: trait objects
+        // carry no ownership information, so there is nobody to free it. Same
+        // trade-off class instances already make.
+        auto *mallocFn = module_->getFunction("malloc");
+        if (!mallocFn) {
+            auto *mallocTy = llvm::FunctionType::get(
+                llvm::PointerType::getUnqual(*context_),
+                {llvm::Type::getInt64Ty(*context_)}, false);
+            mallocFn = llvm::Function::Create(
+                mallocTy, llvm::Function::ExternalLinkage, "malloc", *module_);
+        }
+        uint64_t sz = module_->getDataLayout().getTypeAllocSize(stIt->second);
+        tmp = builder_->CreateCall(
+            mallocFn, {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context_), sz)},
+            "dyn.ret.val");
+    } else {
+        tmp = createEntryBlockAlloca(func, "dyn.fld.val", stIt->second);
+    }
     builder_->CreateStore(val, tmp);
     auto *box = createEntryBlockAlloca(func, "dyn.fld.box", traitTy);
     builder_->CreateStore(tmp,
         builder_->CreateStructGEP(traitTy, box, 0, "dyn.data"));
-    builder_->CreateStore(getOrCreateVtable(protoName, concrete),
+    builder_->CreateStore(getOrCreateVtable(protocolName, concrete),
         builder_->CreateStructGEP(traitTy, box, 1, "dyn.vtable"));
     return builder_->CreateLoad(traitTy, box, "dyn.fld.boxed");
+}
+
+llvm::Value *IRGen::boxIfDynProtocolField(const std::string &structName, int idx,
+                                           llvm::Value *val,
+                                           const Expr *valueExpr) {
+    if (!val || idx < 0 || !valueExpr) return val;
+    auto ftrIt = structFieldTypeReprs_.find(structName);
+    if (ftrIt == structFieldTypeReprs_.end()) return val;
+    if (idx >= static_cast<int>(ftrIt->second.size())) return val;
+    const TypeRepr *ft = ftrIt->second[idx];
+    if (!ft || ft->getKind() != TypeRepr::Kind::DynProtocol) return val;
+    return boxIntoDynProtocol(
+        static_cast<const DynProtocolTypeRepr *>(ft)->getProtocolName(),
+        val, valueExpr);
 }
 
 llvm::Value *IRGen::cloneIfDynArrayField(const std::string &structName, int idx,
@@ -479,6 +513,13 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
                 val = optVal;
             }
         }
+
+        // Box a returned conformer when the function returns `dyn P`;
+        // otherwise `ret %Circle` lands on a trait-object return type and the
+        // module fails verification.
+        if (!currentFuncDynProtocol_.empty() && val)
+            val = boxIntoDynProtocol(currentFuncDynProtocol_, val, node->getValue(),
+                                     /*heapPayload=*/true);
 
         if (currentIsAsync_ && currentCoroPromise_) {
             // Phase 2: store to promise and branch to coro.final

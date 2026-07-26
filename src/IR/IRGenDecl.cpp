@@ -417,6 +417,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     auto oldTempStrings = vars_.tempStrings;
     auto *oldFuncResultInfo = vars_.currentFuncResultInfo;
     auto *oldFuncOptInner = currentFuncOptionalInner_;
+    auto oldFuncDynProto = currentFuncDynProtocol_;
     bool oldIsAsync = currentIsAsync_;
     auto *oldAsyncRetType = asyncDeclaredRetType_;
     // Save coroutine state
@@ -460,12 +461,21 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     vars_.tempStrings.clear();
     vars_.currentFuncResultInfo = nullptr;
     currentFuncOptionalInner_ = nullptr;
+    currentFuncDynProtocol_.clear();
 
     // Track Optional return type for return-nil / return-value wrapping
     if (node->getReturnType() &&
         node->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
         auto *opt = static_cast<const OptionalTypeRepr *>(node->getReturnType());
         currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+    }
+
+    // Track `dyn P` return type so `return conformer` gets boxed
+    if (node->getReturnType() &&
+        node->getReturnType()->getKind() == TypeRepr::Kind::DynProtocol) {
+        currentFuncDynProtocol_ =
+            static_cast<const DynProtocolTypeRepr *>(node->getReturnType())
+                ->getProtocolName();
     }
 
     // Track Result return type for try expressions (visitFuncDecl)
@@ -766,6 +776,7 @@ llvm::Value *IRGen::visitFuncDecl(FuncDecl *node) {
     vars_.tempStrings = oldTempStrings;
     vars_.currentFuncResultInfo = oldFuncResultInfo;
     currentFuncOptionalInner_ = oldFuncOptInner;
+    currentFuncDynProtocol_ = oldFuncDynProto;
     currentIsAsync_ = oldIsAsync;
     asyncDeclaredRetType_ = oldAsyncRetType;
     // Restore coroutine state
@@ -968,6 +979,39 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
                 }
                 return alloca;
             }
+        }
+    }
+
+    // Binding an already-boxed trait object: `let s = get()` where get()
+    // returns `dyn P`. The branch above only handles an identifier initializer
+    // (it borrows that variable's alloca); a call already hands back a
+    // {data, vtable} value, so it just needs a home and a classification —
+    // without the latter `s.area()` resolves to nothing and no call is emitted.
+    //
+    // The condition is deliberately purely static (the INITIALIZER's own
+    // resolved type, never the annotation): this branch consumes the
+    // initializer, so it must not be entered on a shape that could still need
+    // to fall through — visiting twice would run side effects twice. An
+    // annotated `let s: dyn Shape = circle` has a Named initializer type and
+    // is handled by the borrow branch above, not here.
+    if (node->hasInit() && node->getInit()->getResolvedType() &&
+        node->getInit()->getResolvedType()->getKind() == TypeRepr::Kind::DynProtocol) {
+        const auto &protocolName =
+            static_cast<const DynProtocolTypeRepr *>(node->getInit()->getResolvedType())
+                ->getProtocolName();
+        auto *initVal = visit(const_cast<Expr *>(node->getInit()));
+        if (initVal) {
+            auto *traitTy = getTraitObjectTy();
+            auto *alloca = createEntryBlockAlloca(func, node->getName(), initVal->getType());
+            builder_->CreateStore(initVal, alloca);
+            vars_.namedValues[node->getName()] = alloca;
+            if (initVal->getType() == traitTy && protocolMethodNames_.count(protocolName)) {
+                vars_.varProtocolTypes[node->getName()] = protocolName;
+                // The concrete type behind a trait-object VALUE is not
+                // statically known, so no devirtualization entry.
+                vars_.varConcreteProtocolTypes.erase(node->getName());
+            }
+            return alloca;
         }
     }
 
@@ -2060,6 +2104,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         auto oldVarResultTypes = vars_.varResultTypes;
         auto *oldFuncRI = vars_.currentFuncResultInfo;
         auto *oldFuncOptInner = currentFuncOptionalInner_;
+        auto oldFuncDynProto = currentFuncDynProtocol_;
         auto oldMovedVars = vars_.movedVars;
         auto oldHeapStringVars = vars_.heapStringVars;
         auto oldTempStrings = vars_.tempStrings;
@@ -2080,6 +2125,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         vars_.varFileTypes.clear();
         vars_.currentFuncResultInfo = nullptr;
         currentFuncOptionalInner_ = nullptr;
+        currentFuncDynProtocol_.clear();
         vars_.movedVars.clear();
         vars_.heapStringVars.clear();
         vars_.tempStrings.clear();
@@ -2089,6 +2135,14 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
             method->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
             auto *opt = static_cast<const OptionalTypeRepr *>(method->getReturnType());
             currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+        }
+
+        // Track `dyn P` return type for methods
+        if (method->getReturnType() &&
+            method->getReturnType()->getKind() == TypeRepr::Kind::DynProtocol) {
+            currentFuncDynProtocol_ =
+                static_cast<const DynProtocolTypeRepr *>(method->getReturnType())
+                    ->getProtocolName();
         }
 
         // Create allocas for parameters
@@ -2212,6 +2266,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
         vars_.varResultTypes = oldVarResultTypes;
         vars_.currentFuncResultInfo = oldFuncRI;
         currentFuncOptionalInner_ = oldFuncOptInner;
+        currentFuncDynProtocol_ = oldFuncDynProto;
         vars_.movedVars = oldMovedVars;
         vars_.heapStringVars = oldHeapStringVars;
         vars_.tempStrings = oldTempStrings;
@@ -2290,6 +2345,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 auto oldVarResultTypes = vars_.varResultTypes;
                 auto *oldFuncRI = vars_.currentFuncResultInfo;
                 auto *oldFuncOptInner2 = currentFuncOptionalInner_;
+                auto oldFuncDynProto2 = currentFuncDynProtocol_;
                 auto oldMovedVars2 = vars_.movedVars;
                 auto oldHeapStringVars2 = vars_.heapStringVars;
                 auto oldTempStrings2 = vars_.tempStrings;
@@ -2309,6 +2365,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 vars_.varFileTypes.clear();
                 vars_.currentFuncResultInfo = nullptr;
                 currentFuncOptionalInner_ = nullptr;
+                currentFuncDynProtocol_.clear();
                 vars_.movedVars.clear();
                 vars_.heapStringVars.clear();
                 vars_.tempStrings.clear();
@@ -2318,6 +2375,14 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                     protoMethod->getReturnType()->getKind() == TypeRepr::Kind::Optional) {
                     auto *opt = static_cast<const OptionalTypeRepr *>(protoMethod->getReturnType());
                     currentFuncOptionalInner_ = toLLVMType(opt->getInner());
+                }
+
+                // Track `dyn P` return type for protocol default methods
+                if (protoMethod->getReturnType() &&
+                    protoMethod->getReturnType()->getKind() == TypeRepr::Kind::DynProtocol) {
+                    currentFuncDynProtocol_ =
+                        static_cast<const DynProtocolTypeRepr *>(protoMethod->getReturnType())
+                            ->getProtocolName();
                 }
 
                 i = 0;
@@ -2377,6 +2442,7 @@ llvm::Value *IRGen::visitImplDecl(ImplDecl *node) {
                 vars_.varResultTypes = oldVarResultTypes;
                 vars_.currentFuncResultInfo = oldFuncRI;
                 currentFuncOptionalInner_ = oldFuncOptInner2;
+                currentFuncDynProtocol_ = oldFuncDynProto2;
                 vars_.movedVars = oldMovedVars2;
                 vars_.heapStringVars = oldHeapStringVars2;
                 vars_.tempStrings = oldTempStrings2;

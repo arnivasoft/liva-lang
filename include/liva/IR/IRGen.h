@@ -283,6 +283,17 @@ private:
     /// Resolve a MemberExpr to a DynArray field GEP if it is a struct.dynArrayField
     std::optional<MemberDynArrayInfo> resolveMemberDynArray(MemberExpr *memberExpr);
 
+    /// Info for a struct member that is declared `dyn P`
+    struct MemberDynProtocolInfo {
+        llvm::Value *traitPtr;      // GEP pointing to the {data, vtable} field slot
+        std::string protocolName;
+    };
+
+    /// Resolve a MemberExpr to a `dyn P` field slot if it is a struct.dynProtoField.
+    /// Unlike a `dyn P` local, the concrete type behind a field is never
+    /// statically known here, so callers must always go through the vtable.
+    std::optional<MemberDynProtocolInfo> resolveMemberDynProtocol(MemberExpr *memberExpr);
+
     /// Struct type layouts
     std::unordered_map<std::string, llvm::StructType *> structTypes_;
 
@@ -777,9 +788,28 @@ private:
     llvm::Value *boxIfDynProtocolField(const std::string &structName, int idx,
                                         llvm::Value *val, const Expr *valueExpr);
 
+    /// Box a conformer value into a `{data, vtable}` trait object for
+    /// `protocolName`. The shared core behind every `dyn P` sink: struct
+    /// fields, `return`, and arguments passed to a `dyn P` parameter.
+    /// Returns `val` untouched when it is already a trait object or when its
+    /// concrete type cannot be named (generic/unresolved) — guessing a vtable
+    /// would be worse than leaving the existing diagnostic to fire.
+    /// `heapPayload` puts the payload on the heap instead of the current
+    /// frame; required for `return`, where the frame dies before the caller
+    /// reads through the trait object.
+    llvm::Value *boxIntoDynProtocol(const std::string &protocolName,
+                                     llvm::Value *val, const Expr *valueExpr,
+                                     bool heapPayload = false);
+
 
     /// Optional return type support — non-null when the current function returns T?
     llvm::Type *currentFuncOptionalInner_ = nullptr;
+
+    /// Protocol name when the current function returns `dyn P` — the returned
+    /// conformer has to be boxed into a trait object, and the vtable is keyed
+    /// on (protocol, concrete type), so the protocol name must survive here.
+    /// Empty when the return type is anything else.
+    std::string currentFuncDynProtocol_;
 
     /// True when currently generating a class init (so 'return nil' yields null ptr)
     bool currentIsClassInit_ = false;

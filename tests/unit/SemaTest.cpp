@@ -12015,3 +12015,40 @@ TEST_F(SemaTest, DynStructFieldConformerAccepted) {
     )");
     EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
 }
+
+TEST_F(SemaTest, DynMemberAssignNonConformerRejected) {
+    // The assignment path was only wired up for IDENTIFIER targets, so a
+    // member target (`h.s = Blob{..}`) kept compiling silently — the same
+    // wrong-vtable-over-wrong-data hazard DynAssignNonConformerRejected pins
+    // for the identifier form.
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Blob { var b: f64 }
+        struct Holder { var s: dyn Shape }
+        func main() {
+            var h = Holder { s: Circle { r: 1.0 } }
+            h.s = Blob { b: 2.0 }
+            println(1)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynMemberAssignConformerAccepted) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Square { var s: f64 }
+        impl Square : Shape { func area(ref self) -> f64 { return self.s } }
+        struct Holder { var s: dyn Shape }
+        func main() {
+            var h = Holder { s: Circle { r: 1.0 } }
+            h.s = Square { s: 2.0 }
+            println(1)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}

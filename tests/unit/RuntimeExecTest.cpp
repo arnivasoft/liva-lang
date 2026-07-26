@@ -4899,4 +4899,124 @@ TEST(RuntimeExecTest, AssignIntLiteralIntoDidSetObservedField) {
     EXPECT_EQ(r.stdout_output, "0\n-7\n") << "stdout: " << r.stdout_output;
 }
 
+// --- `dyn P` boxing/dispatch gaps beyond the identifier receiver ------------
+//
+// Boxing a conformer into a `dyn P` slot and dispatching back out of it only
+// ever worked for one shape: a local variable used directly as the receiver
+// (`s.area()`, keyed on `vars_.varProtocolTypes`). Every other position where
+// a `dyn P` value can appear — a struct field read back as a receiver, a
+// `return`, a struct literal passed straight to a `dyn P` parameter — either
+// produced no call at all or fell over in the LLVM verifier.
+
+TEST(RuntimeExecTest, DynProtocolMemberReceiverDispatch) {
+    // `h.s.area()` printed 0.000000: dyn dispatch was keyed on the receiver
+    // being an IdentifierExpr, so a MEMBER receiver never entered that path
+    // and no call was emitted at all. Needs the field's `dyn P` type to be
+    // recognised and the field GEP used as the trait-object address.
+    auto r = compileAndRun(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle {
+            let r: f64
+        }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r * self.r }
+        }
+        struct Holder {
+            var s: dyn Shape
+        }
+        func main() {
+            let h = Holder { s: Circle { r: 4.0 } }
+            println(h.s.area())
+        }
+    )--", "dyn_member_receiver");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "16.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, DynProtocolMemberReceiverPicksPerTypeVtable) {
+    // Guards against the dispatch being "fixed" by devirtualising to whatever
+    // conformer happens to be first: two holders of DIFFERENT concrete types
+    // must reach different implementations through the same field read.
+    auto r = compileAndRun(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle {
+            let r: f64
+        }
+        struct Square {
+            let side: f64
+        }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r * self.r * 3.0 }
+        }
+        impl Square: Shape {
+            func area(self) -> f64 { return self.side * self.side }
+        }
+        struct Holder {
+            var s: dyn Shape
+        }
+        func main() {
+            let a = Holder { s: Circle { r: 2.0 } }
+            let b = Holder { s: Square { side: 5.0 } }
+            println(a.s.area())
+            println(b.s.area())
+        }
+    )--", "dyn_member_receiver_vtable");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "12.000000\n25.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, DynProtocolReturnBoxing) {
+    // `return c` from `-> dyn Shape` emitted `ret %Circle` against a
+    // trait-object return type: "LLVM module verification failed".
+    auto r = compileAndRun(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle {
+            let r: f64
+        }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r * self.r }
+        }
+        func get() -> dyn Shape {
+            let c = Circle { r: 3.0 }
+            return c
+        }
+        func main() {
+            let s = get()
+            println(s.area())
+        }
+    )--", "dyn_return_boxing");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "9.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, DynProtocolStructLiteralArgBoxing) {
+    // Passing a struct LITERAL straight to a `dyn P` parameter hit the same
+    // verifier failure — only an already-bound identifier argument was boxed.
+    auto r = compileAndRun(R"--(
+        protocol Shape {
+            func area(self) -> f64
+        }
+        struct Circle {
+            let r: f64
+        }
+        impl Circle: Shape {
+            func area(self) -> f64 { return self.r * self.r }
+        }
+        func relay(s: dyn Shape) {
+            println(s.area())
+        }
+        func main() {
+            relay(Circle { r: 4.0 })
+        }
+    )--", "dyn_struct_literal_arg");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "16.000000\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

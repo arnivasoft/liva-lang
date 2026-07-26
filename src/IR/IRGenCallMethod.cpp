@@ -1289,107 +1289,121 @@ std::optional<llvm::Value *> IRGen::tryEmitMethodCall(CallExpr *node) {
         }
 
         // Dynamic dispatch for protocol trait objects: obj.method(args)
+        //
+        // The receiver is either a `dyn P` local (tracked by name in
+        // vars_.varProtocolTypes) or a `dyn P` struct FIELD (`h.s.area()`),
+        // whose trait object lives in the field slot. Both cases boil down to
+        // an address holding a {data, vtable} pair plus the protocol name;
+        // only the local form can also carry a statically-known concrete type
+        // to devirtualize against.
+        llvm::Value *traitPtr = nullptr;
+        std::string protocolName;
+        const std::string *devirtConcrete = nullptr;
+
         if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(memberExpr->getObject());
             auto ptIt = vars_.varProtocolTypes.find(ident->getName());
-            if (ptIt != vars_.varProtocolTypes.end()) {
-                const std::string &protocolName = ptIt->second;
-
-                // Devirtualization: direct call if concrete type is statically known
+            auto nvIt = vars_.namedValues.find(ident->getName());
+            if (ptIt != vars_.varProtocolTypes.end() && nvIt != vars_.namedValues.end()) {
+                protocolName = ptIt->second;
+                traitPtr = nvIt->second;
                 auto devirtIt = vars_.varConcreteProtocolTypes.find(ident->getName());
-                if (devirtIt != vars_.varConcreteProtocolTypes.end()) {
-                    const std::string &concreteType = devirtIt->second;
-                    std::string directFnName = concreteType + "_" + methodName;
-                    auto *directFn = module_->getFunction(directFnName);
-                    if (directFn) {
-                        auto *traitTy = getTraitObjectTy();
-                        auto nvIt = vars_.namedValues.find(ident->getName());
-                        if (nvIt != vars_.namedValues.end()) {
-                            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                            auto *dataGEP = builder_->CreateStructGEP(traitTy, nvIt->second, 0);
-                            auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "devirt.data");
-                            std::vector<llvm::Value *> args;
-                            std::vector<const TypeRepr *> argTypes;
-                            args.push_back(dataPtr);
-                            argTypes.push_back(nullptr); // self, not from AST
-                            for (auto &arg : node->getArgs()) {
-                                auto *val = visit(arg.get());
-                                if (!val) return nullptr;
-                                args.push_back(val);
-                                argTypes.push_back(arg->getResolvedType());
-                            }
-                            coerceCallArgs(directFn->getFunctionType(), args, argTypes);
-                            if (directFn->getReturnType()->isVoidTy())
-                                return builder_->CreateCall(directFn, args);
-                            return builder_->CreateCall(directFn, args, "devirt.call");
-                        }
+                if (devirtIt != vars_.varConcreteProtocolTypes.end())
+                    devirtConcrete = &devirtIt->second;
+            }
+        } else if (memberExpr->getObject()->getKind() == ASTNode::NodeKind::MemberExpr) {
+            auto *innerMember = static_cast<MemberExpr *>(memberExpr->getObject());
+            if (auto dpInfo = resolveMemberDynProtocol(innerMember)) {
+                traitPtr = dpInfo->traitPtr;
+                protocolName = dpInfo->protocolName;
+            }
+        }
+
+        if (traitPtr) {
+            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
+            auto *traitTy = getTraitObjectTy();
+
+            // Devirtualization: direct call if concrete type is statically known
+            if (devirtConcrete) {
+                std::string directFnName = *devirtConcrete + "_" + methodName;
+                auto *directFn = module_->getFunction(directFnName);
+                if (directFn) {
+                    auto *dataGEP = builder_->CreateStructGEP(traitTy, traitPtr, 0);
+                    auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "devirt.data");
+                    std::vector<llvm::Value *> args;
+                    std::vector<const TypeRepr *> argTypes;
+                    args.push_back(dataPtr);
+                    argTypes.push_back(nullptr); // self, not from AST
+                    for (auto &arg : node->getArgs()) {
+                        auto *val = visit(arg.get());
+                        if (!val) return nullptr;
+                        args.push_back(val);
+                        argTypes.push_back(arg->getResolvedType());
                     }
+                    coerceCallArgs(directFn->getFunctionType(), args, argTypes);
+                    if (directFn->getReturnType()->isVoidTy())
+                        return builder_->CreateCall(directFn, args);
+                    return builder_->CreateCall(directFn, args, "devirt.call");
                 }
-                // Fall through to vtable dispatch
+            }
+            // Fall through to vtable dispatch
 
-                auto miIt = protocolMethodIndices_.find(protocolName);
-                if (miIt != protocolMethodIndices_.end()) {
-                    auto idxIt = miIt->second.find(methodName);
-                    if (idxIt != miIt->second.end()) {
-                        int methodIdx = idxIt->second;
-                        auto *traitTy = getTraitObjectTy();
-                        auto nvIt = vars_.namedValues.find(ident->getName());
-                        if (nvIt != vars_.namedValues.end()) {
-                            auto *traitAlloca = nvIt->second;
+            auto miIt = protocolMethodIndices_.find(protocolName);
+            if (miIt != protocolMethodIndices_.end()) {
+                auto idxIt = miIt->second.find(methodName);
+                if (idxIt != miIt->second.end()) {
+                    int methodIdx = idxIt->second;
 
-                            // Load data pointer
-                            auto *ptrTy = llvm::PointerType::getUnqual(*context_);
-                            auto *dataGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 0);
-                            auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "dyn.data");
+                    // Load data pointer
+                    auto *dataGEP = builder_->CreateStructGEP(traitTy, traitPtr, 0);
+                    auto *dataPtr = builder_->CreateLoad(ptrTy, dataGEP, "dyn.data");
 
-                            // Load vtable pointer
-                            auto *vtableGEP = builder_->CreateStructGEP(traitTy, traitAlloca, 1);
-                            auto *vtablePtr = builder_->CreateLoad(ptrTy, vtableGEP, "dyn.vtable");
+                    // Load vtable pointer
+                    auto *vtableGEP = builder_->CreateStructGEP(traitTy, traitPtr, 1);
+                    auto *vtablePtr = builder_->CreateLoad(ptrTy, vtableGEP, "dyn.vtable");
 
-                            // Get function pointer from vtable
-                            auto *arrayTy = llvm::ArrayType::get(ptrTy, miIt->second.size());
-                            auto *fnPtrGEP = builder_->CreateInBoundsGEP(
-                                arrayTy, vtablePtr,
-                                {builder_->getInt64(0), builder_->getInt64(methodIdx)},
-                                "dyn.fnptr.gep");
-                            auto *fnPtr = builder_->CreateLoad(ptrTy, fnPtrGEP, "dyn.fnptr");
+                    // Get function pointer from vtable
+                    auto *arrayTy = llvm::ArrayType::get(ptrTy, miIt->second.size());
+                    auto *fnPtrGEP = builder_->CreateInBoundsGEP(
+                        arrayTy, vtablePtr,
+                        {builder_->getInt64(0), builder_->getInt64(methodIdx)},
+                        "dyn.fnptr.gep");
+                    auto *fnPtr = builder_->CreateLoad(ptrTy, fnPtrGEP, "dyn.fnptr");
 
-                            // Build function type from protocol method signature
-                            auto pcIt = protocolConformances_.find(protocolName);
-                            llvm::FunctionType *fnTy = nullptr;
-                            if (pcIt != protocolConformances_.end() && !pcIt->second.empty()) {
-                                std::string mangledName = pcIt->second[0] + "_" + methodName;
-                                auto *refFn = module_->getFunction(mangledName);
-                                if (refFn) fnTy = refFn->getFunctionType();
-                            }
-
-                            if (!fnTy) {
-                                std::vector<llvm::Type *> paramTys = {ptrTy};
-                                for (auto &arg : node->getArgs()) {
-                                    auto *val = visit(arg.get());
-                                    if (val) paramTys.push_back(val->getType());
-                                }
-                                fnTy = llvm::FunctionType::get(builder_->getInt32Ty(), paramTys, false);
-                            }
-
-                            // Build args: data_ptr as self + user args
-                            std::vector<llvm::Value *> args;
-                            std::vector<const TypeRepr *> argTypes;
-                            args.push_back(dataPtr);
-                            argTypes.push_back(nullptr); // self, not from AST
-                            for (auto &arg : node->getArgs()) {
-                                auto *val = visit(arg.get());
-                                if (!val) return nullptr;
-                                args.push_back(val);
-                                argTypes.push_back(arg->getResolvedType());
-                            }
-
-                            coerceCallArgs(fnTy, args, argTypes);
-                            if (fnTy->getReturnType()->isVoidTy())
-                                return builder_->CreateCall(fnTy, fnPtr, args);
-                            return builder_->CreateCall(fnTy, fnPtr, args, "dyncalltmp");
-                        }
+                    // Build function type from protocol method signature
+                    auto pcIt = protocolConformances_.find(protocolName);
+                    llvm::FunctionType *fnTy = nullptr;
+                    if (pcIt != protocolConformances_.end() && !pcIt->second.empty()) {
+                        std::string mangledName = pcIt->second[0] + "_" + methodName;
+                        auto *refFn = module_->getFunction(mangledName);
+                        if (refFn) fnTy = refFn->getFunctionType();
                     }
+
+                    if (!fnTy) {
+                        std::vector<llvm::Type *> paramTys = {ptrTy};
+                        for (auto &arg : node->getArgs()) {
+                            auto *val = visit(arg.get());
+                            if (val) paramTys.push_back(val->getType());
+                        }
+                        fnTy = llvm::FunctionType::get(builder_->getInt32Ty(), paramTys, false);
+                    }
+
+                    // Build args: data_ptr as self + user args
+                    std::vector<llvm::Value *> args;
+                    std::vector<const TypeRepr *> argTypes;
+                    args.push_back(dataPtr);
+                    argTypes.push_back(nullptr); // self, not from AST
+                    for (auto &arg : node->getArgs()) {
+                        auto *val = visit(arg.get());
+                        if (!val) return nullptr;
+                        args.push_back(val);
+                        argTypes.push_back(arg->getResolvedType());
+                    }
+
+                    coerceCallArgs(fnTy, args, argTypes);
+                    if (fnTy->getReturnType()->isVoidTy())
+                        return builder_->CreateCall(fnTy, fnPtr, args);
+                    return builder_->CreateCall(fnTy, fnPtr, args, "dyncalltmp");
                 }
             }
         }

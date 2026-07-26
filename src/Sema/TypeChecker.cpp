@@ -2719,6 +2719,16 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
             }
         }
     }
+
+    // Same hazard as the identifier target above, one level out: a MEMBER
+    // target (`h.s = Blob{..}` where `s` is `dyn Shape`) was judged by
+    // nothing at all, so a non-conformer compiled silently and ran with the
+    // previous occupant's vtable over the new data. visitMemberExpr already
+    // resolved the target to the field's DECLARED type, which is exactly what
+    // conformance has to be judged against; non-`dyn` fields are ignored by
+    // checkDynConformance, so this stays scoped to the dyn hazard.
+    if (node->getTarget()->getKind() == ASTNode::NodeKind::MemberExpr)
+        checkDynConformance(node->getTarget()->getResolvedType(), node->getValue());
 }
 
 void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
