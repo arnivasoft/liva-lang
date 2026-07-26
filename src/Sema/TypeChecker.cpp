@@ -2687,6 +2687,13 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
                              "declare with 'var' instead of 'let' to make it mutable",
                              "", DiagID::note_use_var_for_mutable);
         }
+        // Assigning into a `dyn X` variable boxes the value the same way an
+        // initialiser does, and checkAssignable treats DynProtocol as
+        // unjudgeable — so conformance needs its own call here. Without it,
+        // `s = Blob{..}` on a `dyn Shape` kept Circle's vtable over Blob's
+        // data and silently produced a wrong value.
+        if (sym && sym->type)
+            checkDynConformance(sym->type, node->getValue());
         // Type-check the assigned value against the variable's declared
         // type. Only identifier targets are judged — member fields and
         // element targets go through their own paths.
@@ -2735,6 +2742,23 @@ void TypeChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
 
     for (auto &field : node->getFields()) {
         visit(field.value.get());
+    }
+
+    // A `dyn X` FIELD boxes its initialiser exactly like a `dyn X` variable
+    // does, and nothing else checks it — `Holder { s: Blob {..} }` compiled
+    // silently and produced a trait object whose vtable did not match its
+    // data. Only the declared field types are consulted, so a generic
+    // struct's `T`-typed field stays unjudged (checkDynConformance ignores
+    // non-DynProtocol targets anyway).
+    if (sym->structDecl) {
+        std::unordered_map<std::string, const TypeRepr *> fieldTypes;
+        for (auto &fd : sym->structDecl->getFields())
+            fieldTypes[fd->getName()] = fd->getType();
+        for (auto &field : node->getFields()) {
+            auto it = fieldTypes.find(field.name);
+            if (it != fieldTypes.end())
+                checkDynConformance(it->second, field.value.get());
+        }
     }
 
     // Infer type bindings from field values (for generic structs)

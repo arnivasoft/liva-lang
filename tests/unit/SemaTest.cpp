@@ -11953,3 +11953,65 @@ TEST_F(SemaTest, DynConformanceSeesTransitiveImport) {
     )--"}});
     EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
 }
+
+TEST_F(SemaTest, DynAssignNonConformerRejected) {
+    // `s = Blob{..}` on a `dyn Shape` variable compiled silently and then
+    // ran with Circle's vtable over Blob's data — wrong value, no crash.
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Blob { var b: f64 }
+        func main() {
+            var s: dyn Shape = Circle { r: 1.0 }
+            s = Blob { b: 2.0 }
+            println(1)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynAssignConformerAccepted) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Square { var s: f64 }
+        impl Square : Shape { func area(ref self) -> f64 { return self.s } }
+        func main() {
+            var s: dyn Shape = Circle { r: 1.0 }
+            s = Square { s: 2.0 }
+            println(1)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynStructFieldNonConformerRejected) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Blob { var b: f64 }
+        struct Holder { var s: dyn Shape }
+        func main() {
+            let h = Holder { s: Blob { b: 1.0 } }
+            println(1)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynStructFieldConformerAccepted) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Holder { var s: dyn Shape }
+        func main() {
+            let h = Holder { s: Circle { r: 1.0 } }
+            println(1)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
