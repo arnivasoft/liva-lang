@@ -322,6 +322,15 @@ private:
     /// report an ordinary mismatch twice.
     bool arrayLiteralHasAnnotation_ = false;
 
+    /// Report `err_no_conformance` when `value` is boxed into a `dyn X`
+    /// location it does not satisfy. `dyn X` erases to a protocol OR to a
+    /// common base class, so both are accepted; when X is neither — or the
+    /// value's concrete type cannot be named — this stays silent, because
+    /// the boxing path would fill a missing method's vtable slot with null
+    /// and the program would segfault on the first call.
+    /// `target` may be any type; non-DynProtocol targets are ignored.
+    void checkDynConformance(const TypeRepr *target, const Expr *value);
+
     /// Populate typeMethodDecls_ from a class's own methods. Shared by the
     /// local-declaration path and the imported-module path so both register
     /// identically.

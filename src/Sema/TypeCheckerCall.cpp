@@ -247,6 +247,10 @@ void TypeChecker::checkCallArgTypes(CallExpr *node) {
             continue;
         }
         const Expr *arg = args[argIdx].get();
+        // `checkAssignable` returns Ok for ANY value against a `dyn X`
+        // parameter (DynProtocol is one of its unjudgeable kinds), so the
+        // conformance side has to be checked separately.
+        checkDynConformance(params[paramIdx].type.get(), arg);
         switch (checkAssignable(params[paramIdx].type.get(), arg)) {
         case Assignability::Ok:
             break;

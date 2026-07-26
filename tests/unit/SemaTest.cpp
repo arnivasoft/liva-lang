@@ -11799,3 +11799,114 @@ TEST_F(SemaTest, LocalNonConformerRejectedByDynCheck) {
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
 }
+
+// ============================================================
+// dyn conformance on the scalar, argument and return paths
+// (roadmap 2.3)
+// ============================================================
+// The check only covered array-literal initialisers, so every other way of
+// producing a `dyn X` value reached runtime unchecked and segfaulted on the
+// first method call (the boxing path nulls a missing method's vtable slot).
+
+TEST_F(SemaTest, DynScalarInitNonConformerRejected) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Blob { var b: f64 }
+        func main() {
+            let s: dyn Shape = Blob { b: 1.0 }
+            println(1)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynScalarInitConformerAccepted) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        func main() {
+            let s: dyn Shape = Circle { r: 1.0 }
+            println(1)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynArgumentNonConformerRejected) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Blob { var b: f64 }
+        func take(s: dyn Shape) -> i32 { return 1 }
+        func main() {
+            println(take(Blob { b: 1.0 }))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynArgumentConformerAccepted) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        func take(s: dyn Shape) -> i32 { return 1 }
+        func main() {
+            println(take(Circle { r: 1.0 }))
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynReturnNonConformerRejected) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        struct Blob { var b: f64 }
+        func mk() -> dyn Shape { return Blob { b: 1.0 } }
+        func main() {
+            println(1)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynReturnConformerAccepted) {
+    auto result = check(R"(
+        protocol Shape { func area(ref self) -> f64 }
+        struct Circle { var r: f64 }
+        impl Circle : Shape { func area(ref self) -> f64 { return self.r } }
+        func mk() -> dyn Shape { return Circle { r: 1.0 } }
+        func main() {
+            println(1)
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}
+
+TEST_F(SemaTest, DynReturnOfBoundedTypeParamAccepted) {
+    // A type PARAMETER parses to the same Named kind as a concrete type.
+    // Its bound is what guarantees conformance, so the dyn check must stay
+    // silent rather than look `T` up in the conformer list and reject it.
+    auto result = check(R"(
+        protocol Printable { func display(self) -> string }
+        struct Label { var text: string }
+        impl Label: Printable {
+            func display(self) -> string { return self.text }
+        }
+        func wrap<T: Printable>(item: T) -> dyn Printable {
+            return item
+        }
+        func main() {
+            let l = Label { text: "hi" }
+            let p = wrap(l)
+            println(p.display())
+        }
+    )");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
+}

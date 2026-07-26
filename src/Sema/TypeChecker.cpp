@@ -963,6 +963,13 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
         arrayLiteralHasAnnotation_ = savedAnnFlag;
     }
 
+    // A scalar `dyn X` initialiser (`let s: dyn Shape = Blob {..}`) is boxed
+    // the same way an array element is, and was equally unchecked.
+    if (node->hasInit() && node->hasTypeAnnotation() && node->getType() &&
+        node->getType()->getKind() == TypeRepr::Kind::DynProtocol) {
+        checkDynConformance(node->getType(), node->getInit());
+    }
+
     // An annotated array literal is checked against the ANNOTATION rather
     // than against its own elements, and then takes the annotation's type.
     // Leaving the unified element type on the literal would make the
@@ -979,59 +986,10 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
         // missing method's vtable slot with null, so a non-conformer reaches
         // runtime and segfaults on the first call.
         if (annElem && annElem->getKind() == TypeRepr::Kind::DynProtocol) {
-            const auto &dynName =
-                static_cast<const DynProtocolTypeRepr *>(annElem)->getProtocolName();
-            // `dyn X` erases to a protocol OR to a common base CLASS
-            // (`[dyn Control]` holding Buttons and Labels is the UI
-            // modules' standard shape). Judge only when we can actually
-            // name X's members; an unknown X stays silent.
-            // Both shapes are judged now that the import path propagates
-            // every conformance, not just Drop. A `dyn X` naming neither a
-            // known protocol nor a known class stays silent — we cannot
-            // name X's members, so we cannot judge.
-            auto confIt = protocolConformances_.find(dynName);
-            bool isProto = confIt != protocolConformances_.end();
-            bool isClass = classDecls_.find(dynName) != classDecls_.end();
-            if (isProto || isClass) {
-                auto *lit = static_cast<ArrayLiteralExpr *>(
-                    const_cast<Expr *>(node->getInit()));
-                for (auto &elemPtr : lit->getElements()) {
-                    const Expr *elem = elemPtr.get();
-                    const TypeRepr *et = elem->getResolvedType();
-                    // Judge only elements whose concrete type we can name; a
-                    // generic or unresolved element stays silent, as
-                    // everywhere else in this check.
-                    if (!et || et->getKind() != TypeRepr::Kind::Named) continue;
-                    const auto &tn =
-                        static_cast<const NamedTypeRepr *>(et)->getName();
-                    bool ok = false;
-                    if (isProto) {
-                        for (const auto &c : confIt->second) {
-                            if (c == tn) { ok = true; break; }
-                        }
-                    }
-                    if (!ok && isClass) {
-                        // Walk the element's ancestry looking for the base.
-                        // A chain longer than the bound counts as a match,
-                        // not a mismatch: circular inheritance has its own
-                        // diagnostic, so the bound exists only to guarantee
-                        // termination and must not reject a deep but
-                        // legitimate hierarchy.
-                        bool exhausted = true;
-                        std::string cur = tn;
-                        for (int hop = 0; hop < 64 && !cur.empty(); ++hop) {
-                            if (cur == dynName) { ok = true; exhausted = false; break; }
-                            auto pit = classParent_.find(cur);
-                            if (pit == classParent_.end()) { exhausted = false; break; }
-                            cur = pit->second;
-                        }
-                        if (exhausted) ok = true;
-                    }
-                    if (!ok)
-                        diag_.report(elem->getStartLoc(),
-                                     DiagID::err_no_conformance, tn, dynName);
-                }
-            }
+            auto *lit = static_cast<ArrayLiteralExpr *>(
+                const_cast<Expr *>(node->getInit()));
+            for (auto &elemPtr : lit->getElements())
+                checkDynConformance(annElem, elemPtr.get());
         } else if (annElem) {
             auto *lit = static_cast<ArrayLiteralExpr *>(
                 const_cast<Expr *>(node->getInit()));
@@ -1208,6 +1166,63 @@ void TypeChecker::visitStructDecl(StructDecl *node) {
         visitFieldDecl(field.get());
     }
     scopes_.popScope();
+}
+
+void TypeChecker::checkDynConformance(const TypeRepr *target, const Expr *value) {
+    if (!target || !value) return;
+    target = resolveAlias(target);
+    if (target->getKind() != TypeRepr::Kind::DynProtocol) return;
+    const auto &dynName =
+        static_cast<const DynProtocolTypeRepr *>(target)->getProtocolName();
+
+    // `dyn X` erases to a protocol OR to a common base CLASS (`[dyn Control]`
+    // holding Buttons and Labels is the UI modules' standard shape). Judge
+    // only when we can actually name X's members; an unknown X stays silent.
+    auto confIt = protocolConformances_.find(dynName);
+    bool isProto = confIt != protocolConformances_.end();
+    bool isClass = classDecls_.find(dynName) != classDecls_.end();
+    if (!isProto && !isClass) return;
+
+    // Judge only a value whose concrete type we can name; a generic or
+    // unresolved value stays silent, as everywhere else in this check.
+    const TypeRepr *vt = value->getResolvedType();
+    if (!vt) return;
+    vt = resolveAlias(vt);
+    if (vt->getKind() != TypeRepr::Kind::Named) return;
+    const auto &tn = static_cast<const NamedTypeRepr *>(vt)->getName();
+    // A type PARAMETER parses to the same `Named` kind as a concrete type.
+    // Inside a generic body (`func wrap<T: Printable>(item: T) -> dyn
+    // Printable { return item }`) the value's type is `T`, which names no
+    // conformer — judging it would reject correct code. Its bound is what
+    // guarantees conformance, and that is checked where the bound is
+    // declared, not here.
+    if (auto *tpSym = scopes_.lookup(tn))
+        if (tpSym->kind == Symbol::Kind::TypeParam) return;
+
+    bool ok = false;
+    if (isProto) {
+        for (const auto &c : confIt->second) {
+            if (c == tn) { ok = true; break; }
+        }
+    }
+    if (!ok && isClass) {
+        // Walk the value's ancestry looking for the base. A chain longer
+        // than the bound counts as a match, not a mismatch: circular
+        // inheritance has its own diagnostic, so the bound exists only to
+        // guarantee termination and must not reject a deep but legitimate
+        // hierarchy.
+        bool exhausted = true;
+        std::string cur = tn;
+        for (int hop = 0; hop < 64 && !cur.empty(); ++hop) {
+            if (cur == dynName) { ok = true; exhausted = false; break; }
+            auto pit = classParent_.find(cur);
+            if (pit == classParent_.end()) { exhausted = false; break; }
+            cur = pit->second;
+        }
+        if (exhausted) ok = true;
+    }
+    if (!ok)
+        diag_.report(value->getStartLoc(), DiagID::err_no_conformance, tn, dynName);
 }
 
 void TypeChecker::registerTypeMethodDecls(const ClassDecl *classDecl) {
@@ -1763,6 +1778,12 @@ void TypeChecker::visitExprStmt(ExprStmt *node) { visit(node->getExpr()); }
 void TypeChecker::visitReturnStmt(ReturnStmt *node) {
     if (node->hasValue()) {
         visit(node->getValue());
+        // A `dyn X` return boxes the value exactly as an array element or a
+        // scalar initialiser does. This runs OUTSIDE the mismatch branch
+        // below: typesCompatible returns true early for a DynProtocol
+        // target — that is how trait-object returns are meant to work — so
+        // the branch never executes and conformance would go unchecked.
+        checkDynConformance(currentReturnType_, node->getValue());
         // Check return type mismatch
         if (currentReturnType_ && node->getValue()->getResolvedType() &&
             !currentReturnType_->isInferred() &&
