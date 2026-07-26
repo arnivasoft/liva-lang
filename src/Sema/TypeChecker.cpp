@@ -1860,17 +1860,41 @@ void TypeChecker::visitReturnStmt(ReturnStmt *node) {
                     if (sym && sym->kind == Symbol::Kind::TypeParam)
                         compat = true;
                 }
-                // Allow integer literal (i32) → wider integer type (i8/i16/i64/u8/u16/u32/u64).
-                // Integer literals default to i32 but are inherently typeless and can
-                // satisfy any integer return type without an explicit cast.
-                if (!compat &&
-                    node->getValue()->getKind() == ASTNode::NodeKind::IntegerLiteralExpr) {
-                    auto retKind = currentReturnType_->getKind();
-                    if (retKind == TypeRepr::Kind::I8  || retKind == TypeRepr::Kind::I16 ||
-                        retKind == TypeRepr::Kind::I64 || retKind == TypeRepr::Kind::U8  ||
-                        retKind == TypeRepr::Kind::U16 || retKind == TypeRepr::Kind::U32 ||
-                        retKind == TypeRepr::Kind::U64)
+                // Numeric returns follow the SAME judgement as arguments,
+                // assignments and array elements — checkAssignable — instead
+                // of the hand-rolled "integer literal → any wider integer"
+                // rule that used to live here. That rule was both too narrow
+                // and too wide:
+                //   too narrow — it keyed on IntegerLiteralExpr, so `return
+                //     -7` (a UnaryExpr wrapping the literal) and `return a`
+                //     (an i32 variable) were rejected from an `-> i64`
+                //     function, while the identical `takeI64(-7)` / `takeI64(a)`
+                //     argument passes were accepted;
+                //   too wide — it skipped the range check, so `-> u8 { return
+                //     300 }` was accepted. That used to die loudly in the LLVM
+                //     verifier; now that IRGen coerces at the return throat it
+                //     would silently truncate to 44, so the check has to be
+                //     real.
+                if (!compat) {
+                    switch (checkAssignable(currentReturnType_, node->getValue())) {
+                    case Assignability::Ok:
                         compat = true;
+                        break;
+                    case Assignability::LiteralOutOfRange: {
+                        auto *lit = static_cast<const IntegerLiteralExpr *>(
+                            node->getValue());
+                        diag_.report(node->getStartLoc(),
+                                     DiagID::err_return_literal_range,
+                                     std::to_string(lit->getValue()),
+                                     typeToString(currentReturnType_));
+                        // The specific diagnostic replaces the generic
+                        // "expected 'u8', found 'i32'" below.
+                        compat = true;
+                        break;
+                    }
+                    case Assignability::Mismatch:
+                        break;
+                    }
                 }
                 if (!compat) {
                     diag_.report(node->getStartLoc(), DiagID::err_return_type_mismatch,

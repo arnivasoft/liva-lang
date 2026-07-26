@@ -521,6 +521,30 @@ llvm::Value *IRGen::visitReturnStmt(ReturnStmt *node) {
             val = boxIntoDynProtocol(currentFuncDynProtocol_, val, node->getValue(),
                                      /*heapPayload=*/true);
 
+        // Scalar coercion at the return THROAT, the same way coerceCallArgs
+        // does it for arguments: Sema lets an integer literal stand in for a
+        // wider/narrower declared return type (literals are typeless), but
+        // nothing had ever converted the value, so `func mk() -> i64 { return
+        // 5 }` emitted `ret i32 5` into an i64 function and the module failed
+        // verification. Driven off the FUNCTION's declared LLVM return type,
+        // not a per-expression rule, so every return path (free function,
+        // impl method, class method) is covered by one site.
+        // coerceToElemType returns null for anything it cannot convert
+        // (structs, pointers, Optional/trait-object payloads built above),
+        // and those are left exactly as they were.
+        if (val) {
+            auto *fn = builder_->GetInsertBlock()->getParent();
+            llvm::Type *want = currentIsAsync_ && currentCoroPromise_
+                                   ? asyncDeclaredRetType_
+                                   : (fn ? fn->getReturnType() : nullptr);
+            if (want && val->getType() != want) {
+                bool srcUnsigned =
+                    isUnsignedTypeRepr(node->getValue()->getResolvedType());
+                if (auto *converted = coerceToElemType(val, want, srcUnsigned))
+                    val = converted;
+            }
+        }
+
         if (currentIsAsync_ && currentCoroPromise_) {
             // Phase 2: store to promise and branch to coro.final
             builder_->CreateStore(val, currentCoroPromise_);

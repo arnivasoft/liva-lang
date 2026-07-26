@@ -287,5 +287,6 @@ DIAG(err_arg_type_mismatch, error, "argument of type '%0' cannot be passed to pa
 DIAG(err_arg_literal_range, error, "literal %0 does not fit in parameter type '%1'")
 DIAG(err_assign_type_mismatch, error, "cannot assign a value of type '%0' to a variable of type '%1'")
 DIAG(err_assign_literal_range, error, "literal %0 does not fit in type '%1'")
+DIAG(err_return_literal_range, error, "literal %0 does not fit in return type '%1'")
 
 #undef DIAG

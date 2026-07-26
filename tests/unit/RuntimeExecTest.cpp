@@ -4782,15 +4782,12 @@ TEST(RuntimeExecTest, AssignIntLiteralIntoI64Variable) {
     // stored into an i64 slot.
     //
     // NOTE: the seed helper uses `1 as i64` rather than a bare `return 1`.
-    // A bare literal return hits a SEPARATE, pre-existing IRGen gap (return
-    // statements don't widen an i32 literal to the declared i64 return type
-    // — Sema accepts it per TypeChecker::visitReturnStmt's integer-literal
-    // compat rule, but visitReturnStmt in IRGenStmt.cpp never coerces the
-    // value before CreateRet, so the LLVM verifier rejects the module:
-    // "ret i32 1 / i64"). That gap is orthogonal to this task's assignment
-    // coercion path and out of scope here; the existing `return 0 as i64`
-    // idiom elsewhere in this file (BranchDeclaredArrayLiteralNoCorruption)
-    // is the established workaround, used here for the same reason.
+    // That used to be REQUIRED — return statements did not coerce the value
+    // to the declared return type, so a bare `return 1` from an `-> i64`
+    // function emitted `ret i32 1` and failed LLVM verification. That gap is
+    // fixed (see the ReturnIntLiteralWidened* tests at the end of this file);
+    // the explicit cast is kept here only so this test keeps exercising the
+    // assignment coercion path it was written for, unchanged.
     //
     // NOTE: the assigned literal is NEGATIVE (-7), not the brief's original
     // `7`. With opaque pointers, `store i32 %v, ptr %p` into an i64-sized
@@ -5036,6 +5033,88 @@ TEST(RuntimeExecTest, DynProtocolStructLiteralArgBoxing) {
     )--", "dyn_struct_literal_arg");
     EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
     EXPECT_EQ(r.stdout_output, "16.000000\n") << "stdout: " << r.stdout_output;
+}
+
+// ============================================================
+// Return value coercion (roadmap 2.3)
+// ============================================================
+// Sema accepts an integer literal returned as a wider declared return type
+// (literals are typeless), but IRGen used to hand the raw i32 straight to
+// CreateRet — the module then failed LLVM verification with
+// "Function return type does not match operand type of return inst".
+// The established workaround in this file was `return X as i64`.
+
+TEST(RuntimeExecTest, ReturnIntLiteralWidenedToI64) {
+    auto r = compileAndRun(R"--(
+        func mk() -> i64 {
+            return 5
+        }
+        func main() {
+            let v: i64 = mk()
+            println(v)
+        }
+    )--", "return_literal_i64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ReturnNegativeIntLiteralWidenedToI64) {
+    // A negative literal needs real sign-extension: a plain reinterpretation
+    // of the low 4 bytes would read back as 4294967289.
+    auto r = compileAndRun(R"--(
+        func mk() -> i64 {
+            return -7
+        }
+        func main() {
+            let v: i64 = mk()
+            println(v)
+        }
+    )--", "return_literal_neg_i64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ReturnIntLiteralNarrowedToU8) {
+    // Unsigned narrow target: 200 does not fit in i8's range but is a valid
+    // u8, so the value must survive the trunc unchanged.
+    //
+    // Printed via `as i32` on purpose: `println` on a u8 LOCAL is a separate,
+    // pre-existing gap (it prints garbage even for `let v: u8 = 200 as u8`,
+    // and correctly for a u8 PARAMETER), so printing v directly would test
+    // that gap instead of this one.
+    auto r = compileAndRun(R"--(
+        func mk() -> u8 {
+            return 200
+        }
+        func main() {
+            let v: u8 = mk()
+            let w: i32 = v as i32
+            println(w)
+        }
+    )--", "return_literal_u8");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, ReturnIntLiteralWidenedInStructMethod) {
+    // Same gap on the impl-method return path.
+    auto r = compileAndRun(R"--(
+        struct S {
+            var v: i32
+        }
+        impl S {
+            func get(ref self) -> i64 {
+                return 9
+            }
+        }
+        func main() {
+            let s = S { v: 1 }
+            let v: i64 = s.get()
+            println(v)
+        }
+    )--", "return_literal_method_i64");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "9\n") << "stdout: " << r.stdout_output;
 }
 
 #endif // LIVA_HAS_LLVM

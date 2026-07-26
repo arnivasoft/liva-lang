@@ -12158,3 +12158,86 @@ TEST_F(SemaTest, DynMemberAssignConformerAccepted) {
     )");
     EXPECT_FALSE(hasDiag(result, DiagID::err_no_conformance));
 }
+
+// === Return literal range (roadmap 2.3) ===
+// The return path accepts an integer literal for a wider/narrower integer
+// return type (literals are typeless), but used to skip the range check the
+// array-element, argument and assignment paths all apply — so `-> u8 {
+// return 300 }` slipped through Sema and only died in the LLVM verifier.
+// Once IRGen coerces the value, an unchecked out-of-range literal would be
+// silently truncated instead, hence the diagnostic.
+
+TEST_F(SemaTest, ReturnLiteralInRangeAccepted) {
+    auto result = check(R"(
+        func mk() -> u8 {
+            return 200
+        }
+        func main() {
+            let v: u8 = mk()
+            println(v)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_return_literal_range));
+}
+
+TEST_F(SemaTest, ReturnLiteralOutOfRangeRejected) {
+    auto result = check(R"(
+        func mk() -> u8 {
+            return 300
+        }
+        func main() {
+            let v: u8 = mk()
+            println(v)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_return_literal_range));
+}
+
+// `-1` is a UnaryExpr wrapping the literal, not an IntegerLiteralExpr, so it
+// never reaches the lossy-literal rule and lands on the generic mismatch
+// diagnostic instead — exactly what the argument path does for `take(-1)`
+// against a `u32` parameter. Pinned so the two stay in step.
+TEST_F(SemaTest, ReturnNegativeLiteralIntoUnsignedRejected) {
+    auto result = check(R"(
+        func mk() -> u32 {
+            return -1
+        }
+        func main() {
+            let v: u32 = mk()
+            println(v)
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_return_type_mismatch));
+}
+
+// The widening counterpart DOES work now: an i32-typed value (variable or
+// negated literal) returned as i64 is value-preserving, judged by the same
+// checkAssignable the argument path uses.
+TEST_F(SemaTest, ReturnI32VariableWidenedToI64Accepted) {
+    auto result = check(R"(
+        func mk(a: i32) -> i64 {
+            return a
+        }
+        func main() {
+            let v: i64 = mk(5)
+            println(v)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, ReturnWideLiteralIntoI64Accepted) {
+    auto result = check(R"(
+        func mk() -> i64 {
+            return 5
+        }
+        func main() {
+            let v: i64 = mk()
+            println(v)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_return_literal_range));
+}
