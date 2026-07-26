@@ -1081,6 +1081,112 @@ TEST_F(SemaTest, GenericFunctionCallString) {
     EXPECT_TRUE(result.passed);
 }
 
+// A generic call whose `T` binds to a STRUCT used to slice the binding down
+// to a bare `TypeRepr` carrying only the `Named` kind — the first consumer
+// that downcast to `NamedTypeRepr` read garbage and the compiler SEGFAULTed.
+TEST_F(SemaTest, GenericFunctionCallStructBinding) {
+    auto result = check(R"(
+        struct Circle { var r: i32 }
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let a = Circle { r: 3 }
+            let c = identity(a)
+            println(c.r)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// Same slicing, annotated form — the annotation path is where the crash was
+// originally reported.
+TEST_F(SemaTest, GenericFunctionCallStructBindingAnnotated) {
+    auto result = check(R"(
+        struct Circle { var r: i32 }
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let c: Circle = identity(Circle { r: 3 })
+            println(c.r)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// The `Array` kind sliced the same way: the returned type kept the `Array`
+// kind but lost its element, so it printed as `<array>` and an otherwise
+// correct annotation was rejected.
+TEST_F(SemaTest, GenericFunctionCallArrayBindingKeepsElement) {
+    auto result = check(R"(
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let a = [1, 2, 3]
+            let c: [i32] = identity(a)
+            println(c.length)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+// Same slicing class, closure path: a closure variable whose return type is a
+// struct went through the Function-typed-symbol branch.
+TEST_F(SemaTest, ClosureVarStructReturnBinding) {
+    auto result = check(R"(
+        struct P { var x: i32 }
+        func main() {
+            let f = |p: P| -> P { return p }
+            let q = f(P { x: 7 })
+            println(q.x)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// Same slicing class, `as` cast path.
+TEST_F(SemaTest, CastToStructTypeBinding) {
+    auto result = check(R"(
+        struct P { var x: i32 }
+        func main() {
+            let a = P { x: 1 }
+            let b = a as P
+            println(b.x)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// Same slicing class, overloaded unary operator path.
+TEST_F(SemaTest, UnaryOperatorOverloadStructResultBinding) {
+    auto result = check(R"(
+        protocol Neg { func neg(self) -> Self }
+        struct Vec2 { var x: f64 }
+        impl Vec2: Neg {
+            func neg(self) -> Vec2 { return Vec2 { x: 0.0 - self.x } }
+        }
+        func main() {
+            let a = Vec2 { x: 1.0 }
+            let c = -a
+            println(c.x)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+// Same slicing class, `reduce` init path: the accumulator's type is taken
+// from the first argument.
+TEST_F(SemaTest, ReduceStructAccumulatorBinding) {
+    auto result = check(R"(
+        struct Acc { var s: i32 }
+        func main() {
+            let nums = [1, 2, 3]
+            let r = nums.reduce(Acc { s: 0 }, |a: Acc, x: i32| -> Acc {
+                return Acc { s: a.s + x }
+            })
+            println(r.s)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
 TEST_F(SemaTest, GenericFunctionMultiTypeParams) {
     auto result = check(R"(
         func first<T, U>(a: T, b: U) -> T { return a }

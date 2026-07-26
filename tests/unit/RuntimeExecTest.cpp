@@ -4341,6 +4341,25 @@ TEST(RuntimeExecTest, GenericStructArrayFieldExplicitTypeArg) {
     EXPECT_EQ(r.stdout_output, "2\n9\n") << "stdout: " << r.stdout_output;
 }
 
+// A generic function returning `T` where `T` binds to a struct: the resolved
+// return type used to be sliced down to a bare `Named`-kind `TypeRepr`, which
+// crashed the compiler before any code was emitted.
+TEST(RuntimeExecTest, GenericFreeFuncStructReturnBinding) {
+    auto r = compileAndRun(R"--(
+        struct Circle {
+            var r: i32
+        }
+        func identity<T>(x: T) -> T { return x }
+        func main() {
+            let a = Circle { r: 7 }
+            let c = identity(a)
+            println(c.r)
+        }
+    )--", "generic_free_func_struct_return");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "7\n") << "stdout: " << r.stdout_output;
+}
+
 // ============================================================
 // Array element store coercion (roadmap 2.3)
 // ============================================================

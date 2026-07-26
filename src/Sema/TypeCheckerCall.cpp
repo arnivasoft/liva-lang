@@ -289,7 +289,7 @@ void TypeChecker::resolveCallReturnType(CallExpr *node) {
             // abs/min/max return the same type as their first argument
             if (!node->getArgs().empty() && node->getArgs()[0]->getResolvedType()) {
                 node->setResolvedType(
-                    makePrimitiveType(node->getArgs()[0]->getResolvedType()->getKind()));
+                    cloneTypeRepr(node->getArgs()[0]->getResolvedType()));
             }
         } else if (ident->getName() == "sqrt" || ident->getName() == "pow" ||
                    ident->getName() == "floor" || ident->getName() == "ceil" ||
@@ -804,8 +804,7 @@ void TypeChecker::resolveCallReturnType(CallExpr *node) {
                 sym->type->getKind() == TypeRepr::Kind::Function) {
                 auto *ft = static_cast<const FunctionTypeRepr *>(sym->type);
                 if (ft->getReturnType() && !ft->getReturnType()->isVoid()) {
-                    node->setResolvedType(
-                        makePrimitiveType(ft->getReturnType()->getKind()));
+                    node->setResolvedType(cloneTypeRepr(ft->getReturnType()));
                 }
             } else if (sym && sym->funcDecl) {
                 if (sym->funcDecl->isGeneric()) {
@@ -928,7 +927,14 @@ void TypeChecker::resolveCallReturnType(CallExpr *node) {
                         auto *named = static_cast<const NamedTypeRepr *>(retType);
                         auto it = typeBindings.find(named->getName());
                         if (it != typeBindings.end()) {
-                            node->setResolvedType(makePrimitiveType(it->second->getKind()));
+                            // Deep-clone the binding. `makePrimitiveType(kind)`
+                            // would keep only the KIND and drop the payload —
+                            // for a struct binding that yields a `Named`-kind
+                            // object that is not a `NamedTypeRepr`, so every
+                            // consumer downcasting it reads garbage (SEGFAULT
+                            // / bad_alloc); for `[i32]` it yields an
+                            // element-less `<array>`.
+                            node->setResolvedType(cloneTypeRepr(it->second));
                         } else {
                             node->setResolvedType(makeNamedType(named->getName()));
                         }
@@ -1058,8 +1064,8 @@ void TypeChecker::resolveMapSetMethodCall(CallExpr *node) {
                     } else if (methodName == "reduce" && node->getArgs().size() >= 2) {
                         // reduce(init, closure) returns init's type
                         if (node->getArgs()[0]->getResolvedType()) {
-                            node->setResolvedType(makePrimitiveType(
-                                node->getArgs()[0]->getResolvedType()->getKind()));
+                            node->setResolvedType(
+                                cloneTypeRepr(node->getArgs()[0]->getResolvedType()));
                         }
                     } else if (methodName == "pop") {
                         // pop() returns the popped element (zeroinit if empty)

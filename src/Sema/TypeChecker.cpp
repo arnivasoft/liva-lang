@@ -2419,7 +2419,7 @@ void TypeChecker::visitBinaryExpr(BinaryExpr *node) {
                 node->setResolvedType(makeStringType());
             } else {
                 node->setResolvedType(
-                    makePrimitiveType(node->getLHS()->getResolvedType()->getKind()));
+                    cloneTypeRepr(node->getLHS()->getResolvedType()));
             }
         }
         break;
@@ -2431,8 +2431,10 @@ void TypeChecker::visitUnaryExpr(UnaryExpr *node) {
     if (node->getOp() == UnaryExpr::Op::Not) {
         node->setResolvedType(makeBoolType());
     } else if (node->getOperand()->getResolvedType()) {
-        node->setResolvedType(
-            makePrimitiveType(node->getOperand()->getResolvedType()->getKind()));
+        // cloneTypeRepr, not makePrimitiveType: an overloaded unary `-` on a
+        // struct operand would otherwise be sliced to a bare Named-kind
+        // TypeRepr and crash the first consumer that downcasts it.
+        node->setResolvedType(cloneTypeRepr(node->getOperand()->getResolvedType()));
     }
 }
 
@@ -3161,7 +3163,9 @@ void TypeChecker::visitCastExpr(CastExpr *node) {
             cloneTypeRepr(node->getTargetType()));
         node->setResolvedType(std::move(optType));
     } else {
-        node->setResolvedType(makePrimitiveType(node->getTargetType()->getKind()));
+        // `expr as Type` — clone the written target type; slicing it would
+        // turn `a as SomeStruct` into a Named-kind bare TypeRepr.
+        node->setResolvedType(cloneTypeRepr(node->getTargetType()));
     }
 }
 
