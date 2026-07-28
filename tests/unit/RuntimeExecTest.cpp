@@ -5078,10 +5078,10 @@ TEST(RuntimeExecTest, ReturnIntLiteralNarrowedToU8) {
     // Unsigned narrow target: 200 does not fit in i8's range but is a valid
     // u8, so the value must survive the trunc unchanged.
     //
-    // Printed via `as i32` on purpose: `println` on a u8 LOCAL is a separate,
-    // pre-existing gap (it prints garbage even for `let v: u8 = 200 as u8`,
-    // and correctly for a u8 PARAMETER), so printing v directly would test
-    // that gap instead of this one.
+    // The `as i32` used to be REQUIRED: println on a u8 local printed garbage
+    // (a separate gap, since fixed — see the Println* tests at the end of this
+    // file). It is kept so this test keeps exercising the return-narrowing
+    // path it was written for, unchanged.
     auto r = compileAndRun(R"--(
         func mk() -> u8 {
             return 200
@@ -5115,6 +5115,167 @@ TEST(RuntimeExecTest, ReturnIntLiteralWidenedInStructMethod) {
     )--", "return_literal_method_i64");
     EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
     EXPECT_EQ(r.stdout_output, "9\n") << "stdout: " << r.stdout_output;
+}
+
+// ============================================================
+// println default argument promotion (roadmap 2.3)
+// ============================================================
+// printf is variadic, so the C ABI requires every integer argument narrower
+// than `int` to be promoted to `int` at the call site. println's lowering
+// only recognised i32/i64/float/pointer and passed i8/i16 values through
+// untouched, so printf read 4 bytes out of a slot that only had 1-2 bytes
+// written — the high bits were whatever junk the register held.
+//
+// The failure is UB, so it did not look consistent: some of these printed
+// pure garbage (`200 as u8` -> -508793656), while others happened to land in
+// a zeroed slot and printed the low bits with the sign dropped (`i8` -5 ->
+// 251, `i16` -300 -> 65236). The bool branch of the same loop already
+// zero-extends for exactly this reason.
+
+TEST(RuntimeExecTest, PrintlnU8ValuePromoted) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            println(200 as u8)
+        }
+    )--", "println_u8_value");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnI8NegativeValueSignExtended) {
+    // Must SIGN-extend: zero-extending the i8 bit pattern prints 251.
+    auto r = compileAndRun(R"--(
+        func main() {
+            println(-5 as i8)
+        }
+    )--", "println_i8_neg_value");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-5\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnNarrowLocalsPromoted) {
+    // The local-variable path, both signedness directions and both widths.
+    // 60000 fits in u16, so no truncation is involved here.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: u8 = 200 as u8
+            let b: u16 = 60000 as u16
+            let c: i8 = -5 as i8
+            let d: i16 = -300 as i16
+            println(a)
+            println(b)
+            println(c)
+            println(d)
+        }
+    )--", "println_narrow_locals");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n60000\n-5\n-300\n")
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnNarrowParameterPromoted) {
+    // The parameter path. The roadmap entry recorded this one as "prints
+    // correctly" — it does not; that reading was the lucky side of the same
+    // UB (the call ABI had left the upper bits of the register clean).
+    auto r = compileAndRun(R"--(
+        func show(v: u8) {
+            println(v)
+        }
+        func main() {
+            show(200 as u8)
+        }
+    )--", "println_narrow_param");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnNarrowMultiArgPromoted) {
+    // Multi-argument println walks the same loop once per argument, with a
+    // space separator; the promotion has to happen on every iteration.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: u8 = 200 as u8
+            let b: i16 = -300 as i16
+            println(a, b, 42)
+        }
+    )--", "println_narrow_multiarg");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200 -300 42\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnU8ArrayElementNotSignExtended) {
+    // Regression guard for the promotion fallback. An ARRAY ELEMENT carries
+    // no element type by the time println lowers it — Sema does not resolve
+    // `[u8]` element types and DynArrayInfo keeps only the LLVM type — so the
+    // widening has nothing to consult and must not guess "signed": 255 would
+    // print as -1. SqliteBlobRoundTrip covers the same path through a real
+    // blob column; this pins it without needing sqlite.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let bytes: [u8] = [104, 0, 255]
+            println(bytes[0])
+            println(bytes[2])
+        }
+    )--", "println_u8_array_elem");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "104\n255\n") << "stdout: " << r.stdout_output;
+}
+
+// The other half of the same defect: println picked its printf format from
+// the LLVM type alone, which cannot distinguish u32 from i32. Values above
+// the signed range printed as negative — the bits were right, only the
+// format was wrong.
+//
+// Both values below are built by ARITHMETIC rather than written as literals
+// on purpose: an integer literal is strictly i32 here, so `4000000000` silently
+// wraps to -294967296 before any cast can see it (a separate defect, recorded
+// in the roadmap). Values under 2^31 print identically either way, so they
+// could not tell the two formats apart.
+
+TEST(RuntimeExecTest, PrintlnU32AboveSignedRange) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: u32 = 2000000000 as u32
+            let b: u32 = a + a
+            println(b)
+        }
+    )--", "println_u32_above_signed");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "4000000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnU64AboveSignedRange) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let c: u64 = 2000000000 as u64
+            let d: u64 = c * c
+            let e: u64 = d + d + d
+            println(e)
+        }
+    )--", "println_u64_above_signed");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "12000000000000000000\n")
+        << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnSignedStillPrintsNegative) {
+    // Guard against over-applying the unsigned format: i32/i64 must keep
+    // printing negatives as negatives.
+    // The i64 value is built by arithmetic for the same literal-range reason
+    // as the tests above; printed with %llu it would read 14446744073709551616.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: i32 = -294967296
+            let b: i64 = -2000000000 as i64
+            let c: i64 = 2000000000 as i64
+            let d: i64 = b * c
+            println(a)
+            println(d)
+        }
+    )--", "println_signed_negative");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-294967296\n-4000000000000000000\n")
+        << "stdout: " << r.stdout_output;
 }
 
 #endif // LIVA_HAS_LLVM

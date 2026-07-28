@@ -392,11 +392,55 @@ IRGen::tryEmitCoreBuiltin(CallExpr *node, const std::string &funcName) {
                 trackStringTemp(arg);
             }
 
+            // printf is variadic, so the C ABI applies default argument
+            // promotion: every integer narrower than `int` arrives as an
+            // `int`. Handing printf a raw i8/i16 leaves the upper bytes of
+            // the vararg slot undefined and it reads them anyway — the same
+            // trap the i1 branch above sidesteps. The symptom is UB, so it
+            // varies: garbage when the slot held junk (`200 as u8` ->
+            // -508793656), the low bits with the sign dropped when it
+            // happened to be zeroed (`-5 as i8` -> 251).
+            //
+            // Signedness comes from the argument's DECLARED type: i8 and u8
+            // are the same LLVM type, so only the TypeRepr can say whether
+            // the high bits should be a sign copy or zeros — and, below,
+            // whether the format is signed or unsigned.
+            const TypeRepr *argRepr = node->getArgs()[i]->getResolvedType();
+            const bool argUnsigned = isUnsignedTypeRepr(argRepr);
+
+            if (arg->getType()->isIntegerTy() &&
+                arg->getType()->getIntegerBitWidth() < 32) {
+                // Sign-extend ONLY when the declared type actually says
+                // signed-and-narrow. When the type is unknown, zero-extend:
+                // that reproduces the low-bits reading callers already got
+                // when the vararg slot happened to be zeroed, so this cannot
+                // turn a value that used to print correctly into a wrong one.
+                //
+                // The fallback is load-bearing rather than cosmetic: a `[u8]`
+                // ELEMENT (`blob[4]` -> 255) carries no element type here.
+                // Sema deliberately does not resolve `[u8]` element types
+                // (doing so previously broke gzip's byte signedness) and
+                // DynArrayInfo records only the LLVM type, so neither layer
+                // can tell u8 from i8 for an element. Sign-extending on a
+                // guess would print 255 as -1.
+                const bool signedNarrow =
+                    argRepr && (argRepr->getKind() == TypeRepr::Kind::I8 ||
+                                argRepr->getKind() == TypeRepr::Kind::I16);
+                auto *i32Ty = llvm::Type::getInt32Ty(*context_);
+                arg = signedNarrow
+                          ? builder_->CreateSExt(arg, i32Ty, "print.sext")
+                          : builder_->CreateZExt(arg, i32Ty, "print.zext");
+            }
+
+            // An unsigned value at or above the signed range printed as a
+            // negative number ("%d" on a u32 4000000000 -> -294967296): the
+            // bits were right, the format was not. Values below the signed
+            // range are unaffected — the two formats agree there.
             std::string fmt;
             if (arg->getType()->isIntegerTy(32))
-                fmt = "%d";
+                fmt = argUnsigned ? "%u" : "%d";
             else if (arg->getType()->isIntegerTy(64))
-                fmt = "%lld";
+                fmt = argUnsigned ? "%llu" : "%lld";
             else if (arg->getType()->isFloatingPointTy())
                 fmt = "%f";
             else if (arg->getType()->isPointerTy())
