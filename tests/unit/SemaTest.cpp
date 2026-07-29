@@ -12335,6 +12335,91 @@ TEST_F(SemaTest, RefParamBareForwardingRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
 }
 
+// ============================================================
+// push() argument type checking (roadmap 2.3)
+// ============================================================
+// `push` is a builtin with no FuncDecl, so checkCallArgTypes' generic path
+// never judged it. The array LITERAL path rejected `[1, true]` while
+// `a.push(true)` on the same `[i32]` stored 1 — and `push(3.7)` stored 3,
+// `push(300)` into a `[u8]` stored 44. All silent. A `[string]` value was
+// the only loud one, and only from IRGen ("internal: cannot convert array
+// element value to element type").
+
+TEST_F(SemaTest, PushBoolIntoIntArrayRejected) {
+    auto result = check(R"(
+        func main() {
+            var a: [i32] = [1, 2]
+            a.push(true)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, PushStringIntoIntArrayRejected) {
+    auto result = check(R"(
+        func main() {
+            var a: [i32] = [1, 2]
+            a.push("x")
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, PushFloatLiteralIntoIntArrayRejected) {
+    auto result = check(R"(
+        func main() {
+            var a: [i32] = [1, 2]
+            a.push(3.7)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
+TEST_F(SemaTest, PushOutOfRangeLiteralIntoU8ArrayRejected) {
+    auto result = check(R"(
+        func main() {
+            var a: [u8] = [1, 2]
+            a.push(300)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, PushValuePreservingLiteralAccepted) {
+    // The rule must stay as permissive as the literal path: an integer
+    // literal into a [f64], and an in-range narrowing literal into a [u8].
+    auto result = check(R"(
+        func main() {
+            var a: [f64] = [1.0]
+            a.push(2)
+            var b: [u8] = [1]
+            b.push(200)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, PushIntoStructFieldArrayRejected) {
+    // Member receiver, not just a bare local.
+    auto result = check(R"(
+        struct Bag {
+            var items: [i32]
+        }
+        impl Bag {
+            func add(ref mut self) {
+                self.items.push(true)
+            }
+        }
+        func main() {
+            var b = Bag { items: [1] }
+            b.add()
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
+}
+
 TEST_F(SemaTest, RefMutParamSharedRefArgRejected) {
     // A `ref mut` parameter borrowed with a plain `ref` used to be accepted,
     // and the callee mutated through it anyway (`bump(ref k)` left k == 11).

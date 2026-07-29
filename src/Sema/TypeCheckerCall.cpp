@@ -145,6 +145,50 @@ void TypeChecker::checkCallArgCount(CallExpr *node) {
 }
 
 void TypeChecker::checkCallArgTypes(CallExpr *node) {
+    // `push` is a BUILTIN — it has no FuncDecl, so the declaration-driven
+    // path below never judged its argument. The array LITERAL path rejected
+    // `[1, true]` while `a.push(true)` on the same `[i32]` silently stored 1;
+    // likewise `push(3.7)` stored 3 and `push(300)` into a `[u8]` stored 44.
+    // Only a `[string]` value was loud, and only once it reached IRGen
+    // ("internal: cannot convert array element value to element type").
+    //
+    // Judged with checkAssignable and reported with the array-element
+    // diagnostics, so pushing and listing an element give the same verdict
+    // and the same message.
+    if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        auto *member = static_cast<MemberExpr *>(node->getCallee());
+        if (member->getMember() == "push" && node->getArgs().size() == 1) {
+            const TypeRepr *recv = member->getObject()->getResolvedType();
+            if (recv)
+                recv = resolveAlias(recv);
+            if (recv && recv->getKind() == TypeRepr::Kind::Array) {
+                auto *arr = static_cast<const ArrayTypeRepr *>(recv);
+                const TypeRepr *elemType = arr->getElement();
+                const Expr *arg = node->getArgs()[0].get();
+                if (arr->isDynamic() && elemType) {
+                    switch (checkAssignable(elemType, arg)) {
+                    case Assignability::Ok:
+                        break;
+                    case Assignability::Mismatch:
+                        diag_.report(arg->getStartLoc(),
+                                     DiagID::err_array_element_type_mismatch,
+                                     typeToString(arg->getResolvedType()),
+                                     typeToString(elemType));
+                        break;
+                    case Assignability::LiteralOutOfRange: {
+                        auto *lit = static_cast<const IntegerLiteralExpr *>(arg);
+                        diag_.report(arg->getStartLoc(),
+                                     DiagID::err_array_element_literal_range,
+                                     std::to_string(lit->getValue()),
+                                     typeToString(elemType));
+                        break;
+                    }
+                    }
+                }
+            }
+        }
+    }
+
     // Resolve the callee's declaration. Two shapes are judged: a direct
     // call to a named user function, and a method call whose receiver has a
     // Named type we have a registered declaration for. Everything else —
