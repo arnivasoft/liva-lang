@@ -5278,4 +5278,33 @@ TEST(RuntimeExecTest, PrintlnSignedStillPrintsNegative) {
         << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Reference-argument borrow lifetime (roadmap 2.3)
+// ============================================================
+
+TEST(RuntimeExecTest, RefMutArgTwiceMutatesTwice) {
+    // A `ref mut` argument borrow used to live until the end of the enclosing
+    // scope, so the SECOND call here was rejected outright ("cannot borrow 'k'
+    // as mutable because it is already borrowed"). Now that the borrow ends
+    // with the call, both mutations land — pinning the codegen alongside the
+    // OwnershipTest cases, which only prove Sema accepts the program.
+    auto r = compileAndRun(R"--(
+        func take(x: ref mut i32) {
+            x = x + 1
+        }
+        func peek(x: ref i32) -> i32 {
+            return x
+        }
+        func main() {
+            var k: i32 = 10
+            take(ref mut k)
+            take(ref mut k)
+            println(k)
+            println(peek(ref k))
+        }
+    )--", "ref_mut_arg_twice");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "12\n12\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

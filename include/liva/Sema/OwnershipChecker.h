@@ -96,8 +96,21 @@ private:
     /// Add a borrow
     bool addBorrow(const std::string &name, bool isMutable, SourceLocation loc);
 
-    /// Release borrows at scope exit
+    /// Release ALL borrows on a variable. Scope-exit only — the variable is
+    /// going away, so precision does not matter there.
     void releaseBorrows(const std::string &name);
+
+    /// Release exactly ONE borrow, the counterpart of a single addBorrow.
+    /// Used for `ref`/`ref mut` call ARGUMENTS, whose borrow ends with the
+    /// call: a blanket releaseBorrows would also clear borrows held by live
+    /// `let r = ref x` bindings on the same variable.
+    void releaseBorrow(const std::string &name, bool isMutable);
+
+    /// Set by visitRefExpr when it actually registered a borrow, so
+    /// visitCallExpr can release precisely that borrow once the call is done.
+    /// Empty name means "no borrow was taken" (untracked variable, a
+    /// non-identifier operand, or a rejected borrow).
+    std::pair<std::string, bool> lastRefBorrow_;
 
     /// Check if a type is a Copy type (primitives)
     bool isCopyType(const TypeRepr *type) const;

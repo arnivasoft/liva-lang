@@ -245,11 +245,22 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
 void OwnershipChecker::visitCallExpr(CallExpr *node) {
     visit(node->getCallee());
 
+    // Borrows taken by `ref`/`ref mut` ARGUMENTS last only as long as the
+    // call. Collected here and released once every argument is visited (not
+    // immediately, so two arguments borrowing the same variable still
+    // conflict with each other). Before this, the only path to a release was
+    // dropScopeVariables, so an argument borrow lived to the end of the
+    // enclosing scope and a variable could be borrowed mutably just once per
+    // scope — `take(ref mut k)` twice in a row was rejected.
+    std::vector<std::pair<std::string, bool>> argBorrows;
+
     // Each argument is either copied (if Copy type) or moved
     for (auto &arg : node->getArgs()) {
         // Check if it's a ref expression
         if (arg->getKind() == ASTNode::NodeKind::RefExpr) {
             visit(arg.get());
+            if (!lastRefBorrow_.first.empty())
+                argBorrows.push_back(lastRefBorrow_);
             continue;
         }
 
@@ -264,6 +275,9 @@ void OwnershipChecker::visitCallExpr(CallExpr *node) {
             }
         }
     }
+
+    for (const auto &[name, isMutable] : argBorrows)
+        releaseBorrow(name, isMutable);
 }
 
 void OwnershipChecker::visitBinaryExpr(BinaryExpr *node) {
@@ -272,12 +286,17 @@ void OwnershipChecker::visitBinaryExpr(BinaryExpr *node) {
 }
 
 void OwnershipChecker::visitRefExpr(RefExpr *node) {
+    lastRefBorrow_ = {};
     if (node->getExpr()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(
             const_cast<Expr *>(node->getExpr()));
         if (!addBorrow(ident->getName(), node->isMutable(), node->getStartLoc())) {
             return;
         }
+        // addBorrow also returns true for a variable it does not track, in
+        // which case nothing was recorded and nothing may be released.
+        if (getInfo(ident->getName()))
+            lastRefBorrow_ = {ident->getName(), node->isMutable()};
 
         // Check mutable ref to immutable variable
         if (node->isMutable()) {
@@ -421,6 +440,26 @@ void OwnershipChecker::releaseBorrows(const std::string &name) {
     info->hasMutableBorrow = false;
     if (info->state == OwnershipState::BorrowedImmutable ||
         info->state == OwnershipState::BorrowedMutable) {
+        info->state = OwnershipState::Owned;
+    }
+}
+
+void OwnershipChecker::releaseBorrow(const std::string &name, bool isMutable) {
+    auto *info = getInfo(name);
+    if (!info)
+        return;
+
+    if (isMutable)
+        info->hasMutableBorrow = false;
+    else if (info->borrowCount > 0)
+        info->borrowCount--;
+
+    // addBorrow never lets a mutable and an immutable borrow coexist, so the
+    // variable is unborrowed exactly when both counters are clear. Any other
+    // state (Moved, Dropped) is left alone — this only undoes a borrow.
+    if (!info->hasMutableBorrow && info->borrowCount == 0 &&
+        (info->state == OwnershipState::BorrowedImmutable ||
+         info->state == OwnershipState::BorrowedMutable)) {
         info->state = OwnershipState::Owned;
     }
 }

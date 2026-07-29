@@ -1787,3 +1787,92 @@ TEST_F(OwnershipTest, FFI_ExternRefParam) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// ============================================================
+// Call-argument borrow lifetime (roadmap 2.3)
+// ============================================================
+// A borrow taken by a `ref`/`ref mut` ARGUMENT lasts for the duration of the
+// call and no longer. It used to live until the end of the enclosing scope —
+// releaseBorrows was reachable only from dropScopeVariables — so a variable
+// could be borrowed mutably exactly ONCE per scope, which made `ref mut`
+// helper functions effectively single-use.
+//
+// Borrows taken by a BINDING (`let r = ref mut x`) are a different case and
+// must keep living to the end of the scope; the tests further down pin that.
+
+TEST_F(OwnershipTest, RefMutArgBorrowEndsWithTheCall) {
+    auto result = check(R"--(
+        func take(x: ref mut i32) {
+            x = x + 1
+        }
+        func main() {
+            var k: i32 = 10
+            take(ref mut k)
+            take(ref mut k)
+            println(k)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_mut_borrow_conflict));
+}
+
+TEST_F(OwnershipTest, RefMutArgThenSharedArgAccepted) {
+    auto result = check(R"--(
+        func take(x: ref mut i32) {
+            x = x + 1
+        }
+        func peek(x: ref i32) -> i32 {
+            return x
+        }
+        func main() {
+            var k: i32 = 10
+            take(ref mut k)
+            println(peek(ref k))
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_immut_borrow_conflict));
+}
+
+TEST_F(OwnershipTest, BindingBorrowStillBlocksLaterArgBorrow) {
+    // The binding's borrow is NOT a call-argument borrow and must survive:
+    // passing `ref mut x` while `r` is alive is still a conflict.
+    auto result = check(R"--(
+        func take(x: ref mut i32) {
+            x = x + 1
+        }
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            take(ref mut k)
+            println(r)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_mut_borrow_conflict));
+}
+
+TEST_F(OwnershipTest, ArgBorrowReleaseDoesNotClearBindingBorrow) {
+    // Precision guard. Releasing the call-argument borrow must undo EXACTLY
+    // that borrow, not reset the variable's borrow state: `r` still holds an
+    // immutable borrow after `peek(ref k)` returns, so the later `ref mut k`
+    // is a conflict. A blanket releaseBorrows() here would clear r's borrow
+    // too and let the mutable borrow through.
+    auto result = check(R"--(
+        func peek(x: ref i32) -> i32 {
+            return x
+        }
+        func take(x: ref mut i32) {
+            x = x + 1
+        }
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            println(peek(ref k))
+            take(ref mut k)
+            println(r)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_mut_borrow_conflict));
+}
