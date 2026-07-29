@@ -1800,6 +1800,58 @@ TEST_F(OwnershipTest, FFI_ExternRefParam) {
 // Borrows taken by a BINDING (`let r = ref mut x`) are a different case and
 // must keep living to the end of the scope; the tests further down pin that.
 
+TEST_F(OwnershipTest, RefBindingBorrowEndsWithItsScope) {
+    // dropScopeVariables released the borrows taken ON each dying variable,
+    // but a `ref` binding's borrow is recorded on its REFERENT, which lives
+    // in an outer scope — so the borrow a binding HELD was never released,
+    // not even when the binding itself went away. Mutating `k` after the
+    // block that borrowed it was therefore rejected forever.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            {
+                let r = ref k
+                println(r)
+            }
+            k = 42
+            println(k)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, SequentialScopedMutableBorrowsAccepted) {
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            {
+                let a = ref mut k
+                a = 1
+            }
+            {
+                let b = ref mut k
+                b = 2
+            }
+            println(k)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, BorrowStillLiveInSameScopeStillBlocksMutation) {
+    // The binding is still alive here, so this must keep failing — the fix
+    // is about scope EXIT, not about last use.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            k = 42
+            println(r)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
 TEST_F(OwnershipTest, RefMutArgBorrowEndsWithTheCall) {
     auto result = check(R"--(
         func take(x: ref mut i32) {

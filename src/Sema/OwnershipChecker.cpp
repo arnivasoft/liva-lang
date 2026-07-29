@@ -90,8 +90,14 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
 
     if (node->hasInit() &&
         node->getInit()->getKind() == ASTNode::NodeKind::RefExpr) {
-        if (auto *info = getInfo(node->getName()))
+        if (auto *info = getInfo(node->getName())) {
             info->isRefBinding = true;
+            // visitRefExpr ran while the initializer was visited above and
+            // left the borrow it registered here, so the binding can give
+            // that exact borrow back when its scope ends.
+            info->borrowsName = lastRefBorrow_.first;
+            info->borrowsMutable = lastRefBorrow_.second;
+        }
     }
 }
 
@@ -553,8 +559,18 @@ void OwnershipChecker::dropScopeVariables() {
             // Drop the value (in codegen, this would insert drop calls)
             info.state = OwnershipState::Dropped;
         }
-        // Release any borrows
+        // Release borrows taken ON this variable — it is going away, so
+        // precision does not matter and the blanket reset is fine.
         releaseBorrows(name);
+        // A reference binding also HOLDS a borrow, recorded on its referent
+        // and therefore on a variable that usually outlives this scope. That
+        // one was never given back: `{ let r = ref k }` left k borrowed for
+        // good, so mutating k after the block stayed an error forever. Undo
+        // exactly the one borrow this binding took, for the same reason the
+        // call-argument release is precise — the referent may still be
+        // borrowed by something else.
+        if (info.isRefBinding && !info.borrowsName.empty())
+            releaseBorrow(info.borrowsName, info.borrowsMutable);
         // Remove from flat lookup
         allVariables_.erase(name);
     }

@@ -41,6 +41,12 @@ struct OwnershipInfo {
     // or mutable); recording it here only stops a second, misleading
     // "declare with 'var'" complaint from firing alongside.
     bool isRefBinding = false;
+    // For a reference binding, the borrow it HOLDS: the referent's name and
+    // whether the borrow is mutable. The borrow itself is recorded on the
+    // referent's OwnershipInfo, which usually lives in an OUTER scope, so
+    // this is what lets scope exit give it back.
+    std::string borrowsName;
+    bool borrowsMutable = false;
 };
 
 /// Performs ownership and borrow checking on the AST
