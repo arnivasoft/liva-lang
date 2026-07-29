@@ -228,8 +228,25 @@ void TypeChecker::checkCallArgTypes(CallExpr *node) {
         // checkAssignable knows neither convention, so comparing the two
         // here always disagrees on kind (Reference vs i32) and would reject
         // every by-ref call. Ownership/borrow correctness for these is
-        // OwnershipChecker's job, not this check's; stay silent.
+        // OwnershipChecker's job, not this check's.
+        //
+        // The TYPE comparison stays skipped for that reason, but one thing
+        // can still be judged from the shapes alone: Liva borrows explicitly
+        // at the call site (`increment(ref mut n)`), so the argument to a
+        // reference parameter must be a `ref` expression. A bare value was
+        // silently accepted here and then went wrong further down — a free
+        // function failed LLVM verification ("Call parameter type does not
+        // match function signature! i32 / ptr"), while the same mistake on a
+        // method compiled and silently dropped the mutation. Both spellings
+        // of a reference parameter (`ref mut n: T` and `n: ref mut T`) reach
+        // this point identically, so this covers both.
         if (params[paramIdx].isRef || params[paramIdx].isMutRef) {
+            if (args[argIdx]->getKind() != ASTNode::NodeKind::RefExpr) {
+                diag_.report(args[argIdx]->getStartLoc(),
+                             DiagID::err_ref_arg_required,
+                             params[paramIdx].name,
+                             params[paramIdx].isMutRef ? "ref mut" : "ref");
+            }
             ++paramIdx;
             continue;
         }

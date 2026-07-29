@@ -12241,3 +12241,127 @@ TEST_F(SemaTest, ReturnWideLiteralIntoI64Accepted) {
     EXPECT_TRUE(result.passed);
     EXPECT_FALSE(hasDiag(result, DiagID::err_return_literal_range));
 }
+
+// ============================================================
+// Reference arguments (roadmap 2.3)
+// ============================================================
+// Liva is explicit about borrowing at the CALL SITE: `increment(ref mut n)`,
+// as the language reference documents. Passing a bare value to a `ref`/`ref
+// mut` parameter was not diagnosed, and what happened next depended on the
+// call shape — a free function died in the LLVM verifier ("Call parameter
+// type does not match function signature! i32 %k1 / ptr"), while the same
+// mistake on a METHOD compiled and silently did nothing, dropping the
+// mutation. Both surface syntaxes for a reference parameter (`ref mut n: T`
+// and `n: ref mut T`) parse to the SAME representation — the `ref`/`mut`
+// tokens are consumed before parseType, leaving ParamDecl.isRef/isMutRef set
+// and ParamDecl.type holding the referent — so one check covers both.
+
+TEST_F(SemaTest, RefParamBareArgRejected) {
+    auto result = check(R"(
+        func bump(ref mut n: i32) {
+            n = n + 1
+        }
+        func main() {
+            var k: i32 = 10
+            bump(k)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
+}
+
+TEST_F(SemaTest, RefParamBareArgRejectedTypePositionSyntax) {
+    // The `n: ref mut T` spelling — same defect, same representation.
+    auto result = check(R"(
+        func bump(x: ref mut i32) {
+            x = x + 1
+        }
+        func main() {
+            var k: i32 = 10
+            bump(k)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
+}
+
+TEST_F(SemaTest, RefParamLiteralArgRejected) {
+    // A literal has no address to borrow; it used to reach the verifier.
+    auto result = check(R"(
+        func bump(x: ref mut i32) {
+            x = x + 1
+        }
+        func main() {
+            bump(7)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
+}
+
+TEST_F(SemaTest, RefParamBareArgRejectedOnMethod) {
+    // The method path is the one that used to fail SILENTLY: it compiled and
+    // the mutation was simply lost.
+    auto result = check(R"(
+        struct S {
+            var v: i32
+        }
+        impl S {
+            func bump(ref self, x: ref mut i32) {
+                x = x + 1
+            }
+        }
+        func main() {
+            var k: i32 = 10
+            let s = S { v: 1 }
+            s.bump(k)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
+}
+
+TEST_F(SemaTest, RefParamBareForwardingRejected) {
+    // Forwarding one reference parameter into another still needs the
+    // explicit `ref mut`; the bare form used to reach the verifier.
+    auto result = check(R"(
+        func inner(x: ref mut i32) {
+            x = x + 1
+        }
+        func outer(y: ref mut i32) {
+            inner(y)
+        }
+        func main() {
+            var k: i32 = 10
+            outer(ref mut k)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
+}
+
+TEST_F(SemaTest, RefArgAccepted) {
+    // The correct spellings must stay clean — including forwarding, and the
+    // immutable `ref` form.
+    //
+    // The two borrows are taken on SEPARATE variables on purpose: a `ref mut`
+    // argument borrow is currently never released, so borrowing `k` mutably
+    // and then reading it through `ref k` is rejected by OwnershipChecker
+    // ("cannot borrow 'k' as immutable because it is already mutably
+    // borrowed"). That is a pre-existing borrow-lifetime gap, unrelated to
+    // the call-site rule under test here, and is tracked in the roadmap.
+    auto result = check(R"(
+        func read(x: ref i32) -> i32 {
+            return x
+        }
+        func inner(x: ref mut i32) {
+            x = x + 1
+        }
+        func outer(y: ref mut i32) {
+            inner(ref mut y)
+        }
+        func main() {
+            var a: i32 = 10
+            var b: i32 = 5
+            outer(ref mut a)
+            println(read(ref b))
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_ref_arg_required));
+}

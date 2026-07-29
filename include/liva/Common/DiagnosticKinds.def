@@ -285,6 +285,7 @@ DIAG(err_array_element_type_mismatch, error, "array element of type '%0' cannot 
 DIAG(err_array_element_literal_range, error, "literal %0 does not fit in array element type '%1'")
 DIAG(err_arg_type_mismatch, error, "argument of type '%0' cannot be passed to parameter of type '%1'")
 DIAG(err_arg_literal_range, error, "literal %0 does not fit in parameter type '%1'")
+DIAG(err_ref_arg_required, error, "parameter '%0' is declared '%1' and requires a reference argument — write '%1 <expr>'")
 DIAG(err_assign_type_mismatch, error, "cannot assign a value of type '%0' to a variable of type '%1'")
 DIAG(err_assign_literal_range, error, "literal %0 does not fit in type '%1'")
 DIAG(err_return_literal_range, error, "literal %0 does not fit in return type '%1'")
