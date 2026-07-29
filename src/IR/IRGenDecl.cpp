@@ -1843,8 +1843,28 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             type = initVal->getType();
         }
         auto *alloca = createEntryBlockAlloca(func, node->getName(), type);
-        if (initVal)
+        if (initVal) {
+            // The slot is created from the DECLARED type but the initializer
+            // was stored raw, so a narrower value only wrote its own bytes and
+            // left the rest of the slot undefined: `let a: i64 = 5` read back
+            // 0, and `let y: i64 = x` (x an i32 -7) read back 4294967289 for
+            // want of a sign extension. `let b: u8 = 200` looked fine only by
+            // luck — the 4-byte store's low byte happened to be the value.
+            //
+            // Same throat-point treatment as the argument path (coerceCallArgs)
+            // and visitReturnStmt: convert against the slot's type, with
+            // signedness taken from the initializer's declared type.
+            // coerceToElemType returns null for anything it cannot convert
+            // (structs, pointers, Optionals built above), so those store
+            // unchanged.
+            if (auto *converted = coerceToElemType(
+                    initVal, type,
+                    isUnsignedTypeRepr(node->getInit()
+                                           ? node->getInit()->getResolvedType()
+                                           : nullptr)))
+                initVal = converted;
             builder_->CreateStore(initVal, alloca);
+        }
         vars_.namedValues[node->getName()] = alloca;
         if (diBuilder_) {
             auto *diTy = toDIType(node->getType());

@@ -5475,4 +5475,53 @@ TEST(RuntimeExecTest, LiteralsWithinI32RangeUnchanged) {
         << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// `let x: T = init` codegen after the Sema rule was relaxed (roadmap 2.3)
+// ============================================================
+// Accepting these in Sema is only half the job: the initializer still has to
+// reach the slot converted to the DECLARED type, exactly as the argument and
+// assignment paths do.
+
+TEST(RuntimeExecTest, VarDeclLiteralWidenedToDeclaredType) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: i64 = 5
+            let b: u8 = 200
+            let c: f64 = 3
+            println(a)
+            println(b)
+            println(c)
+        }
+    )--", "vardecl_literal_widened");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "5\n200\n3.000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, VarDeclVariableWidenedToDeclaredType) {
+    // A negative value must be SIGN-extended into the wider slot; a plain
+    // reinterpretation would read back as 4294967289.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let x: i32 = -7
+            let y: i64 = x
+            println(y)
+        }
+    )--", "vardecl_variable_widened");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, VarDeclUnsignedVariableWidenedToDeclaredType) {
+    // The unsigned direction: 200 in a u8 must ZERO-extend, not sign-extend.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let x: u8 = 200
+            let y: i64 = x
+            println(y)
+        }
+    )--", "vardecl_unsigned_widened");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

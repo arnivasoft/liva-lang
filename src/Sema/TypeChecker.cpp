@@ -1115,8 +1115,33 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                 }
             }
             if (!compat) {
-                diag_.report(node->getStartLoc(), DiagID::err_type_mismatch,
-                             typeToString(annType), typeToString(initType));
+                // Four other paths judge a value against a declared type —
+                // array element, argument, assignment and return — and all of
+                // them go through checkAssignable, which judges an integer
+                // literal by VALUE and permits value-preserving widening.
+                // This one compared kinds only, so `let a: i64 = 5`,
+                // `let b: u8 = 200`, `let c: f64 = 3` and even
+                // `let y: i64 = x` (x an i32) were rejected while the very
+                // same values passed as arguments or assignments. An
+                // out-of-range literal was rejected too, but with the generic
+                // mismatch message, which said nothing about the range.
+                switch (checkAssignable(annType, node->getInit())) {
+                case Assignability::Ok:
+                    break;
+                case Assignability::Mismatch:
+                    diag_.report(node->getStartLoc(), DiagID::err_type_mismatch,
+                                 typeToString(annType), typeToString(initType));
+                    break;
+                case Assignability::LiteralOutOfRange: {
+                    auto *lit = static_cast<const IntegerLiteralExpr *>(
+                        node->getInit());
+                    diag_.report(node->getStartLoc(),
+                                 DiagID::err_assign_literal_range,
+                                 std::to_string(lit->getValue()),
+                                 typeToString(annType));
+                    break;
+                }
+                }
             }
         }
     }

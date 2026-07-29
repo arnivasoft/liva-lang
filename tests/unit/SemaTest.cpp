@@ -12353,16 +12353,104 @@ TEST_F(SemaTest, RefParamBareForwardingRejected) {
 }
 
 // ============================================================
+// `let x: T = init` judged with checkAssignable (roadmap 2.3)
+// ============================================================
+// Four paths judge a value against a declared type — array element, argument,
+// assignment and return — and all of them go through checkAssignable, which
+// judges an integer literal by VALUE and allows value-preserving widening.
+// The VarDecl annotation-vs-init check compared kinds instead, so values that
+// every other path accepted were rejected here.
+
+TEST_F(SemaTest, VarDeclIntLiteralIntoI64Accepted) {
+    auto result = check(R"(
+        func main() {
+            let a: i64 = 5
+            println(a)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VarDeclNarrowingLiteralInRangeAccepted) {
+    // Accepted as an argument (`take(200)` with a u8 parameter) and as an
+    // array element (`[u8] = [200]`) — so it must be accepted here too.
+    auto result = check(R"(
+        func main() {
+            let b: u8 = 200
+            println(b)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VarDeclIntLiteralIntoF64Accepted) {
+    auto result = check(R"(
+        func main() {
+            let c: f64 = 3
+            println(c)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VarDeclWideningVariableAccepted) {
+    // Not a literal: an ordinary i32 value widening into i64, which the
+    // argument path already allows.
+    auto result = check(R"(
+        func main() {
+            let x: i32 = 5
+            let y: i64 = x
+            println(y)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, VarDeclOutOfRangeLiteralUsesRangeDiag) {
+    // Was rejected with the generic mismatch message, which said nothing
+    // about the real problem.
+    auto result = check(R"(
+        func main() {
+            let d: u8 = 300
+            println(d)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_literal_range));
+}
+
+TEST_F(SemaTest, VarDeclGenuineMismatchStillRejected) {
+    auto result = check(R"(
+        func main() {
+            let g: i32 = "x"
+            println(g)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, VarDeclNarrowingVariableStillRejected) {
+    // Only LITERALS get the lossy allowance; a real i64 value must not
+    // silently narrow into an i32 slot.
+    auto result = check(R"(
+        func main() {
+            let big: i64 = 5
+            let small: i32 = big
+            println(small)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+// ============================================================
 // Integer literals wider than i32 (roadmap 2.3)
 // ============================================================
 
 TEST_F(SemaTest, LiteralAboveI32IntoI32Diagnosed) {
     // Used to compile and silently store -294967296: the literal was
     // truncated to i32 before anything could compare it with the annotation.
-    // It is now an i64 literal, so the annotation check reports a mismatch.
-    // (The message is the generic one because `let x: T = <literal>` does not
-    // go through checkAssignable at all — see the separate roadmap entry on
-    // that path; the point pinned here is that it is no longer SILENT.)
+    // It is now an i64 literal, and since the VarDecl annotation check goes
+    // through checkAssignable it is reported as what it actually is — a
+    // literal that does not fit the declared type.
     auto result = check(R"(
         func main() {
             let a: i32 = 4000000000
@@ -12370,7 +12458,7 @@ TEST_F(SemaTest, LiteralAboveI32IntoI32Diagnosed) {
         }
     )");
     EXPECT_FALSE(result.passed);
-    EXPECT_TRUE(hasDiag(result, DiagID::err_type_mismatch));
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_literal_range));
 }
 
 TEST_F(SemaTest, LiteralAboveI32IntoI64Accepted) {
