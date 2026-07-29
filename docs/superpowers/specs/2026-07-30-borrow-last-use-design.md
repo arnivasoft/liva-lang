@@ -108,7 +108,8 @@ Kararlar:
 - **`const` üzerinden çalışır.** `MatchExpr::getSubject()` ve `getArms()` yalnız
   const erişim veriyor; tarayıcı zaten sadece okuyor, böylece AST başlıklarına
   yeni mutable accessor eklemek gerekmiyor.
-- **`switch`'te `default:` dalı YOK.** `NodeKind`'ın 54 değeri açıkça ele
+- **`switch`'te `default:` dalı YOK.** `NodeKind`'ın 52 değeri (13 Decl, 10 Stmt,
+  29 Expr) açıkça ele
   alınıyor; yapraklar çocuksuz `true` dönüyor. Yeni bir düğüm türü eklendiğinde
   `-Wswitch` derleme hatası veriyor ve CI'da `-DLIVA_WERROR=ON` üç job'da açık.
   Yani gezinti eksiksizliğinin garantisi çalışma zamanı bayrağı değil derleyici;
