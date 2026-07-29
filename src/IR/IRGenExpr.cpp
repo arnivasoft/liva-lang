@@ -8,7 +8,27 @@
 namespace liva {
 
 llvm::Value *IRGen::visitIntegerLiteralExpr(IntegerLiteralExpr *node) {
-    return llvm::ConstantInt::get(*context_, llvm::APInt(32, node->getValue(), true));
+    // Emit at a width that actually holds the value. APInt(32, ...) truncated
+    // anything wider, so `4000000000` became -294967296 before any coercion
+    // could act on it. Mirrors the same widening in
+    // TypeChecker::visitIntegerLiteralExpr — in-range literals stay i32, so
+    // this changes nothing for them.
+    int64_t v = node->getValue();
+    unsigned bits = (v < INT32_MIN || v > INT32_MAX) ? 64 : 32;
+    // `-2147483648` is a negation of the magnitude 2147483648, which on its
+    // own does not fit i32. Sema re-types that literal back to i32 once the
+    // sign is known (visitUnaryExpr), so follow its decision here — emitting
+    // 64 bits would make the annotation `let b: i32 = -2147483648` disagree
+    // with its own initializer. Only this narrowing is honoured: an annotated
+    // literal can carry a u8/f64 resolved type from the array-element rules,
+    // and emitting at THOSE widths would bypass the coercion sites that
+    // currently do the conversion.
+    if (bits == 64) {
+        if (auto *rt = node->getResolvedType())
+            if (rt->getKind() == TypeRepr::Kind::I32)
+                bits = 32;
+    }
+    return llvm::ConstantInt::get(*context_, llvm::APInt(bits, v, true));
 }
 
 llvm::Value *IRGen::visitFloatLiteralExpr(FloatLiteralExpr *node) {

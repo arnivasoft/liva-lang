@@ -2262,6 +2262,19 @@ void TypeChecker::visitContinueStmt(ContinueStmt *node) {
 }
 
 void TypeChecker::visitIntegerLiteralExpr(IntegerLiteralExpr *node) {
+    // The literal's value is kept in an int64_t. Typing it i32 unconditionally
+    // truncated any wider value before a target-aware rule could see it, and
+    // it broke both ways: `let a: i32 = 4000000000` silently stored
+    // -294967296, while `let a: i64 = 4000000000` was REJECTED ("expected
+    // 'i64', found 'i32'") because the comparison saw the forced i32 type
+    // rather than the value. Widening only the literals that do not fit keeps
+    // every in-range literal exactly as it was — the narrowing rules in
+    // checkAssignable still judge those by value.
+    int64_t v = node->getValue();
+    if (v < INT32_MIN || v > INT32_MAX) {
+        node->setResolvedType(makeI64Type());
+        return;
+    }
     node->setResolvedType(makeI32Type());
 }
 
@@ -2452,6 +2465,20 @@ void TypeChecker::visitBinaryExpr(BinaryExpr *node) {
 
 void TypeChecker::visitUnaryExpr(UnaryExpr *node) {
     visit(node->getOperand());
+    // `-2147483648` parses as a negation of the literal 2147483648, whose
+    // MAGNITUDE alone does not fit i32 — so the literal-widening rule in
+    // visitIntegerLiteralExpr types it i64 even though the negated value is
+    // exactly i32's minimum. Re-type the literal once the sign is known,
+    // otherwise `let b: i32 = -2147483648` becomes an i64 and is rejected.
+    // (Before literals could widen at all this worked by accident: the
+    // magnitude wrapped to INT32_MIN and the negation wrapped it back.)
+    if (node->getOp() == UnaryExpr::Op::Negate &&
+        node->getOperand()->getKind() == ASTNode::NodeKind::IntegerLiteralExpr) {
+        auto *lit = static_cast<IntegerLiteralExpr *>(node->getOperand());
+        int64_t negated = -lit->getValue();
+        if (negated >= INT32_MIN && negated <= INT32_MAX)
+            lit->setResolvedType(makeI32Type());
+    }
     if (node->getOp() == UnaryExpr::Op::Not) {
         node->setResolvedType(makeBoolType());
     } else if (node->getOperand()->getResolvedType()) {

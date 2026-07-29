@@ -10966,20 +10966,37 @@ TEST_F(SemaTest, ArrayLiteralAnnotationStringVsIntRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_type_mismatch));
 }
 
-TEST_F(SemaTest, ArrayLiteralUnannotatedLiteralOutOfRangeUsesRangeDiag) {
-    // Unannotated literal: the candidate element type comes from the first
-    // element (u32), and 5000000000 does not fit it (u32 max is
-    // 4294967295) nor does u32 widen back into the literal's own i32 type,
-    // so no promotion is possible and the range diagnostic must win over
-    // the generic mismatch one.
+TEST_F(SemaTest, ArrayLiteralLiteralOutOfRangeUsesRangeDiag) {
+    // The range diagnostic must win over the generic mismatch one when a
+    // literal does not fit the element type.
+    //
+    // This used to be written UNANNOTATED (`let u: u32 = 5` + `[u, 5000000000]`),
+    // relying on the candidate staying u32 because 5000000000 was forced to
+    // the literal's i32 type and neither side could absorb the other. Now
+    // that an integer literal wider than i32 is typed i64, u32 promotes into
+    // i64 and the array is simply an [i64] holding 5000000000 — no error, and
+    // a better answer than the old one. An out-of-range literal is therefore
+    // only reachable where the element type is FIXED, i.e. via an annotation.
     auto result = check(R"(
         func main() {
-            let u: u32 = 5
-            let a = [u, 5000000000]
+            let a: [u32] = [5000000000]
             println(a.length)
         }
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_array_element_literal_range));
+}
+
+TEST_F(SemaTest, ArrayLiteralWideLiteralPromotesToI64) {
+    // The counterpart of the above: unannotated, the candidate widens.
+    auto result = check(R"(
+        func main() {
+            let u: u32 = 5 as u32
+            let a = [u, 5000000000]
+            println(a.length)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_array_element_literal_range));
 }
 
 TEST_F(SemaTest, ArrayLiteralPromotionBypassRejected) {
@@ -12333,6 +12350,99 @@ TEST_F(SemaTest, RefParamBareForwardingRejected) {
         }
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
+}
+
+// ============================================================
+// Integer literals wider than i32 (roadmap 2.3)
+// ============================================================
+
+TEST_F(SemaTest, LiteralAboveI32IntoI32Diagnosed) {
+    // Used to compile and silently store -294967296: the literal was
+    // truncated to i32 before anything could compare it with the annotation.
+    // It is now an i64 literal, so the annotation check reports a mismatch.
+    // (The message is the generic one because `let x: T = <literal>` does not
+    // go through checkAssignable at all — see the separate roadmap entry on
+    // that path; the point pinned here is that it is no longer SILENT.)
+    auto result = check(R"(
+        func main() {
+            let a: i32 = 4000000000
+            println(a)
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_type_mismatch));
+}
+
+TEST_F(SemaTest, LiteralAboveI32IntoI64Accepted) {
+    // Was REJECTED ("expected 'i64', found 'i32'") even though the value
+    // fits, because the comparison saw the literal's forced i32 type.
+    auto result = check(R"(
+        func main() {
+            let a: i64 = 4000000000
+            println(a)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, LiteralAboveI32AsArgumentAccepted) {
+    // The argument path DOES use checkAssignable, so it judges the literal by
+    // value: 4000000000 fits i64 and is accepted, and 4000000000 does not fit
+    // i32 and is reported as an out-of-range literal rather than truncated.
+    auto result = check(R"(
+        func wide(n: i64) -> i64 { return n }
+        func main() {
+            println(wide(4000000000))
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, LiteralAboveI32AsNarrowArgumentRejected) {
+    auto result = check(R"(
+        func narrow(n: i32) -> i32 { return n }
+        func main() {
+            println(narrow(4000000000))
+        }
+    )");
+    EXPECT_FALSE(result.passed);
+}
+
+TEST_F(SemaTest, NegativeI32MinLiteralStillFitsI32) {
+    // `-2147483648` is a negation of a magnitude that does NOT fit i32, so
+    // the widening rule has to be undone once the sign is known.
+    auto result = check(R"(
+        func main() {
+            let b: i32 = -2147483648
+            println(b)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, LiteralWithinI32RangeArgumentRulesUnchanged) {
+    // Blast-radius guard on the paths that do use checkAssignable: values
+    // that fit i32 keep their old type, so the narrowing rules are untouched.
+    auto result = check(R"(
+        func take(b: u8) -> u8 { return b }
+        func wide(n: i64) -> i64 { return n }
+        func main() {
+            println(take(200))
+            println(wide(5))
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_arg_literal_range));
+}
+
+TEST_F(SemaTest, LiteralOutOfRangeForNarrowArgumentStillRejected) {
+    auto result = check(R"(
+        func take(b: u8) -> u8 { return b }
+        func main() {
+            println(take(300))
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_arg_literal_range));
 }
 
 // ============================================================

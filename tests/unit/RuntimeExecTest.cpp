@@ -5382,4 +5382,97 @@ TEST(RuntimeExecTest, RefBindingToStringReadsReferent) {
     EXPECT_EQ(r.stdout_output, "hi\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Integer literals wider than i32 (roadmap 2.3)
+// ============================================================
+// The AST holds a literal's value in an int64_t, but Sema typed every literal
+// i32 and IRGen emitted every literal as APInt(32, ...). A value that did not
+// fit was therefore truncated before anything target-aware could judge it, and
+// the damage went both ways: contexts that should have accepted the value
+// silently got a wrapped one (4000000000 -> -294967296 as a bare argument, an
+// i32 annotation, or through `as u64`), while contexts where the value fits
+// perfectly well were REJECTED, because the comparison saw the literal's i32
+// type rather than its value (`let a: i64 = 4000000000` -> "expected 'i64',
+// found 'i32'").
+//
+// Literals that fit in i32 keep exactly their previous type and encoding.
+
+TEST(RuntimeExecTest, BareLiteralAboveI32Range) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            println(4000000000)
+        }
+    )--", "literal_above_i32_bare");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "4000000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, LiteralAboveI32IntoI64Annotation) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: i64 = 4000000000
+            println(a)
+        }
+    )--", "literal_above_i32_i64_annot");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "4000000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NegativeI32MinLiteralUnchanged) {
+    // `-2147483648` is a negation of a magnitude that does not fit i32. Before
+    // literals could widen this worked by accident (the magnitude wrapped to
+    // INT32_MIN and the negation wrapped it back); now Sema re-types the
+    // literal once the sign is known and IRGen follows that decision.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let b: i32 = -2147483648
+            println(b)
+        }
+    )--", "literal_i32_min");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-2147483648\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, LiteralAboveI32AsArgument) {
+    auto r = compileAndRun(R"--(
+        func take(n: i64) -> i64 {
+            return n
+        }
+        func main() {
+            println(take(4000000000))
+        }
+    )--", "literal_above_i32_arg");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "4000000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, LiteralAboveI32Cast) {
+    // Used to print 18446744073414584320: the literal wrapped to -294967296
+    // in i32 and the cast then sign-extended that.
+    auto r = compileAndRun(R"--(
+        func main() {
+            println(4000000000 as u64)
+        }
+    )--", "literal_above_i32_cast");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "4000000000\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, LiteralsWithinI32RangeUnchanged) {
+    // Blast-radius guard: values that fit i32 must keep their old type and
+    // encoding, negatives included.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let a: i32 = 2147483647
+            let b: i32 = -2147483648
+            println(a)
+            println(b)
+            println(42)
+        }
+    )--", "literal_within_i32");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2147483647\n-2147483648\n42\n")
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
