@@ -5307,4 +5307,79 @@ TEST(RuntimeExecTest, RefMutArgTwiceMutatesTwice) {
     EXPECT_EQ(r.stdout_output, "12\n12\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Reference BINDINGS (`let r = ref x`) (roadmap 2.3)
+// ============================================================
+// A `ref` PARAMETER's slot holds a pointer, and visitFuncDecl registers it in
+// varRefTypes so visitIdentifierExpr reads it with a double indirection —
+// which is why printing a ref parameter always worked. A `let r = ref x`
+// BINDING has exactly the same layout (visitRefExpr yields the referent's
+// address, which the binding's slot stores) but was never registered, so
+// every read produced the raw pointer instead of the value.
+//
+// The visible symptom was silent: println's format selection saw a pointer
+// and used "%s", printing the referent's bytes as a string — `let r = ref k`
+// with k == 10 printed ASCII 10, i.e. a blank line.
+
+TEST(RuntimeExecTest, PrintlnRefBindingReadsReferent) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            println(r)
+        }
+    )--", "println_ref_binding");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "10\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, RefBindingArithmeticReadsReferent) {
+    // Same missing registration, louder symptom: the raw pointer reached a
+    // binary operator and failed LLVM verification ("Both operands to a
+    // binary operator are not of the same type").
+    auto r = compileAndRun(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            println(r + 1)
+        }
+    )--", "ref_binding_arith");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "11\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, RefBindingOfRefParameterPassesThrough) {
+    // Re-borrowing something that is ITSELF a reference: visitRefExpr passes
+    // the pointer through rather than taking the address of the parameter's
+    // slot, so the binding must inherit the parameter's referent type instead
+    // of deriving it from the slot (which would make the read one indirection
+    // too shallow).
+    auto r = compileAndRun(R"--(
+        func peek(x: ref i32) {
+            let r = ref x
+            println(r)
+        }
+        func main() {
+            var k: i32 = 7
+            peek(ref k)
+        }
+    )--", "ref_binding_passthrough");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "7\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, RefBindingToStringReadsReferent) {
+    // A ref to a string is a pointer to a pointer; without the registration
+    // one indirection was skipped and println printed garbage bytes.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let s: string = "hi"
+            let r = ref s
+            println(r)
+        }
+    )--", "ref_binding_string");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "hi\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

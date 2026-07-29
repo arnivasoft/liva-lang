@@ -879,6 +879,51 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
     }
     auto *func = builder_->GetInsertBlock()->getParent();
 
+    // Reference binding: let r = ref x
+    //
+    // visitRefExpr yields the referent's ADDRESS, so this variable's slot
+    // holds a pointer — the same layout a `ref` PARAMETER gets. Parameters
+    // are registered in vars_.varRefTypes (see visitFuncDecl), which is what
+    // makes visitIdentifierExpr read them with a double indirection; bindings
+    // were never registered, so every read produced the raw pointer instead
+    // of the value. That was silent for println (a pointer selects "%s", so
+    // `let r = ref k` with k == 10 printed ASCII 10 — a blank line) and loud
+    // everywhere else (`r + 1` failed LLVM verification).
+    //
+    // A binding borrows and owns nothing, so it deliberately gets no scope
+    // cleanup registration.
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::RefExpr) {
+        auto *refExpr = static_cast<const RefExpr *>(node->getInit());
+        llvm::Type *innerTy = nullptr;
+        if (auto *ident =
+                dynamic_cast<const IdentifierExpr *>(refExpr->getExpr())) {
+            // `ref` of something that is ITSELF a reference passes the
+            // pointer through, so the referent type carries over unchanged.
+            auto refIt = vars_.varRefTypes.find(ident->getName());
+            if (refIt != vars_.varRefTypes.end()) {
+                innerTy = refIt->second;
+            } else {
+                auto nameIt = vars_.namedValues.find(ident->getName());
+                if (nameIt != vars_.namedValues.end())
+                    innerTy = nameIt->second->getAllocatedType();
+            }
+        }
+        // Anything whose referent type cannot be determined here (a
+        // non-identifier operand, an unknown name) falls through to the
+        // generic path exactly as before.
+        if (innerTy) {
+            auto *val = visit(const_cast<Expr *>(node->getInit()));
+            if (!val) return nullptr;
+            auto *alloca = createEntryBlockAlloca(
+                func, node->getName(), llvm::PointerType::getUnqual(*context_));
+            builder_->CreateStore(val, alloca);
+            vars_.namedValues[node->getName()] = alloca;
+            vars_.varRefTypes[node->getName()] = innerTy;
+            return nullptr;
+        }
+    }
+
     // Tuple destructuring: let (x, y) = expr
     if (node->isDestructured()) {
         if (!node->hasInit()) {
