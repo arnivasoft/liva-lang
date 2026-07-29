@@ -12353,6 +12353,73 @@ TEST_F(SemaTest, RefParamBareForwardingRejected) {
 }
 
 // ============================================================
+// Writing through a reference binding (roadmap 2.3)
+// ============================================================
+// Reads through a reference binding already auto-deref (println(r) prints the
+// referent), and a `ref mut` PARAMETER can be written through (`x = x + 1`).
+// A `ref mut` BINDING could not: `let r = ref mut k; r = 99` hit two errors
+// at once — the binding's own `let` immutability and an `i32` vs
+// `ref mut i32` type mismatch. Writing through it targets the REFERENT, so
+// neither judgement applied to the right thing.
+
+TEST_F(SemaTest, RefMutBindingWriteAccepted) {
+    auto result = check(R"(
+        func main() {
+            var k: i32 = 10
+            let r = ref mut k
+            r = 99
+            println(r)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, SharedRefBindingWriteRejected) {
+    // A shared borrow is read-only; the write must be reported as such rather
+    // than as the binding being `let`.
+    auto result = check(R"(
+        func main() {
+            var k: i32 = 10
+            let s = ref k
+            s = 5
+            println(s)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_through_shared_ref));
+}
+
+TEST_F(SemaTest, RefBindingRebindStillNeedsVarBinding) {
+    // `r = ref mut j` REBINDS the reference rather than writing through it,
+    // so the binding's own let/var still governs — this is the distinction
+    // that keeps the borrow-lifetime tests (which rebind inside an inner
+    // scope) working. Liva has no deref operator, so the value's form is what
+    // separates the two operations.
+    auto result = check(R"(
+        func main() {
+            var k: i32 = 10
+            var j: i32 = 20
+            let r = ref mut k
+            r = ref mut j
+            println(r)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+TEST_F(SemaTest, RefMutBindingWriteTypeCheckedAgainstReferent) {
+    // The value is judged against the REFERENT's type, not the reference's.
+    auto result = check(R"(
+        func main() {
+            var k: i32 = 10
+            let r = ref mut k
+            r = "x"
+            println(r)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_type_mismatch));
+}
+
+// ============================================================
 // `let x: T = init` judged with checkAssignable (roadmap 2.3)
 // ============================================================
 // Four paths judge a value against a declared type — array element, argument,

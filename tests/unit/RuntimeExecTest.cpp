@@ -5524,4 +5524,36 @@ TEST(RuntimeExecTest, VarDeclUnsignedVariableWidenedToDeclaredType) {
     EXPECT_EQ(r.stdout_output, "200\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, RefMutBindingWriteReachesReferent) {
+    // The write must land on the referent, not on the binding's own slot.
+    // IRGen's assignment path already stores through the pointer for anything
+    // registered in varRefTypes — which reference bindings now are — so this
+    // pins that the Sema relaxation lets the existing codegen do its job.
+    auto r = compileAndRun(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref mut k
+            r = 99
+            println(r)
+        }
+    )--", "ref_binding_write");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "99\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, RefMutBindingCompoundAssignReachesReferent) {
+    // The compound-assignment branch of the same path (load through the
+    // pointer, combine, store back).
+    auto r = compileAndRun(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref mut k
+            r += 5
+            println(r)
+        }
+    )--", "ref_binding_compound_write");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "15\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

@@ -87,6 +87,12 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
 
     trackVariable(node->getName(), node->isMutable(), copyType, dropType,
                  node->getStartLoc());
+
+    if (node->hasInit() &&
+        node->getInit()->getKind() == ASTNode::NodeKind::RefExpr) {
+        if (auto *info = getInfo(node->getName()))
+            info->isRefBinding = true;
+    }
 }
 
 void OwnershipChecker::visitBlockStmt(BlockStmt *node) {
@@ -227,7 +233,19 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
     // Check target is mutable
     if (node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getTarget());
-        if (!checkMutation(ident->getName(), node->getStartLoc())) {
+        // Writing THROUGH a reference binding mutates the referent, so the
+        // binding's own let/var does not govern it — the borrow does, and
+        // TypeChecker owns that judgement (err_assign_through_shared_ref).
+        // Complaining here as well would attach a "declare with 'var'"
+        // suggestion that does not describe the problem. Re-BINDING the
+        // reference (`r = ref y`) is a different operation and still needs a
+        // `var` binding, so it keeps the normal check.
+        auto *targetInfo = getInfo(ident->getName());
+        bool writeThroughRef =
+            targetInfo && targetInfo->isRefBinding &&
+            node->getValue()->getKind() != ASTNode::NodeKind::RefExpr;
+        if (!writeThroughRef &&
+            !checkMutation(ident->getName(), node->getStartLoc())) {
             return;
         }
 

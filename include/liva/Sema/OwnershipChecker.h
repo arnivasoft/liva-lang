@@ -35,6 +35,12 @@ struct OwnershipInfo {
     SourceLocation lastBorrowLocation;
     int borrowCount = 0;
     bool hasMutableBorrow = false;
+    // `let r = ref x` — writing to this name targets the REFERENT, not the
+    // binding, so the binding's own let/var mutability does not govern it.
+    // TypeChecker owns that judgement (it knows whether the borrow is shared
+    // or mutable); recording it here only stops a second, misleading
+    // "declare with 'var'" complaint from firing alongside.
+    bool isRefBinding = false;
 };
 
 /// Performs ownership and borrow checking on the AST

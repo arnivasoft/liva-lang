@@ -2755,7 +2755,34 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
     if (node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         auto *ident = static_cast<IdentifierExpr *>(node->getTarget());
         auto *sym = scopes_.lookup(ident->getName());
-        if (sym && !sym->isMutable) {
+        // Writing through a reference targets the REFERENT, so both
+        // judgements below have to be redirected. `let r = ref mut k; r = 99`
+        // used to collect two errors at once, neither of them about the thing
+        // being written: the binding's own `let` immutability, and an `i32`
+        // vs `ref mut i32` mismatch. What actually governs the write is the
+        // BORROW's mutability and the referent's type — a shared `ref` is
+        // read-only however the binding was declared, and a `ref mut` is
+        // writable even though the binding itself is a `let` (rebinding it is
+        // still forbidden; that is a different operation).
+        //
+        // Only a WRITE-THROUGH is redirected. `r = ref y` REBINDS the
+        // reference itself — a different operation, governed by the binding's
+        // own var/let and by the borrow-lifetime rules — and Liva has no
+        // deref operator, so the value's form is what tells the two apart.
+        const ReferenceTypeRepr *refTarget = nullptr;
+        if (sym && sym->type &&
+            sym->type->getKind() == TypeRepr::Kind::Reference &&
+            node->getValue()->getKind() != ASTNode::NodeKind::RefExpr)
+            refTarget = static_cast<const ReferenceTypeRepr *>(sym->type);
+
+        if (refTarget) {
+            if (!refTarget->isMutable()) {
+                diag_.reportRange(node->getStartLoc(),
+                                  static_cast<uint32_t>(ident->getName().size()),
+                                  DiagID::err_assign_through_shared_ref,
+                                  ident->getName());
+            }
+        } else if (sym && !sym->isMutable) {
             diag_.reportRange(node->getStartLoc(),
                               static_cast<uint32_t>(ident->getName().size()),
                               DiagID::err_assign_to_immutable,
@@ -2777,21 +2804,24 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
         // element targets go through their own paths.
         if (sym && sym->type) {
             const Expr *value = node->getValue();
-            switch (checkAssignable(sym->type, value)) {
+            // Through a reference, the value must fit the REFERENT.
+            const TypeRepr *assignTarget =
+                refTarget ? refTarget->getInner() : sym->type;
+            switch (checkAssignable(assignTarget, value)) {
             case Assignability::Ok:
                 break;
             case Assignability::Mismatch:
                 diag_.report(value->getStartLoc(),
                              DiagID::err_assign_type_mismatch,
                              typeToString(value->getResolvedType()),
-                             typeToString(sym->type));
+                             typeToString(assignTarget));
                 break;
             case Assignability::LiteralOutOfRange: {
                 auto *lit = static_cast<const IntegerLiteralExpr *>(value);
                 diag_.report(value->getStartLoc(),
                              DiagID::err_assign_literal_range,
                              std::to_string(lit->getValue()),
-                             typeToString(sym->type));
+                             typeToString(assignTarget));
                 break;
             }
             }
