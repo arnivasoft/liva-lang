@@ -416,16 +416,28 @@ IRGen::tryEmitCoreBuiltin(CallExpr *node, const std::string &funcName) {
                 // when the vararg slot happened to be zeroed, so this cannot
                 // turn a value that used to print correctly into a wrong one.
                 //
-                // The fallback is load-bearing rather than cosmetic: a `[u8]`
-                // ELEMENT (`blob[4]` -> 255) carries no element type here.
-                // Sema deliberately does not resolve `[u8]` element types
-                // (doing so previously broke gzip's byte signedness) and
-                // DynArrayInfo records only the LLVM type, so neither layer
-                // can tell u8 from i8 for an element. Sign-extending on a
-                // guess would print 255 as -1.
-                const bool signedNarrow =
-                    argRepr && (argRepr->getKind() == TypeRepr::Kind::I8 ||
-                                argRepr->getKind() == TypeRepr::Kind::I16);
+                // The fallback is load-bearing rather than cosmetic: an array
+                // ELEMENT (`blob[4]` -> 255) carries no resolved element type
+                // here, because Sema deliberately leaves primitive element
+                // types unresolved (resolving `[u8]` elements previously broke
+                // gzip's byte signedness). Sign-extending on a guess would
+                // print 255 as -1.
+                bool signedNarrow = isSignedNarrowTypeRepr(argRepr);
+                // For an element the answer comes from the ARRAY instead: the
+                // declared element type is recorded in DynArrayInfo, the only
+                // place i8 is still distinguishable from u8 at this point.
+                if (!signedNarrow) {
+                    if (auto *idx = llvm::dyn_cast<IndexExpr>(
+                            node->getArgs()[i].get())) {
+                        if (auto *base =
+                                llvm::dyn_cast<IdentifierExpr>(idx->getBase())) {
+                            auto daIt =
+                                vars_.varDynArrayTypes.find(base->getName());
+                            if (daIt != vars_.varDynArrayTypes.end())
+                                signedNarrow = daIt->second.elemSignedNarrow;
+                        }
+                    }
+                }
                 auto *i32Ty = llvm::Type::getInt32Ty(*context_);
                 arg = signedNarrow
                           ? builder_->CreateSExt(arg, i32Ty, "print.sext")

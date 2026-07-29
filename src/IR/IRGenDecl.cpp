@@ -1600,7 +1600,9 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             llvm::Type *innerElemType = nullptr;
             uint64_t innerElemSize = 0;
             deriveNestedDynArrayInner(arrTypeRepr, innerElemType, innerElemSize);
-            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize, innerElemType, innerElemSize};
+            vars_.varDynArrayTypes[node->getName()] = {
+                elemType, elemSize, innerElemType, innerElemSize,
+                isSignedNarrowTypeRepr(arrTypeRepr->getElement())};
             // Track dyn Protocol element type for for-in loop dispatch
             if (isDynProtoElem) {
                 vars_.varDynArrayProtocol[node->getName()] = protoName;
@@ -1819,7 +1821,9 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             llvm::Type *innerElemType = nullptr;
             uint64_t innerElemSize = 0;
             deriveNestedDynArrayInner(arrReprType, innerElemType, innerElemSize);
-            vars_.varDynArrayTypes[node->getName()] = {elemType, elemSize, innerElemType, innerElemSize};
+            vars_.varDynArrayTypes[node->getName()] = {
+                elemType, elemSize, innerElemType, innerElemSize,
+                isSignedNarrowTypeRepr(arrReprType->getElement())};
             return alloca;
         }
     }

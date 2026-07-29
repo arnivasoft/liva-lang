@@ -845,6 +845,21 @@ llvm::Value *IRGen::coerceToElemType(llvm::Value *val, llvm::Type *slotTy,
     return nullptr;
 }
 
+bool IRGen::isSignedNarrowTypeRepr(const TypeRepr *t) const {
+    // i8/i16 only: the types whose values must be SIGN-extended before they
+    // can be widened to i32. u8/u16 zero-extend, and i32/i64 need no widening
+    // at all. Used to record an array's element signedness in DynArrayInfo,
+    // since the LLVM element type cannot distinguish i8 from u8.
+    if (!t) return false;
+    switch (t->getKind()) {
+    case TypeRepr::Kind::I8:
+    case TypeRepr::Kind::I16:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool IRGen::isUnsignedTypeRepr(const TypeRepr *t) const {
     if (!t) return false;
     switch (t->getKind()) {

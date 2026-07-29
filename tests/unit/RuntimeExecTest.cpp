@@ -5556,4 +5556,55 @@ TEST(RuntimeExecTest, RefMutBindingCompoundAssignReachesReferent) {
     EXPECT_EQ(r.stdout_output, "15\n") << "stdout: " << r.stdout_output;
 }
 
+// ============================================================
+// Narrow SIGNED array elements printed (roadmap 2.3)
+// ============================================================
+// println widens a narrow integer before handing it to printf, and picks
+// sign- vs zero-extension from the argument's declared type. An array ELEMENT
+// carries no such type — Sema deliberately leaves `[u8]`-style element types
+// unresolved and DynArrayInfo recorded only the LLVM type — so the widening
+// fell back to zero-extension. That is right for `[u8]`/`[u16]` and wrong for
+// a negative in an `[i8]`/`[i16]`: -5 printed as 251, -300 as 65236.
+
+TEST(RuntimeExecTest, PrintlnNegativeI8ArrayElement) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var e: [i8] = [1]
+            e[0] = -5 as i8
+            println(e[0])
+        }
+    )--", "println_i8_array_elem_neg");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-5\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnNegativeI16ArrayElement) {
+    auto r = compileAndRun(R"--(
+        func main() {
+            var e: [i16] = [1]
+            e[0] = -300 as i16
+            println(e[0])
+        }
+    )--", "println_i16_array_elem_neg");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-300\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, PrintlnUnsignedNarrowArrayElementsUnchanged) {
+    // Guard: the unsigned arrays were already correct under the zero-extend
+    // fallback and must stay correct — `[u8]` 200 must not become -56.
+    auto r = compileAndRun(R"--(
+        func main() {
+            let c: [u8] = [200, 1]
+            let d: [u16] = [60000, 1]
+            let s: [i8] = [100, 5]
+            println(c[0])
+            println(d[0])
+            println(s[0])
+        }
+    )--", "println_unsigned_array_elems");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "200\n60000\n100\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

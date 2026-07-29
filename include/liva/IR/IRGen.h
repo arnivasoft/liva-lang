@@ -207,6 +207,7 @@ private:
     /// signedness, so element stores recover it from the source
     /// expression's static Liva type.
     bool isUnsignedTypeRepr(const TypeRepr *t) const;
+    bool isSignedNarrowTypeRepr(const TypeRepr *t) const;
 
     /// Coerce each argument to the callee's declared parameter type. The
     /// callee's own signature is the authority — it is exactly what the
@@ -325,6 +326,15 @@ private:
         // stay valid at every other registration site.
         llvm::Type *innerElemType = nullptr;
         uint64_t innerElemSize = 0;
+        // True only for an i8/i16 element type. `elementType` cannot answer
+        // this — i8 and u8 are the same LLVM type — and an array ELEMENT has
+        // no resolved TypeRepr to consult (Sema leaves primitive element
+        // types unresolved on purpose). Without it println widened every
+        // narrow element by zero-extension: right for [u8], wrong for a
+        // negative in an [i8] (-5 printed as 251). Defaulted for the same
+        // reason as the two fields above; sites that leave it false simply
+        // keep the previous zero-extending behaviour.
+        bool elemSignedNarrow = false;
     };
 
     /// Tuple variable tracking
