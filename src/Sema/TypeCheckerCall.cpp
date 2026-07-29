@@ -176,10 +176,11 @@ void TypeChecker::checkCallArgTypes(CallExpr *node) {
                                      typeToString(elemType));
                         break;
                     case Assignability::LiteralOutOfRange: {
-                        auto *lit = static_cast<const IntegerLiteralExpr *>(arg);
+                        int64_t litVal = 0;
+                        asIntegerLiteral(arg, litVal);
                         diag_.report(arg->getStartLoc(),
                                      DiagID::err_array_element_literal_range,
-                                     std::to_string(lit->getValue()),
+                                     std::to_string(litVal),
                                      typeToString(elemType));
                         break;
                     }
@@ -333,9 +334,10 @@ void TypeChecker::checkCallArgTypes(CallExpr *node) {
                          typeToString(params[paramIdx].type.get()));
             break;
         case Assignability::LiteralOutOfRange: {
-            auto *lit = static_cast<const IntegerLiteralExpr *>(arg);
+            int64_t litVal = 0;
+            asIntegerLiteral(arg, litVal);
             diag_.report(arg->getStartLoc(), DiagID::err_arg_literal_range,
-                         std::to_string(lit->getValue()),
+                         std::to_string(litVal),
                          typeToString(params[paramIdx].type.get()));
             break;
         }

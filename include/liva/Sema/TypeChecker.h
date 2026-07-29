@@ -167,6 +167,14 @@ private:
     /// type, or a target that is generic/inferred/protocol-typed).
     Assignability checkAssignable(const TypeRepr *target, const Expr *value) const;
 
+    /// True when `e` denotes an integer literal, writing its signed value to
+    /// `out`. Also unwraps the unary negation the parser produces for `-5`:
+    /// the lossy-literal rules must judge the VALUE, and matching on the node
+    /// kind alone made every negative miss the allowance that the positive
+    /// equivalent got. The LiteralOutOfRange diagnostics use this too, so the
+    /// number they print is the one that was actually judged.
+    static bool asIntegerLiteral(const Expr *e, int64_t &out);
+
     /// Whether `t` is, or contains (through Array/Optional), a type this
     /// check cannot judge: an unresolved type parameter, an inferred type,
     /// a trait object, or — for the Named case specifically — a name that

@@ -12216,6 +12216,10 @@ TEST_F(SemaTest, ReturnLiteralOutOfRangeRejected) {
 // diagnostic instead — exactly what the argument path does for `take(-1)`
 // against a `u32` parameter. Pinned so the two stay in step.
 TEST_F(SemaTest, ReturnNegativeLiteralIntoUnsignedRejected) {
+    // Still rejected, but the message improved: a negated literal now reaches
+    // the lossy-literal rule (it used to be invisible to it, being a
+    // UnaryExpr rather than an IntegerLiteralExpr), so the range diagnostic
+    // names the offending value instead of blaming the literal's i32 type.
     auto result = check(R"(
         func mk() -> u32 {
             return -1
@@ -12226,7 +12230,7 @@ TEST_F(SemaTest, ReturnNegativeLiteralIntoUnsignedRejected) {
         }
     )");
     EXPECT_FALSE(result.passed);
-    EXPECT_TRUE(hasDiag(result, DiagID::err_return_type_mismatch));
+    EXPECT_TRUE(hasDiag(result, DiagID::err_return_literal_range));
 }
 
 // The widening counterpart DOES work now: an i32-typed value (variable or
@@ -12350,6 +12354,89 @@ TEST_F(SemaTest, RefParamBareForwardingRejected) {
         }
     )");
     EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
+}
+
+// ============================================================
+// Negative literals get the lossy-literal allowance (roadmap 2.3)
+// ============================================================
+// checkAssignable lets an integer LITERAL narrow into a smaller type when the
+// value fits, but it recognised the literal by node kind — and `-5` is not an
+// IntegerLiteralExpr, it is a unary negation wrapping one. So every narrowing
+// target rejected negatives while accepting the positive equivalent:
+// `[i8] = [100]` compiled, `[i8] = [-5]` did not.
+
+TEST_F(SemaTest, NegativeLiteralNarrowsInArrayElement) {
+    auto result = check(R"(
+        func main() {
+            let a: [i8] = [-5, 100]
+            println(a[0])
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NegativeLiteralNarrowsAsArgument) {
+    auto result = check(R"(
+        func take(b: i8) -> i32 { return 1 }
+        func main() {
+            println(take(-5))
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NegativeLiteralNarrowsInAssignment) {
+    auto result = check(R"(
+        func main() {
+            var b: i8 = 1
+            b = -5
+            println(b)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NegativeLiteralNarrowsInVarDeclAnnotation) {
+    auto result = check(R"(
+        func main() {
+            let c: i8 = -5
+            println(c)
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NegativeLiteralNarrowsInReturn) {
+    auto result = check(R"(
+        func mk() -> i8 { return -5 }
+        func main() {
+            println(mk())
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(SemaTest, NegativeLiteralOutOfRangeUsesRangeDiag) {
+    // -300 does not fit i8, and the message must say so — it used to be the
+    // generic mismatch, which blamed the literal's i32 type instead.
+    auto result = check(R"(
+        func main() {
+            let e: i8 = -300
+            println(e)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_literal_range));
+}
+
+TEST_F(SemaTest, NegativeLiteralIntoUnsignedStillRejected) {
+    // The allowance is about narrowing, not about sign: -5 has no u8 value.
+    auto result = check(R"(
+        func main() {
+            let f: u8 = -5
+            println(f)
+        }
+    )");
+    EXPECT_FALSE(result.passed);
 }
 
 // ============================================================

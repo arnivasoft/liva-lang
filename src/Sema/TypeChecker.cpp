@@ -1027,10 +1027,11 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                                  typeToString(annElem));
                     break;
                 case Assignability::LiteralOutOfRange: {
-                    auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
+                    int64_t litVal = 0;
+                    asIntegerLiteral(elem, litVal);
                     diag_.report(elem->getStartLoc(),
                                  DiagID::err_array_element_literal_range,
-                                 std::to_string(intLit->getValue()),
+                                 std::to_string(litVal),
                                  typeToString(annElem));
                     break;
                 }
@@ -1133,11 +1134,11 @@ void TypeChecker::visitVarDecl(VarDecl *node) {
                                  typeToString(annType), typeToString(initType));
                     break;
                 case Assignability::LiteralOutOfRange: {
-                    auto *lit = static_cast<const IntegerLiteralExpr *>(
-                        node->getInit());
+                    int64_t litVal = 0;
+                    asIntegerLiteral(node->getInit(), litVal);
                     diag_.report(node->getStartLoc(),
                                  DiagID::err_assign_literal_range,
-                                 std::to_string(lit->getValue()),
+                                 std::to_string(litVal),
                                  typeToString(annType));
                     break;
                 }
@@ -1906,11 +1907,11 @@ void TypeChecker::visitReturnStmt(ReturnStmt *node) {
                         compat = true;
                         break;
                     case Assignability::LiteralOutOfRange: {
-                        auto *lit = static_cast<const IntegerLiteralExpr *>(
-                            node->getValue());
+                        int64_t litVal = 0;
+                        asIntegerLiteral(node->getValue(), litVal);
                         diag_.report(node->getStartLoc(),
                                      DiagID::err_return_literal_range,
-                                     std::to_string(lit->getValue()),
+                                     std::to_string(litVal),
                                      typeToString(currentReturnType_));
                         // The specific diagnostic replaces the generic
                         // "expected 'u8', found 'i32'" below.
@@ -2817,10 +2818,11 @@ void TypeChecker::visitAssignExpr(AssignExpr *node) {
                              typeToString(assignTarget));
                 break;
             case Assignability::LiteralOutOfRange: {
-                auto *lit = static_cast<const IntegerLiteralExpr *>(value);
+                int64_t litVal = 0;
+                asIntegerLiteral(value, litVal);
                 diag_.report(value->getStartLoc(),
                              DiagID::err_assign_literal_range,
-                             std::to_string(lit->getValue()),
+                             std::to_string(litVal),
                              typeToString(assignTarget));
                 break;
             }
@@ -3069,6 +3071,28 @@ bool TypeChecker::isClassNamedType(const TypeRepr *t) const {
     return sym && sym->kind == Symbol::Kind::ClassType;
 }
 
+bool TypeChecker::asIntegerLiteral(const Expr *e, int64_t &out) {
+    if (!e) return false;
+    if (e->getKind() == ASTNode::NodeKind::IntegerLiteralExpr) {
+        out = static_cast<const IntegerLiteralExpr *>(e)->getValue();
+        return true;
+    }
+    // `-5` is a Negate wrapping the literal 5. Judging the wrapper instead of
+    // the value is what made every narrowing target reject negatives while
+    // accepting the positive equivalent.
+    if (e->getKind() == ASTNode::NodeKind::UnaryExpr) {
+        auto *un = static_cast<const UnaryExpr *>(e);
+        if (un->getOp() == UnaryExpr::Op::Negate && un->getOperand() &&
+            un->getOperand()->getKind() ==
+                ASTNode::NodeKind::IntegerLiteralExpr) {
+            out = -static_cast<const IntegerLiteralExpr *>(un->getOperand())
+                       ->getValue();
+            return true;
+        }
+    }
+    return false;
+}
+
 TypeChecker::Assignability
 TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
     if (!target || !value) return Assignability::Ok;
@@ -3115,18 +3139,17 @@ TypeChecker::checkAssignable(const TypeRepr *target, const Expr *value) const {
         return Assignability::Ok;
 
     // Lossy: only literals, and only when the value fits.
-    if (value->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
-        isIntegerKind(target->getKind())) {
-        auto *lit = static_cast<const IntegerLiteralExpr *>(value);
-        return integerLiteralFits(lit->getValue(), target->getKind())
+    int64_t litValue = 0;
+    const bool isIntLit = asIntegerLiteral(value, litValue);
+    if (isIntLit && isIntegerKind(target->getKind())) {
+        return integerLiteralFits(litValue, target->getKind())
                    ? Assignability::Ok
                    : Assignability::LiteralOutOfRange;
     }
     // An integer literal into a float target (I32 -> F32 is excluded from
     // the value-preserving table on purpose, 24-bit mantissa) is exactly
     // the lossy case rule 3 covers: no range check for float targets.
-    if (value->getKind() == ASTNode::NodeKind::IntegerLiteralExpr &&
-        isFloatKind(target->getKind()))
+    if (isIntLit && isFloatKind(target->getKind()))
         return Assignability::Ok;
     if (value->getKind() == ASTNode::NodeKind::FloatLiteralExpr &&
         isFloatKind(target->getKind()))
@@ -3204,10 +3227,11 @@ void TypeChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
         if (arrayLiteralHasAnnotation_)
             continue;
         if (checkAssignable(candidate, elem) == Assignability::LiteralOutOfRange) {
-            auto *intLit = static_cast<const IntegerLiteralExpr *>(elem);
+            int64_t litVal = 0;
+            asIntegerLiteral(elem, litVal);
             diag_.report(elem->getStartLoc(),
                          DiagID::err_array_element_literal_range,
-                         std::to_string(intLit->getValue()),
+                         std::to_string(litVal),
                          typeToString(candidate));
         } else {
             diag_.report(elem->getStartLoc(),

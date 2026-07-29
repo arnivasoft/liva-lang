@@ -5607,4 +5607,27 @@ TEST(RuntimeExecTest, PrintlnUnsignedNarrowArrayElementsUnchanged) {
     EXPECT_EQ(r.stdout_output, "200\n60000\n100\n") << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, NegativeLiteralNarrowedValuesSurvive) {
+    // Accepting negatives in Sema is only useful if the value actually
+    // arrives: each of these narrows through a different coercion site.
+    auto r = compileAndRun(R"--(
+        func take(b: i8) -> i8 { return b }
+        func mk() -> i8 { return -7 }
+        func main() {
+            let a: [i8] = [-5, 100]
+            let c: i8 = -9
+            var d: i8 = 1
+            d = -11
+            println(a[0])
+            println(c)
+            println(d)
+            println(take(-13))
+            println(mk())
+        }
+    )--", "negative_literal_narrowed");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "-5\n-9\n-11\n-13\n-7\n")
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
