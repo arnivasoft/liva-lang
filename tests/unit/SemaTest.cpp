@@ -12335,6 +12335,59 @@ TEST_F(SemaTest, RefParamBareForwardingRejected) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_required));
 }
 
+TEST_F(SemaTest, RefMutParamSharedRefArgRejected) {
+    // A `ref mut` parameter borrowed with a plain `ref` used to be accepted,
+    // and the callee mutated through it anyway (`bump(ref k)` left k == 11).
+    // That is not just a spelling slip: OwnershipChecker recorded a SHARED
+    // borrow, so another shared borrow could sit alongside it while the
+    // callee wrote through the same variable.
+    auto result = check(R"(
+        func bump(x: ref mut i32) {
+            x = x + 1
+        }
+        func main() {
+            var k: i32 = 10
+            bump(ref k)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_not_mutable));
+}
+
+TEST_F(SemaTest, RefMutParamSharedRefArgRejectedOnMethod) {
+    auto result = check(R"(
+        struct S {
+            var v: i32
+        }
+        impl S {
+            func bump(ref self, x: ref mut i32) {
+                x = x + 1
+            }
+        }
+        func main() {
+            var k: i32 = 10
+            let s = S { v: 1 }
+            s.bump(ref k)
+        }
+    )");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_ref_arg_not_mutable));
+}
+
+TEST_F(SemaTest, SharedRefParamMutRefArgAccepted) {
+    // The REVERSE direction is legitimate: a `ref mut` argument satisfies a
+    // shared `ref` parameter. This must not be caught by the new rule.
+    auto result = check(R"(
+        func peek(x: ref i32) -> i32 {
+            return x
+        }
+        func main() {
+            var k: i32 = 10
+            println(peek(ref mut k))
+        }
+    )");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_ref_arg_not_mutable));
+}
+
 TEST_F(SemaTest, RefArgAccepted) {
     // The correct spellings must stay clean — including forwarding, and the
     // immutable `ref` form.

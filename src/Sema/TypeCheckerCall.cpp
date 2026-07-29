@@ -246,6 +246,18 @@ void TypeChecker::checkCallArgTypes(CallExpr *node) {
                              DiagID::err_ref_arg_required,
                              params[paramIdx].name,
                              params[paramIdx].isMutRef ? "ref mut" : "ref");
+            } else if (params[paramIdx].isMutRef &&
+                       !static_cast<const RefExpr *>(args[argIdx].get())
+                            ->isMutable()) {
+                // A `ref mut` parameter borrowed with a plain `ref`. The
+                // callee writes through it regardless, and OwnershipChecker
+                // has recorded only a SHARED borrow — so a second shared
+                // borrow can coexist with a write to the same variable.
+                // The reverse (a `ref mut` argument for a shared `ref`
+                // parameter) is legitimate and stays accepted.
+                diag_.report(args[argIdx]->getStartLoc(),
+                             DiagID::err_ref_arg_not_mutable,
+                             params[paramIdx].name);
             }
             ++paramIdx;
             continue;
