@@ -31,6 +31,11 @@ liva_add_test(type_test
 )
 target_link_libraries(type_test PRIVATE liva_ast)
 
+liva_add_test(ast_walk_test
+    unit/ASTWalkTest.cpp
+)
+target_link_libraries(ast_walk_test PRIVATE liva_ast liva_parser)
+
 liva_add_test(ownership_test
     unit/OwnershipTest.cpp
 )

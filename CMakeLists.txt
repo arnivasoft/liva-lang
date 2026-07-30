@@ -55,6 +55,7 @@ add_library(liva_ast STATIC
     src/AST/Type.cpp
     src/AST/Pattern.cpp
     src/AST/ASTPrinter.cpp
+    src/AST/ASTWalk.cpp
 )
 target_link_libraries(liva_ast PUBLIC liva_common)
 liva_set_compiler_flags(liva_ast)
