@@ -5,6 +5,39 @@
 
 namespace liva {
 
+namespace {
+
+/// Bir atama hedefi zincirinin kök değişkenini soyar:
+///   w.a.b = x   ->  "w"
+///   arr[i] = x  ->  "arr"
+///   (w).id = x  ->  "w"
+/// Kök bir IdentifierExpr değilse (ör. `f().x = 1`) nullptr döner ve çağıran
+/// denetimi atlar — izlenmeyen hedefte susmak, getInfo'nun izlenmeyen
+/// değişkenlerde sessizce geçmesiyle tutarlı.
+const IdentifierExpr *rootIdentifier(const Expr *target) {
+    const Expr *cur = target;
+    while (cur) {
+        switch (cur->getKind()) {
+        case ASTNode::NodeKind::IdentifierExpr:
+            return static_cast<const IdentifierExpr *>(cur);
+        case ASTNode::NodeKind::MemberExpr:
+            cur = static_cast<const MemberExpr *>(cur)->getObject();
+            break;
+        case ASTNode::NodeKind::IndexExpr:
+            cur = static_cast<const IndexExpr *>(cur)->getBase();
+            break;
+        case ASTNode::NodeKind::GroupExpr:
+            cur = static_cast<const GroupExpr *>(cur)->getExpr();
+            break;
+        default:
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
 OwnershipChecker::OwnershipChecker(DiagnosticsEngine &diag) : diag_(diag) {}
 
 void OwnershipChecker::check(TranslationUnit &tu) {
@@ -312,9 +345,15 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
         }
     }
 
-    // Check target is mutable
-    if (node->getTarget()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
-        auto *ident = static_cast<IdentifierExpr *>(node->getTarget());
+    // Check target is mutable.
+    //
+    // Hedef çıplak bir ad olmak zorunda değil: `w.id = 9` ve `arr[i] = x` de
+    // kök değişkeni YAZIYOR, dolayısıyla aynı değişebilirlik ve ödünç kuralına
+    // tabidir. Bunlar önceden hiç denetlenmiyordu çünkü koşul yalnız
+    // IdentifierExpr hedeflerini kabul ediyordu. Kök çözülemezse
+    // (ör. `f().x = 1`) denetim atlanır.
+    if (const IdentifierExpr *root = rootIdentifier(node->getTarget())) {
+        auto *ident = const_cast<IdentifierExpr *>(root);
         // Writing THROUGH a reference binding mutates the referent, so the
         // binding's own let/var does not govern it — the borrow does, and
         // TypeChecker owns that judgement (err_assign_through_shared_ref).

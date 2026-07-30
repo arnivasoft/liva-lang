@@ -2523,3 +2523,121 @@ TEST_F(OwnershipTest, TypeParamScopeDoesNotLeakPastItsDecl) {
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
 }
+
+TEST_F(OwnershipTest, MemberAssignWhileBorrowedRejected) {
+    // visitAssignExpr'in hedef denetimi yalnız IdentifierExpr hedeflerinde
+    // çalışıyordu; `w.id = 9` canlı bir ödünç varken sessizce geçiyordu.
+    auto result = check(R"--(
+        struct W {
+            var id: i32
+        }
+        func peek(x: ref W) -> i32 {
+            return 0
+        }
+        func main() {
+            var w = W { id: 1 }
+            let r = ref w
+            w.id = 9
+            println(peek(ref r))
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_move_while_borrowed));
+}
+
+TEST_F(OwnershipTest, MemberAssignToImmutableRejected) {
+    auto result = check(R"--(
+        struct W {
+            var id: i32
+        }
+        func main() {
+            let w = W { id: 1 }
+            w.id = 9
+            println(w.id)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+TEST_F(OwnershipTest, IndexAssignToImmutableRejected) {
+    auto result = check(R"--(
+        func main() {
+            let arr: [i32] = [1, 2, 3]
+            arr[0] = 9
+            println(arr[0])
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+TEST_F(OwnershipTest, MutableMemberAndIndexAssignAccepted) {
+    // Fazla-ret koruması: var üzerinde üye ve indeks ataması serbest kalmalı.
+    auto result = check(R"--(
+        struct W {
+            var id: i32
+        }
+        func main() {
+            var w = W { id: 1 }
+            var arr: [i32] = [1, 2, 3]
+            w.id = 9
+            arr[0] = 7
+            println(w.id)
+            println(arr[0])
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, UntrackedAssignRootStaysSilent) {
+    // Fazla-ret koruması: kök bir IdentifierExpr'e inmiyorsa (çağrı sonucu)
+    // denetim atlanmalı — izlenmeyen hedefte susmak getInfo'nun davranışıyla
+    // tutarlı. Bu test bir ownership tanısı ÜRETİLMEDİĞİNİ pinliyor.
+    auto result = check(R"--(
+        struct W {
+            var id: i32
+        }
+        func mk() -> W {
+            return W { id: 1 }
+        }
+        func main() {
+            mk().id = 9
+        }
+    )--");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_to_immutable));
+    EXPECT_FALSE(hasDiag(result, DiagID::err_move_while_borrowed));
+}
+
+TEST_F(OwnershipTest, MemberAssignAfterBorrowEndsAccepted) {
+    // Fazla-ret koruması: ödünç son kullanımında düştükten sonra üye ataması
+    // serbest (son-kullanım kısaltmasıyla birlikte çalışıyor).
+    //
+    // NOT (Görev 3 plan düzeltmesi): İlk taslak burada `r`'yi bir `ref`-
+    // parametreli fonksiyona forward'lıyordu (`println(peek(ref r))`).
+    // BorrowLastUse.cpp'deki Kural 4 ("Ad bir RefExpr'in operandı olarak
+    // geçiyor") kalıcı takma-ad ilkleyicisi (`let s = ref r`) ile çağrı-
+    // argümanı forward'lamasını (`peek(ref r)`) AYIRT ETMİYOR — ikisini de
+    // kısaltmayı tamamen kapatan bir zincir sayıyor, oysa çağrı-argümanı
+    // ödüncü zaten çağrının sonunda ayrıca bırakılıyor. Bu, bilinen bir
+    // kesinlik boşluğu (CFG'siz last-use taramasının kapsam dışı bıraktığı
+    // bir ayrım) — roadmap'e ayrı kayıt olarak yazılacak, `BorrowLastUse.cpp`
+    // bu görevde değiştirilmedi. Bu test onun yerine `r.id` gibi düz bir üye
+    // okuması kullanıyor (RefExpr sarmıyor), bu yüzden last-use taraması
+    // bunu doğru şekilde r'nin son kullanımı sayıp ödüncü serbest bırakıyor —
+    // ölçülmek istenen asıl davranış (ödünç düşünce üye ataması serbest)
+    // böylece korunuyor.
+    auto result = check(R"--(
+        struct W {
+            var id: i32
+        }
+        func main() {
+            var w = W { id: 1 }
+            let r = ref w
+            println(r.id)
+            w.id = 9
+            println(w.id)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

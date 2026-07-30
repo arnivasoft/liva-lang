@@ -4834,7 +4834,7 @@ TEST(RuntimeExecTest, AssignIntLiteralIntoComputedPropertySetter) {
             }
         }
         func main() {
-            let c = Counter()
+            var c = Counter()
             c.v = 5
             println(c.v)
         }
@@ -4867,7 +4867,7 @@ TEST(RuntimeExecTest, AssignIntLiteralIntoWillSetObservedField) {
             }
         }
         func main() {
-            let t = Tracked()
+            var t = Tracked()
             t.value = -7
             println(t.value)
         }
@@ -4906,7 +4906,7 @@ TEST(RuntimeExecTest, AssignIntLiteralIntoDidSetObservedField) {
             }
         }
         func main() {
-            let t = Tracked()
+            var t = Tracked()
             t.value = -7
             println(t.value)
         }
