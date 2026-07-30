@@ -2476,3 +2476,50 @@ TEST_F(OwnershipTest, NonDynParamArgStillMoves) {
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
 }
+
+// KORUMA PİNİ (B, daraltma): ÇAĞRI BİÇİMİ eşleşmesi.
+// `arr.push(p)` bir ÜYE çağrısı; TU'daki `func push(g: dyn Greeter)` ise
+// onunla hiçbir ilişkisi olmayan serbest bir fonksiyon. Yalnız ADA bakan bir
+// eşleşme bu alakasız adayı kabul edip taşımayı düşürüyor ve `push`/`get`/
+// `close` gibi yaygın adlarda TÜM TU'da tanıyı sessizce yok ediyordu.
+// Gevşetme yalnız "çağrılanın ilgili parametresi dyn" kümesini kapsamalı.
+TEST_F(OwnershipTest, MemberCallNotMatchedByFreeFunctionCandidate) {
+    auto result = check(R"--(
+        protocol Greeter { func greet(ref self) -> i32 }
+        struct Person { var age: i32 }
+        impl Person : Greeter {
+            func greet(ref self) -> i32 { return self.age }
+        }
+        func push(g: dyn Greeter) -> i32 { return g.greet() }
+        func consume(p: Person) -> i32 { return p.age }
+        func main() {
+            let p: Person = Person { age: 1 }
+            var arr: [Person] = []
+            arr.push(p)
+            println(consume(p))
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// KORUMA PİNİ (A, kapsam yığını): popTypeParams gerçekten pop etmeli.
+// Tip parametresi bilinçli olarak somut bir struct'ı GÖLGELİYOR: `gen<Packet>`
+// bittikten sonra `Packet` adı yeniden somut struct'ı göstermeli. Yığın
+// sızdırsaydı main'deki `Packet` değeri Copy sayılır ve çift taşıma sessizce
+// kabul edilirdi. NonGenericDoubleMoveStillRejected bunu ayırt EDEMEZ —
+// oradaki tip parametresi `T`, somut tip `Packet`; adlar çakışmıyor.
+TEST_F(OwnershipTest, TypeParamScopeDoesNotLeakPastItsDecl) {
+    auto result = check(R"--(
+        struct Packet { var size: i32 }
+        func send(p: Packet) { println(p.size) }
+        func gen<Packet>(v: Packet) -> i32 { return 0 }
+        func main() {
+            let pkt: Packet = Packet { size: 5 }
+            send(pkt)
+            send(pkt)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}

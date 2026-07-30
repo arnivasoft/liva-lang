@@ -178,9 +178,13 @@ private:
     void collectFuncDecls(TranslationUnit &tu);
 
     /// `name` adlı çağrılanın `argIndex`'inci ARGÜMANINA karşılık gelen
-    /// parametresi `dyn Protocol` mu. Yalnızca ad eşleşen TÜM adaylar bunda
-    /// hemfikirse true — biri bile değilse muhafazakâr yön (taşıma) korunur.
-    bool paramIsDynProtocol(const std::string &name, size_t argIndex) const;
+    /// parametresi `dyn Protocol` mu. `isMemberCall` çağrı BİÇİMİDİR ve
+    /// adayları eler: üye çağrısı yalnız `self`'li adaylarla, serbest çağrı
+    /// yalnız `self`'siz adaylarla eşleşir. Biçim eşleşmesinden geçen TÜM
+    /// adaylar hemfikirse true — biri bile değilse ya da hiç aday yoksa
+    /// muhafazakâr yön (taşıma) korunur.
+    bool paramIsDynProtocol(const std::string &name, bool isMemberCall,
+                            size_t argIndex) const;
 
     /// Check if a type is a Drop-conforming NAMED struct (dropTypeNames_).
     bool isDropType(const TypeRepr *type) const;

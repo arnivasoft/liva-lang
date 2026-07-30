@@ -1,13 +1,20 @@
 #include "liva/Sema/OwnershipChecker.h"
 #include "liva/AST/ASTWalk.h"
 #include "liva/Sema/BorrowLastUse.h"
+#include <cassert>
 
 namespace liva {
 
 OwnershipChecker::OwnershipChecker(DiagnosticsEngine &diag) : diag_(diag) {}
 
 void OwnershipChecker::check(TranslationUnit &tu) {
+    // Sema aynı örnek üzerinden iki ayrı giriş sunuyor (Sema::analyze ve
+    // Sema::ownershipCheck), o yüzden TU'ya özel her durum girişte
+    // sıfırlanır. Bugün push/pop dengeli olduğu için typeParamScopes_ zaten
+    // boş dönüyor; simetriyi burada kurmak, ileride bir dengesizlik olursa
+    // onun sessizce BİR SONRAKİ TU'ya taşınmasını engelliyor.
     collectFuncDecls(tu);
+    typeParamScopes_.clear();
     pushOwnershipScope();
 
     for (auto &decl : tu.getDeclarations()) {
@@ -354,15 +361,21 @@ void OwnershipChecker::visitCallExpr(CallExpr *node) {
     // scope — `take(ref mut k)` twice in a row was rejected.
     std::vector<std::pair<std::string, bool>> argBorrows;
 
-    // Çağrılanın adı: `f(x)` için IdentifierExpr, `o.m(x)` için üye adı.
-    // Yalnız `dyn Protocol` parametrelerini tanımak için kullanılır.
+    // Çağrılanın adı VE çağrı BİÇİMİ: `f(x)` serbest-fonksiyon biçimi,
+    // `o.m(x)` üye biçimi. İkisi de yalnız `dyn Protocol` parametrelerini
+    // tanımak için kullanılır. Biçim, adayları elemek için ZORUNLU: ad
+    // eşleşmesi tek başına `arr.push(p)` çağrısını, TU'da bulunan alakasız
+    // bir `func push(g: dyn Greeter)` ile eşleştiriyordu ve `push`/`get`/
+    // `close` gibi yaygın adlarda tüm TU'da tanı sessizce kayboluyordu.
     std::string calleeName;
+    bool calleeIsMemberCall = false;
     if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
         calleeName =
             static_cast<const IdentifierExpr *>(node->getCallee())->getName();
     } else if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
         calleeName =
             static_cast<const MemberExpr *>(node->getCallee())->getMember();
+        calleeIsMemberCall = true;
     }
 
     // Each argument is either copied (if Copy type) or moved
@@ -389,7 +402,8 @@ void OwnershipChecker::visitCallExpr(CallExpr *node) {
             // Değişken çağrıdan sonra hâlâ geçerli, o yüzden `dump(db);
             // db.close()` çalışma zamanında doğru ve reddedilmemeli.
             bool dynBorrow =
-                !calleeName.empty() && paramIsDynProtocol(calleeName, ai);
+                !calleeName.empty() &&
+                paramIsDynProtocol(calleeName, calleeIsMemberCall, ai);
             if (info && !info->isCopyType && !dynBorrow) {
                 markMoved(ident->getName(), arg->getStartLoc());
             }
@@ -723,8 +737,12 @@ void OwnershipChecker::pushTypeParams(const std::vector<std::string> &params) {
 }
 
 void OwnershipChecker::popTypeParams() {
-    if (!typeParamScopes_.empty())
-        typeParamScopes_.pop_back();
+    // Sözleşme: her pop'un bir push'u var. Boş yığını sessizce tolere etmek
+    // dengesizliği GİZLERDİ — ve dengesizlik burada yanlış bir Copy kararına,
+    // yani kaybolan bir tanıya dönüşür.
+    assert(!typeParamScopes_.empty() &&
+           "popTypeParams without a matching pushTypeParams");
+    typeParamScopes_.pop_back();
 }
 
 void OwnershipChecker::collectFuncDecls(TranslationUnit &tu) {
@@ -758,6 +776,7 @@ void OwnershipChecker::collectFuncDecls(TranslationUnit &tu) {
 }
 
 bool OwnershipChecker::paramIsDynProtocol(const std::string &name,
+                                          bool isMemberCall,
                                           size_t argIndex) const {
     auto it = funcsByName_.find(name);
     if (it == funcsByName_.end())
@@ -766,9 +785,16 @@ bool OwnershipChecker::paramIsDynProtocol(const std::string &name,
     bool sawCandidate = false;
     for (const FuncDecl *fn : it->second) {
         const auto &params = fn->getParams();
+        bool hasSelf = !params.empty() && params[0].isSelf;
+        // ÇAĞRI BİÇİMİ eşleşmesi. Ad eşleşmesi tek başına yetmez: `arr.push(p)`
+        // bir ÜYE çağrısı, `func push(g: dyn Greeter)` ise serbest bir
+        // fonksiyon — aralarında hiçbir ilişki yok. Bu eleme olmadan TU'ya
+        // eklenen alakasız bir serbest fonksiyon, aynı adı taşıyan tüm üye
+        // çağrılarında tanıyı sessizce düşürüyordu.
+        if (isMemberCall != hasSelf)
+            continue;
         // `self` params_[0]'da duruyor ve argüman listesinde karşılığı yok.
-        size_t offset = (!params.empty() && params[0].isSelf) ? 1 : 0;
-        size_t idx = argIndex + offset;
+        size_t idx = argIndex + (hasSelf ? 1 : 0);
         if (idx >= params.size())
             continue; // farklı arite — bu çağrının adayı olamaz
         sawCandidate = true;
