@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace liva {
 
@@ -162,6 +163,25 @@ private:
     /// Check if a type is a Copy type (primitives)
     bool isCopyType(const TypeRepr *type) const;
 
+    /// Bir adın kapsamdaki (henüz çözülmemiş) bir generik tip parametresi
+    /// olup olmadığı. `impl Stream<T>` içindeki `T` gibi.
+    bool isTypeParamInScope(const std::string &name) const;
+
+    /// Bir bildirimin tip parametrelerini kapsama it / kapsamdan çıkar.
+    /// İç içe generic'ler (generik impl içinde generik metot) üst üste yığılır.
+    void pushTypeParams(const std::vector<std::string> &params);
+    void popTypeParams();
+
+    /// check()'e verilen AST'deki fonksiyon/metot bildirimlerini ada göre
+    /// indeksler. Yalnız `dyn Protocol` parametrelerini tanımak için — başka
+    /// bir fazdan gelen bir bilgi DEĞİL.
+    void collectFuncDecls(TranslationUnit &tu);
+
+    /// `name` adlı çağrılanın `argIndex`'inci ARGÜMANINA karşılık gelen
+    /// parametresi `dyn Protocol` mu. Yalnızca ad eşleşen TÜM adaylar bunda
+    /// hemfikirse true — biri bile değilse muhafazakâr yön (taşıma) korunur.
+    bool paramIsDynProtocol(const std::string &name, size_t argIndex) const;
+
     /// Check if a type is a Drop-conforming NAMED struct (dropTypeNames_).
     bool isDropType(const TypeRepr *type) const;
 
@@ -191,6 +211,16 @@ private:
     /// Drop-conforming struct type names — get move semantics on `let b = a`
     /// / `b = a` (see setDropTypeNames()).
     std::unordered_set<std::string> dropTypeNames_;
+
+    /// Kapsamdaki generik tip parametresi adları, bildirim düzeyi başına bir
+    /// giriş. Yığın olması `impl Stream<T>` içindeki `func map<U>()`'nun hem
+    /// T'yi hem U'yu görmesini, metot bittiğinde ise yalnız U'nun düşmesini
+    /// sağlar. Derinlik tek haneli olduğu için doğrusal tarama yeterli.
+    std::vector<std::vector<std::string>> typeParamScopes_;
+
+    /// Ada göre fonksiyon/metot bildirimleri (aşırı yükleme ve aynı adlı
+    /// metotlar için birden çok aday olabilir). Bkz. collectFuncDecls().
+    std::unordered_map<std::string, std::vector<const FuncDecl *>> funcsByName_;
 };
 
 } // namespace liva

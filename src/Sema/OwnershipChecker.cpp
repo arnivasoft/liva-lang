@@ -7,6 +7,7 @@ namespace liva {
 OwnershipChecker::OwnershipChecker(DiagnosticsEngine &diag) : diag_(diag) {}
 
 void OwnershipChecker::check(TranslationUnit &tu) {
+    collectFuncDecls(tu);
     pushOwnershipScope();
 
     for (auto &decl : tu.getDeclarations()) {
@@ -17,6 +18,7 @@ void OwnershipChecker::check(TranslationUnit &tu) {
 }
 
 void OwnershipChecker::visitFuncDecl(FuncDecl *node) {
+    pushTypeParams(node->getTypeParams());
     pushOwnershipScope();
 
     // Track parameters
@@ -32,6 +34,7 @@ void OwnershipChecker::visitFuncDecl(FuncDecl *node) {
 
     dropScopeVariables();
     popOwnershipScope();
+    popTypeParams();
 }
 
 void OwnershipChecker::visitTestDecl(TestDecl *node) {
@@ -42,6 +45,7 @@ void OwnershipChecker::visitTestDecl(TestDecl *node) {
 }
 
 void OwnershipChecker::visitClassDecl(ClassDecl *node) {
+    pushTypeParams(node->getTypeParams());
     for (auto &m : node->getMembers()) {
         // Alanlar atlanıyordu, dolayısıyla computed property getter/setter'ları,
         // willSet/didSet gözlemcileri ve lazy init'ler denetim dışı kalıyordu.
@@ -53,6 +57,7 @@ void OwnershipChecker::visitClassDecl(ClassDecl *node) {
             visitFuncDecl(const_cast<FuncDecl *>(m.method.get()));
         }
     }
+    popTypeParams();
 }
 
 void OwnershipChecker::visitVarDecl(VarDecl *node) {
@@ -349,8 +354,21 @@ void OwnershipChecker::visitCallExpr(CallExpr *node) {
     // scope — `take(ref mut k)` twice in a row was rejected.
     std::vector<std::pair<std::string, bool>> argBorrows;
 
+    // Çağrılanın adı: `f(x)` için IdentifierExpr, `o.m(x)` için üye adı.
+    // Yalnız `dyn Protocol` parametrelerini tanımak için kullanılır.
+    std::string calleeName;
+    if (node->getCallee()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+        calleeName =
+            static_cast<const IdentifierExpr *>(node->getCallee())->getName();
+    } else if (node->getCallee()->getKind() == ASTNode::NodeKind::MemberExpr) {
+        calleeName =
+            static_cast<const MemberExpr *>(node->getCallee())->getMember();
+    }
+
     // Each argument is either copied (if Copy type) or moved
-    for (auto &arg : node->getArgs()) {
+    const auto &args = node->getArgs();
+    for (size_t ai = 0; ai < args.size(); ++ai) {
+        const auto &arg = args[ai];
         // Check if it's a ref expression
         if (arg->getKind() == ASTNode::NodeKind::RefExpr) {
             visit(arg.get());
@@ -365,7 +383,14 @@ void OwnershipChecker::visitCallExpr(CallExpr *node) {
         if (arg->getKind() == ASTNode::NodeKind::IdentifierExpr) {
             auto *ident = static_cast<IdentifierExpr *>(arg.get());
             auto *info = getInfo(ident->getName());
-            if (info && !info->isCopyType) {
+            // `dyn Protocol` parametresine değer geçişi TAŞIMA DEĞİL, ödünç:
+            // IRGen (IRGenCall.cpp) fat pointer'a değişkenin KENDİ
+            // alloca'sının ADRESİNİ yazar — derin kopya da yok, tüketme de.
+            // Değişken çağrıdan sonra hâlâ geçerli, o yüzden `dump(db);
+            // db.close()` çalışma zamanında doğru ve reddedilmemeli.
+            bool dynBorrow =
+                !calleeName.empty() && paramIsDynProtocol(calleeName, ai);
+            if (info && !info->isCopyType && !dynBorrow) {
                 markMoved(ident->getName(), arg->getStartLoc());
             }
         }
@@ -459,12 +484,21 @@ void OwnershipChecker::visitMacroInvokeExpr(MacroInvokeExpr *node) {
 
 // impl metot gövdeleri HİÇ ownership denetimi görmüyordu — top-level'da
 // reddedilen çift taşıma burada sessizce derleniyordu.
-void OwnershipChecker::visitImplDecl(ImplDecl *node) { visitChildren(node); }
+void OwnershipChecker::visitImplDecl(ImplDecl *node) {
+    // `impl Stream<T>`'in T'si blok içindeki tüm metotlarda geçerli.
+    pushTypeParams(node->getTypeParams());
+    visitChildren(node);
+    popTypeParams();
+}
 // Protokol DEFAULT metot gövdeleri için aynısı.
 void OwnershipChecker::visitProtocolDecl(ProtocolDecl *node) { visitChildren(node); }
 // StructDecl -> FieldDecl -> computed property getter/setter, willSet/didSet
 // ve lazy init gövdeleri.
-void OwnershipChecker::visitStructDecl(StructDecl *node) { visitChildren(node); }
+void OwnershipChecker::visitStructDecl(StructDecl *node) {
+    pushTypeParams(node->getTypeParams());
+    visitChildren(node);
+    popTypeParams();
+}
 void OwnershipChecker::visitFieldDecl(FieldDecl *node) { visitChildren(node); }
 
 // === Private helpers ===
@@ -637,6 +671,18 @@ bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
         // reference rather than consuming it, so treat them as Copy.
         if (classNames_.count(n))
             return true;
+        // Çözülmemiş generik tip parametresi (`impl Stream<T>`'nin T'si).
+        // Monomorfizasyondan ÖNCE T'nin Copy olup olmadığı BİLİNMİYOR ve
+        // burada Copy-olmayan varsaymak, somut tiple sorunsuz derlenen
+        // generik gövdeyi reddediyordu: `let v: T = ...; pred(v);
+        // result.push(v)` -> "use of moved value 'v'". Aynı kod `T` yerine
+        // `i64` ile temiz geçtiğine göre ret ilkeli bir generik disiplininden
+        // değil, T'nin kullanıcı struct'ı sanılmasından geliyordu.
+        // Muhafazakâr yön TAŞIMAMAK: çözülmemiş bir tip parametresi taşıma
+        // tetiklemez. Somut tipler etkilenmez — bu dal yalnız kapsamdaki tip
+        // parametresi ADLARI için çalışır.
+        if (isTypeParamInScope(n))
+            return true;
     }
 
     // Arrays, Tuples, and Function types are Copy
@@ -659,6 +705,78 @@ bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
     }
 
     return false;
+}
+
+bool OwnershipChecker::isTypeParamInScope(const std::string &name) const {
+    for (const auto &scope : typeParamScopes_) {
+        for (const auto &p : scope) {
+            if (p == name)
+                return true;
+        }
+    }
+    return false;
+}
+
+void OwnershipChecker::pushTypeParams(const std::vector<std::string> &params) {
+    // Boş liste de itilir: pop/push dengesi bildirim düzeyiyle birebir olsun.
+    typeParamScopes_.push_back(params);
+}
+
+void OwnershipChecker::popTypeParams() {
+    if (!typeParamScopes_.empty())
+        typeParamScopes_.pop_back();
+}
+
+void OwnershipChecker::collectFuncDecls(TranslationUnit &tu) {
+    funcsByName_.clear();
+    auto record = [&](const FuncDecl *fn) {
+        if (fn)
+            funcsByName_[fn->getName()].push_back(fn);
+    };
+    for (auto &d : tu.getDeclarations()) {
+        switch (d->getKind()) {
+        case ASTNode::NodeKind::FuncDecl:
+            record(static_cast<const FuncDecl *>(d.get()));
+            break;
+        case ASTNode::NodeKind::ImplDecl:
+            for (const auto &m : static_cast<const ImplDecl *>(d.get())->getMethods())
+                record(m.get());
+            break;
+        case ASTNode::NodeKind::ProtocolDecl:
+            for (const auto &m :
+                 static_cast<const ProtocolDecl *>(d.get())->getMethods())
+                record(m.get());
+            break;
+        case ASTNode::NodeKind::ClassDecl:
+            for (const auto &m : static_cast<const ClassDecl *>(d.get())->getMembers())
+                record(m.method.get());
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+bool OwnershipChecker::paramIsDynProtocol(const std::string &name,
+                                          size_t argIndex) const {
+    auto it = funcsByName_.find(name);
+    if (it == funcsByName_.end())
+        return false;
+
+    bool sawCandidate = false;
+    for (const FuncDecl *fn : it->second) {
+        const auto &params = fn->getParams();
+        // `self` params_[0]'da duruyor ve argüman listesinde karşılığı yok.
+        size_t offset = (!params.empty() && params[0].isSelf) ? 1 : 0;
+        size_t idx = argIndex + offset;
+        if (idx >= params.size())
+            continue; // farklı arite — bu çağrının adayı olamaz
+        sawCandidate = true;
+        const TypeRepr *t = params[idx].type.get();
+        if (!t || t->getKind() != TypeRepr::Kind::DynProtocol)
+            return false; // adaylardan biri dyn değil -> muhafazakâr: taşıma
+    }
+    return sawCandidate;
 }
 
 bool OwnershipChecker::isDropType(const TypeRepr *type) const {

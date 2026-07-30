@@ -2345,3 +2345,134 @@ TEST_F(OwnershipTest, MemberReadOfLiveValueAccepted) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Kök neden A: çözülmemiş generik tip parametresi taşıma tetiklemez ===
+//
+// Gezinti açıldığında impl metot gövdeleri ilk kez denetlendi ve
+// `stdlib/stream/stream.liva`'nın generik gövdeleri reddedildi: `isCopyType`
+// `T` adlı bir Named tip için false döndürüyor, `visitCallExpr` argümanı
+// taşınmış işaretliyordu. Monomorfizasyondan ÖNCE T'nin Copy'liği BİLİNMEZ;
+// muhafazakâr yön taşımamaktır.
+
+TEST_F(OwnershipTest, FuncTypeParamArgIsNotMoved) {
+    // Fonksiyon düzeyi tip parametresi: `v: T` iki kez geçirilebilmeli.
+    auto result = check(R"--(
+        func take<T>(v: T) -> i64 { return 1 }
+        func twice<T>(v: T) -> i64 {
+            let a: i64 = take(v)
+            let b: i64 = take(v)
+            return a + b
+        }
+        func main() {
+            println(twice(7))
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, ImplTypeParamArgIsNotMoved) {
+    // impl düzeyi tip parametresi (`impl Holder<T>`) — stream.liva'nın
+    // reddedilen `filter` gövdesiyle aynı şekil. Metodun kendi tip
+    // parametresi yok; T'yi yalnız impl'den görebilir.
+    auto result = check(R"--(
+        struct Holder<T> { var items: [T] }
+        impl Holder<T> {
+            func first(ref self) -> [T] {
+                var out: [T] = []
+                let v: T = self.items[0]
+                out.push(v)
+                out.push(v)
+                return out
+            }
+        }
+        func main() {
+            let h: Holder<i64> = Holder<i64> { items: [1 as i64, 2 as i64] }
+            let r: [i64] = h.first()
+            println(r.length)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// KORUMA PİNİ (A): gevşetme yalnız tip parametresi ADLARINI kapsıyor.
+// Generik bir fonksiyonun İÇİNDE somut tipli bir değerin çift taşınması hâlâ
+// yakalanmalı. Düzeltme "generik bağlamda taşımayı kapat" biçiminde fazla
+// geniş olsaydı bu test FAIL ederdi.
+TEST_F(OwnershipTest, ConcreteTypeDoubleMoveInsideGenericStillRejected) {
+    auto result = check(R"--(
+        struct Packet { var size: i32 }
+        func send(p: Packet) { println(p.size) }
+        func generic<T>(v: T) -> i32 {
+            let pkt: Packet = Packet { size: 5 }
+            send(pkt)
+            send(pkt)
+            return 0
+        }
+        func main() { println(generic(7)) }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// KORUMA PİNİ (A): generik OLMAYAN bağlamda gerçek çift taşıma hâlâ hata.
+// `T` adı kapsamda olmadığı için isCopyType'ın yeni dalı hiç çalışmamalı.
+TEST_F(OwnershipTest, NonGenericDoubleMoveStillRejected) {
+    auto result = check(R"--(
+        struct Packet { var size: i32 }
+        func send(p: Packet) { println(p.size) }
+        func main() {
+            let pkt: Packet = Packet { size: 5 }
+            send(pkt)
+            send(pkt)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// === Kök neden B: `dyn Protocol` argümanı taşıma değil, ödünç ===
+//
+// IRGen (IRGenCall.cpp) somut bir struct'ı `dyn Protocol` parametresine
+// geçirirken fat pointer'a değişkenin KENDİ alloca'sının ADRESİNİ yazar:
+// derin kopya da yok, tüketme de. Değişken çağrıdan sonra geçerli kalır.
+
+TEST_F(OwnershipTest, DynProtocolArgIsBorrowedNotMoved) {
+    auto result = check(R"--(
+        protocol Greeter { func greet(ref self) -> i32 }
+        struct Person { var age: i32 }
+        impl Person : Greeter {
+            func greet(ref self) -> i32 { return self.age }
+        }
+        func viaDyn(g: dyn Greeter) -> i32 { return g.greet() }
+        func main() {
+            let p: Person = Person { age: 3 }
+            println(viaDyn(p))
+            println(p.age)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+    EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// KORUMA PİNİ (B): dyn OLMAYAN bir parametreye değer geçişi hâlâ taşıma.
+// Aynı program, tek farkı parametrenin `dyn Greeter` yerine somut `Person`
+// olması — gevşetme yalnız DynProtocol parametrelerini kapsıyor.
+TEST_F(OwnershipTest, NonDynParamArgStillMoves) {
+    auto result = check(R"--(
+        protocol Greeter { func greet(ref self) -> i32 }
+        struct Person { var age: i32 }
+        impl Person : Greeter {
+            func greet(ref self) -> i32 { return self.age }
+        }
+        func byValue(p: Person) -> i32 { return p.age }
+        func main() {
+            let p: Person = Person { age: 3 }
+            println(byValue(p))
+            println(p.age)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
