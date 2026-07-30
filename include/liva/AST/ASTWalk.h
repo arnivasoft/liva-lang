@@ -11,9 +11,13 @@ namespace liva {
 ///
 /// Dönüş: false = bu düğüm türü tabloda yok, çağıran muhafazakâr davranmalı.
 /// switch'te `default:` dalı OLMADIĞI için yeni bir NodeKind eklendiğinde
-/// -Wswitch derleme hatası verir; bu yüzden false dönüşü pratikte ulaşılamaz
-/// ve yalnızca API sözleşmesi olarak duruyor. `default:` EKLEMEYİN — garantiyi
-/// yok eder.
+/// -Wswitch UYARISI verir. Bu yalnızca `-DLIVA_WERROR=ON` olan hedeflerde
+/// (cmake/CompilerFlags.cmake) derleme HATASINA dönüşür; o bayrak kapalıyken
+/// (yerel varsayılan yapı) eksik bir case sessizce derlenir ve `false` dönüş
+/// yolu ÇALIŞMA ZAMANINDA gerçekten ulaşılabilir — bu yüzden gerçek bir
+/// emniyet ağıdır, yalnızca teorik bir API sözleşmesi değil. `default:`
+/// EKLEMEYİN — hem -Wswitch derleme-zamanı garantisini hem de bu çalışma
+/// zamanı emniyet ağını yok eder.
 bool forEachChild(const ASTNode *node,
                   const std::function<void(const ASTNode *)> &fn);
 

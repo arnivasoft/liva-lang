@@ -26,11 +26,33 @@ void inspect(const ASTNode *n, ScanState &st) {
     case ASTNode::NodeKind::RefExpr: {
         // Kural 4: `let s = ref r` ödüncü zincirliyor; r'nin ödüncünü bırakmak
         // s üzerinden erişilebilirliği görmezden gelirdi.
+        //
+        // Operand DOĞRUDAN bir IdentifierExpr ise yalnızca adı eşleşiyorsa
+        // blokla (aşağıdaki gibi). Operand daha karmaşık bir ifadeyse
+        // (GroupExpr, MemberExpr, IndexExpr, ne olursa) — örn. `ref (r)` —
+        // KOŞULSUZ blokla, içinde `st.name` geçip geçmediğine bakmadan: bu,
+        // muhafazakâr ama ucuz seçenek — `ref <karmaşık ifade>` zaten nadir,
+        // fazla bloklamanın bedeli yalnız gecikme, eksik bloklamanın bedeli
+        // sağlamsızlık.
+        //
+        // Not: `visitRefExpr` (OwnershipChecker.cpp) aynı sözdizimsel kısıtı
+        // taşıyor — yalnız IdentifierExpr operandında ödünç kaydediyor — bu
+        // yüzden `ref (...)` bugün hiç ödünç kurmuyor ve bu dal fiilen
+        // sömürülemez. Ama bu kural onu değil, `visitRefExpr`'in İLERİDE
+        // düzeltilmesini (parantez içi ifadenin ödüncünü de takip etmesini)
+        // hedefliyor: o gün bu blok olmasa sessizce sağlamsız bir delik
+        // açılırdı.
         auto *re = static_cast<const RefExpr *>(n);
         const Expr *inner = re->getExpr();
-        if (inner && inner->getKind() == ASTNode::NodeKind::IdentifierExpr &&
-            static_cast<const IdentifierExpr *>(inner)->getName() == st.name)
+        if (!inner)
+            return;
+        if (inner->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+            if (static_cast<const IdentifierExpr *>(inner)->getName() ==
+                st.name)
+                st.blocked = true;
+        } else {
             st.blocked = true;
+        }
         return;
     }
 

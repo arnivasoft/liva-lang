@@ -216,8 +216,12 @@ Ad-tabanlı taramanın **fazla** saydığı durumlar (gölgeleyen iç bildirimle
 farklı dallardaki kullanımlar) bırakmayı yalnızca **geciktirir**, asla öne almaz
 — yani muhafazakâr yönde sapar.
 
-Erken çıkışlar (`return`, `break`, `continue`) bırakma noktasını atlar; kapsam
-çıkışındaki mevcut bırakma yedek olarak yerinde duruyor.
+Erken çıkışlar (`return`, `break`, `continue`) bırakma noktasını ATLAMAZ: statik
+AST gezintisi bir deyim listesindeki her indekse koşulsuz ulaşır — çalışma
+zamanı kontrol akışı burada yok, yalnızca deyim listesinin sıralı gezintisi
+var. Asıl yedek yol: `findLastUse` `shortenable = false` döndüğünde (ya da
+bağlama hiç izlenmiyorsa) kayıt hiç oluşturulmuyor ve ödünç kapsam çıkışındaki
+mevcut bırakmaya düşüyor.
 
 Sonuç: her sapma yönü muhafazakâr ret tarafına düşüyor; geri-çekilme kuralı 4
 eklendikten sonra yanlış-negatif üretebilecek bir yol kalmıyor.

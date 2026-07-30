@@ -2069,6 +2069,7 @@ TEST_F(OwnershipTest, ReborrowBlocksShortening) {
         }
     )--");
     EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_move_while_borrowed));
 }
 
 TEST_F(OwnershipTest, ShadowedBindingExtendsBorrowConservatively) {
@@ -2088,6 +2089,7 @@ TEST_F(OwnershipTest, ShadowedBindingExtendsBorrowConservatively) {
         }
     )--");
     EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_move_while_borrowed));
 }
 
 TEST_F(OwnershipTest, AssignWhileMutablyBorrowedRejected) {
@@ -2105,4 +2107,25 @@ TEST_F(OwnershipTest, AssignWhileMutablyBorrowedRejected) {
     )--");
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_move_while_borrowed));
+}
+
+TEST_F(OwnershipTest, UnusedSharedBorrowDoesNotBlockLaterMutableBorrow) {
+    // `r1` hiç kullanılmıyor, bu yüzden `findLastUse` onun ödüncünü bildirim
+    // deyiminin KENDİSİNDE bırakıyor (kullanım yok → stmtIndex = declIndex).
+    // Dolayısıyla `let r2 = ref mut x` çakışmıyor. Bu, Görev 3'te 7 mevcut
+    // testin (MutableBorrowWhileImmutableExists, TwoMutableBorrows, ...)
+    // düzenlenmesini zorunlu kılan davranış değişikliğinin KABUL pini: o
+    // testler öncesinde "kullanılmayan ödünç de bloklar" (NLL-öncesi)
+    // davranışını pinliyordu; artık her birine çakışan deyimden sonra bir
+    // kullanım eklenerek o kural korundu — burada tam tersi, kullanımSIZ
+    // durumun artık KABUL edildiği ayrıca sabitleniyor.
+    auto result = check(R"--(
+        func main() {
+            var x: i32 = 1
+            let r1 = ref x
+            let r2 = ref mut x
+            println(r2)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
 }

@@ -111,8 +111,14 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
 // sonra bırakırız. Ad-tabanlı taramanın fazla saydığı durumlar (gölgeleme,
 // dallar) bırakmayı yalnızca GECİKTİRİR, asla öne almaz.
 //
-// Erken çıkışlar (return/break/continue) bu noktayı atlar; kapsam çıkışındaki
-// dropScopeVariables bırakması yedek olarak yerinde duruyor.
+// Erken çıkışlar (return/break/continue) bu bırakma noktasını ATLAMAZ: statik
+// AST gezintisinde döngü, aşağıdaki `for (i = 0; i < stmts.size(); ++i)`
+// deyim listesindeki HER indekse koşulsuz ulaşır — çalışma zamanında bir
+// `return`'ün atladığı bir sonraki deyime Sema hiç bakmaz diye bir şey yok,
+// çünkü burada çalışma zamanı yürütmesi değil, deyim listesinin SIRALI
+// gezintisi var. Asıl yedek yol şu: `findLastUse` `shortenable == false`
+// döndüğünde ya da `getInfo` `nullptr` olduğunda kayıt pendingRelease'e hiç
+// girmiyor ve ödünç `dropScopeVariables`'a, yani kapsam çıkışına düşüyor.
 void OwnershipChecker::visitBlockStmt(BlockStmt *node) {
     pushOwnershipScope();
 

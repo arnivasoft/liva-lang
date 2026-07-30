@@ -150,6 +150,26 @@ TEST_F(BorrowLastUseTest, UnexpandedMacroBlocksShortening) {
     EXPECT_FALSE(lu.shortenable);
 }
 
+TEST_F(BorrowLastUseTest, ParenthesizedReborrowBlocksShortening) {
+    // Geri-çekilme kuralı 4, operand DOĞRUDAN bir IdentifierExpr değilken de
+    // (burada bir GroupExpr — `ref (r)`) tetiklenmeli. Bugün `ref (...)`
+    // IRGen'de bozuk ve `visitRefExpr` yalnız IdentifierExpr operandında ödünç
+    // kaydettiği için bu program sömürülemez, ama `findLastUse` yine de
+    // muhafazakâr davranmalı: ileride `ref (...)` düzeltildiğinde sessizce
+    // sağlamsız bir delik açılmasın.
+    const auto &stmts = bodyOf(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            let s = ref (r)
+            k = 42
+            println(s)
+        }
+    )--");
+    auto lu = findLastUse(stmts, 1, "r");
+    EXPECT_FALSE(lu.shortenable);
+}
+
 TEST_F(BorrowLastUseTest, ShadowingNameExtendsConservatively) {
     // Ad-tabanlı tarama iç bloktaki AYRI `r`'yi de dış bağlamanın kullanımı
     // sayar. Bu yalnızca bırakmayı GECİKTİRİR — muhafazakâr yön.
