@@ -1,4 +1,5 @@
 #include "liva/Sema/OwnershipChecker.h"
+#include "liva/AST/ASTWalk.h"
 #include "liva/Sema/BorrowLastUse.h"
 
 namespace liva {
@@ -41,8 +42,13 @@ void OwnershipChecker::visitTestDecl(TestDecl *node) {
 }
 
 void OwnershipChecker::visitClassDecl(ClassDecl *node) {
-    // Check ownership for each method body
     for (auto &m : node->getMembers()) {
+        // Alanlar atlanıyordu, dolayısıyla computed property getter/setter'ları,
+        // willSet/didSet gözlemcileri ve lazy init'ler denetim dışı kalıyordu.
+        // Struct'lar aynı kapsamı StructDecl -> FieldDecl yoluyla alıyor.
+        if (m.field) {
+            visit(m.field.get());
+        }
         if (m.method) {
             visitFuncDecl(const_cast<FuncDecl *>(m.method.get()));
         }
@@ -400,6 +406,66 @@ void OwnershipChecker::visitRefExpr(RefExpr *node) {
 
     visit(const_cast<Expr *>(node->getExpr()));
 }
+
+// === Gezinti boşlukları ===
+//
+// ASTVisitor'ın varsayılanları no-op olduğu için, override edilmeyen her düğüm
+// türü ziyaret zincirini KESİYORDU: `send(pkt); println(pkt.size)` sessizce
+// derleniyor, aynı programın `send(pkt); send(pkt)` yazımı ise reddediliyordu.
+// Aşağıdakiler yeni bir ownership kuralı getirmez — yalnız var olan
+// denetimlerin (checkUse/markMoved/addBorrow) alt ağaca ulaşmasını sağlar.
+// Doğru okuma semantiği bedavaya gelir: pkt.size -> visitIdentifierExpr(pkt)
+// -> checkUse(pkt).
+
+void OwnershipChecker::visitChildren(ASTNode *node) {
+    forEachChild(node, [&](const ASTNode *child) {
+        visit(const_cast<ASTNode *>(child));
+    });
+}
+
+void OwnershipChecker::visitUnaryExpr(UnaryExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitMemberExpr(MemberExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitIndexExpr(IndexExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
+    visitChildren(node);
+}
+void OwnershipChecker::visitMatchExpr(MatchExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
+    visitChildren(node);
+}
+void OwnershipChecker::visitTupleLiteralExpr(TupleLiteralExpr *node) {
+    visitChildren(node);
+}
+void OwnershipChecker::visitCastExpr(CastExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitIsExpr(IsExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitGroupExpr(GroupExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitRangeExpr(RangeExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitUnwrapExpr(UnwrapExpr *node) { visitChildren(node); }
+// Closure GÖVDESİ ziyaret edilir: closure tanımlanmadan ÖNCE taşınmış bir
+// değişkenin yakalanması yakalanır. Closure tanımlandıktan SONRA taşınan bir
+// değişkenin closure ÇAĞRISINDA kullanılması yakalanmaz — bu bir kaçırma
+// (muhafazakâr), yanlış-pozitif değil; gerçek çözümü CFG ister.
+void OwnershipChecker::visitClosureExpr(ClosureExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitTryExpr(TryExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitTernaryExpr(TernaryExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitAwaitExpr(AwaitExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitYieldExpr(YieldExpr *node) { visitChildren(node); }
+void OwnershipChecker::visitComptimeExpr(ComptimeExpr *node) { visitChildren(node); }
+// Genişletilmemiş bir makronun argüman token'ları henüz AST değil, o yüzden
+// forEachChild hiçbir çocuk vermez ve bu no-op'a düşer.
+void OwnershipChecker::visitMacroInvokeExpr(MacroInvokeExpr *node) {
+    visitChildren(node);
+}
+
+// impl metot gövdeleri HİÇ ownership denetimi görmüyordu — top-level'da
+// reddedilen çift taşıma burada sessizce derleniyordu.
+void OwnershipChecker::visitImplDecl(ImplDecl *node) { visitChildren(node); }
+// Protokol DEFAULT metot gövdeleri için aynısı.
+void OwnershipChecker::visitProtocolDecl(ProtocolDecl *node) { visitChildren(node); }
+// StructDecl -> FieldDecl -> computed property getter/setter, willSet/didSet
+// ve lazy init gövdeleri.
+void OwnershipChecker::visitStructDecl(StructDecl *node) { visitChildren(node); }
+void OwnershipChecker::visitFieldDecl(FieldDecl *node) { visitChildren(node); }
 
 // === Private helpers ===
 

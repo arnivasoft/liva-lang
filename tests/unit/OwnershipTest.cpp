@@ -2129,3 +2129,161 @@ TEST_F(OwnershipTest, UnusedSharedBorrowDoesNotBlockLaterMutableBorrow) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Gezinti boşlukları (roadmap 134 "AYRI İŞ") ===
+//
+// ASTVisitor'ın tüm varsayılan visit* metotları no-op, dolayısıyla
+// OwnershipChecker'ın override ETMEDİĞİ her düğüm türü ownership denetiminin
+// tamamen dışındaydı: ziyaret zinciri orada kopuyordu. Aşağıdaki programların
+// hepsi çıplak identifier yazımıyla reddediliyor ama bu yazımlarla sessizce
+// derleniyordu.
+
+TEST_F(OwnershipTest, UseAfterMoveThroughMemberAccessRejected) {
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        func main() {
+            let pkt = Packet { size: 10 }
+            send(pkt)
+            println(pkt.size)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, UseAfterMoveThroughIndexExprRejected) {
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        func main() {
+            let pkt = Packet { size: 1 }
+            var arr: [i32] = [1, 2, 3]
+            send(pkt)
+            println(arr[pkt.size])
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, UseAfterMoveThroughTernaryRejected) {
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        func main() {
+            let pkt = Packet { size: 1 }
+            let c: bool = true
+            send(pkt)
+            let q = c ? pkt : pkt
+            println(q.size)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, ImplMethodBodyIsOwnershipChecked) {
+    // visitImplDecl override edilmemişti — impl metot gövdeleri HİÇ ownership
+    // denetimi görmüyordu. Aynı çift taşıma top-level'da reddediliyor.
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        struct Holder {
+            var n: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        impl Holder {
+            func run(self) {
+                let pkt = Packet { size: 3 }
+                send(pkt)
+                send(pkt)
+            }
+        }
+        func main() {
+            let h = Holder { n: 1 }
+            h.run()
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, ProtocolDefaultBodyIsOwnershipChecked) {
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        protocol Runner {
+            func name(self) -> string
+            func run(self) {
+                let pkt = Packet { size: 4 }
+                send(pkt)
+                send(pkt)
+            }
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, ComputedPropertyGetterIsOwnershipChecked) {
+    // visitClassDecl üyeleri gezerken yalnız m.method'a bakıyordu; m.field
+    // atlandığı için computed property gövdeleri denetim dışıydı.
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        class Box {
+            var raw: i32
+            var doubled: i32 {
+                get {
+                    let pkt = Packet { size: 5 }
+                    send(pkt)
+                    send(pkt)
+                    return raw
+                }
+            }
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, MemberReadOfLiveValueAccepted) {
+    // Fazla-ret koruması: taşınmamış bir değerin üye okuması serbest kalmalı.
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func main() {
+            let pkt = Packet { size: 10 }
+            println(pkt.size)
+            println(pkt.size)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

@@ -89,9 +89,44 @@ public:
     void visitBinaryExpr(BinaryExpr *node);
     void visitRefExpr(RefExpr *node);
 
+    // Gezinti boşlukları: aşağıdaki düğüm türleri override EDİLMEDİĞİ için
+    // ASTVisitor'ın no-op varsayılanına düşüyordu ve altlarındaki hiçbir
+    // kullanım görülmüyordu. Hepsi yalnızca çocuklarını ziyaret eder —
+    // ownership semantiği eklemezler, var olan denetimlerin alt ağaca
+    // ulaşmasını sağlarlar.
+    void visitUnaryExpr(UnaryExpr *node);
+    void visitMemberExpr(MemberExpr *node);
+    void visitIndexExpr(IndexExpr *node);
+    void visitStructLiteralExpr(StructLiteralExpr *node);
+    void visitMatchExpr(MatchExpr *node);
+    void visitArrayLiteralExpr(ArrayLiteralExpr *node);
+    void visitTupleLiteralExpr(TupleLiteralExpr *node);
+    void visitCastExpr(CastExpr *node);
+    void visitIsExpr(IsExpr *node);
+    void visitGroupExpr(GroupExpr *node);
+    void visitRangeExpr(RangeExpr *node);
+    void visitUnwrapExpr(UnwrapExpr *node);
+    void visitClosureExpr(ClosureExpr *node);
+    void visitTryExpr(TryExpr *node);
+    void visitTernaryExpr(TernaryExpr *node);
+    void visitAwaitExpr(AwaitExpr *node);
+    void visitYieldExpr(YieldExpr *node);
+    void visitComptimeExpr(ComptimeExpr *node);
+    void visitMacroInvokeExpr(MacroInvokeExpr *node);
+
+    void visitImplDecl(ImplDecl *node);
+    void visitProtocolDecl(ProtocolDecl *node);
+    void visitStructDecl(StructDecl *node);
+    void visitFieldDecl(FieldDecl *node);
+
     bool hasErrors() const { return diag_.hasErrors(); }
 
 private:
+    /// Düğümün çocuklarını kaynak sırasında ziyaret eder. Ownership semantiği
+    /// eklemez — var olan kullanım/taşıma/ödünç denetimlerinin alt ağaca
+    /// ulaşmasını sağlar.
+    void visitChildren(ASTNode *node);
+
     /// Track a new variable
     void trackVariable(const std::string &name, bool isMutable, bool isCopyType,
                        bool isDropType, SourceLocation loc);
