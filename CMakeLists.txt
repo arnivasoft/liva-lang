@@ -84,6 +84,7 @@ add_library(liva_sema STATIC
     src/Sema/TypeChecker.cpp
     src/Sema/TypeCheckerCall.cpp
     src/Sema/OwnershipChecker.cpp
+    src/Sema/BorrowLastUse.cpp
     src/Sema/LifetimeAnalysis.cpp
     src/Sema/Scope.cpp
     src/Sema/ModuleLoader.cpp
