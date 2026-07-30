@@ -381,12 +381,17 @@ TEST_F(OwnershipTest, MultipleImmutableBorrows) {
 }
 
 TEST_F(OwnershipTest, MutableBorrowWhileImmutableExists) {
-    // Taking a mutable borrow while an immutable borrow exists — should fail
+    // Taking a mutable borrow while an immutable borrow exists — should fail.
+    // `r1` needs a use AFTER `r2`'s declaration: with last-use release
+    // (roadmap 134 (b)) an unused `r1` would be dropped immediately after its
+    // own decl statement, so `r2` would no longer conflict. Reading `r1`
+    // afterward keeps its borrow genuinely live at the point `r2` is taken.
     auto result = check(R"--(
         func main() {
             var x: i32 = 42
             let r1 = ref x
             let r2 = ref mut x
+            println(r1)
         }
     )--");
     EXPECT_FALSE(result.passed);
@@ -394,12 +399,15 @@ TEST_F(OwnershipTest, MutableBorrowWhileImmutableExists) {
 }
 
 TEST_F(OwnershipTest, TwoMutableBorrows) {
-    // Two mutable borrows on the same variable — should fail
+    // Two mutable borrows on the same variable — should fail. See the
+    // comment on MutableBorrowWhileImmutableExists for why `r1` now needs a
+    // trailing use.
     auto result = check(R"--(
         func main() {
             var x: i32 = 42
             let r1 = ref mut x
             let r2 = ref mut x
+            println(r1)
         }
     )--");
     EXPECT_FALSE(result.passed);
@@ -407,12 +415,15 @@ TEST_F(OwnershipTest, TwoMutableBorrows) {
 }
 
 TEST_F(OwnershipTest, ImmutableBorrowAfterMutable) {
-    // Taking an immutable borrow while a mutable borrow exists — should fail
+    // Taking an immutable borrow while a mutable borrow exists — should fail.
+    // See the comment on MutableBorrowWhileImmutableExists for why `r1` now
+    // needs a trailing use.
     auto result = check(R"--(
         func main() {
             var x: i32 = 42
             let r1 = ref mut x
             let r2 = ref x
+            println(r1)
         }
     )--");
     EXPECT_FALSE(result.passed);
@@ -447,7 +458,10 @@ TEST_F(OwnershipTest, SequentialBorrowsInSeparateScopes) {
 }
 
 TEST_F(OwnershipTest, BorrowThenMove) {
-    // Borrow a struct then try to move it — should fail
+    // Borrow a struct then try to move it — should fail. `r` needs a use
+    // AFTER the move: with last-use release (roadmap 134 (b)) an unused `r`
+    // would be dropped immediately after its own decl statement, so the move
+    // would no longer conflict. See MutableBorrowWhileImmutableExists.
     auto result = check(R"--(
         struct Widget {
             var id: i32
@@ -459,6 +473,7 @@ TEST_F(OwnershipTest, BorrowThenMove) {
             var w: Widget = Widget { id: 1 }
             let r = ref w
             consume(w)
+            println(r)
         }
     )--");
     EXPECT_FALSE(result.passed);
@@ -492,12 +507,17 @@ TEST_F(OwnershipTest, MutRefToLetVariable) {
 
 TEST_F(OwnershipTest, BorrowThenMutate) {
     // Borrow immutably, then try to assign — should fail because assignment
-    // to a borrowed variable is checked when the target's state is BorrowedImmutable
+    // to a borrowed variable is checked when the target's state is
+    // BorrowedImmutable. `r` needs a use AFTER the assignment: with last-use
+    // release (roadmap 134 (b)) an unused `r` would be dropped immediately
+    // after its own decl statement, so the assignment would no longer
+    // conflict. See MutableBorrowWhileImmutableExists.
     auto result = check(R"--(
         func main() {
             var x: i32 = 42
             let r = ref x
             x = 100
+            println(r)
         }
     )--");
     // visitAssignExpr checks if target is BorrowedImmutable and reports err_move_while_borrowed
@@ -1254,7 +1274,11 @@ TEST_F(OwnershipTest, ValidMutRefToVarInFunction) {
 
 TEST_F(OwnershipTest, StructBorrowThenMoveConflict) {
     // Immutable borrow of struct, then move via function — should fail
-    // Renamed struct to avoid conflict with built-in File type
+    // Renamed struct to avoid conflict with built-in File type.
+    // `r` needs a use AFTER the move: with last-use release (roadmap 134 (b))
+    // an unused `r` would be dropped immediately after its own decl
+    // statement, so the move would no longer conflict. See
+    // MutableBorrowWhileImmutableExists.
     auto result = check(R"--(
         struct FileDesc {
             var path: i32
@@ -1266,6 +1290,7 @@ TEST_F(OwnershipTest, StructBorrowThenMoveConflict) {
             var fd: FileDesc = FileDesc { path: 1 }
             let r = ref fd
             close_fd(fd)
+            println(r)
         }
     )--");
     EXPECT_FALSE(result.passed);
@@ -1273,7 +1298,10 @@ TEST_F(OwnershipTest, StructBorrowThenMoveConflict) {
 }
 
 TEST_F(OwnershipTest, StructMutBorrowThenMoveConflict) {
-    // Mutable borrow of struct, then move — should fail
+    // Mutable borrow of struct, then move — should fail. `r` needs a use
+    // AFTER the move: with last-use release (roadmap 134 (b)) an unused `r`
+    // would be dropped immediately after its own decl statement, so the move
+    // would no longer conflict. See MutableBorrowWhileImmutableExists.
     auto result = check(R"--(
         struct Stream {
             var fd: i32
@@ -1285,6 +1313,7 @@ TEST_F(OwnershipTest, StructMutBorrowThenMoveConflict) {
             var s: Stream = Stream { fd: 5 }
             let r = ref mut s
             destroy(s)
+            println(r)
         }
     )--");
     EXPECT_FALSE(result.passed);
@@ -1927,4 +1956,132 @@ TEST_F(OwnershipTest, ArgBorrowReleaseDoesNotClearBindingBorrow) {
     )--");
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_mut_borrow_conflict));
+}
+
+// === Son-kullanım kısaltması (roadmap 134 (b)) ===
+
+TEST_F(OwnershipTest, BorrowReleasedAtLastUseOfBinding) {
+    // Hedef desen. `r` bu noktadan sonra bir daha okunmuyor, dolayısıyla
+    // ödüncün canlı kalması için gerekçe yok. Rust bunu kabul eder (NLL).
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            println(r)
+            k = 42
+            println(k)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, UnusedRefBindingReleasesImmediately) {
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            k = 42
+            println(k)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, BorrowUsedInLoopReleasedAfterTheLoop) {
+    // Döngü gövdesindeki kullanım, döngü DEYİMİNİ son kullanım yapar; bırakma
+    // döngü tamamen bittikten sonra, bu yüzden geri kenar sorun değil.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            for i in 0..3 {
+                println(r)
+            }
+            k = 42
+            println(k)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, WriteThroughRefThenMutateReferentAccepted) {
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref mut k
+            r = 1
+            k = 5
+            println(k)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, MutationInsideLoopWithLaterUseStillRejected) {
+    // Kullanım ve mutasyon AYNI döngü gövdesinde: bir sonraki iterasyon
+    // mutasyondan sonra r'yi okur, bu yüzden ret muhafazakâr DEĞİL, gerekli.
+    // Son kullanım döngü deyiminin kendisi olduğundan bırakma döngüden sonra.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            var n: i32 = 0
+            while n < 3 {
+                println(r)
+                k = 42
+                n = n + 1
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_move_while_borrowed));
+}
+
+TEST_F(OwnershipTest, ClosureCaptureBlocksShortening) {
+    // Geri-çekilme kuralı 2: closure saklanıp sonra çağrılabilir, bu yüzden
+    // kısaltma tamamen kapalı ve ödünç kapsam sonuna kadar yaşıyor.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            let f = |x: i32| -> i32 { return x + r }
+            k = 42
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_move_while_borrowed));
+}
+
+TEST_F(OwnershipTest, ReborrowBlocksShortening) {
+    // Geri-çekilme kuralı 4: `s` geçişli olarak k'ya erişiyor, dolayısıyla
+    // r'nin ödüncü bırakılamaz. Rust: E0506.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            let s = ref r
+            k = 42
+            println(s)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+}
+
+TEST_F(OwnershipTest, ShadowedBindingExtendsBorrowConservatively) {
+    // Ad-tabanlı tarama iç bloktaki AYRI `r`'yi de kullanım sayıyor, bu yüzden
+    // aradaki mutasyon reddediliyor. Rust bunu kabul eder; kesinlik boşluğu
+    // bilinçli ve roadmap'e yazılı.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            var m: i32 = 20
+            let r = ref k
+            k = 42
+            {
+                let r = ref m
+                println(r)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
 }

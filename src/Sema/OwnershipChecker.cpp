@@ -1,4 +1,5 @@
 #include "liva/Sema/OwnershipChecker.h"
+#include "liva/Sema/BorrowLastUse.h"
 
 namespace liva {
 
@@ -101,11 +102,62 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
     }
 }
 
+// Bir `ref` bağlamasının tuttuğu ödünç, bağlamanın SON KULLANIMINDAN sonra
+// bırakılıyor — kapsam çıkışını beklemiyor (roadmap 134 (b)).
+//
+// Neden sağlam: bırakma noktası bağlamanın bildirildiği deyim listesinde ve
+// bildirimden sonra. Deyim listeleri sırasaldır ve içlerinde geri kenar yoktur
+// — döngüler tek bir deyimdir ve biz bir döngü deyimini TAMAMEN bittikten
+// sonra bırakırız. Ad-tabanlı taramanın fazla saydığı durumlar (gölgeleme,
+// dallar) bırakmayı yalnızca GECİKTİRİR, asla öne almaz.
+//
+// Erken çıkışlar (return/break/continue) bu noktayı atlar; kapsam çıkışındaki
+// dropScopeVariables bırakması yedek olarak yerinde duruyor.
 void OwnershipChecker::visitBlockStmt(BlockStmt *node) {
     pushOwnershipScope();
-    for (auto &stmt : node->getStatements()) {
-        visit(stmt.get());
+
+    const auto &stmts = node->getStatements();
+    // {bırakmanın yapılacağı deyim indeksi, bağlama adı}
+    std::vector<std::pair<size_t, std::string>> pendingRelease;
+
+    for (size_t i = 0; i < stmts.size(); ++i) {
+        visit(stmts[i].get());
+
+        // Bu deyim bir `ref` bağlaması ürettiyse, ödüncünü ne zaman geri
+        // vereceğini şimdi hesapla. borrowsName boşsa (referent izlenmiyor:
+        // global, alan, ya da reddedilmiş ödünç) bırakılacak bir şey yok.
+        if (stmts[i]->getKind() == ASTNode::NodeKind::VarDecl) {
+            auto *varDecl = static_cast<VarDecl *>(stmts[i].get());
+            auto *info = getInfo(varDecl->getName());
+            if (info && info->isRefBinding && !info->borrowsName.empty()) {
+                LastUseResult lastUse =
+                    findLastUse(stmts, i, varDecl->getName());
+                if (lastUse.shortenable)
+                    pendingRelease.emplace_back(lastUse.stmtIndex,
+                                                varDecl->getName());
+            }
+        }
+
+        // Bu deyimde ölen bağlamaların ödüncünü geri ver. Kullanımı olmayan
+        // bir bağlama için indeks bildirim deyiminin kendisidir, o yüzden
+        // kayıt aynı turda hem eklenip hem işlenebilir.
+        for (auto it = pendingRelease.begin(); it != pendingRelease.end();) {
+            if (it->first != i) {
+                ++it;
+                continue;
+            }
+            if (auto *bindingInfo = getInfo(it->second)) {
+                releaseBorrow(bindingInfo->borrowsName,
+                              bindingInfo->borrowsMutable);
+                // ZORUNLU: kapsam çıkışının aynı ödüncü ikinci kez
+                // düşürmesini, ve referent sonradan BAŞKA bir ödünç aldıysa
+                // kapsam çıkışının o yeni ödüncü silmesini engelliyor.
+                bindingInfo->borrowsName.clear();
+            }
+            it = pendingRelease.erase(it);
+        }
     }
+
     dropScopeVariables();
     popOwnershipScope();
 }

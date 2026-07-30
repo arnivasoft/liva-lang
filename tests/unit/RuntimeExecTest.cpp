@@ -5630,4 +5630,21 @@ TEST(RuntimeExecTest, NegativeLiteralNarrowedValuesSurvive) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, BorrowReleasedAtLastUse_MutatesAfterwards) {
+    // roadmap 134 (b): ödünç son kullanımda düşüyor, dolayısıyla `k = 42`
+    // hem Sema'dan geçiyor hem doğru değeri basıyor.
+    auto r = compileAndRun(R"(
+        func main() {
+            var k: i32 = 10
+            let r = ref k
+            println(r)
+            k = 42
+            println(k)
+        }
+    )", "borrow_last_use");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_NE(r.stdout_output.find("42"), std::string::npos)
+        << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM
