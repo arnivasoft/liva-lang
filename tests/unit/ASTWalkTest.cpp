@@ -168,4 +168,48 @@ TEST_F(ASTWalkTest, MethodBodiesInsideImplAreReached) {
     EXPECT_TRUE(has(names, "self")) << "impl metot gövdesine ulaşılmadı";
 }
 
+TEST_F(ASTWalkTest, MatchArmGuardAndBodyAreReached) {
+    // subject, guard ve body ÜÇ FARKLI ad kullanıyor: guard'ın yerine body'nin
+    // iki kez okunması (ya da tersi) gibi bir kopyala-yapıştır hatası, biri
+    // eksik kalacağı için bu testte yakalanır.
+    auto names = identifiers(R"--(
+        func main() {
+            let s: i32 = 1
+            let g: i32 = 2
+            let b: i32 = 3
+            match s {
+                _ where g > 0 => println(b)
+            }
+        }
+    )--");
+    EXPECT_TRUE(has(names, "s")) << "match subject'e ulaşılmadı";
+    EXPECT_TRUE(has(names, "g")) << "arm guard'a ulaşılmadı";
+    EXPECT_TRUE(has(names, "b")) << "arm body'e ulaşılmadı";
+}
+
+TEST_F(ASTWalkTest, ClassFieldAndMethodBodiesAreReached) {
+    // ClassDecl çocuk tablosu her üye için HEM field HEM method dalını
+    // yayıyor (ClassMember bir field/method ikilisi, biri null olabilir).
+    // Hesaplanan property'nin getter gövdesi (FieldDecl çocuğu) ile ayrı bir
+    // metodun gövdesi FARKLI adlar kullanıyor, ikisinin de gezildiğini
+    // doğrulamak için.
+    auto names = identifiers(R"--(
+        class Box {
+            var raw: i32
+            var doubled: i32 {
+                get {
+                    return fieldOnly
+                }
+            }
+            func compute() -> i32 {
+                return methodOnly
+            }
+        }
+    )--");
+    EXPECT_TRUE(has(names, "fieldOnly"))
+        << "class alanının getter gövdesine ulaşılmadı";
+    EXPECT_TRUE(has(names, "methodOnly"))
+        << "class metot gövdesine ulaşılmadı";
+}
+
 } // namespace
