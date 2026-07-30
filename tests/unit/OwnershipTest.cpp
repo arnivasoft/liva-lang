@@ -2005,6 +2005,10 @@ TEST_F(OwnershipTest, BorrowUsedInLoopReleasedAfterTheLoop) {
 }
 
 TEST_F(OwnershipTest, WriteThroughRefThenMutateReferentAccepted) {
+    // Görev 4 (BorrowedMutable'ı da reddeden koşul) eklendikten sonra bu pin
+    // yük taşıyor hâle geldi: `k = 5` yalnızca r'nin ödüncü kendi son
+    // kullanımında (`r = 1`) zaten bırakılmış olduğu için kabul ediliyor —
+    // aksi hâlde k hâlâ BorrowedMutable olur ve yeni koşul onu reddederdi.
     auto result = check(R"--(
         func main() {
             var k: i32 = 10
@@ -2084,4 +2088,21 @@ TEST_F(OwnershipTest, ShadowedBindingExtendsBorrowConservatively) {
         }
     )--");
     EXPECT_FALSE(result.passed);
+}
+
+TEST_F(OwnershipTest, AssignWhileMutablyBorrowedRejected) {
+    // visitAssignExpr yalnız BorrowedImmutable'ı reddediyordu, bu yüzden
+    // DEĞİŞEBİLİR ödünç canlıyken doğrudan atama sessizce kabul ediliyordu.
+    // Rust: E0506. Kullanım mutasyondan SONRA olduğu için son-kullanım
+    // kısaltması bu ödüncü bırakmıyor.
+    auto result = check(R"--(
+        func main() {
+            var k: i32 = 10
+            let r = ref mut k
+            k = 42
+            println(r)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_move_while_borrowed));
 }

@@ -307,9 +307,16 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
             return;
         }
 
-        // If assigning a non-copy value, it's a move
+        // Ödünçlü bir değişkene doğrudan atama, ödüncün türünden bağımsız
+        // olarak reddedilir. Yalnız BorrowedImmutable'a bakmak DEĞİŞEBİLİR
+        // ödüncü sessizce geçiriyordu: `let r = ref mut k` canlıyken `k = 42`
+        // hiç tanı üretmiyordu (Rust: E0506).
+        //
+        // Referente YAZMA (`r = 99`) bu kontrole girmiyor: hedef `r`'dir ve
+        // ödünç `k` üzerinde kayıtlı, dolayısıyla r'nin kendi durumu Owned.
         auto *info = getInfo(ident->getName());
-        if (info && info->state == OwnershipState::BorrowedImmutable) {
+        if (info && (info->state == OwnershipState::BorrowedImmutable ||
+                     info->state == OwnershipState::BorrowedMutable)) {
             diag_.report(node->getStartLoc(), DiagID::err_move_while_borrowed,
                          ident->getName());
         }
