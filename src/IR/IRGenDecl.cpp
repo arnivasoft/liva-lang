@@ -1824,22 +1824,57 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             vars_.varDynArrayTypes[node->getName()] = {
                 elemType, elemSize, innerElemType, innerElemSize,
                 isSignedNarrowTypeRepr(arrReprType->getElement())};
-            // ÖDÜNÇ İŞARETİ: ilkleyici bir IndexExpr ise (örn. `let p: [i32] =
-            // rows[0]`), bu bağlama dış dizinin slot'undaki DynArray'i
-            // KOPYALAMAZ — `push` derin kopya yapmadığı için (liva_str_dup
-            // yalnız string elemanlarında çağrılır) yukarıdaki CreateStore
-            // sadece {data,len,cap} alanlarını kopyalar; `p.data` ile
-            // `rows[0].data` AYNI heap pointer'ını gösterir (alias, Liva'nın
-            // takma ad semantiği için istenen davranış — `a[0]=99` sonrası
-            // `rows[0]` 99 görür). emitScopeCleanup (IRGenStmt.cpp) her
-            // varDynArrayTypes girdisinin data pointer'ını movedVars'ta
-            // değilse liva_array_free ile serbest bırakır; iki farklı bağlama
-            // (örn. `p` ve `q`, ikisi de `rows[0]`'dan) aynı pointer'ı
-            // sahiplenirse scope sonunda ÇİFT SERBEST → yığın bozulması
-            // (STATUS_HEAP_CORRUPTION). Bu yüzden bu bağlamayı, for-in döngü
-            // değişkeni ve variadic parametrelerde kullanılan aynı
-            // movedVars-işaretleme deseniyle ÖDÜNÇ say: sahiplik yok, scope
-            // sonunda serbest bırakılmaz.
+            // ÖDÜNÇ İŞARETİ — BEYAZ LİSTE (inceleme, 2. tur): ilk taslak
+            // "ilkleyici bir IndexExpr ise ödünç say, RangeExpr hariç" gibi
+            // bir KARA LİSTE kuralıydı ve her istisna bir yenisini açığa
+            // çıkardı: önce dilim (`a[0..2]`, Important 1 — liva_array_new
+            // ile TAZE tampon üretir, ödünç sayılırsa sızar), sonra kullanıcı
+            // tanımlı `subscript` operatörü (`h[0]` bir class metodu çağırır,
+            // o da TAZE bir DynArray döndürebilir — aynı sızıntı sınıfı).
+            // Sözdizimsel ayırt edici sürdürülemez: yeni bir IndexExpr şekli
+            // her zaman mümkün.
+            //
+            // Bu yüzden kural TABAN TİPİNE göre BEYAZ LİSTEYE çevrildi: ödünç
+            // İŞARETİ YALNIZ kanıtlanmış takma-ad şeklinde uygulanır —
+            //   (a) ilkleyici bir IndexExpr'dir, VE
+            //   (b) o IndexExpr'in TABANI düz bir IdentifierExpr'dir (örn.
+            //       `rows[0]`'da taban `rows`; `h[0]`'da taban da öyle ama
+            //       (c)'de elenir; `getRows()[0]`'da taban bir CallExpr'dir,
+            //       burada zaten elenir), VE
+            //   (c) o tanımlayıcı vars_.varDynArrayTypes'ta kayıtlıdır VE
+            //       kaydın innerElemType alanı non-null'dır — yani `rows`
+            //       BİZZAT İÇ İÇE bir dinamik dizidir ([[T]]), skaler [T]
+            //       değil (bkz. DynArrayInfo::innerElemType, IRGen.h:317-338:
+            //       "Populated only when elementType == getDynArrayStructTy()
+            //       (this variable is itself a nested [[T]])" — yalnız
+            //       deriveNestedDynArrayInner çağrıldığında dolduruluyor), VE
+            //   (d) indeks kısmı bir RangeExpr değildir (dilim hariç).
+            // Takma adı doğuran şey TAM OLARAK "iç içe bir dizinin bir
+            // slotunu okumak" — bunu TABANIN TİPİNDEN (varDynArrayTypes +
+            // innerElemType) tanıyoruz, ifadenin sözdizimsel şeklinden değil.
+            // `h[0]` (class subscript) bu beyaz listenin DIŞINDA kalır çünkü
+            // `h`'nin kendisi bir class örneğidir, varDynArrayTypes'ta iç içe
+            // dizi olarak KAYITLI DEĞİLDİR — dolayısıyla otomatik olarak
+            // SAHİP tarafına düşer (bkz. yeni test
+            // NestedArraySlotClassSubscriptStillOwns).
+            //
+            // Yeni/bilinmeyen bir IndexExpr şekli artık varsayılan olarak
+            // GÜVENLİ tarafa (SAHİP) düşer: en kötü ihtimalle önceden var
+            // olan çift-serbest davranışına geri döner (yalnız TABAN GERÇEKTEN
+            // iç içe bir dizi olarak izleniyorsa ödünç uygulanır) — sızıntıya
+            // değil. `push` derin kopya yapmadığı için (liva_str_dup yalnız
+            // string elemanlarında çağrılır) yukarıdaki CreateStore sadece
+            // {data,len,cap} alanlarını kopyalar; `p.data` ile `rows[0].data`
+            // AYNI heap pointer'ını gösterir (alias, Liva'nın takma ad
+            // semantiği için istenen davranış — `a[0]=99` sonrası `rows[0]`
+            // 99 görür). emitScopeCleanup (IRGenStmt.cpp) her varDynArrayTypes
+            // girdisinin data pointer'ını movedVars'ta değilse liva_array_free
+            // ile serbest bırakır; iki farklı bağlama (örn. `p` ve `q`, ikisi
+            // de `rows[0]`'dan) aynı pointer'ı sahiplenirse scope sonunda
+            // ÇİFT SERBEST → yığın bozulması (STATUS_HEAP_CORRUPTION). Bu
+            // yüzden bu bağlamayı, for-in döngü değişkeni ve variadic
+            // parametrelerde kullanılan aynı movedVars-işaretleme deseniyle
+            // ÖDÜNÇ say: sahiplik yok, scope sonunda serbest bırakılmaz.
             //
             // DÜZELTME (inceleme, Minor 4): "kaynak dizi (rows) kendi
             // cleanup'ında zaten serbest bırakacak" gerekçesi YANLIŞTI —
@@ -1847,32 +1882,23 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             // `rows.data`'yı (dış tamponu) bırakır, rows'un elemanı olan iç
             // DynArray'lerin kendi tamponlarını hiç görmez. Doğru gerekçe:
             // kaynak `a`, `rows.push(a)` ile zaten MOVE edildi (push argümanı
-            // movedVars'a ekliyor, bkz. IRGenCallMethod.cpp) — iç tamponun
-            // sahipliği artık `rows`'un İÇİNDEDİR ve emitScopeCleanup tek
-            // seviyeli olduğu için o iç tampon zaten hiçbir yerde serbest
+            // movedVars'a ekliyor, bkz. IRGenCallMethod.cpp:497-501) — iç
+            // tamponun sahipliği artık `rows`'un İÇİNDEDİR ve emitScopeCleanup
+            // tek seviyeli olduğu için o iç tampon zaten hiçbir yerde serbest
             // bırakılmıyor (ayrı, önceden var olan bir sızıntı deseni — bu
             // görevin konusu değil). `p`'yi ödünç sayarak yaptığımız tek şey,
             // p'nin bu zaten-serbest-bırakılmayan pointer'ı BİR KEZ DAHA
             // (yanlışlıkla) serbest bırakmasını önlemek.
             //
-            // Kapsam bilerek DAR tutuldu: yalnızca ilkleyici bir IndexExpr
-            // olduğunda uygulanır. `let r: [i32] = mk()` (fonksiyon dönüşü)
-            // ve `let r: [i32] = [1,2,3]` (literal) bu dalın DIŞINDA kalır —
-            // ikisi de taze, hiçbir yerle paylaşılmayan bir tampon üretir;
-            // onları da ödünç sayarsak bu sefer SIZINTI oluşurdu (bkz. görev
-            // raporu: NestedArraySlotFunctionReturnStillOwns /
-            // NestedArraySlotLiteralBindingStillOwns testleri bu iki şeklin
-            // hâlâ doğru bastığını pinler).
-            // İNCELEME DÜZELTMESİ (Important 1): `a[i..j]` DİLİM de bir
-            // IndexExpr'dir ama visitIndexExpr (IRGenExpr.cpp ~1372-1393) onu
-            // `arr[i]` gibi ele almaz — `liva_array_new` ile TAZE bir tampon
-            // ayırıp elemanları `memcpy` ile KOPYALAR (takma ad değil, sahibi
-            // bu bağlamadır). Dilim ilkleyicisini de ödünç sayarsak bu taze
-            // tampon hiç serbest bırakılmaz → sınırsız sızıntı (ölçüldü:
-            // 20M çağrılık döngüde maxWS 4,1 MB'tan 617,8 MB'a çıkıyor).
-            // Bu yüzden yalnız index kısmı bir RangeExpr OLMAYAN IndexExpr'ler
-            // (skaler `rows[0]` gibi) ödünç sayılır; dilimler bu daldan hariç
-            // tutulup SAHİP kalır.
+            // `let r: [i32] = mk()` (fonksiyon dönüşü), `let r: [i32] =
+            // [1,2,3]` (literal), `let s: [i32] = a[0..2]` (dilim) ve `let p:
+            // [i32] = h[0]` (class subscript) hepsi bu beyaz listenin
+            // DIŞINDA kalır ve SAHİP olur (bkz. görev raporu:
+            // NestedArraySlotFunctionReturnStillOwns /
+            // NestedArraySlotLiteralBindingStillOwns /
+            // NestedArraySliceBindingStillOwns /
+            // NestedArraySlotClassSubscriptStillOwns testleri bu şekillerin
+            // hâlâ doğru bastığını VE IR'da serbest bırakıldığını pinler).
             //
             // BİLİNEN SINIRLAMA (inceleme, Important 2 — bu turda DÜZELTİLMEDİ):
             // movedVars işareti İSME kalıcı olarak konur ve yalnız VarDecl
@@ -1895,7 +1921,21 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             // güncellenmeli).
             if (node->getInit()->getKind() == ASTNode::NodeKind::IndexExpr) {
                 auto *idxInit = static_cast<const IndexExpr *>(node->getInit());
-                if (idxInit->getIndex()->getKind() != ASTNode::NodeKind::RangeExpr)
+                bool isRangeIndex =
+                    idxInit->getIndex()->getKind() == ASTNode::NodeKind::RangeExpr;
+                bool baseIsNestedDynArraySlot = false;
+                if (!isRangeIndex &&
+                    idxInit->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                    auto *baseIdent = static_cast<const IdentifierExpr *>(idxInit->getBase());
+                    auto baseDaIt = vars_.varDynArrayTypes.find(baseIdent->getName());
+                    // innerElemType non-null <=> baseIdent is ITSELF a nested
+                    // [[T]] (see DynArrayInfo comment above) — the only shape
+                    // that actually produces the shared-pointer alias.
+                    baseIsNestedDynArraySlot =
+                        baseDaIt != vars_.varDynArrayTypes.end() &&
+                        baseDaIt->second.innerElemType != nullptr;
+                }
+                if (baseIsNestedDynArraySlot)
                     vars_.movedVars.insert(node->getName());
             }
             return alloca;

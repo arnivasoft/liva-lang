@@ -5812,6 +5812,61 @@ TEST(RuntimeExecTest, NestedArraySlotScalarIndexBindingIsBorrowedInIR) {
     EXPECT_EQ(ir.find("p.ptr.drop"), std::string::npos) << "IR:\n" << ir;
 }
 
+TEST(RuntimeExecTest, NestedArraySlotClassSubscriptStillOwns) {
+    // İNCELEME BULGUSU (2. tur): `h[0]` de bir IndexExpr'dir, ama `h`
+    // struct-tanımlı bir `subscript` metodunu çağırır ve o metot TAZE bir
+    // DynArray döndürebilir — dilimle (a[0..2]) AYNI sızıntı sınıfı.
+    // Sözdizimsel bir kara-liste kuralı ("IndexExpr ise ödünç, RangeExpr
+    // hariç") bunu ayırt edemiyordu; taban (`h`) düz bir IdentifierExpr olsa
+    // bile vars_.varDynArrayTypes'ta İÇ İÇE bir dizi olarak KAYITLI DEĞİL
+    // (h bir struct örneği) — bu yüzden şimdiki BEYAZ LİSTE kuralı (taban
+    // varDynArrayTypes'ta VE innerElemType non-null olmalı) bu şekli otomatik
+    // olarak SAHİP tarafında bırakıyor. Davranış + IR ikisi de kontrol
+    // ediliyor (bkz. Important 3 notu — yalnız çıktı ayırt edici değil).
+    auto r = compileAndRun(R"--(
+        struct Holder {
+            var tag: i32
+        }
+        impl Holder {
+            func subscript(ref self, i: i32) -> [i32] {
+                var fresh: [i32] = [100, 200, 300]
+                return fresh
+            }
+        }
+        func main() {
+            let h = Holder { tag: 1 }
+            let p: [i32] = h[0]
+            println(p.length)
+            println(p[1])
+        }
+    )--", "nested_array_slot_class_subscript_owns");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n200\n") << "stdout: " << r.stdout_output;
+
+    std::string ir = emitIR(R"--(
+        struct Holder {
+            var tag: i32
+        }
+        impl Holder {
+            func subscript(ref self, i: i32) -> [i32] {
+                var fresh: [i32] = [100, 200, 300]
+                return fresh
+            }
+        }
+        func main() {
+            let h = Holder { tag: 1 }
+            let p: [i32] = h[0]
+            println(p.length)
+        }
+    )--", "nested_array_slot_class_subscript_owns_ir");
+    EXPECT_NE(ir.find("p.data.drop"), std::string::npos)
+        << "`p` (class-subscript init) allocates a FRESH buffer inside "
+           "Holder_subscript and must still be freed at scope exit in main "
+           "— missing this GEP means the subscript's returned buffer leaks "
+           "unboundedly (same class as the slice regression). IR:\n" << ir;
+    EXPECT_NE(ir.find("p.ptr.drop"), std::string::npos) << "IR:\n" << ir;
+}
+
 TEST(RuntimeExecTest, NestedArraySliceBindingStillOwns) {
     // İNCELEME DÜZELTMESİ (Important 1 — bu diff'in kendi regresyonu):
     // `a[0..2]` DİLİM ifadesi de bir IndexExpr'dir ama visitIndexExpr
