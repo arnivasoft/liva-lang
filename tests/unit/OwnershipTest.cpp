@@ -2922,3 +2922,156 @@ TEST_F(OwnershipTest, DynRelaxationStillAppliesToFreeCalls) {
     )--");
     EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
 }
+
+// === Ömür analizi faz kapsamı (roadmap 134 madde (8)) ===
+//
+// Faz 3 (Sema.cpp) yalnız top-level FuncDecl'leri geziyordu, dolayısıyla
+// impl/class/protokol metot gövdeleri ömür analizinin tamamen dışındaydı.
+// Aşağıdaki gövdelerin hepsi top-level bir `func`'ta yazıldığında
+// err_borrow_outlives_value alıyor.
+
+TEST_F(OwnershipTest, ImplMethodBodyGetsLifetimeAnalysis) {
+    auto result = check(R"--(
+        struct H {
+            var n: i32
+        }
+        impl H {
+            func run(self) {
+                var r: i32 = 0
+                var p = ref r
+                {
+                    var inner: i32 = 99
+                    p = ref inner
+                }
+                println(p)
+            }
+        }
+        func main() {
+            let h = H { n: 1 }
+            h.run()
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
+TEST_F(OwnershipTest, ClassMethodBodyGetsLifetimeAnalysis) {
+    auto result = check(R"--(
+        class C {
+            var n: i32
+            func run() {
+                var r: i32 = 0
+                var p = ref r
+                {
+                    var inner: i32 = 99
+                    p = ref inner
+                }
+                println(p)
+            }
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
+TEST_F(OwnershipTest, ProtocolDefaultBodyGetsLifetimeAnalysis) {
+    auto result = check(R"--(
+        protocol Runner {
+            func name(self) -> string
+            func run(self) {
+                var r: i32 = 0
+                var p = ref r
+                {
+                    var inner: i32 = 99
+                    p = ref inner
+                }
+                println(p)
+            }
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
+TEST_F(OwnershipTest, IfLetBodyGetsLifetimeAnalysis) {
+    // visitNode'un default: break dalı IfLetStmt'i atlıyordu, dolayısıyla
+    // gövdesindeki ref bağlamaları hiç görülmüyordu.
+    auto result = check(R"--(
+        func main() {
+            let opt: i32? = 7
+            if let v = opt {
+                var r: i32 = 0
+                var p = ref r
+                {
+                    var inner: i32 = 99
+                    p = ref inner
+                }
+                println(p)
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
+TEST_F(OwnershipTest, WhileLetBodyGetsLifetimeAnalysis) {
+    auto result = check(R"--(
+        func take(o: i32?) -> i32? {
+            return o
+        }
+        func main() {
+            var opt: i32? = 7
+            while let v = take(opt) {
+                var r: i32 = 0
+                var p = ref r
+                {
+                    var inner: i32 = 99
+                    p = ref inner
+                }
+                println(p)
+                opt = nil
+            }
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
+// === Fazla-ret korumaları ===
+
+TEST_F(OwnershipTest, LegitimateBorrowInImplBodyAccepted) {
+    // Aynı kapsamdaki meşru ödünç, gezinti açıldıktan sonra da kabul edilmeli.
+    auto result = check(R"--(
+        struct H {
+            var n: i32
+        }
+        impl H {
+            func run(self) {
+                var r: i32 = 0
+                var p = ref r
+                println(p)
+            }
+        }
+        func main() {
+            let h = H { n: 1 }
+            h.run()
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, LegitimateBorrowInIfLetBodyAccepted) {
+    auto result = check(R"--(
+        func main() {
+            let opt: i32? = 7
+            if let v = opt {
+                var r: i32 = 0
+                var p = ref r
+                println(p)
+            }
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}

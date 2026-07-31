@@ -1,8 +1,29 @@
 #include "liva/Sema/LifetimeAnalysis.h"
+#include "liva/AST/ASTWalk.h"
 
 namespace liva {
 
 LifetimeAnalysis::LifetimeAnalysis(DiagnosticsEngine &diag) : diag_(diag) {}
+
+// walkSubtree her fonksiyonun gövdesindeki deyimleri de gezer (bir FuncDecl
+// ararken) ve analyzeFunction sonra aynı gövdeyi kendi mantığıyla tekrar gezer.
+// Bu KASITLI ve zararsız: dış gezinti yalnız düğüm türüne bakıyor, gerçek iş
+// analyzeFunction içinde. Dış gezintiyi "optimizasyon" için FuncDecl görünce
+// durduracak biçimde yazmak, iç içe bildirim eklendiği gün sessizce kapsam
+// kaybettirir.
+//
+// analyzeFunction idempotent DEĞİL — aynı fonksiyonu iki kez analiz etmek
+// tanıları iki kez üretir. Bugün blok içinde yerel `func` parse edilmediği için
+// iç içe FuncDecl yok, dolayısıyla her gövde tam bir kez veriliyor.
+void LifetimeAnalysis::check(TranslationUnit &tu) {
+    for (auto &decl : tu.getDeclarations()) {
+        walkSubtree(decl.get(), [&](const ASTNode *node) {
+            if (node->getKind() == ASTNode::NodeKind::FuncDecl)
+                analyzeFunction(
+                    const_cast<FuncDecl *>(static_cast<const FuncDecl *>(node)));
+        });
+    }
+}
 
 void LifetimeAnalysis::analyzeFunction(FuncDecl *func) {
     if (!func->hasBody()) return;
@@ -46,6 +67,24 @@ void LifetimeAnalysis::visitNode(ASTNode *node) {
         break;
     case ASTNode::NodeKind::ReturnStmt:
         // No lifetime concerns for return in this simple analysis
+        break;
+    // if-let/while-let gövdeleri BlockStmt ve VarDecl tutabiliyor, yani
+    // `var p = ref x` orada bildirilebiliyor — default: break dalına düştükleri
+    // için hiç görülmüyorlardı.
+    //
+    // MatchExpr BİLİNÇLİ olarak yok: MatchArm::body bir Expr ve NodeKind'da
+    // BlockExpr olmadığı için `1 => { … }` parse edilmiyor; arm gövdesinde
+    // `var p = ref x` bildirilemez, dolayısıyla bir MatchExpr dalı asla
+    // tetiklenemezdi.
+    case ASTNode::NodeKind::IfLetStmt: {
+        auto *s = static_cast<IfLetStmt *>(node);
+        visitNode(s->getThenBody());
+        if (s->hasElse())
+            visitNode(s->getElseBody());
+        break;
+    }
+    case ASTNode::NodeKind::WhileLetStmt:
+        visitNode(static_cast<WhileLetStmt *>(node)->getBody());
         break;
     default:
         break;

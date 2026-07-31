@@ -23,6 +23,14 @@ class LifetimeAnalysis {
 public:
     LifetimeAnalysis(DiagnosticsEngine &diag);
 
+    /// TU'daki HER fonksiyon gövdesini analiz eder — top-level `func`'lar,
+    /// `impl`/`class` metotları ve protokol default gövdeleri dahil.
+    ///
+    /// Faz 3 eskiden Sema.cpp'de kendi döngüsünü yazıyor ve yalnız top-level
+    /// FuncDecl'leri geziyordu; faz 1 ve 2 ise TU'yu alıyordu. Bu giriş o
+    /// asimetriyi hem davranışta hem imzada kapatıyor.
+    void check(TranslationUnit &tu);
+
     /// Analyze lifetimes in a function
     void analyzeFunction(FuncDecl *func);
 

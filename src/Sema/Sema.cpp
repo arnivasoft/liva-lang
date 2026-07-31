@@ -27,12 +27,9 @@ bool Sema::analyze(TranslationUnit &tu) {
     if (diag_.hasErrors())
         return false;
 
-    // Phase 3: Lifetime analysis (scope-based borrow checking)
-    for (auto &decl : tu.getDeclarations()) {
-        if (decl->getKind() == ASTNode::NodeKind::FuncDecl) {
-            lifetimeAnalysis_.analyzeFunction(static_cast<FuncDecl *>(decl.get()));
-        }
-    }
+    // Phase 3: Lifetime analysis (scope-based borrow checking).
+    // Gezinti artık analizin kendi içinde — faz 1 ve 2 gibi bu da TU alıyor.
+    lifetimeAnalysis_.check(tu);
     return !diag_.hasErrors();
 }
 
