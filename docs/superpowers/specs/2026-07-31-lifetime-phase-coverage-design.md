@@ -150,7 +150,7 @@ değerlendirilmeli.
 
 **Genel `forEachChild` fallback'i KULLANILMAYACAK.** Karar doğru, ama aşağıdaki
 ilk gerekçe hatalıydı ve final incelemede (2026-07-31) düzeltildi: `currentDepth_`
-yalnız `visitBlockStmt` içinde artıp azalıyor (`src/Sema/LifetimeAnalysis.cpp:132,148`),
+yalnız `visitBlockStmt` içinde artıp azalıyor (`src/Sema/LifetimeAnalysis.cpp:180,196`),
 dolayısıyla blok OLMAYAN düğümlerden kör geçmek derinlik muhasebesini
 **bozamaz** — "kapsam derinliğine duyarlı" gerekçesi teknik olarak yanlıştı.
 Asıl tehlike farklı ve daha güçlü: kör bir fallback `ClosureExpr`'in çocuğu
