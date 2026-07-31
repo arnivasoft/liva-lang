@@ -135,8 +135,18 @@ lifetimeAnalysis_.check(tu);
 
 ### ② `visitNode`'a hedefli `case`'ler
 
-Eklenecekler: `IfLetStmt` (then gövdesi + varsa else gövdesi), `WhileLetStmt`
-(gövde), `MatchExpr` arm gövdeleri.
+Eklenecekler: `IfLetStmt` (then gövdesi + varsa else gövdesi) ve `WhileLetStmt`
+(gövde). İkisinin de gövdesi `BlockStmt` ve `VarDecl` tutabiliyor, yani
+`var p = ref x` orada bildirilebiliyor.
+
+**`MatchExpr` arm gövdeleri bilinçli olarak KAPSAM DIŞI** (2026-07-31'de plan
+yazımı sırasında probe ile ölçüldü ve karar kullanıcı tarafından onaylandı):
+`MatchArm::body` bir `Expr` (`include/liva/AST/Expr.h:340`) ve `NodeKind`'da
+`BlockExpr` yok; `1 => { … }` yazımı parser'da `error: expected expression`
+veriyor. Arm gövdeleri tek ifade olduğundan orada `var p = ref x` HİÇ
+bildirilemez, dolayısıyla bir `MatchExpr` dalı eklemek asla tetiklenemeyecek kod
+olurdu. Blok-gövdeli arm'lar ileride desteklenirse bu karar yeniden
+değerlendirilmeli.
 
 **Genel `forEachChild` fallback'i KULLANILMAYACAK.** Gerekçe: `LifetimeAnalysis`
 kapsam derinliğine duyarlı — `currentDepth_` yalnız `visitBlockStmt` içinde
@@ -203,8 +213,9 @@ vb. "Lifetime Analysis Tests" bölümü).
 
 1. Yukarıdaki dört ret pini doğru tanıyla reddediliyor.
 2. `Sema.cpp` faz 3'ü tek satır (`lifetimeAnalysis_.check(tu)`).
-3. `visitNode` `IfLetStmt`/`WhileLetStmt`/`MatchExpr` arm gövdelerini geziyor;
-   genel `forEachChild` fallback'i EKLENMEDİ.
+3. `visitNode` `IfLetStmt` ve `WhileLetStmt` gövdelerini geziyor; genel
+   `forEachChild` fallback'i EKLENMEDİ; `MatchExpr` dalı EKLENMEDİ (gerekçe
+   ②'de).
 4. `Sema::typeCheck`/`Sema::ownershipCheck` silindi ve derleme temiz.
 5. Ölçüm tablosu üretildi, her yeni ret sınıflandırıldı.
 6. Düzeltmeler sonrası tam süit ve örnek kapısı sıfır regresyon.
