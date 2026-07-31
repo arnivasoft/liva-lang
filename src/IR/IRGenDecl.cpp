@@ -1919,21 +1919,66 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             // NestedArraySlotReassignmentKnownLeakLimitation testi bu
             // davranışı IR üzerinden PİNLER (gelecekte düzeltilirse o test
             // güncellenmeli).
+            // İNCELEME DÜZELTMESİ (3. tur, Critical): önceki tur tabanı
+            // `IdentifierExpr` OLMASINI şart koşuyordu — bu, tabanı bir ALAN
+            // ERİŞİMİ olan gerçek iç içe dizi slotlarını (`g.rows[0]`,
+            // `self.rows[0]`) yanlışlıkla SAHİP tarafına itiyordu ve
+            // regresyon olarak ÇÖKMEYE geri dönüyordu (0xC0000374) — bir
+            // önceki turda (taban kontrolü hiç yokken) bu şekiller ödünç
+            // sayılıp çökmüyordu. `self.<alan>[i]`, impl metotlarında son
+            // derece olağan bir desendir. Üç turun üçü de aynı soruyu
+            // ("taban iç içe dizi mi?") SÖZDİZİMİNDEN tahmin etmeye çalıştı
+            // ve her seferinde bir şekil kaçtı (IdentifierExpr mi,
+            // MemberExpr mi, ileride başka bir taban şekli mi?). Kural artık
+            // TABANIN ÇÖZÜLMÜŞ TİPİNE bakıyor — taban ifadesi hangi
+            // sözdizimsel şekilde olursa olsun tek bir testten geçiyor.
             if (node->getInit()->getKind() == ASTNode::NodeKind::IndexExpr) {
                 auto *idxInit = static_cast<const IndexExpr *>(node->getInit());
                 bool isRangeIndex =
                     idxInit->getIndex()->getKind() == ASTNode::NodeKind::RangeExpr;
                 bool baseIsNestedDynArraySlot = false;
-                if (!isRangeIndex &&
-                    idxInit->getBase()->getKind() == ASTNode::NodeKind::IdentifierExpr) {
-                    auto *baseIdent = static_cast<const IdentifierExpr *>(idxInit->getBase());
-                    auto baseDaIt = vars_.varDynArrayTypes.find(baseIdent->getName());
-                    // innerElemType non-null <=> baseIdent is ITSELF a nested
-                    // [[T]] (see DynArrayInfo comment above) — the only shape
-                    // that actually produces the shared-pointer alias.
-                    baseIsNestedDynArraySlot =
-                        baseDaIt != vars_.varDynArrayTypes.end() &&
-                        baseDaIt->second.innerElemType != nullptr;
+                if (!isRangeIndex) {
+                    auto *base = idxInit->getBase();
+                    if (base->getKind() == ASTNode::NodeKind::IdentifierExpr) {
+                        // Taban düz bir yerel/parametre (`rows[0]`): mevcut
+                        // vars_.varDynArrayTypes kaydına bak. innerElemType
+                        // non-null <=> baseIdent bizzat iç içe bir [[T]]
+                        // (bkz. DynArrayInfo yorumu, IRGen.h:317-338) — takma
+                        // adı doğuran TEK şekil.
+                        auto *baseIdent = static_cast<const IdentifierExpr *>(base);
+                        auto baseDaIt = vars_.varDynArrayTypes.find(baseIdent->getName());
+                        baseIsNestedDynArraySlot =
+                            baseDaIt != vars_.varDynArrayTypes.end() &&
+                            baseDaIt->second.innerElemType != nullptr;
+                    } else if (base->getKind() == ASTNode::NodeKind::MemberExpr) {
+                        // Taban bir ALAN ERİŞİMİ (`g.rows[0]`, `self.rows[0]`):
+                        // resolveMemberDynArray (IRGenCall.cpp:9-73) BİZZAT bu
+                        // soruyu (alan bir DynArray mi, iç içe mi) çözüyor —
+                        // struct alan TypeRepr'ini bulup ArrayTypeRepr +
+                        // isDynamic() kontrol ediyor ve deriveNestedDynArrayInner
+                        // ile innerElemType'ı dolduruyor (MemberDynArrayInfo,
+                        // IRGen.h:272-281 — "Populated only when elementType ==
+                        // getDynArrayStructTy() (nested [[T]] member field)").
+                        // `self` de impl metotlarında düz bir IdentifierExpr
+                        // olarak temsil edildiği (vars_.varStructTypes["self"]
+                        // kaydı, bkz. bu dosyada ~2346/2581) için
+                        // resolveMemberDynArray'in "object bir IdentifierExpr
+                        // olmalı" şartını `self.rows` da karşılıyor —
+                        // `g.rows` ile ayrı bir kod yolu gerekmiyor. Bu
+                        // yardımcıyı SADECE OKUYUP çağırıyoruz (IRGenCall.cpp
+                        // değiştirilmedi); ürettiği GEP/load, node->getInit()
+                        // zaten gerçek erişim için aynı GEP'i emin olduğumuz
+                        // üzere ürettiğinden fazladan (ölü, zararsız) bir
+                        // kopyadır — optimize edilmemiş derlemede bile
+                        // yalnızca kullanılmayan birkaç IR komutu, davranış
+                        // değişikliği yok.
+                        auto *memberBase =
+                            static_cast<MemberExpr *>(const_cast<Expr *>(base));
+                        auto memberDaInfo = resolveMemberDynArray(memberBase);
+                        baseIsNestedDynArraySlot =
+                            memberDaInfo.has_value() &&
+                            memberDaInfo->innerElemType != nullptr;
+                    }
                 }
                 if (baseIsNestedDynArraySlot)
                     vars_.movedVars.insert(node->getName());

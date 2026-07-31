@@ -5867,6 +5867,100 @@ TEST(RuntimeExecTest, NestedArraySlotClassSubscriptStillOwns) {
     EXPECT_NE(ir.find("p.ptr.drop"), std::string::npos) << "IR:\n" << ir;
 }
 
+TEST(RuntimeExecTest, NestedArraySlotStructFieldBindingDoesNotDoubleFree) {
+    // İNCELEME BULGUSU (3. tur, Critical — REGRESYON): 2. turdaki beyaz
+    // liste tabanın DÜZ BİR IdentifierExpr olmasını şart koşuyordu — bu,
+    // tabanı bir ALAN ERİŞİMİ olan gerçek iç içe dizi slotlarını (`g.rows[0]`)
+    // yanlışlıkla SAHİP tarafına itiyordu ve regresyon olarak ÇÖKMEYE geri
+    // dönüyordu (0xC0000374): bir önceki turda (taban kontrolü hiç yokken)
+    // bu şekil ödünç sayılıp çökmüyordu. Kural artık tabanın SÖZDİZİMSEL
+    // şeklinden değil ÇÖZÜLMÜŞ TİPİNDEN karar veriyor — `MemberExpr` tabanlar
+    // için resolveMemberDynArray (IRGenCall.cpp) ile alan tipine bakılıyor.
+    auto r = compileAndRun(R"(
+        struct G {
+            var rows: [[i32]]
+        }
+        func main() {
+            var g = G { rows: [] }
+            var a: [i32] = [7, 8]
+            g.rows.push(a)
+            let p: [i32] = g.rows[0]
+            let q: [i32] = g.rows[0]
+            println(p.length)
+        }
+    )", "nested_array_slot_struct_field_no_double_free");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
+
+    std::string ir = emitIR(R"(
+        struct G {
+            var rows: [[i32]]
+        }
+        func main() {
+            var g = G { rows: [] }
+            var a: [i32] = [7, 8]
+            g.rows.push(a)
+            let p: [i32] = g.rows[0]
+            println(p.length)
+        }
+    )", "nested_array_slot_struct_field_no_double_free_ir");
+    EXPECT_EQ(ir.find("p.data.drop"), std::string::npos)
+        << "`p` (struct-field-index init, `g.rows[0]`) must NOT be freed at "
+           "scope exit — its data pointer aliases g.rows[0]. IR:\n" << ir;
+    EXPECT_EQ(ir.find("p.ptr.drop"), std::string::npos) << "IR:\n" << ir;
+}
+
+TEST(RuntimeExecTest, NestedArraySlotSelfFieldBindingDoesNotDoubleFree) {
+    // Aynı Critical bulgu, `self.<alan>[i]` şeklinde — impl metotlarında son
+    // derece olağan bir desen. `self` de impl metotlarında düz bir
+    // IdentifierExpr olarak temsil edilir (vars_.varStructTypes["self"]
+    // kaydı) ve resolveMemberDynArray'in "object bir IdentifierExpr olmalı"
+    // şartını `g.rows` ile aynı kod yolundan karşılar — ayrı bir özel durum
+    // gerekmez.
+    auto r = compileAndRun(R"(
+        struct G {
+            var rows: [[i32]]
+        }
+        impl G {
+            func check(ref self) -> i64 {
+                let p: [i32] = self.rows[0]
+                let q: [i32] = self.rows[0]
+                return p.length
+            }
+        }
+        func main() {
+            var g = G { rows: [] }
+            var a: [i32] = [7, 8]
+            g.rows.push(a)
+            println(g.check())
+        }
+    )", "nested_array_slot_self_field_no_double_free");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
+
+    std::string ir = emitIR(R"(
+        struct G {
+            var rows: [[i32]]
+        }
+        impl G {
+            func check(ref self) -> i64 {
+                let p: [i32] = self.rows[0]
+                return p.length
+            }
+        }
+        func main() {
+            var g = G { rows: [] }
+            var a: [i32] = [7, 8]
+            g.rows.push(a)
+            println(g.check())
+        }
+    )", "nested_array_slot_self_field_no_double_free_ir");
+    EXPECT_EQ(ir.find("p.data.drop"), std::string::npos)
+        << "`p` (self-field-index init, `self.rows[0]`) must NOT be freed at "
+           "scope exit — its data pointer aliases self.rows[0]. IR:\n" << ir;
+    EXPECT_EQ(ir.find("p.ptr.drop"), std::string::npos) << "IR:\n" << ir;
+}
+
 TEST(RuntimeExecTest, NestedArraySliceBindingStillOwns) {
     // İNCELEME DÜZELTMESİ (Important 1 — bu diff'in kendi regresyonu):
     // `a[0..2]` DİLİM ifadesi de bir IndexExpr'dir ama visitIndexExpr
