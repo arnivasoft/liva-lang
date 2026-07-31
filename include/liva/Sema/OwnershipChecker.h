@@ -2,6 +2,7 @@
 
 #include "liva/AST/ASTVisitor.h"
 #include "liva/AST/Decl.h"
+#include "liva/AST/Pattern.h"
 #include "liva/Common/Diagnostics.h"
 #include <deque>
 #include <string>
@@ -52,6 +53,12 @@ struct OwnershipInfo {
     // or mutable); recording it here only stops a second, misleading
     // "declare with 'var'" complaint from firing alongside.
     bool isRefBinding = false;
+    // Bağlama bir KALIP/İTERASYON/closure-parametresi bağlaması mı (`for a in
+    // ...`, if-let/while-let bağlaması, match arm kalıbı, `|p: T|`). Bu
+    // biçimlerin hiçbirinde `var` yazılabilecek bir yer YOK (`for var a in
+    // arr` sözdizimi bile yok), o yüzden checkMutation'ın "declare with
+    // 'var'" yardım satırı burada uygulanamaz bir öneri olur.
+    bool isPatternBinding = false;
     // For a reference binding, the borrow it HOLDS: the referent's name and
     // whether the borrow is mutable. The borrow itself is recorded on the
     // referent's OwnershipInfo, which usually lives in an OUTER scope, so
@@ -139,12 +146,21 @@ private:
     void visitChildren(ASTNode *node);
 
     /// Track a new variable. `isClassType` defaults to false for call sites
-    /// that do not have an easy static type to check (for-loop/if-let/
-    /// while-let bindings) — conservative, since it only withholds the
-    /// class-field-write mutability exemption, never grants one incorrectly.
+    /// that do not have an easy static type to check — conservative, since it
+    /// only withholds the class-field-write mutability exemption, never grants
+    /// one incorrectly. `isPatternBinding` marks the binding forms that have no
+    /// `var` spelling at all (see OwnershipInfo::isPatternBinding).
     void trackVariable(const std::string &name, bool isMutable, bool isCopyType,
                        bool isDropType, SourceLocation loc,
-                       bool isClassType = false);
+                       bool isClassType = false,
+                       bool isPatternBinding = false);
+
+    /// Bir match arm kalıbının BAĞLADIĞI adları o arm'ın kapsamına kaydeder.
+    /// Kalıp bağlamalarının tipi burada bilinmediği için hepsi Copy sayılır —
+    /// muhafazakâr yön: Copy taşıma tetiklemez, yani bağlamanın kendisi asla
+    /// yeni bir tanı doğurmaz; tek işi DIŞTAKİ aynı adlı değişkeni
+    /// GÖLGELEMEK.
+    void trackPatternBindings(const Pattern *pattern, SourceLocation loc);
 
     /// Mark a variable as moved
     void markMoved(const std::string &name, SourceLocation loc);
@@ -199,11 +215,11 @@ private:
     void collectFuncDecls(TranslationUnit &tu);
 
     /// `name` adlı çağrılanın `argIndex`'inci ARGÜMANINA karşılık gelen
-    /// parametresi `dyn Protocol` mu. `isMemberCall` çağrı BİÇİMİDİR ve
-    /// adayları eler: üye çağrısı yalnız `self`'li adaylarla, serbest çağrı
-    /// yalnız `self`'siz adaylarla eşleşir. Biçim eşleşmesinden geçen TÜM
-    /// adaylar hemfikirse true — biri bile değilse ya da hiç aday yoksa
-    /// muhafazakâr yön (taşıma) korunur.
+    /// parametresi `dyn Protocol` mu. Gevşetme YALNIZ serbest çağrılara
+    /// uygulanır (`isMemberCall == true` ise hemen false döner) — bkz.
+    /// tanımdaki gerekçe. Serbest çağrıda da yalnız `self`'siz adaylar
+    /// eşleşir; eşleşen TÜM adaylar hemfikirse true, biri bile değilse ya da
+    /// hiç aday yoksa muhafazakâr yön (taşıma) korunur.
     bool paramIsDynProtocol(const std::string &name, bool isMemberCall,
                             size_t argIndex) const;
 

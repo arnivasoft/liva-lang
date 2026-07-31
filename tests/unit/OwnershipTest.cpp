@@ -2701,3 +2701,224 @@ TEST_F(OwnershipTest, ClassRebindThroughLetBindingRejected) {
     EXPECT_FALSE(result.passed);
     EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
 }
+
+// === Final inceleme C1: closure ve match bağlamaları kendi kapsamlarını
+// alıyor (gölgeleme + durum bozulması) ===
+//
+// Gezinti açıldığında `visitClosureExpr`/`visitMatchExpr` yalnız
+// `visitChildren` çağırıyordu, ama `forEachChild` bir closure'ın YALNIZ
+// gövdesini, bir match'in ise yalnız subject/guard/body'sini veriyor —
+// closure PARAMETRELERİ ve match arm KALIP BAĞLAMALARI hiç izlenmiyordu.
+// Sonuç: bağlamanın adı DIŞTAKİ aynı adlı değişkene çözülüyordu; hem
+// yanlış-pozitif (dıştaki taşınmışsa iç kullanım reddediliyor) hem de durum
+// bozulması (iç kullanım dıştakini taşınmış işaretliyor, hata UZAKTA çıkıyor).
+
+TEST_F(OwnershipTest, ClosureParamShadowsMovedOuterAccepted) {
+    // C1 (a): closure'ın KENDİ parametresi, aynı adlı taşınmış dış
+    // değişkenden bağımsızdır.
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        func main() {
+            let pkt = Packet { size: 1 }
+            send(pkt)
+            let f = |pkt: Packet| -> i32 { return pkt.size }
+            println(1)
+        }
+    )--");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, MatchArmBindingShadowsMovedOuterAccepted) {
+    // C1 (b): match arm kalıbının bağladığı ad da kendi kapsamındadır.
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        enum Shape {
+            case Circle(i32)
+            case Empty
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        func main() {
+            let pkt = Packet { size: 1 }
+            send(pkt)
+            let s = Shape.Circle(3)
+            match s {
+                Shape.Circle(pkt) => println(pkt)
+                _ => println(0)
+            }
+        }
+    )--");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, ClosureParamMoveDoesNotCorruptOuter) {
+    // C1 (c), en kritik olan: closure gövdesindeki bir TAŞIMA dıştaki aynı
+    // adlı değişkeni işaretlemiyor. Bu pin olmadan hata closure'da değil,
+    // ondan SONRAKİ bir satırda ("use of moved value 'pkt'") çıkıyordu —
+    // izlenmesi en zor yanlış-pozitif biçimi.
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        func main() {
+            let pkt = Packet { size: 1 }
+            let f = |pkt: Packet| -> i32 { send(pkt) return 0 }
+            println(pkt.size)
+        }
+    )--");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, ClosureBodyStillSeesOuterMove) {
+    // Kapsam pini (fazla-kabul koruması): closure kapsamı YALNIZ kendi
+    // parametrelerini gölgeler. Gölgelenmeyen bir dış ad, closure gövdesinde
+    // hâlâ normal kullanım denetimine tabidir.
+    auto result = check(R"--(
+        struct Packet {
+            var size: i32
+        }
+        func send(p: Packet) {
+            println(p.size)
+        }
+        func main() {
+            let pkt = Packet { size: 1 }
+            send(pkt)
+            let f = |n: i32| -> i32 { return pkt.size + n }
+            println(1)
+        }
+    )--");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+// === Final inceleme I1: class muafiyeti bileşik/iterasyon köklerini de
+// kapsıyor ===
+
+TEST_F(OwnershipTest, ClassFieldAssignThroughArrayElementAccepted) {
+    // Kök `arr`'ın tipi `[Animal]`, yani class DEĞİL — muafiyet artık
+    // hedefin TABAN ifadesinin çözülmüş tipine de bakıyor.
+    auto result = check(R"--(
+        class Animal {
+            var name: string
+            init(name: string) {
+                self.name = name
+            }
+        }
+        func main() {
+            let arr: [Animal] = [Animal("Rex")]
+            arr[0].name = "Max"
+            println(arr[0].name)
+        }
+    )--");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+TEST_F(OwnershipTest, ClassFieldAssignThroughForBindingAccepted) {
+    // `for var a in arr` sözdizimi YOK, yani bu biçimin döngü içinde çaresi
+    // olmazdı: for bağlaması artık çözülmüş eleman tipinden isClassType
+    // alıyor.
+    auto result = check(R"--(
+        class Animal {
+            var name: string
+            init(name: string) {
+                self.name = name
+            }
+        }
+        func main() {
+            var arr: [Animal] = [Animal("Rex")]
+            for a in arr {
+                a.name = "Max"
+            }
+        }
+    )--");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+TEST_F(OwnershipTest, StructFieldAssignThroughArrayElementRejected) {
+    // Muafiyetin kapsam pini: struct DEĞER tipidir, genişletilmiş muafiyet
+    // ona sızmamalı.
+    auto result = check(R"--(
+        struct W {
+            var id: i32
+        }
+        func main() {
+            let arr: [W] = [W { id: 1 }]
+            arr[0].id = 9
+            println(arr[0].id)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
+
+// === Final inceleme I2: dyn gevşetmesi YALNIZ serbest çağrılarda ===
+
+TEST_F(OwnershipTest, DynRelaxationDoesNotSilenceMemberCallMove) {
+    // Ad + `self`'li olma elemesi yetmiyordu: `arr.push(p)` builtin bir ÜYE
+    // çağrısı, ama TU'daki `impl Sink`'in `push(ref mut self, g: dyn Greeter)`
+    // metodu tek aday olarak eşleşip taşıma tanısını tamamen sildiriyordu.
+    // Aynı program `impl Sink` bloğu OLMADAN reddediliyordu — yani tanının
+    // varlığı alakasız bir bildirime bağlıydı.
+    auto result = check(R"--(
+        protocol Greeter {
+            func greet()
+        }
+        struct Packet {
+            var size: i32
+        }
+        struct Sink {
+            var n: i32
+        }
+        impl Sink {
+            func push(ref mut self, g: dyn Greeter) {
+                println(self.n)
+            }
+        }
+        func main() {
+            var arr: [Packet] = []
+            let p = Packet { size: 1 }
+            arr.push(p)
+            println(p.size)
+        }
+    )--");
+    EXPECT_TRUE(hasDiag(result, DiagID::err_use_after_move));
+}
+
+TEST_F(OwnershipTest, DynRelaxationStillAppliesToFreeCalls) {
+    // Fazla-ret koruması: daraltma SERBEST çağrılardaki gevşetmeyi bozmamalı
+    // (`examples/db_unified_demo.liva`'daki `func dump(db: dyn Database)`
+    // kalıbı — argüman fat pointer'a KENDİ alloca'sının adresiyle giriyor,
+    // taşınmıyor).
+    auto result = check(R"--(
+        protocol Greeter {
+            func greet()
+        }
+        struct Hello {
+            var n: i32
+        }
+        impl Greeter for Hello {
+            func greet() {
+                println(self.n)
+            }
+        }
+        func shout(g: dyn Greeter) {
+            g.greet()
+        }
+        func main() {
+            let h = Hello { n: 1 }
+            shout(h)
+            println(h.n)
+        }
+    )--");
+    EXPECT_FALSE(hasDiag(result, DiagID::err_use_after_move));
+}

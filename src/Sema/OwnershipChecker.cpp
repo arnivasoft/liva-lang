@@ -54,6 +54,40 @@ bool isCompositeAssignTarget(const Expr *target) {
                   cur->getKind() == ASTNode::NodeKind::IndexExpr);
 }
 
+/// Bileşik bir atama hedefinin bir ÜST katmanındaki taban ifadesi:
+///   arr[0].name = x  ->  arr[0]
+///   a.name = x       ->  a
+///   w.a.b = x        ->  w.a
+/// `rootIdentifier` en dibe (`arr`) iner; bu ise YAZILAN NESNEnin ifadesini
+/// verir, ki class muafiyeti için gereken tam olarak odur — `arr` bir dizi
+/// ama `arr[0]` bir class örneği. Hedef bileşik değilse nullptr.
+const Expr *compositeAssignBase(const Expr *target) {
+    const Expr *cur = target;
+    while (cur && cur->getKind() == ASTNode::NodeKind::GroupExpr) {
+        cur = static_cast<const GroupExpr *>(cur)->getExpr();
+    }
+    if (!cur)
+        return nullptr;
+    if (cur->getKind() == ASTNode::NodeKind::MemberExpr)
+        return static_cast<const MemberExpr *>(cur)->getObject();
+    if (cur->getKind() == ASTNode::NodeKind::IndexExpr)
+        return static_cast<const IndexExpr *>(cur)->getBase();
+    return nullptr;
+}
+
+/// Bir dizi/Optional tipinin taşıdığı eleman tipi (yoksa nullptr). for-loop ve
+/// if-let/while-let bağlamalarının statik tipini bulmak için — bağlama
+/// KAPSAYICININ değil, ELEMANIN tipini alır.
+const TypeRepr *containerElementType(const TypeRepr *type) {
+    if (!type)
+        return nullptr;
+    if (type->getKind() == TypeRepr::Kind::Array)
+        return static_cast<const ArrayTypeRepr *>(type)->getElement();
+    if (type->getKind() == TypeRepr::Kind::Optional)
+        return static_cast<const OptionalTypeRepr *>(type)->getInner();
+    return nullptr;
+}
+
 } // namespace
 
 OwnershipChecker::OwnershipChecker(DiagnosticsEngine &diag) : diag_(diag) {}
@@ -266,7 +300,14 @@ void OwnershipChecker::visitWhileStmt(WhileStmt *node) {
 void OwnershipChecker::visitForStmt(ForStmt *node) {
     visit(const_cast<Expr *>(node->getIterable()));
     pushOwnershipScope();
-    trackVariable(node->getVarName(), false, true, false, node->getStartLoc());
+    // Bağlamanın statik tipi = kapsayıcının ELEMAN tipi. Class ise bağlama da
+    // class'tır ve `a.name = "Max"` yazımı muafiyeti almalıdır: `for var a in
+    // arr` diye bir sözdizimi YOK, yani bağlamayı `var` yapmanın yolu da yok —
+    // muafiyet olmadan class alanını döngü içinde yazmak imkânsız olurdu.
+    bool elemIsClass =
+        isClassType(containerElementType(node->getIterable()->getResolvedType()));
+    trackVariable(node->getVarName(), false, true, false, node->getStartLoc(),
+                  elemIsClass, /*isPatternBinding=*/true);
     visit(const_cast<ASTNode *>(node->getBody()));
     dropScopeVariables();
     popOwnershipScope();
@@ -301,7 +342,10 @@ void OwnershipChecker::visitIfLetStmt(IfLetStmt *node) {
     pushOwnershipScope();
     trackVariable(node->getBindingName(), /*isMutable=*/false,
                   /*isCopyType=*/!payloadIsDrop, /*isDropType=*/payloadIsDrop,
-                  node->getStartLoc());
+                  node->getStartLoc(),
+                  isClassType(containerElementType(
+                      node->getOptionalExpr()->getResolvedType())),
+                  /*isPatternBinding=*/true);
     visit(node->getThenBody());
     dropScopeVariables();
     popOwnershipScope();
@@ -330,7 +374,10 @@ void OwnershipChecker::visitWhileLetStmt(WhileLetStmt *node) {
     pushOwnershipScope();
     trackVariable(node->getBindingName(), /*isMutable=*/false,
                   /*isCopyType=*/!payloadIsDrop, /*isDropType=*/payloadIsDrop,
-                  node->getStartLoc());
+                  node->getStartLoc(),
+                  isClassType(containerElementType(
+                      node->getOptionalExpr()->getResolvedType())),
+                  /*isPatternBinding=*/true);
     visit(node->getBody());
     dropScopeVariables();
     popOwnershipScope();
@@ -384,6 +431,19 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
         // suggestion that does not describe the problem. Re-BINDING the
         // reference (`r = ref y`) is a different operation and still needs a
         // `var` binding, so it keeps the normal check.
+        //
+        // KAPSAM NOTU (bilinçli, tasarım belgesinden SAPMA): tasarım bu
+        // istisnayı yalnız ÇIPLAK-AD hedefleri için tarif ediyordu ("bileşik
+        // hedeflerde geçerli değil"), gerekçesi de `isRefBinding`'in bileşik
+        // yolda hiç set edilmediği varsayımıydı. Varsayım YANLIŞ: `let r =
+        // ref w` bayrağı tam olarak set eder ve `r.id = 99` kökü `r` olan
+        // bileşik bir hedeftir, yani istisna orada da devreye girer ve o
+        // deyim sıfır ownership tanısı üretir. Bu, uygulamanın BİLİNÇLİ
+        // seçimi olarak korunuyor: gerekçe her iki hedef biçiminde de aynı —
+        // yazılan şey referent'tir, dolayısıyla bağlamanın kendi `let`/`var`'ı
+        // yargı mercii değildir; doğru tanıyı (paylaşımlı ödünç üzerinden
+        // yazma) TypeChecker üretir. `r.id = 99`'un çalışma zamanında da
+        // mutasyon yapmaması AYRI bir IRGen kusurudur (roadmap 134 KALAN).
         auto *targetInfo = getInfo(ident->getName());
         bool writeThroughRef =
             targetInfo && targetInfo->isRefBinding &&
@@ -402,9 +462,23 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
         // tabi, çünkü o gerçekten referansın KENDİSİNİ değiştiriyor ve `let`
         // tam olarak onu engellemeli. struct'lar (değer tipi) bu muafiyetten
         // ETKİLENMEZ — isClassType yalnız classNames_'teki tipler için true.
-        bool exemptClassFieldWrite =
-            targetInfo && targetInfo->isClassType &&
-            isCompositeAssignTarget(node->getTarget());
+        //
+        // Muafiyet iki KÖKTEN birine bakar, çünkü yalnız kökün DOĞRUDAN tipine
+        // bakmak `arr[0].name = "Max"` (arr: `[Animal]`) gibi bileşik kökleri
+        // dışarıda bırakıyordu — orada kök `arr` bir DİZİ, class değil. Yazılan
+        // NESNE ise `arr[0]`, yani bir class örneği; onun çözülmüş tipine
+        // bakmak muafiyeti dilin "class = referans tipi" tanımıyla hizalıyor.
+        // Ölçüt hâlâ dar: taban ifadesinin tipi class DEĞİLSE (dizi, struct,
+        // primitive) muafiyet yok, ve muafiyet yalnız BİLEŞİK hedeflerde.
+        bool exemptClassFieldWrite = false;
+        if (targetInfo && isCompositeAssignTarget(node->getTarget())) {
+            if (targetInfo->isClassType) {
+                exemptClassFieldWrite = true;
+            } else if (const Expr *base =
+                           compositeAssignBase(node->getTarget())) {
+                exemptClassFieldWrite = isClassType(base->getResolvedType());
+            }
+        }
 
         // Değişebilirlik reddedilirse ödünç kontrolünü ATLA (eskisiyle aynı
         // davranış — iki ayrı tanının aynı deyimde çakışmasını önler), ama
@@ -555,7 +629,25 @@ void OwnershipChecker::visitIndexExpr(IndexExpr *node) { visitChildren(node); }
 void OwnershipChecker::visitStructLiteralExpr(StructLiteralExpr *node) {
     visitChildren(node);
 }
-void OwnershipChecker::visitMatchExpr(MatchExpr *node) { visitChildren(node); }
+// Match arm'ları KENDİ kapsamlarını alır. `visitChildren`'a bırakmak yetmiyordu:
+// `forEachChild(MatchExpr)` yalnız subject/guard/body veriyor, arm KALIPLARININ
+// bağladığı adlar hiç izlenmiyordu — dolayısıyla `Shape.Circle(pkt) =>`
+// arm'ındaki `pkt`, DIŞTAKİ `pkt` değişkenine çözülüyordu. Dıştaki taşınmışsa
+// arm gövdesi haksız yere reddediliyor; arm gövdesi taşıyorsa dıştaki bozuluyor
+// ve hata match'ten SONRAKİ bir satırda çıkıyordu.
+void OwnershipChecker::visitMatchExpr(MatchExpr *node) {
+    visit(const_cast<Expr *>(node->getSubject()));
+    for (const auto &arm : node->getArms()) {
+        pushOwnershipScope();
+        trackPatternBindings(arm.patternNode.get(), node->getStartLoc());
+        if (arm.guard)
+            visit(arm.guard.get());
+        if (arm.body)
+            visit(arm.body.get());
+        dropScopeVariables();
+        popOwnershipScope();
+    }
+}
 void OwnershipChecker::visitArrayLiteralExpr(ArrayLiteralExpr *node) {
     visitChildren(node);
 }
@@ -571,7 +663,26 @@ void OwnershipChecker::visitUnwrapExpr(UnwrapExpr *node) { visitChildren(node); 
 // değişkenin yakalanması yakalanır. Closure tanımlandıktan SONRA taşınan bir
 // değişkenin closure ÇAĞRISINDA kullanılması yakalanmaz — bu bir kaçırma
 // (muhafazakâr), yanlış-pozitif değil; gerçek çözümü CFG ister.
-void OwnershipChecker::visitClosureExpr(ClosureExpr *node) { visitChildren(node); }
+//
+// Closure'ın KENDİ parametreleri de izlenir ve gövde kendi kapsamında gezilir
+// (visitFuncDecl'in kalıbı). `forEachChild(ClosureExpr)` yalnız gövdeyi verdiği
+// için bu olmadan `|pkt: Packet| { ... pkt ... }` içindeki `pkt`, dıştaki aynı
+// adlı değişkene çözülüyordu — hem yanlış-pozitif hem de dış değişkenin
+// durumunu bozan (hata uzakta çıkan) bir kayıt.
+void OwnershipChecker::visitClosureExpr(ClosureExpr *node) {
+    pushOwnershipScope();
+    for (const auto &p : node->getParams()) {
+        trackVariable(p.name, /*isMutable=*/false,
+                      p.type ? isCopyType(p.type.get()) : true,
+                      p.type ? isDropType(p.type.get()) : false,
+                      node->getStartLoc(),
+                      p.type ? isClassType(p.type.get()) : false,
+                      /*isPatternBinding=*/true);
+    }
+    visitChildren(node);
+    dropScopeVariables();
+    popOwnershipScope();
+}
 void OwnershipChecker::visitTryExpr(TryExpr *node) { visitChildren(node); }
 void OwnershipChecker::visitTernaryExpr(TernaryExpr *node) { visitChildren(node); }
 void OwnershipChecker::visitAwaitExpr(AwaitExpr *node) { visitChildren(node); }
@@ -591,8 +702,16 @@ void OwnershipChecker::visitImplDecl(ImplDecl *node) {
     visitChildren(node);
     popTypeParams();
 }
-// Protokol DEFAULT metot gövdeleri için aynısı.
-void OwnershipChecker::visitProtocolDecl(ProtocolDecl *node) { visitChildren(node); }
+// Protokol DEFAULT metot gövdeleri için aynısı. İLİŞKİLİ TİPLER (`type Item`)
+// de kapsama itilir: kardeş bildirimler (StructDecl/ImplDecl/ClassDecl) tip
+// parametrelerini zaten itiyor ve bir protokol default gövdesindeki `Item`
+// tipli yerel, o olmadan çözülmemiş-generik yanlış-pozitifinin (Kök Neden A)
+// ikizini üretirdi.
+void OwnershipChecker::visitProtocolDecl(ProtocolDecl *node) {
+    pushTypeParams(node->getAssociatedTypes());
+    visitChildren(node);
+    popTypeParams();
+}
 // StructDecl -> FieldDecl -> computed property getter/setter, willSet/didSet
 // ve lazy init gövdeleri.
 void OwnershipChecker::visitStructDecl(StructDecl *node) {
@@ -606,7 +725,8 @@ void OwnershipChecker::visitFieldDecl(FieldDecl *node) { visitChildren(node); }
 
 void OwnershipChecker::trackVariable(const std::string &name, bool isMutable,
                                       bool isCopyType, bool isDropType,
-                                      SourceLocation loc, bool isClassType) {
+                                      SourceLocation loc, bool isClassType,
+                                      bool isPatternBinding) {
     OwnershipInfo info;
     info.name = name;
     info.state = OwnershipState::Owned;
@@ -614,11 +734,65 @@ void OwnershipChecker::trackVariable(const std::string &name, bool isMutable,
     info.isCopyType = isCopyType;
     info.isDropType = isDropType;
     info.isClassType = isClassType;
+    info.isPatternBinding = isPatternBinding;
     info.declLocation = loc;
 
     if (!scopeStack_.empty()) {
         scopeStack_.back()[name] = info;
         allVariables_[name] = &scopeStack_.back()[name];
+    }
+}
+
+void OwnershipChecker::trackPatternBindings(const Pattern *pattern,
+                                            SourceLocation loc) {
+    if (!pattern)
+        return;
+
+    auto track = [&](const std::string &n) {
+        trackVariable(n, /*isMutable=*/false, /*isCopyType=*/true,
+                      /*isDropType=*/false, loc, /*isClassType=*/false,
+                      /*isPatternBinding=*/true);
+    };
+
+    switch (pattern->getKind()) {
+    case Pattern::Kind::Identifier:
+        // Çıplak bir ad ya bir BAĞLAMA'dır ya da yüksüz bir enum case'i —
+        // ayrımı parse zamanında yapılamıyor. İkisinde de izlemek güvenli:
+        // Copy olduğu için taşıma tetiklemez, tek etkisi gölgeleme.
+        track(static_cast<const IdentifierPattern *>(pattern)->getName());
+        break;
+    case Pattern::Kind::Binding: {
+        auto *b = static_cast<const BindingPattern *>(pattern);
+        track(b->getName());
+        trackPatternBindings(b->getSub(), loc);
+        break;
+    }
+    case Pattern::Kind::EnumCase:
+        for (const auto &sub :
+             static_cast<const EnumCasePattern *>(pattern)->getSubpatterns())
+            trackPatternBindings(sub.get(), loc);
+        break;
+    case Pattern::Kind::Tuple:
+        for (const auto &el :
+             static_cast<const TuplePattern *>(pattern)->getElements())
+            trackPatternBindings(el.get(), loc);
+        break;
+    case Pattern::Kind::Or:
+        // Alternatifler bağlama getiremez (Sema: err_pattern_or_binding), ama
+        // içlerindeki çıplak adlar enum case'i olarak geçebiliyor — aynı
+        // zararsız gölgeleme.
+        for (const auto &alt :
+             static_cast<const OrPattern *>(pattern)->getAlternatives())
+            trackPatternBindings(alt.get(), loc);
+        break;
+    case Pattern::Kind::Wildcard:
+    case Pattern::Kind::IntLiteral:
+    case Pattern::Kind::BoolLiteral:
+    case Pattern::Kind::StringLiteral:
+    case Pattern::Kind::FloatLiteral:
+    case Pattern::Kind::Range:
+        // Ad bağlamazlar.
+        break;
     }
 }
 
@@ -676,9 +850,28 @@ bool OwnershipChecker::checkMutation(const std::string &name, SourceLocation loc
     if (!info->isMutable) {
         diag_.reportRange(loc, static_cast<uint32_t>(name.size()),
                           DiagID::err_assign_to_immutable, name);
-        diag_.reportHelp(loc, static_cast<uint32_t>(name.size()),
-                         "declare with 'var' instead of 'let' to make it mutable",
-                         "", DiagID::note_use_var_for_mutable);
+        // Yardım metni bağlama göre seçilir. Gezinti açıldığından beri bu
+        // tanı `self` ve kalıp/iterasyon bağlamalarında da çıkıyor; ikisinde
+        // de "declare with 'var' instead of 'let'" UYGULANAMAZ bir öneri —
+        // ne `self`'in bir `let` bildirimi var, ne de `for var a in arr`
+        // diye bir sözdizimi. Yeni DiagID eklenmiyor, yalnız metin değişiyor.
+        if (name == "self") {
+            diag_.reportHelp(
+                loc, static_cast<uint32_t>(name.size()),
+                "declare the method's receiver as 'ref mut self' to mutate it",
+                "", DiagID::note_use_var_for_mutable);
+        } else if (info->isPatternBinding) {
+            diag_.reportHelp(
+                loc, static_cast<uint32_t>(name.size()),
+                "this binding has no 'var' form; mutate the underlying value "
+                "instead",
+                "", DiagID::note_use_var_for_mutable);
+        } else {
+            diag_.reportHelp(
+                loc, static_cast<uint32_t>(name.size()),
+                "declare with 'var' instead of 'let' to make it mutable", "",
+                DiagID::note_use_var_for_mutable);
+        }
         return false;
     }
 
@@ -837,6 +1030,10 @@ void OwnershipChecker::popTypeParams() {
     // yani kaybolan bir tanıya dönüşür.
     assert(!typeParamScopes_.empty() &&
            "popTypeParams without a matching pushTypeParams");
+    // Release'te (NDEBUG) assert düşer; boş konteynerde pop_back() UB olurdu.
+    // Debug'da hâlâ gürültülü, Release'te güvenli.
+    if (typeParamScopes_.empty())
+        return;
     typeParamScopes_.pop_back();
 }
 
@@ -873,6 +1070,19 @@ void OwnershipChecker::collectFuncDecls(TranslationUnit &tu) {
 bool OwnershipChecker::paramIsDynProtocol(const std::string &name,
                                           bool isMemberCall,
                                           size_t argIndex) const {
+    // Gevşetme YALNIZ SERBEST çağrılara uygulanır. Aday eleme ad + `self`'li
+    // olma üzerindendi, ama `arr.push(p)` gibi BUILTIN üye çağrılarının TU'da
+    // hiçbir bildirimi yok — buna rağmen aynı adı taşıyan alakasız bir
+    // kullanıcı metodu (`impl Sink { func push(ref mut self, g: dyn Greeter) }`)
+    // tek aday olarak eşleşiyor, "tüm adaylar hemfikir" sağlanıyor ve taşıma
+    // tanısı sessizce siliniyordu: aynı program `impl Sink` bloğu olmadan
+    // reddedilirken, blok eklenince kabul ediliyordu. Ölçülen gerçek dyn
+    // kullanımlarının HEPSİ serbest fonksiyon (stdlib'de hiç `dyn` parametre
+    // yok; `examples/`teki iki tanesi de serbest), yani üye çağrısında
+    // muhafazakâr kalmanın tek riski bugün var olmayan bir tanı fazlalığı.
+    if (isMemberCall)
+        return false;
+
     auto it = funcsByName_.find(name);
     if (it == funcsByName_.end())
         return false;
