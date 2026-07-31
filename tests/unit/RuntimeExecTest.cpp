@@ -5647,4 +5647,80 @@ TEST(RuntimeExecTest, BorrowReleasedAtLastUse_MutatesAfterwards) {
         << "stdout: " << r.stdout_output;
 }
 
+TEST(RuntimeExecTest, NestedArraySlotIndexBindingDoesNotDoubleFree) {
+    // İç içe dinamik dizide `rows[0]` gibi bir slot okumasından üretilen
+    // `let p: [i32] = rows[0]` bağlaması, push sırasında derin kopyalanmayan
+    // aynı `data` pointer'ını PAYLAŞIR (bkz. IRGenDecl.cpp yorumu). Aynı
+    // pointer'ı iki farklı sahip (p ve q) scope sonunda liva_array_free ile
+    // serbest bırakırsa çift-serbest / yığın bozulması (STATUS_HEAP_CORRUPTION,
+    // 0xC0000374) oluşur. İki okuma bunu güvenilir biçimde tetikler; tek okuma
+    // sessizce çift-serbest yapar ama genelde hemen çökmez.
+    auto r = compileAndRun(R"(
+        func main() {
+            var rows: [[i32]] = []
+            var a: [i32] = [7, 8]
+            rows.push(a)
+            let p: [i32] = rows[0]
+            let q: [i32] = rows[0]
+            println(p.length)
+        }
+    )", "nested_array_slot_no_double_free");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArraySlotIndexBindingAliasesNotCopies) {
+    // Ödünç semantiğinin kanıtı: derin kopya OLSAYDI `a[0] = 99` mutasyonu
+    // `rows[0]`'dan sonra okunan `r`'ye yansımazdı ve 7 basılırdı. Aynı
+    // pointer paylaşıldığı için (borrow, copy değil) 99 basılmalı.
+    auto r = compileAndRun(R"(
+        func main() {
+            var rows: [[i32]] = []
+            var a: [i32] = [7, 8]
+            rows.push(a)
+            a[0] = 99
+            let r: [i32] = rows[0]
+            println(r[0])
+        }
+    )", "nested_array_slot_alias_not_copy");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "99\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArraySlotFunctionReturnStillOwns) {
+    // Fazla-ödünç koruması: ilkleyici bir IndexExpr DEĞİL, bir fonksiyon
+    // çağrısı olduğunda (`mk()` taze bir DynArray üretir) bağlama hâlâ SAHİP
+    // olmalı — dar kapsam (yalnız IndexExpr ilkleyicileri ödünç) bu durumu
+    // yanlışlıkla ödünçlemediğini pin'ler. Sızıntı çökme üretmediği için bunu
+    // doğrudan test edemiyoruz; bu test en azından doğru değeri bastığını ve
+    // normal çıkışı garanti eder (bkz. görev raporu: fazla-ödünç riski).
+    auto r = compileAndRun(R"(
+        func mk() -> [i32] {
+            var v: [i32] = [1, 2, 3]
+            return v
+        }
+        func main() {
+            let r: [i32] = mk()
+            println(r.length)
+            println(r[1])
+        }
+    )", "nested_array_slot_fn_return_owns");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n2\n") << "stdout: " << r.stdout_output;
+}
+
+TEST(RuntimeExecTest, NestedArraySlotLiteralBindingStillOwns) {
+    // Fazla-ödünç koruması: ilkleyici bir dizi LİTERALİ olduğunda bağlama
+    // hâlâ sahip olmalı (IndexExpr değil). Doğru değeri bastığını pinler.
+    auto r = compileAndRun(R"(
+        func main() {
+            let r: [i32] = [4, 5, 6]
+            println(r.length)
+            println(r[2])
+        }
+    )", "nested_array_slot_literal_owns");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "3\n6\n") << "stdout: " << r.stdout_output;
+}
+
 #endif // LIVA_HAS_LLVM

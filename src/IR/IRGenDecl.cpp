@@ -1824,6 +1824,35 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             vars_.varDynArrayTypes[node->getName()] = {
                 elemType, elemSize, innerElemType, innerElemSize,
                 isSignedNarrowTypeRepr(arrReprType->getElement())};
+            // ÖDÜNÇ İŞARETİ: ilkleyici bir IndexExpr ise (örn. `let p: [i32] =
+            // rows[0]`), bu bağlama dış dizinin slot'undaki DynArray'i
+            // KOPYALAMAZ — `push` derin kopya yapmadığı için (liva_str_dup
+            // yalnız string elemanlarında çağrılır) yukarıdaki CreateStore
+            // sadece {data,len,cap} alanlarını kopyalar; `p.data` ile
+            // `rows[0].data` AYNI heap pointer'ını gösterir (alias, Liva'nın
+            // takma ad semantiği için istenen davranış — `a[0]=99` sonrası
+            // `rows[0]` 99 görür). emitScopeCleanup (IRGenStmt.cpp) her
+            // varDynArrayTypes girdisinin data pointer'ını movedVars'ta
+            // değilse liva_array_free ile serbest bırakır; iki farklı bağlama
+            // (örn. `p` ve `q`, ikisi de `rows[0]`'dan) aynı pointer'ı
+            // sahiplenirse scope sonunda ÇİFT SERBEST → yığın bozulması
+            // (STATUS_HEAP_CORRUPTION). Bu yüzden bu bağlamayı, for-in döngü
+            // değişkeni ve variadic parametrelerde kullanılan aynı
+            // movedVars-işaretleme deseniyle ÖDÜNÇ say: sahiplik yok, scope
+            // sonunda serbest bırakılmaz — kaynak dizi (rows) kendi
+            // cleanup'ında zaten serbest bırakacak.
+            //
+            // Kapsam bilerek DAR tutuldu: yalnızca ilkleyici bir IndexExpr
+            // olduğunda uygulanır. `let r: [i32] = mk()` (fonksiyon dönüşü)
+            // ve `let r: [i32] = [1,2,3]` (literal) bu dalın DIŞINDA kalır —
+            // ikisi de taze, hiçbir yerle paylaşılmayan bir tampon üretir;
+            // onları da ödünç sayarsak bu sefer SIZINTI oluşurdu (bkz. görev
+            // raporu: NestedArraySlotFunctionReturnStillOwns /
+            // NestedArraySlotLiteralBindingStillOwns testleri bu iki şeklin
+            // hâlâ doğru bastığını pinler).
+            if (node->getInit()->getKind() == ASTNode::NodeKind::IndexExpr) {
+                vars_.movedVars.insert(node->getName());
+            }
             return alloca;
         }
     }
