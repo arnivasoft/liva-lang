@@ -194,6 +194,41 @@ int countOccurrences(const std::string &haystack, const std::string &needle) {
     return count;
 }
 
+// Emit LLVM IR for `source` via the built `livac --emit-ir` (Lexer->Parser->
+// Sema->IRGen, no link) and return the .ll text (empty if livac failed to
+// produce IR). Mirrors UICodegenExecTest.cpp's emitIR helper — used here to
+// make the nested-array-slot-borrow "still owns" guard tests actually
+// discriminate: a println-only assertion can't tell a leaked buffer from a
+// freed one (a leak doesn't change program output), but the presence/absence
+// of the `<name>.data.drop` / `<name>.ptr.drop` GEP+load pair that
+// emitScopeCleanup (IRGenStmt.cpp) emits for a NON-moved DynArray variable
+// is a direct, textual proxy for "this binding is still freed at scope exit."
+std::string emitIR(const std::string &source, const std::string &test_name) {
+    const std::string buildDir = LIVA_BUILD_DIR;
+    const std::string srcPath  = buildDir + "/_runtime_exec_ir_" + test_name + ".liva";
+    const std::string llPath   = buildDir + "/_runtime_exec_ir_" + test_name + ".ll";
+    const std::string livac    = buildDir + "/livac" EXE_SUFFIX;
+
+    std::remove(llPath.c_str());
+    {
+        std::ofstream ofs(srcPath, std::ios::binary);
+        ofs << source;
+    }
+
+    // Unquoted, space-free paths; no redirection (avoids cmd.exe quote mangling).
+    std::string cmd = livac + " --emit-ir -o " + llPath + " " + srcPath;
+    (void)std::system(cmd.c_str());
+
+    std::ifstream ifs(llPath, std::ios::binary);
+    std::stringstream ss;
+    if (ifs.is_open()) ss << ifs.rdbuf();
+    std::string ir = ss.str();
+
+    std::remove(srcPath.c_str());
+    std::remove(llPath.c_str());
+    return ir;
+}
+
 }  // namespace
 
 TEST(RuntimeExecTest, HelloWorld_PrintsAndExitsZero) {
@@ -5691,9 +5726,15 @@ TEST(RuntimeExecTest, NestedArraySlotFunctionReturnStillOwns) {
     // Fazla-ödünç koruması: ilkleyici bir IndexExpr DEĞİL, bir fonksiyon
     // çağrısı olduğunda (`mk()` taze bir DynArray üretir) bağlama hâlâ SAHİP
     // olmalı — dar kapsam (yalnız IndexExpr ilkleyicileri ödünç) bu durumu
-    // yanlışlıkla ödünçlemediğini pin'ler. Sızıntı çökme üretmediği için bunu
-    // doğrudan test edemiyoruz; bu test en azından doğru değeri bastığını ve
-    // normal çıkışı garanti eder (bkz. görev raporu: fazla-ödünç riski).
+    // yanlışlıkla ödünçlemediğini pin'ler.
+    //
+    // İNCELEME DÜZELTMESİ (Important 3): yalnız basılan değeri kontrol etmek
+    // AYIRT EDİCİ DEĞİL — ödünç işareti yanlışlıkla buraya da uygulansaydı
+    // bu test YİNE PASS ederdi (sızıntı çıktıyı değiştirmez; nitekim dilim
+    // fazla-ödünç regresyonu tam süitten böyle sızdı). Bu yüzden davranışsal
+    // kontrole ek olarak IR'da `r.data.drop`/`r.ptr.drop` GEP+load çiftinin
+    // (emitScopeCleanup'ın SADECE movedVars'ta OLMAYAN — yani SAHİP —
+    // değişkenler için ürettiği kalıp) VAR OLDUĞUNU doğrudan doğruluyoruz.
     auto r = compileAndRun(R"(
         func mk() -> [i32] {
             var v: [i32] = [1, 2, 3]
@@ -5707,11 +5748,28 @@ TEST(RuntimeExecTest, NestedArraySlotFunctionReturnStillOwns) {
     )", "nested_array_slot_fn_return_owns");
     EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
     EXPECT_EQ(r.stdout_output, "3\n2\n") << "stdout: " << r.stdout_output;
+
+    std::string ir = emitIR(R"(
+        func mk() -> [i32] {
+            var v: [i32] = [1, 2, 3]
+            return v
+        }
+        func main() {
+            let r: [i32] = mk()
+            println(r.length)
+        }
+    )", "nested_array_slot_fn_return_owns_ir");
+    EXPECT_NE(ir.find("r.data.drop"), std::string::npos)
+        << "IR should still free `r` (fn-return init) at scope exit — leak "
+           "regression if this GEP is missing. IR:\n" << ir;
+    EXPECT_NE(ir.find("r.ptr.drop"), std::string::npos) << "IR:\n" << ir;
 }
 
 TEST(RuntimeExecTest, NestedArraySlotLiteralBindingStillOwns) {
     // Fazla-ödünç koruması: ilkleyici bir dizi LİTERALİ olduğunda bağlama
-    // hâlâ sahip olmalı (IndexExpr değil). Doğru değeri bastığını pinler.
+    // hâlâ sahip olmalı (IndexExpr değil). Davranış + IR ikisi de kontrol
+    // ediliyor (bkz. NestedArraySlotFunctionReturnStillOwns'daki Important 3
+    // notu — yalnız çıktı kontrolü ayırt edici değil).
     auto r = compileAndRun(R"(
         func main() {
             let r: [i32] = [4, 5, 6]
@@ -5721,6 +5779,110 @@ TEST(RuntimeExecTest, NestedArraySlotLiteralBindingStillOwns) {
     )", "nested_array_slot_literal_owns");
     EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
     EXPECT_EQ(r.stdout_output, "3\n6\n") << "stdout: " << r.stdout_output;
+
+    std::string ir = emitIR(R"(
+        func main() {
+            let r: [i32] = [4, 5, 6]
+            println(r.length)
+        }
+    )", "nested_array_slot_literal_owns_ir");
+    EXPECT_NE(ir.find("r.data.drop"), std::string::npos)
+        << "IR should still free `r` (literal init) at scope exit. IR:\n" << ir;
+    EXPECT_NE(ir.find("r.ptr.drop"), std::string::npos) << "IR:\n" << ir;
+}
+
+TEST(RuntimeExecTest, NestedArraySlotScalarIndexBindingIsBorrowedInIR) {
+    // Ana düzeltmenin doğrudan IR kanıtı: `let p: [i32] = rows[0]` (skaler
+    // index) bağlaması movedVars'a girmeli, dolayısıyla emitScopeCleanup
+    // onun için hiçbir `p.data.drop`/`p.ptr.drop`/`liva_array_free` GEP'i
+    // ÜRETMEMELİ — üretirse bu, NestedArraySlotIndexBindingDoesNotDoubleFree
+    // testinin RED durumuna (çift-serbest) geri dönüş demektir.
+    std::string ir = emitIR(R"(
+        func main() {
+            var rows: [[i32]] = []
+            var a: [i32] = [7, 8]
+            rows.push(a)
+            let p: [i32] = rows[0]
+            println(p.length)
+        }
+    )", "nested_array_slot_scalar_borrowed_ir");
+    EXPECT_EQ(ir.find("p.data.drop"), std::string::npos)
+        << "`p` (scalar-index init) must NOT be freed at scope exit — its "
+           "data pointer aliases rows[0]. IR:\n" << ir;
+    EXPECT_EQ(ir.find("p.ptr.drop"), std::string::npos) << "IR:\n" << ir;
+}
+
+TEST(RuntimeExecTest, NestedArraySliceBindingStillOwns) {
+    // İNCELEME DÜZELTMESİ (Important 1 — bu diff'in kendi regresyonu):
+    // `a[0..2]` DİLİM ifadesi de bir IndexExpr'dir ama visitIndexExpr
+    // (IRGenExpr.cpp ~1372-1393) onu `arr[i]` gibi ele ALMAZ — liva_array_new
+    // ile TAZE bir tampon ayırıp elemanları memcpy ile kopyalar (takma ad
+    // değil, gerçek sahiplik). İlk düzeltme turu bunu ayırt etmediği için
+    // dilim ilkleyicili bağlamalar da ödünç sayılmış ve sınırsız sızıntı
+    // oluşmuştu (örn. examples/slicing.liva:7 `let slice = arr[1..4]`).
+    // Şimdi yalnız index kısmı RangeExpr OLMAYAN IndexExpr'ler ödünç sayılıyor
+    // — dilimler bu daldan hariç. Davranış + IR ikisi de kontrol ediliyor
+    // (davranış tek başına sızıntıyı ayırt etmez, bkz. Important 3 notu).
+    auto r = compileAndRun(R"(
+        func main() {
+            var a: [i32] = [10, 20, 30, 40]
+            let s: [i32] = a[0..2]
+            println(s.length)
+            println(s[0])
+            println(s[1])
+        }
+    )", "nested_array_slice_still_owns");
+    EXPECT_EQ(r.exit_code, 0) << "stdout: " << r.stdout_output;
+    EXPECT_EQ(r.stdout_output, "2\n10\n20\n") << "stdout: " << r.stdout_output;
+
+    std::string ir = emitIR(R"(
+        func main() {
+            var a: [i32] = [10, 20, 30, 40]
+            let s: [i32] = a[0..2]
+            println(s.length)
+        }
+    )", "nested_array_slice_still_owns_ir");
+    EXPECT_NE(ir.find("s.data.drop"), std::string::npos)
+        << "Slice binding `s` (a[0..2]) allocates its OWN fresh buffer "
+           "(liva_array_new + memcpy) and must still be freed at scope exit "
+           "— missing this GEP means the slice buffer leaks unboundedly. "
+           "IR:\n" << ir;
+    EXPECT_NE(ir.find("s.ptr.drop"), std::string::npos) << "IR:\n" << ir;
+    EXPECT_NE(ir.find("liva_array_new"), std::string::npos) << "IR:\n" << ir;
+}
+
+TEST(RuntimeExecTest, NestedArraySlotReassignmentKnownLeakLimitation) {
+    // İNCELEME BULGUSU (Important 2 — BİLİNEN SINIRLAMA, bu turda DÜZELTİLMEDİ):
+    // movedVars işareti isme kalıcı olarak konur ve yalnızca VarDecl yeniden-
+    // bildiriminde temizlenir; plain AssignExpr (`p = ...`) bu işareti
+    // TEMİZLEMEZ (bkz. IRGenCall.cpp visitAssignExpr — bu görevin izinli
+    // dosya kapsamı IRGenDecl.cpp + RuntimeExecTest.cpp olduğu için bu turda
+    // dokunulmadı). Sonuç: `var p: [i32] = rows[0]` (ödünç) sonra
+    // `p = [9,9,9]` (taze, sahip olması gereken bir tampon) ile yeniden
+    // atanırsa, p hâlâ movedVars'ta kaldığından bu YENİ tampon serbest
+    // bırakılmaz.
+    //
+    // Bu test o davranışı BİLEREK PİNLİYOR (fix değil, belgeleme + regresyon
+    // takibi): `p.data.drop` GEP'inin YOKLUĞUNU doğruluyoruz. Bu limitasyon
+    // ileride IRGenCall.cpp'de düzeltilirse bu test GÜNCELLENMELİ (find(...)
+    // artık npos DEĞİL dönmeli) — testin kendisi "leak devam ediyor" iddiasını
+    // taşıyor, "leak doğru" demiyor.
+    std::string ir = emitIR(R"(
+        func main() {
+            var rows: [[i32]] = []
+            var a: [i32] = [7, 8]
+            rows.push(a)
+            var p: [i32] = rows[0]
+            p = [9, 9, 9]
+            println(p.length)
+        }
+    )", "nested_array_slot_reassign_known_leak");
+    EXPECT_EQ(ir.find("p.data.drop"), std::string::npos)
+        << "KNOWN LIMITATION pin: reassigning a borrowed `p` to a fresh, "
+           "owned buffer currently still leaks that buffer because movedVars "
+           "isn't cleared on plain AssignExpr. If this starts failing, the "
+           "limitation was fixed — update/remove this test accordingly. "
+           "IR:\n" << ir;
 }
 
 #endif // LIVA_HAS_LLVM

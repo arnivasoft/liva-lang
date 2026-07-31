@@ -1839,8 +1839,21 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             // (STATUS_HEAP_CORRUPTION). Bu yüzden bu bağlamayı, for-in döngü
             // değişkeni ve variadic parametrelerde kullanılan aynı
             // movedVars-işaretleme deseniyle ÖDÜNÇ say: sahiplik yok, scope
-            // sonunda serbest bırakılmaz — kaynak dizi (rows) kendi
-            // cleanup'ında zaten serbest bırakacak.
+            // sonunda serbest bırakılmaz.
+            //
+            // DÜZELTME (inceleme, Minor 4): "kaynak dizi (rows) kendi
+            // cleanup'ında zaten serbest bırakacak" gerekçesi YANLIŞTI —
+            // emitScopeCleanup (IRGenStmt.cpp:35-44) TEK SEVİYELİDİR: yalnız
+            // `rows.data`'yı (dış tamponu) bırakır, rows'un elemanı olan iç
+            // DynArray'lerin kendi tamponlarını hiç görmez. Doğru gerekçe:
+            // kaynak `a`, `rows.push(a)` ile zaten MOVE edildi (push argümanı
+            // movedVars'a ekliyor, bkz. IRGenCallMethod.cpp) — iç tamponun
+            // sahipliği artık `rows`'un İÇİNDEDİR ve emitScopeCleanup tek
+            // seviyeli olduğu için o iç tampon zaten hiçbir yerde serbest
+            // bırakılmıyor (ayrı, önceden var olan bir sızıntı deseni — bu
+            // görevin konusu değil). `p`'yi ödünç sayarak yaptığımız tek şey,
+            // p'nin bu zaten-serbest-bırakılmayan pointer'ı BİR KEZ DAHA
+            // (yanlışlıkla) serbest bırakmasını önlemek.
             //
             // Kapsam bilerek DAR tutuldu: yalnızca ilkleyici bir IndexExpr
             // olduğunda uygulanır. `let r: [i32] = mk()` (fonksiyon dönüşü)
@@ -1850,8 +1863,40 @@ llvm::Value *IRGen::visitVarDecl(VarDecl *node) {
             // raporu: NestedArraySlotFunctionReturnStillOwns /
             // NestedArraySlotLiteralBindingStillOwns testleri bu iki şeklin
             // hâlâ doğru bastığını pinler).
+            // İNCELEME DÜZELTMESİ (Important 1): `a[i..j]` DİLİM de bir
+            // IndexExpr'dir ama visitIndexExpr (IRGenExpr.cpp ~1372-1393) onu
+            // `arr[i]` gibi ele almaz — `liva_array_new` ile TAZE bir tampon
+            // ayırıp elemanları `memcpy` ile KOPYALAR (takma ad değil, sahibi
+            // bu bağlamadır). Dilim ilkleyicisini de ödünç sayarsak bu taze
+            // tampon hiç serbest bırakılmaz → sınırsız sızıntı (ölçüldü:
+            // 20M çağrılık döngüde maxWS 4,1 MB'tan 617,8 MB'a çıkıyor).
+            // Bu yüzden yalnız index kısmı bir RangeExpr OLMAYAN IndexExpr'ler
+            // (skaler `rows[0]` gibi) ödünç sayılır; dilimler bu daldan hariç
+            // tutulup SAHİP kalır.
+            //
+            // BİLİNEN SINIRLAMA (inceleme, Important 2 — bu turda DÜZELTİLMEDİ):
+            // movedVars işareti İSME kalıcı olarak konur ve yalnız VarDecl
+            // yeniden-bildiriminde (bu dosyada, aşağıda ayrı bir yerde,
+            // `vars_.movedVars.erase(declName)`) temizlenir — plain
+            // AssignExpr (`p = ...`) BU İŞARETİ TEMİZLEMEZ (bkz.
+            // IRGenCall.cpp, visitAssignExpr). Sonuç: `var p: [i32] =
+            // rows[0]` (ödünç, movedVars'a girer) sonra `p = [9,9,9]` (taze,
+            // SAHİP olması gereken bir tampon) ile yeniden atanırsa, p scope
+            // sonunda hâlâ movedVars'ta olduğu için bu YENİ tampon da
+            // serbest bırakılmaz → sızıntı. Doğru çözüm AssignExpr'de hedefin
+            // movedVars durumunu yeni değerin şekline göre güncellemek
+            // olurdu (IndexExpr-olmayan/literal/çağrı ise erase, IndexExpr
+            // ise tekrar insert) — ama bu IRGenCall.cpp'ye dokunmayı
+            // gerektirir ve bu görevin izinli dosya kapsamı dışındadır
+            // (yalnız IRGenDecl.cpp + RuntimeExecTest.cpp). Bilinçli olarak
+            // ERTELENDİ; RuntimeExecTest.cpp'de
+            // NestedArraySlotReassignmentKnownLeakLimitation testi bu
+            // davranışı IR üzerinden PİNLER (gelecekte düzeltilirse o test
+            // güncellenmeli).
             if (node->getInit()->getKind() == ASTNode::NodeKind::IndexExpr) {
-                vars_.movedVars.insert(node->getName());
+                auto *idxInit = static_cast<const IndexExpr *>(node->getInit());
+                if (idxInit->getIndex()->getKind() != ASTNode::NodeKind::RangeExpr)
+                    vars_.movedVars.insert(node->getName());
             }
             return alloca;
         }
