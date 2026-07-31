@@ -1,6 +1,8 @@
 #include "liva/Sema/LifetimeAnalysis.h"
 #include "liva/AST/ASTWalk.h"
 
+#include <cassert>
+
 namespace liva {
 
 LifetimeAnalysis::LifetimeAnalysis(DiagnosticsEngine &diag) : diag_(diag) {}
@@ -17,11 +19,46 @@ LifetimeAnalysis::LifetimeAnalysis(DiagnosticsEngine &diag) : diag_(diag) {}
 // iç içe FuncDecl yok, dolayısıyla her gövde tam bir kez veriliyor.
 void LifetimeAnalysis::check(TranslationUnit &tu) {
     for (auto &decl : tu.getDeclarations()) {
-        walkSubtree(decl.get(), [&](const ASTNode *node) {
+        bool known = walkSubtree(decl.get(), [&](const ASTNode *node) {
             if (node->getKind() == ASTNode::NodeKind::FuncDecl)
                 analyzeFunction(
                     const_cast<FuncDecl *>(static_cast<const FuncDecl *>(node)));
         });
+
+        // walkSubtree sözleşmesi (ASTWalk.h): false = forEachChild tablosunda
+        // bir NodeKind eksik ve o düğümün ÇOCUKLARI hiç gezilmedi. Bunu
+        // sessizce yutmak, bu görevin kapattığı boşluk sınıfını (bir
+        // fonksiyon gövdesinin ömür analizinden tamamen kaçması) FARKLI bir
+        // NodeKind üzerinden yeniden açar — `BorrowLastUse.cpp:96-103`'ün
+        // aynı dönüşü tüketip TAMAMEN vazgeçtiği (muhafazakâr) durumun
+        // ikizi; burada "vazgeçilecek" bir optimizasyon yok, check()'in tek
+        // işi keşif olduğu için karşılığı gürültülü bir hata sinyalidir.
+        //
+        // Yeni bir DiagID eklemek (DiagnosticKinds.def) bu görevin dosya
+        // kapsamının (yalnız LifetimeAnalysis.cpp/.h) dışında, dolayısıyla
+        // diag_ üzerinden gerçek bir tanı basılamıyor; assert() burada kalan
+        // tek araç. `popTypeParams` (OwnershipChecker.cpp) örneğinden farklı
+        // olarak assert'in Release'te (NDEBUG) düşmesinin bir UB riski YOK —
+        // düşse de döngü bugünkü (bu satırdan önceki) davranışla aynı şekilde
+        // devam eder, yalnızca eksik gövdeler yine sessiz kalır.
+        //
+        // Bu assert'in "getOrPanic" (IRGen.h) tuzağıyla aynı kaderi
+        // paylaşmadığını doğrulamak önemliydi: yerel `build_clang.bat`
+        // Release/NDEBUG derliyor, yani orada bu satır gerçekten ölü kod.
+        // Ama .github/workflows/ci.yml'deki `sanitizer` (ASan+UBSan) ve
+        // `coverage` job'ları `-DCMAKE_BUILD_TYPE=Debug` ile derleyip
+        // `ownership_test`'i (dolayısıyla bu OwnershipTest gövdelerinin
+        // TAMAMINI Sema üzerinden geçiren) ctest ile ÇALIŞTIRIYOR — yani
+        // assert orada gerçekten canlı ve CI'da fiilen tetiklenebilir bir
+        // denetim. Ayrıca -DLIVA_WERROR=ON olan hedeflerde forEachChild'ın
+        // switch'i eksik bir case'te -Wswitch->-Werror ile zaten hiç
+        // DERLENMEZ — bu iki katman birlikte, yalnızca yerel WERROR'siz
+        // Release derlemesini korumasız bırakıyor.
+        assert(known &&
+               "walkSubtree bir NodeKind'i tanımadı: forEachChild'a yeni bir "
+               "düğüm türü eklenip case eklenmesi unutuldu — altındaki "
+               "gövdeler ömür analizinden kaçıyor olabilir");
+        (void)known; // Release'te (NDEBUG) assert atılır, değişken kullanılmaz kalmasın
     }
 }
 
