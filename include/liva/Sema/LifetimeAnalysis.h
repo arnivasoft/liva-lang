@@ -4,6 +4,7 @@
 #include "liva/Common/Diagnostics.h"
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace liva {
@@ -48,6 +49,19 @@ private:
 
     int currentDepth_ = 0;
     std::unordered_map<std::string, VarInfo> variables_;
+
+    /// analyzeFunction'ın eskiden kendi içinde açık yazdığı "durumu sıfırla,
+    /// başlangıç bağlamalarını (varsa parametreler) depth 0'a kaydet, gövdeyi
+    /// gez" üçlüsü. TestDecl ve ClosureExpr gövdeleri de aynı üçlüye ihtiyaç
+    /// duyduğu için buraya ayrıldı.
+    ///
+    /// `params` bilerek variables_'a ÖNCEDEN yazılmış bir kayıt olarak değil,
+    /// bir argüman olarak alınıyor: variables_.clear() bu fonksiyonun İÇİNDE
+    /// çalışıyor, dolayısıyla çağrılmadan önce variables_'a yazılan hiçbir şey
+    /// hayatta kalamazdı (parametreler sessizce kaybolurdu). Parametreleri
+    /// argüman olarak taşımak clear()'dan SONRA kaydedilmelerini garanti eder.
+    void analyzeBody(const BlockStmt *body,
+                      const std::vector<std::pair<std::string, SourceLocation>> &params = {});
 
     void visitNode(ASTNode *node);
     void visitBlockStmt(BlockStmt *node);

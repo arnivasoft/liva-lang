@@ -3039,6 +3039,46 @@ TEST_F(OwnershipTest, WhileLetBodyGetsLifetimeAnalysis) {
     EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
 }
 
+TEST_F(OwnershipTest, TestDeclBodyGetsLifetimeAnalysis) {
+    // check() eskiden yalnız FuncDecl düğümlerinde analyzeFunction çağırıyordu;
+    // walkSubtree TestDecl gövdesine iniyordu ama gövde hiç analiz edilmiyordu.
+    auto result = check(R"--(
+        test "ödünç son kullanımdan uzun yaşıyor" {
+            var r: i32 = 0
+            var p = ref r
+            {
+                var inner: i32 = 99
+                p = ref inner
+            }
+            println(p)
+        }
+        func main() {}
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
+TEST_F(OwnershipTest, ClosureBodyGetsLifetimeAnalysis) {
+    // forEachChild(ClosureExpr) gövdeyi veriyor ama check() closure gövdesinde
+    // hiç analiz çalıştırmıyordu, dolayısıyla ref bağlamaları görünmezdi.
+    auto result = check(R"--(
+        func main() {
+            let f = |x: i32| -> i32 {
+                var r: i32 = 0
+                var p = ref r
+                {
+                    var inner: i32 = 99
+                    p = ref inner
+                }
+                return x + p
+            }
+            println(f(1))
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_borrow_outlives_value));
+}
+
 // === Fazla-ret korumaları ===
 
 TEST_F(OwnershipTest, LegitimateBorrowInImplBodyAccepted) {

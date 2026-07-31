@@ -7,22 +7,55 @@ namespace liva {
 
 LifetimeAnalysis::LifetimeAnalysis(DiagnosticsEngine &diag) : diag_(diag) {}
 
-// walkSubtree her fonksiyonun gövdesindeki deyimleri de gezer (bir FuncDecl
-// ararken) ve analyzeFunction sonra aynı gövdeyi kendi mantığıyla tekrar gezer.
-// Bu KASITLI ve zararsız: dış gezinti yalnız düğüm türüne bakıyor, gerçek iş
-// analyzeFunction içinde. Dış gezintiyi "optimizasyon" için FuncDecl görünce
-// durduracak biçimde yazmak, iç içe bildirim eklendiği gün sessizce kapsam
-// kaybettirir.
+// walkSubtree her fonksiyonun gövdesindeki deyimleri de gezer (bir FuncDecl/
+// TestDecl/ClosureExpr ararken) ve analyzeFunction/analyzeBody sonra aynı
+// gövdeyi kendi mantığıyla tekrar gezer. Bu KASITLI ve zararsız: dış gezinti
+// yalnız düğüm türüne bakıyor, gerçek iş analyzeFunction/analyzeBody içinde.
+// Dış gezintiyi "optimizasyon" için bu üç düğüm türünü görünce durduracak
+// biçimde yazmak, iç içe bildirim eklendiği gün sessizce kapsam kaybettirir.
 //
-// analyzeFunction idempotent DEĞİL — aynı fonksiyonu iki kez analiz etmek
-// tanıları iki kez üretir. Bugün blok içinde yerel `func` parse edilmediği için
-// iç içe FuncDecl yok, dolayısıyla her gövde tam bir kez veriliyor.
+// analyzeFunction/analyzeBody idempotent DEĞİL — aynı gövdeyi iki kez analiz
+// etmek tanıları iki kez üretir. Bugün blok içinde yerel `func` parse
+// edilmediği için iç içe FuncDecl yok; bir ClosureExpr bir FuncDecl/TestDecl
+// gövdesinin İÇİNDE olabilir ama walkSubtree pre-order olduğu için kapsayan
+// analyzeFunction/analyzeBody çağrısı alt ağaca inilmeden ÖNCE tamamen bitiyor
+// — iç closure'ın kendi (taze) analyzeBody çağrısı kapsayanın durumunu
+// (variables_/currentDepth_) hiç görmüyor, dolayısıyla bozmuyor. Her gövde
+// (fonksiyon/test/closure) yine tam bir kez analiz ediliyor.
 void LifetimeAnalysis::check(TranslationUnit &tu) {
     for (auto &decl : tu.getDeclarations()) {
         bool known = walkSubtree(decl.get(), [&](const ASTNode *node) {
-            if (node->getKind() == ASTNode::NodeKind::FuncDecl)
+            switch (node->getKind()) {
+            case ASTNode::NodeKind::FuncDecl:
                 analyzeFunction(
                     const_cast<FuncDecl *>(static_cast<const FuncDecl *>(node)));
+                break;
+            case ASTNode::NodeKind::TestDecl: {
+                // `test "..." { }` gövdesi FuncDecl DEĞİL, kendi NodeKind'ı
+                // var; walkSubtree'nin bu gövdeye indiği ama hiç analiz
+                // edilmediği bulundu (OwnershipChecker::visitTestDecl aynı
+                // gövdeye ulaşıp tanı basabiliyorken ömür analizi sessizdi).
+                auto *t = const_cast<TestDecl *>(static_cast<const TestDecl *>(node));
+                analyzeBody(t->getBody());
+                break;
+            }
+            case ASTNode::NodeKind::ClosureExpr: {
+                // Closure parametreleri FuncDecl::ParamDecl gibi bir
+                // `location` alanı taşımıyor (bkz. ClosureExpr::Param,
+                // Expr.h); OwnershipChecker::visitClosureExpr de aynı
+                // sebeple tüm parametreler için closure'ın kendi
+                // getStartLoc()'unu kullanıyor, burada da aynı desen izleniyor.
+                auto *c = const_cast<ClosureExpr *>(static_cast<const ClosureExpr *>(node));
+                std::vector<std::pair<std::string, SourceLocation>> params;
+                params.reserve(c->getParams().size());
+                for (auto &p : c->getParams())
+                    params.emplace_back(p.name, c->getStartLoc());
+                analyzeBody(c->getBody(), params);
+                break;
+            }
+            default:
+                break;
+            }
         });
 
         // walkSubtree sözleşmesi (ASTWalk.h): false = forEachChild tablosunda
@@ -65,15 +98,30 @@ void LifetimeAnalysis::check(TranslationUnit &tu) {
 void LifetimeAnalysis::analyzeFunction(FuncDecl *func) {
     if (!func->hasBody()) return;
 
+    std::vector<std::pair<std::string, SourceLocation>> params;
+    params.reserve(func->getParams().size());
+    for (auto &param : func->getParams())
+        params.emplace_back(param.name, param.location);
+
+    analyzeBody(func->getBody(), params);
+}
+
+void LifetimeAnalysis::analyzeBody(
+        const BlockStmt *body,
+        const std::vector<std::pair<std::string, SourceLocation>> &params) {
+    if (!body) return;
+
     currentDepth_ = 0;
     variables_.clear();
 
-    // Register parameters at depth 0
-    for (auto &param : func->getParams()) {
-        variables_[param.name] = {0, param.location, ""};
-    }
+    // Başlangıç bağlamalarını (fonksiyon/closure parametreleri) depth 0'a
+    // kaydet. Bunlar variables_.clear()'dan SONRA yazılıyor — parametreler
+    // clear()'dan ÖNCE bir yere kaydedilseydi bu satırda silinirdi, bu yüzden
+    // `params` çağırana kadar variables_'a değil bir argümana taşınıyor.
+    for (auto &[name, loc] : params)
+        variables_[name] = {0, loc, ""};
 
-    visitBlockStmt(const_cast<BlockStmt *>(func->getBody()));
+    visitBlockStmt(const_cast<BlockStmt *>(body));
 }
 
 void LifetimeAnalysis::visitNode(ASTNode *node) {

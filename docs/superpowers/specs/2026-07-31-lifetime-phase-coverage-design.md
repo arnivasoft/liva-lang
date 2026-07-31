@@ -148,12 +148,24 @@ bildirilemez, dolayısıyla bir `MatchExpr` dalı eklemek asla tetiklenemeyecek 
 olurdu. Blok-gövdeli arm'lar ileride desteklenirse bu karar yeniden
 değerlendirilmeli.
 
-**Genel `forEachChild` fallback'i KULLANILMAYACAK.** Gerekçe: `LifetimeAnalysis`
-kapsam derinliğine duyarlı — `currentDepth_` yalnız `visitBlockStmt` içinde
-artıp azalıyor ve `checkScopeExit` bu sayıya göre karar veriyor. Kör bir çocuk
-gezintisi blok olmayan düğümlerden de geçerek derinlik muhasebesini bozar. Bu,
-`OwnershipChecker`'da genel fallback'in doğru olmasıyla arasındaki asıl fark:
-orada ziyaretler durumsuzdu.
+**Genel `forEachChild` fallback'i KULLANILMAYACAK.** Karar doğru, ama aşağıdaki
+ilk gerekçe hatalıydı ve final incelemede (2026-07-31) düzeltildi: `currentDepth_`
+yalnız `visitBlockStmt` içinde artıp azalıyor (`src/Sema/LifetimeAnalysis.cpp:132,148`),
+dolayısıyla blok OLMAYAN düğümlerden kör geçmek derinlik muhasebesini
+**bozamaz** — "kapsam derinliğine duyarlı" gerekçesi teknik olarak yanlıştı.
+Asıl tehlike farklı ve daha güçlü: kör bir fallback `ClosureExpr`'in çocuğu
+olarak gövde `BlockStmt`'ini verirdi; bu, closure'ın yerel değişkenlerinin
+ÇEVRELEYEN fonksiyonun `variables_` haritasına karışmasına ve closure
+parametrelerinin HİÇ kaydedilmemesine yol açardı — `roadmap.md` kayıt 134'teki
+(C1) maddesinin `OwnershipChecker` tarafında tam olarak düştüğü ortam-karışması
+tuzağının ikizi. Bu aynı zamanda `OwnershipChecker`'daki genel fallback'in neden
+güvenli olduğunu da açıklıyor: **"ziyaretlerin durumsuz olması" YANLIŞ bir
+karşıtlık** — `OwnershipChecker` çok durumludur (`variables_`, ödünç sayaçları
+vb.) ve roadmap 134 (C1) tam bu ortam-karışması tuzağına düşmüştü;
+`visitClosureExpr`/`visitMatchExpr` gibi düğüm-özel override'lar kendi
+kapsamlarını (`pushOwnershipScope`/`trackVariable`) kurduğu İÇİN oradaki
+fallback yalnız gövdeyi gezer ve ortamı karıştırmaz — "durumsuzluk" bundan
+tamamen bağımsız.
 
 `default: break;` dalı yerinde kalır ama artık gerçekten "bu düğümde ömür
 kaygısı yok" anlamına gelir.
