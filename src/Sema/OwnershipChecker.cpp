@@ -93,11 +93,9 @@ const TypeRepr *containerElementType(const TypeRepr *type) {
 OwnershipChecker::OwnershipChecker(DiagnosticsEngine &diag) : diag_(diag) {}
 
 void OwnershipChecker::check(TranslationUnit &tu) {
-    // Sema aynı örnek üzerinden iki ayrı giriş sunuyor (Sema::analyze ve
-    // Sema::ownershipCheck), o yüzden TU'ya özel her durum girişte
-    // sıfırlanır. Bugün push/pop dengeli olduğu için typeParamScopes_ zaten
-    // boş dönüyor; simetriyi burada kurmak, ileride bir dengesizlik olursa
-    // onun sessizce BİR SONRAKİ TU'ya taşınmasını engelliyor.
+    // TU'ya özel her durum girişte sıfırlanır — push/pop dengeli olduğu için
+    // typeParamScopes_ zaten boş dönüyor, ama simetriyi burada kurmak, ileride
+    // bir dengesizlik olursa onun sessizce BİR SONRAKİ TU'ya taşınmasını engelliyor.
     collectFuncDecls(tu);
     typeParamScopes_.clear();
     pushOwnershipScope();

@@ -18,12 +18,6 @@ public:
     /// Run all semantic analysis passes on the translation unit
     bool analyze(TranslationUnit &tu);
 
-    /// Run only type checking
-    bool typeCheck(TranslationUnit &tu);
-
-    /// Run only ownership checking
-    bool ownershipCheck(TranslationUnit &tu);
-
     bool hasErrors() const { return diag_.hasErrors(); }
 
     TypeChecker &getTypeChecker() { return typeChecker_; }

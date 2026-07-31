@@ -33,14 +33,4 @@ bool Sema::analyze(TranslationUnit &tu) {
     return !diag_.hasErrors();
 }
 
-bool Sema::typeCheck(TranslationUnit &tu) {
-    typeChecker_.check(tu);
-    return !diag_.hasErrors();
-}
-
-bool Sema::ownershipCheck(TranslationUnit &tu) {
-    ownershipChecker_.check(tu);
-    return !diag_.hasErrors();
-}
-
 } // namespace liva
