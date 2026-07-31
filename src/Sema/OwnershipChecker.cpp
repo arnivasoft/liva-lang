@@ -36,6 +36,24 @@ const IdentifierExpr *rootIdentifier(const Expr *target) {
     return nullptr;
 }
 
+/// `target`, `rootIdentifier`in çözdüğü kökü bir MemberExpr/IndexExpr
+/// katmanından geçerek mi işaret ediyor, yoksa (parantezler bir yana) kökün
+/// KENDİSİ mi? Ayrım önemli çünkü sınıf-alanı muafiyeti yalnız BİLEŞİK
+/// hedeflerde (`a.field = x`, `arr[i].field = x`) uygulanmalı — çıplak-ad
+/// hedefi (`a = başkaNesne`, `(a) = başkaNesne`) referansı YENİDEN BAĞLIYOR ve
+/// bu, class için de struct için de her zaman `let`/`var` denetimine tabi.
+/// Yalnız baştaki GroupExpr katmanları soyulur (parantez gruplamadır, bir
+/// üye/indeks erişimi değil); bir MemberExpr/IndexExpr'e ulaşmadan doğrudan
+/// IdentifierExpr'e inilirse bileşik SAYILMAZ.
+bool isCompositeAssignTarget(const Expr *target) {
+    const Expr *cur = target;
+    while (cur && cur->getKind() == ASTNode::NodeKind::GroupExpr) {
+        cur = static_cast<const GroupExpr *>(cur)->getExpr();
+    }
+    return cur && (cur->getKind() == ASTNode::NodeKind::MemberExpr ||
+                  cur->getKind() == ASTNode::NodeKind::IndexExpr);
+}
+
 } // namespace
 
 OwnershipChecker::OwnershipChecker(DiagnosticsEngine &diag) : diag_(diag) {}
@@ -65,7 +83,9 @@ void OwnershipChecker::visitFuncDecl(FuncDecl *node) {
     for (auto &param : node->getParams()) {
         bool copyType = param.type ? isCopyType(param.type.get()) : true;
         bool dropType = param.type ? isDropType(param.type.get()) : false;
-        trackVariable(param.name, param.isMutRef, copyType, dropType, param.location);
+        bool classType = param.type ? isClassType(param.type.get()) : false;
+        trackVariable(param.name, param.isMutRef, copyType, dropType,
+                     param.location, classType);
     }
 
     if (node->getBody()) {
@@ -108,15 +128,18 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
 
     bool copyType;
     bool dropType = false;
+    bool classType = false;
     const TypeRepr *type = node->getType();
     if (type && !type->isInferred()) {
         // Explicit type annotation — use it directly
         copyType = isCopyType(type);
         dropType = isDropType(type);
+        classType = isClassType(type);
     } else if (node->hasInit() && node->getInit()->getResolvedType()) {
         // Inferred type — use the init expression's resolved type
         copyType = isCopyType(node->getInit()->getResolvedType());
         dropType = isDropType(node->getInit()->getResolvedType());
+        classType = isClassType(node->getInit()->getResolvedType());
     } else {
         // No type info available — default to Copy
         copyType = true;
@@ -138,7 +161,7 @@ void OwnershipChecker::visitVarDecl(VarDecl *node) {
     }
 
     trackVariable(node->getName(), node->isMutable(), copyType, dropType,
-                 node->getStartLoc());
+                 node->getStartLoc(), classType);
 
     if (node->hasInit() &&
         node->getInit()->getKind() == ASTNode::NodeKind::RefExpr) {
@@ -365,23 +388,48 @@ void OwnershipChecker::visitAssignExpr(AssignExpr *node) {
         bool writeThroughRef =
             targetInfo && targetInfo->isRefBinding &&
             node->getValue()->getKind() != ASTNode::NodeKind::RefExpr;
-        if (!writeThroughRef &&
-            !checkMutation(ident->getName(), node->getStartLoc())) {
-            return;
-        }
 
-        // Ödünçlü bir değişkene doğrudan atama, ödüncün türünden bağımsız
-        // olarak reddedilir. Yalnız BorrowedImmutable'a bakmak DEĞİŞEBİLİR
-        // ödüncü sessizce geçiriyordu: `let r = ref mut k` canlıyken `k = 42`
-        // hiç tanı üretmiyordu (Rust: E0506).
-        //
-        // Referente YAZMA (`r = 99`) bu kontrole girmiyor: hedef `r`'dir ve
-        // ödünç `k` üzerinde kayıtlı, dolayısıyla r'nin kendi durumu Owned.
-        auto *info = getInfo(ident->getName());
-        if (info && (info->state == OwnershipState::BorrowedImmutable ||
-                     info->state == OwnershipState::BorrowedMutable)) {
-            diag_.report(node->getStartLoc(), DiagID::err_move_while_borrowed,
-                         ident->getName());
+        // Sınıflar REFERANS tipidir (LANGUAGE-REFERENCE.md: "Reference type
+        // (shared)"): `let a = Animal(...)` içindeki `let`, REFERANSIN
+        // KENDİSİNİ yeniden bağlamayı yönetir — işaret ettiği nesnenin
+        // alanlarını değil. Dil zaten `a.deposit(50.0)` gibi `ref mut self`
+        // alan bir metot üzerinden aynı mutasyona izin veriyordu; düz alan
+        // yazımını (`a.name = "Max"`) reddetmek bu iki eşdeğer yol arasında
+        // tutarsız bir yanlış-pozitif yaratırdı (bkz. isCopyType — sınıflar
+        // zaten "referans, Copy sayılır" mantığıyla işleniyor). Muafiyet
+        // YALNIZ bileşik hedeflerde (isCompositeAssignTarget) uygulanır:
+        // çıplak-ad yeniden bağlaması (`a = başkaNesne`) hâlâ normal denetime
+        // tabi, çünkü o gerçekten referansın KENDİSİNİ değiştiriyor ve `let`
+        // tam olarak onu engellemeli. struct'lar (değer tipi) bu muafiyetten
+        // ETKİLENMEZ — isClassType yalnız classNames_'teki tipler için true.
+        bool exemptClassFieldWrite =
+            targetInfo && targetInfo->isClassType &&
+            isCompositeAssignTarget(node->getTarget());
+
+        // Değişebilirlik reddedilirse ödünç kontrolünü ATLA (eskisiyle aynı
+        // davranış — iki ayrı tanının aynı deyimde çakışmasını önler), ama
+        // `visit(node->getTarget())`'a HER ZAMAN ulaş: eski kod burada erken
+        // `return` ediyordu ve bu, hedefin alt-ifadelerindeki (ör.
+        // `arr[moved_var].x = 9`'daki `moved_var`) kullanım-sonrası-taşıma
+        // denetimini o turda atlıyordu. Derleme sonucu değişmiyor (zaten
+        // reddediliyor) ama tanı eksiksizliği düzeliyor.
+        if (writeThroughRef || exemptClassFieldWrite ||
+            checkMutation(ident->getName(), node->getStartLoc())) {
+            // Ödünçlü bir değişkene doğrudan atama, ödüncün türünden
+            // bağımsız olarak reddedilir. Yalnız BorrowedImmutable'a bakmak
+            // DEĞİŞEBİLİR ödüncü sessizce geçiriyordu: `let r = ref mut k`
+            // canlıyken `k = 42` hiç tanı üretmiyordu (Rust: E0506).
+            //
+            // Referente YAZMA (`r = 99`) bu kontrole girmiyor: hedef `r`'dir
+            // ve ödünç `k` üzerinde kayıtlı, dolayısıyla r'nin kendi durumu
+            // Owned. Class alanı muafiyeti bu kontrolü ETKİLEMEZ: canlı bir
+            // ödünç varken class alanına yazmak yine reddedilir.
+            auto *info = getInfo(ident->getName());
+            if (info && (info->state == OwnershipState::BorrowedImmutable ||
+                         info->state == OwnershipState::BorrowedMutable)) {
+                diag_.report(node->getStartLoc(),
+                             DiagID::err_move_while_borrowed, ident->getName());
+            }
         }
     }
 
@@ -558,13 +606,14 @@ void OwnershipChecker::visitFieldDecl(FieldDecl *node) { visitChildren(node); }
 
 void OwnershipChecker::trackVariable(const std::string &name, bool isMutable,
                                       bool isCopyType, bool isDropType,
-                                      SourceLocation loc) {
+                                      SourceLocation loc, bool isClassType) {
     OwnershipInfo info;
     info.name = name;
     info.state = OwnershipState::Owned;
     info.isMutable = isMutable;
     info.isCopyType = isCopyType;
     info.isDropType = isDropType;
+    info.isClassType = isClassType;
     info.declLocation = loc;
 
     if (!scopeStack_.empty()) {
@@ -758,6 +807,13 @@ bool OwnershipChecker::isCopyType(const TypeRepr *type) const {
     }
 
     return false;
+}
+
+bool OwnershipChecker::isClassType(const TypeRepr *type) const {
+    if (!type || type->getKind() != TypeRepr::Kind::Named)
+        return false;
+    auto *named = static_cast<const NamedTypeRepr *>(type);
+    return classNames_.count(named->getName()) != 0;
 }
 
 bool OwnershipChecker::isTypeParamInScope(const std::string &name) const {

@@ -333,7 +333,7 @@ func main() {
     println(MathUtils.max(10, 7))
 
     // Computed properties — access like fields, but call getter/setter
-    var circle = Circle(5.0)
+    let circle = Circle(5.0)
     println(circle.area)        // getter called
     println(circle.diameter)    // getter called
     circle.diameter = 20.0      // setter called (updates radius)

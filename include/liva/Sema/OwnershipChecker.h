@@ -31,6 +31,16 @@ struct OwnershipInfo {
     // structs (Drop or not); isDropType singles out only the Drop subset so
     // move semantics don't leak onto plain (copy-by-value) structs.
     bool isDropType = false;
+    // Sınıflar REFERANS tipidir (bkz. LANGUAGE-REFERENCE.md "Reference type
+    // (shared)"): bir class değişkeninin `let`/`var`'ı yalnız REFERANSIN
+    // KENDİSİNİ yeniden bağlamayı yönetir, işaret ettiği nesnenin alanlarını
+    // değil. `visitAssignExpr` bunu bileşik hedefler (`a.field = x`) için
+    // checkMutation'ı MUAF tutmakta kullanır — çıplak-ad yeniden bağlaması
+    // (`a = başkaNesne`) hâlâ normal denetime tabidir. Yalnız açık/çıkarımlı
+    // tipi classNames_'te olan değişkenlerde set edilir (bkz. trackVariable);
+    // for-loop/if-let/while-let bağlamaları için varsayılan false kalır —
+    // dar tutulan, bilinçli bir kapsam sınırı.
+    bool isClassType = false;
     SourceLocation declLocation;
     SourceLocation lastMoveLocation;
     SourceLocation lastBorrowLocation;
@@ -128,9 +138,13 @@ private:
     /// ulaşmasını sağlar.
     void visitChildren(ASTNode *node);
 
-    /// Track a new variable
+    /// Track a new variable. `isClassType` defaults to false for call sites
+    /// that do not have an easy static type to check (for-loop/if-let/
+    /// while-let bindings) — conservative, since it only withholds the
+    /// class-field-write mutability exemption, never grants one incorrectly.
     void trackVariable(const std::string &name, bool isMutable, bool isCopyType,
-                       bool isDropType, SourceLocation loc);
+                       bool isDropType, SourceLocation loc,
+                       bool isClassType = false);
 
     /// Mark a variable as moved
     void markMoved(const std::string &name, SourceLocation loc);
@@ -162,6 +176,13 @@ private:
 
     /// Check if a type is a Copy type (primitives)
     bool isCopyType(const TypeRepr *type) const;
+
+    /// Bir tipin adı classNames_'te mi — yani bir `class` bildirimine mi
+    /// çözülüyor (struct'a değil). isCopyType de sınıfları Copy sayıyor ama
+    /// dizi/tuple/primitive gibi başka Copy türleriyle karışık döner; bu daha
+    /// dar sorgu yalnız "gerçekten bir class mı" sorusuna cevap verir —
+    /// visitAssignExpr'in bileşik-hedef muafiyeti buna ihtiyaç duyuyor.
+    bool isClassType(const TypeRepr *type) const;
 
     /// Bir adın kapsamdaki (henüz çözülmemiş) bir generik tip parametresi
     /// olup olmadığı. `impl Stream<T>` içindeki `T` gibi.

@@ -2641,3 +2641,63 @@ TEST_F(OwnershipTest, MemberAssignAfterBorrowEndsAccepted) {
     )--");
     EXPECT_TRUE(result.passed);
 }
+
+// === Görev 3 plan düzeltmesi: class kökleri değişebilirlik denetiminden
+// MUAF (referans-tipi semantiği) ===
+//
+// İnceleme, ilk turun 4 "let->var" düzeltmesinin gerçek bir immütabilite
+// ihlalini DEĞİL, yeni bir iç-tutarsızlığı sustuduğunu ortaya çıkardı:
+// class'lar referans tipidir (bkz. docs/en/LANGUAGE-REFERENCE.md:2413,
+// "Reference type (shared)") ve `let a = Animal(...)` içindeki `let`,
+// REFERANSIN KENDİSİNİ yeniden bağlamayı yönetir — işaret ettiği nesnenin
+// alanlarını değil. `a.deposit(50.0)` gibi `ref mut self` alan bir metotla
+// zaten aynı mutasyona izin veriliyordu (bkz. examples/classes.liva:312,
+// `let account = BankAccount(...); account.deposit(500)`); düz alan yazımını
+// (`a.name = "Max"`) reddetmek bu iki eşdeğer yol arasında rootIdentifier
+// genişlemesinin doğrudan sonucu olan yeni bir yanlış-pozitifti.
+// struct'lar (değer tipi) bu muafiyetten ETKİLENMEZ —
+// MemberAssignToImmutableRejected (yukarıda) zaten `struct W` kullanıyor ve
+// bunun hâlâ reddedildiğini pinliyor, bu yüzden burada ayrı bir "struct hâlâ
+// reddediliyor" pinine gerek yok.
+TEST_F(OwnershipTest, ClassFieldAssignThroughLetBindingAccepted) {
+    // Kabul pini: `let`-bağlı bir class örneğinin alanına yazmak serbest.
+    auto result = check(R"--(
+        class Animal {
+            var name: string
+            init(name: string) {
+                self.name = name
+            }
+        }
+        func main() {
+            let a = Animal("Rex")
+            a.name = "Max"
+            println(a.name)
+        }
+    )--");
+    EXPECT_TRUE(result.passed);
+}
+
+TEST_F(OwnershipTest, ClassRebindThroughLetBindingRejected) {
+    // Fazla-ret DEĞİL, muafiyetin kapsam pini: muafiyet YALNIZ bileşik
+    // hedeflerde (isCompositeAssignTarget) uygulanıyor. Çıplak-ad yeniden
+    // bağlaması (`a = b`) referansın KENDİSİNİ değiştiriyor, bu yüzden `let`
+    // onu hâlâ engellemeli — class için de struct için de aynı. Bu pin
+    // olmadan muafiyetin `a = başkaNesne`'yi de sessizce geçirip
+    // geçirmediği doğrulanmaz.
+    auto result = check(R"--(
+        class Animal {
+            var name: string
+            init(name: string) {
+                self.name = name
+            }
+        }
+        func main() {
+            let a = Animal("Rex")
+            let b = Animal("Fido")
+            a = b
+            println(a.name)
+        }
+    )--");
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(hasDiag(result, DiagID::err_assign_to_immutable));
+}
